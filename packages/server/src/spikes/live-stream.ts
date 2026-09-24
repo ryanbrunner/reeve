@@ -32,15 +32,27 @@ const assistant = (content: unknown) => ({
   message: { role: 'assistant', content },
 });
 
-// Three messages BEFORE anyone subscribes: these are the replay a live-only
+const SUMMARY = 'The cart is keyed by session, so a guest loses it on reload.\n\nPersisting it to localStorage first.';
+
+// Messages BEFORE anyone subscribes: these are the replay a live-only
 // subscriber must not receive.
 for (const m of [
   assistant([{ type: 'text', text: 'Reading the cart code.' }]),
   assistant([{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]),
   assistant([{ type: 'tool_use', id: 't2', name: 'Grep', input: {} }]),
+  // Thinking arrives as its own single-block message. Summarized, it has text;
+  // left to the model's default, only a signature.
+  assistant([{ type: 'thinking', thinking: SUMMARY, signature: 'sig' }]),
+  assistant([{ type: 'thinking', thinking: '', signature: 'sig' }]),
 ]) {
   writer.append(run.id, 'assistant', m, crypto.randomUUID());
 }
+writer.append(
+  run.id,
+  'system:thinking_tokens',
+  { type: 'system', subtype: 'thinking_tokens', estimated_tokens: 120, estimated_tokens_delta: 40, session_id: run.sessionId },
+  crypto.randomUUID(),
+);
 await writer.flush();
 
 const read = async (url: string, headers: Record<string, string> = {}) => {
@@ -60,7 +72,7 @@ const read = async (url: string, headers: Record<string, string> = {}) => {
       new Promise<{ value: undefined; done: true }>((r) => setTimeout(() => r({ value: undefined, done: true }), 400)),
     ]);
     if (chunk.value) seen.push(new TextDecoder().decode(chunk.value));
-    if (seen.join('').split('data:').length > 6) break;
+    if (seen.join('').split('data:').length > 12) break;
   }
   await reader.cancel();
   return seen.join('');
@@ -76,13 +88,19 @@ const count = (body: string, needle: string) => body.split(needle).length - 1;
 // The modal's one line, parsed exactly as the browser parses it.
 const payloads = [...replayed.matchAll(/^data: (.+)$/gm)].map((m) => m[1]!);
 const described = payloads.map(describeMessage).filter((d) => d !== null);
+const turns = described.filter((d) => d.turn);
+const reasoning = described.filter((d) => d.text === 'thinking');
 
 const checks: Array<[string, boolean, string]> = [
   ['live-only skips the replay', count(live, '"tool_use"') <= 1 && !live.includes('Reading the cart code'), `${count(live, 'data:')} events`],
   ['...but does deliver what happens next', live.includes('Writing the e2e tests'), ''],
   ['since=0 replays everything', replayed.includes('Reading the cart code'), `${count(replayed, 'data:')} events`],
   ['live-only survives a reconnect', !reconnect.includes('Reading the cart code'), `${count(reconnect, 'data:')} events`],
-  ['every assistant message is a turn', described.length >= 3 && described.every((d) => d.turn), `${described.length} turns`],
+  ['tool calls and prose are turns', turns.length >= 3 && turns.every((d) => d.thinking === undefined), `${turns.length} turns`],
+  ['thinking is not a turn', reasoning.length === 3 && reasoning.every((d) => !d.turn), `${reasoning.length} thinking`],
+  ['a summary comes through whole', described.some((d) => d.thinking === SUMMARY), ''],
+  ['an empty block shows no summary', described.some((d) => d.text === 'thinking' && d.thinking === null), ''],
+  ['thinking_tokens reads as thinking', reasoning.some((d) => d.thinking === undefined), ''],
   ['a search reads as one too', described.some((d) => d.text === 'searching the codebase'), ''],
   ['a tool call reads as an activity', described.some((d) => d.text === 'reading a file'), String(described.map((d) => d.text))],
   ['so does a sentence of prose', described.some((d) => d.text === 'Reading the cart code.'), ''],
