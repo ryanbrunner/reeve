@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { config } from '../config.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -13,6 +14,7 @@ import {
   review,
   run,
   runEvent,
+  settings,
   type AcceptanceCriterion,
   type AssetKind,
   type Card,
@@ -292,6 +294,22 @@ export function createProject(db: Db, values: Omit<typeof project.$inferInsert, 
 
 export function updateProject(db: Db, id: string, patch: Partial<typeof project.$inferInsert>) {
   return db.update(project).set(patch).where(eq(project.id, id)).returning().get();
+}
+
+/** The stored row with every unset field filled from `config`. */
+export function getSettings(db: Db) {
+  const row = db.select().from(settings).where(eq(settings.id, 1)).get();
+  return { maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns };
+}
+
+export function updateSettings(db: Db, patch: Partial<Omit<typeof settings.$inferInsert, 'id'>>) {
+  // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
+  if (Object.keys(patch).length === 0) return getSettings(db);
+  db.insert(settings)
+    .values({ ...patch, id: 1 })
+    .onConflictDoUpdate({ target: settings.id, set: patch })
+    .run();
+  return getSettings(db);
 }
 
 export function runsForCard(db: Db, cardId: string) {

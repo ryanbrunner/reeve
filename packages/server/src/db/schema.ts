@@ -400,6 +400,19 @@ export const review = sqliteTable(
   (t) => [index('review_card').on(t.cardId, t.createdAt)],
 );
 
+/**
+ * Reeve's own knobs, as opposed to a repo's. One row, id 1, written on first
+ * save — until then there is no row and every field reads its default.
+ *
+ * Typed columns rather than a key/value bag: there are few of these, and a
+ * column is a setting whose type the database already knows. A null field
+ * means "not set here", which falls through to the environment in `config`.
+ */
+export const settings = sqliteTable('settings', {
+  id: integer('id').primaryKey(),
+  maxConcurrentRuns: integer('max_concurrent_runs'),
+});
+
 export type Project = typeof project.$inferSelect;
 export type NewProject = typeof project.$inferInsert;
 export type Card = typeof card.$inferSelect;
