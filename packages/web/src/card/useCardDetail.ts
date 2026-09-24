@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeMessage, type CardDetail } from '@reeve/shared';
+import { describeMessage, isTerminal, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
@@ -19,8 +19,14 @@ export function useCardDetail(cardId: string | null) {
     queryFn: () => api.detail(cardId!),
     enabled: cardId !== null,
     // Slow: the live parts arrive over SSE, and everything else changes only
-    // when this modal or the board does something that invalidates it.
-    refetchInterval: (q) => (q.state.data?.card.activity === 'running' ? 5_000 : false),
+    // when this modal or the board does something that invalidates it. A
+    // Suggest is the exception — it is not the card's run, so nothing streams
+    // it, and on a Backlog card nothing else would ever notice it finish.
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (data?.runs.some((r) => r.task !== null && !isTerminal(r.status))) return 2_000;
+      return data?.card.activity === 'running' ? 5_000 : false;
+    },
   });
   return query;
 }
