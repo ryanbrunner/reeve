@@ -145,7 +145,7 @@ export const triageOutput = z.object({
         card_id: z.string().describe('The id exactly as given to you.'),
         rank: z.number().int().describe('1 is highest priority.'),
         rationale: z.string().describe('One sentence on why it sits here.'),
-        promote: z.boolean().describe('Whether this is ready to move to Ready for Planning.'),
+        promote: z.boolean().describe('Whether this is ready to move to Planning.'),
       }),
     )
     .describe('Every backlog card you were given, ranked. Do not invent or omit cards.'),

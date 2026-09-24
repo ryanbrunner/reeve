@@ -19,7 +19,7 @@ if (listProjects(db).length === 0) {
   createCard(db, { title: 'Wire the Planning stage end to end', projectId: p.id, stage: 'planning', body: 'First runnable stage.' });
   createCard(db, { title: 'Server supervisor: port allocation + start/stop', projectId: p.id, stage: 'backlog' });
   createCard(db, { title: 'Backlog triage run', projectId: p.id, stage: 'backlog' });
-  createCard(db, { title: 'Diff artifact for In Progress', projectId: p.id, stage: 'ready_for_planning' });
+  createCard(db, { title: 'Diff artifact for In Progress', projectId: p.id, stage: 'backlog' });
   console.log('[reeve] seeded 1 project, 4 cards');
 } else {
   console.log('[reeve] already seeded');

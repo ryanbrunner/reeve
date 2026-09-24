@@ -200,7 +200,7 @@ function pastRun(opts: {
 function card(title: string, body: string, stage: CardStage, minsAgo: number) {
   const c = createCard(db, { title, body, projectId: project.id });
   if (stage !== 'backlog') {
-    for (const s of ['ready_for_planning', 'planning', 'in_progress', 'testing', 'done'] as CardStage[]) {
+    for (const s of ['planning', 'in_progress', 'testing', 'done'] as CardStage[]) {
       moveCard(db, c.id, s, 0);
       if (s === stage) break;
     }

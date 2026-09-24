@@ -13,7 +13,7 @@ import { stageDefinition } from './stages/index.js';
  */
 export function cardActivity(db: Db, card: Card): { activity: CardActivity; run: Run | null } {
   const stage = card.stage as Stage;
-  // Backlog and Ready are holding areas — no Claude work, so nothing to colour.
+  // Backlog and Done are holding areas — no Claude work, so nothing to colour.
   if (!isRunnable(stage)) return { activity: 'idle', run: null };
 
   const run = latestClaudeRunForStage(db, card.id, stage) ?? null;

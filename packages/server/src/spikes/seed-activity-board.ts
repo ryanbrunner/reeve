@@ -30,7 +30,7 @@ function card(title: string, stage: Stage, run?: { status: RunStatus; questions?
 }
 
 card('Backlog triage run', 'backlog');
-card('Diff artifact for In Progress', 'ready_for_planning');
+card('Diff artifact for In Progress', 'backlog');
 card('Plan the worktree service', 'planning', { status: 'running', cost: 0.412 });
 card('Wire the Planning stage end to end', 'planning', { status: 'succeeded', cost: 1.204 });
 card('Server supervisor: ports + start/stop', 'planning', { status: 'succeeded', questions: ['Reuse ports across cards?'], cost: 0.883 });
