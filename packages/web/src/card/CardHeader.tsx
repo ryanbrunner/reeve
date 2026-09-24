@@ -1,6 +1,9 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
+import { api } from '../lib/api.js';
 import { AttentionBand } from './AttentionBand.js';
 import { cost, plural, when } from './format.js';
+import { SmallButton } from './ui.js';
 import type { LiveRun } from './useCardDetail.js';
 
 /**
@@ -23,6 +26,24 @@ export function CardHeader({
   const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   const running = card.activity === 'running';
 
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['card', card.id] });
+    void qc.invalidateQueries({ queryKey: ['board'] });
+    void qc.invalidateQueries({ queryKey: ['archived'] });
+  };
+  // Closes on success: the card has left the board, and the archive is where
+  // it can be found again — which is also why there is no "are you sure".
+  const archive = useMutation({
+    mutationFn: () => api.archiveCard(card.id),
+    onSuccess: () => {
+      invalidate();
+      onClose();
+    },
+  });
+  const restore = useMutation({ mutationFn: () => api.restoreCard(card.id), onSuccess: invalidate });
+  const failed = archive.error ?? restore.error;
+
   return (
     <header className="relative shrink-0 border-b border-(--color-edge) px-5 pt-3.5 pb-4">
       <div className="relative flex items-center gap-2">
@@ -43,7 +64,24 @@ export function CardHeader({
           )}
         </span>
         <div className="grow" />
-        <span className="font-mono text-[10px]/4 text-(--color-muted)">Updated {when(card.updatedAt)}</span>
+        {card.archivedAt ?
+          <>
+            <span className="font-mono text-[10px]/4 text-(--color-muted)">Archived {when(card.archivedAt)}</span>
+            <SmallButton tone="sky" disabled={restore.isPending} onClick={() => restore.mutate()}>
+              {restore.isPending ? 'Restoring…' : 'Restore'}
+            </SmallButton>
+          </>
+        : <>
+            <span className="font-mono text-[10px]/4 text-(--color-muted)">Updated {when(card.updatedAt)}</span>
+            <SmallButton
+              disabled={running || archive.isPending}
+              title={running ? 'Stop the run before archiving' : 'Take the card off the board'}
+              onClick={() => archive.mutate()}
+            >
+              {archive.isPending ? 'Archiving…' : 'Archive'}
+            </SmallButton>
+          </>
+        }
         <button
           type="button"
           onClick={onClose}
@@ -71,6 +109,7 @@ export function CardHeader({
         {runs.length === 0 ? 'No runs yet' : `${plural(runs.length, 'run')} · ${cost(spent)}`}
         {running && runs.length > 0 && ' so far'}
       </div>
+      {failed && <p className="relative mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}
 
       <AttentionBand detail={detail} live={live} />
     </header>
