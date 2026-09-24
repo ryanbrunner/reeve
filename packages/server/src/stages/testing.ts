@@ -11,7 +11,7 @@ import {
   replaceScreenshots,
 } from '../db/queries.js';
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
-import { renderPrompt } from './template.js';
+import { renderNotes, renderPrompt } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -103,6 +103,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
         ? `Run \`${ctx.project.testCommand}\`.`
         : 'This project defines no test command, so verify by reading and by the screenshots.',
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: ctx.reviewNotes }) : '',
+      notes: renderNotes(ctx.notes),
     });
   },
 

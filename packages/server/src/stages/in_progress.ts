@@ -1,5 +1,5 @@
 import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
-import { renderPrompt } from './template.js';
+import { renderNotes, renderPrompt } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -40,6 +40,7 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
         ? `Run \`${ctx.project.testCommand}\` before you finish, and get it green.`
         : 'This project defines no test command, so there is nothing to run.',
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: ctx.reviewNotes }) : '',
+      notes: renderNotes(ctx.notes),
     });
   },
 

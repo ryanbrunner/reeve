@@ -23,6 +23,12 @@ export interface StageContext {
   priorArtifacts?: Array<{ kind: string; content: string }>;
   /** The card's acceptance criteria, in order. Testing is handed these to check. */
   criteria?: string[];
+  /**
+   * Notes a person left on the card since the last run. The third thing the
+   * human can say to Claude, beside a rejection and an answer, and it reaches
+   * the run the same way all three do: as prompt.
+   */
+  notes?: string[];
 }
 
 export interface ArtifactDraft {
@@ -32,8 +38,18 @@ export interface ArtifactDraft {
   path?: string;
 }
 
-export interface StageDefinition<Output = unknown> {
-  id: RunnableStage;
+/**
+ * One thing Claude can be asked to do, with everything the runner needs to ask
+ * it: a schema, a prompt, a budget, and what to do with the answer.
+ *
+ * Split out from `StageDefinition` because not everything Claude does is a
+ * stage. The brief's Suggest button is a real run — it costs money and belongs
+ * in the card's history — but it is not a column on the board, and it can
+ * happen to a card sitting in Backlog.
+ */
+export interface ClaudeTask<Output = unknown> {
+  /** Names the task. For a stage this is the stage it runs. */
+  id: string;
   schema: z.ZodType<Output>;
   buildPrompt(ctx: StageContext, prepared?: Record<string, string>): string;
   permissionMode: PermissionMode;
@@ -70,4 +86,9 @@ export interface StageDefinition<Output = unknown> {
   awaitsInput?(output: Output): boolean;
   /** One-line card summary from the output. */
   summarise(output: Output): string;
+}
+
+/** A task that is also a column on the board, and so can be reviewed and moved on from. */
+export interface StageDefinition<Output = unknown> extends ClaudeTask<Output> {
+  id: RunnableStage;
 }

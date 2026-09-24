@@ -25,7 +25,7 @@ import {
 } from '../db/queries.js';
 import { checkWorktree, commitsSince, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
-import { toApiAsset, toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
+import { toApiAsset, toApiCardEvent, toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
 import {
   CONTENT_TYPES,
   MAX_ASSET_BYTES,
@@ -35,6 +35,7 @@ import {
   writeAsset,
 } from '../assets/store.js';
 import { startClaudeRun } from '../runs/claude.js';
+import { suggestCriteriaTask } from '../stages/suggest_criteria.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
 
@@ -57,6 +58,7 @@ const refSchema = z.object({
   label: z.string().nullable().optional(),
 });
 const answerSchema = z.object({ answer: z.string().min(1, 'an answer needs words') });
+const noteSchema = z.object({ body: z.string().min(1, 'a note needs words') });
 
 export function detailRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
@@ -75,6 +77,31 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const parsed = criterionSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid criterion', detail: parsed.error.message }, 400);
     return c.json(toApiCriterion(addCriterion(db, id, parsed.data.text.trim(), 'human')), 201);
+  });
+
+  /**
+   * Ask Claude what done should mean. A real run, so it shows in the card's
+   * history and its cost is counted — but not a stage, so it needs no worktree
+   * of its own and reads the project's checkout instead. It is read-only.
+   */
+  routes.post('/:id/criteria/suggest', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+    if (!project) return c.json({ error: 'card has no project', detail: 'suggesting needs a repo to read' }, 400);
+
+    // Its own worktree if it has one, the project's checkout if not: a card in
+    // Backlog has no worktree, and this is exactly the stage it is most useful.
+    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    const cwd = health.state === 'ok' ? health.path : project.repoPath;
+
+    const handle = startClaudeRun({
+      db, writer, card, project,
+      stage: suggestCriteriaTask as never,
+      runStage: card.stage,
+      worktreePath: cwd,
+    });
+    return c.json({ ok: true, runId: handle.runId }, 201);
   });
 
   routes.patch('/:id/criteria/:criterionId', async (c) => {
@@ -183,6 +210,23 @@ export function detailRoutes(db: Db, writer: EventWriter) {
    * Its own endpoint rather than part of `/detail` because it shells out to
    * git, and the modal only needs it when the Changes tab is actually open.
    */
+  /**
+   * A note for Claude's next run. The third thing a human can say, beside a
+   * rejection and an answer — and like both of those it reaches Claude as
+   * prompt rather than through a channel of its own.
+   */
+  routes.post('/:id/notes', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const parsed = noteSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid note', detail: parsed.error.message }, 400);
+    const event = insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+      body: parsed.data.body.trim(),
+    });
+    return c.json(toApiCardEvent(event), 201);
+  });
+
   routes.get('/:id/diff', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);

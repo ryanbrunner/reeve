@@ -45,3 +45,4 @@ to chase — say so in `summary` and leave it. Record anything you did fix in
 `fixes_applied`, and be honest in `passed`: it is true only if the suite ends
 green.
 {{reviewNotes}}
+{{notes}}

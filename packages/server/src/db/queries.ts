@@ -595,3 +595,21 @@ export function replaceDifferences(
     );
   });
 }
+
+/**
+ * Notes left on the card since the last run started.
+ *
+ * "Unread" is defined by when the previous run began rather than by a flag,
+ * because that is what the human means: a note written while Claude was
+ * working, or after it stopped, is for the next attempt. Nothing needs marking
+ * off, and a note can never be consumed twice or silently lost.
+ */
+export function unreadNotesFor(db: Db, cardId: string): string[] {
+  const events = cardEventsFor(db, cardId);
+  const lastStart = events.find((e) => e.kind === 'run_started')?.createdAt?.getTime() ?? 0;
+  return events
+    .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart)
+    .map((e) => e.body)
+    .filter((b): b is string => Boolean(b))
+    .reverse();
+}

@@ -56,3 +56,4 @@ visible surface.
 There is no `plan_markdown`. The harness composes the plan document from the
 fields above, so everything you want a reader to see belongs in one of them.
 {{answers}}{{reviewNotes}}
+{{notes}}

@@ -1,6 +1,6 @@
 import { planningOutput, type PlanningOutput } from '@reeve/shared';
 import { addCriterion, criteriaFor, replaceQuestions } from '../db/queries.js';
-import { renderPrompt } from './template.js';
+import { renderNotes, renderPrompt } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -39,6 +39,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       body: ctx.card.body.trim() || '_No further detail was given._',
       reviewNotes,
       answers,
+      notes: renderNotes(ctx.notes),
     });
   },
 

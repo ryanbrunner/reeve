@@ -12,3 +12,9 @@ export function renderPrompt(name: string, vars: Record<string, string>): string
   const template = readFileSync(join(promptsDir, `${name}.md`), 'utf8');
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
 }
+
+/** The notes block, or nothing at all when there are none. Every stage renders it. */
+export function renderNotes(notes: string[] | undefined): string {
+  if (!notes?.length) return '';
+  return renderPrompt('notes', { notes: notes.map((n) => `- ${n}`).join('\n') });
+}

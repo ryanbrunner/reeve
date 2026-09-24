@@ -4,9 +4,16 @@ import { dirname, join } from 'node:path';
 import type { StopReason } from '@reeve/shared';
 import { jsonSchemaFor } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { artifactsForCard, criteriaFor, insertCardEvent, insertRun, setRunStatus } from '../db/queries.js';
-import { artifact as artifactTable, type Card, type Project } from '../db/schema.js';
-import type { StageContext, StageDefinition } from '../stages/types.js';
+import {
+  artifactsForCard,
+  criteriaFor,
+  insertCardEvent,
+  insertRun,
+  setRunStatus,
+  unreadNotesFor,
+} from '../db/queries.js';
+import { artifact as artifactTable, type Card, type CardStage, type Project } from '../db/schema.js';
+import type { ClaudeTask, StageContext } from '../stages/types.js';
 import type { EventWriter } from './events.js';
 import { runRegistry } from './registry.js';
 
@@ -18,7 +25,13 @@ export interface ClaudeRunParams {
   writer: EventWriter;
   card: Card;
   project: Project;
-  stage: StageDefinition<never>;
+  stage: ClaudeTask<never>;
+  /**
+   * Which column to record the run against. Defaults to the task's own id,
+   * which for a stage is the same thing; a one-off task attaches to wherever
+   * the card happens to be sitting.
+   */
+  runStage?: CardStage;
   worktreePath: string;
   reviewNotes?: string | null;
   /** Answers to the questions the forked run asked. See StageContext.answers. */
@@ -74,6 +87,7 @@ function stopReasonForSubtype(subtype: string): StopReason {
 
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const { db, writer, card, project, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
+  const runStage = params.runStage ?? (stage.id as CardStage);
 
   const ctx: StageContext = {
     card, project, worktreePath,
@@ -82,9 +96,10 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // What earlier stages produced, newest first. In Progress reads the plan
     // this way; Planning has nothing before it and ignores the list.
     priorArtifacts: artifactsForCard(db, card.id)
-      .filter((a) => a.stage !== stage.id && a.supersededBy === null)
+      .filter((a) => a.stage !== runStage && a.supersededBy === null)
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, card.id).map((c) => c.text),
+    notes: unreadNotesFor(db, card.id),
   };
   // Generated here and stored BEFORE the subprocess exists, so an orphaned run
   // is still resumable after a restart.
@@ -94,7 +109,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     id: crypto.randomUUID(),
     cardId: card.id,
     kind: 'claude',
-    stage: stage.id,
+    stage: runStage,
     status: 'running',
     sessionId,
     parentRunId: parentRunId ?? null,
@@ -116,7 +131,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     cardId: card.id,
     actor: 'claude',
     kind: 'run_started',
-    stage: stage.id,
+    stage: runStage,
     runId,
     // A revision is a second attempt at the same thing, and reads differently.
     meta: { revision: Boolean(resumeSessionId) },
@@ -211,7 +226,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       return;
     }
 
-    materialiseArtifacts(db, card, worktreePath, runId, stage, ctx, parsed.data);
+    materialiseArtifacts(db, card, worktreePath, runId, stage, ctx, parsed.data, runStage);
     // Files first, then rows, then the run is marked done — so nothing can read
     // a succeeded run whose plan or questions have not landed yet.
     stage.onPersist?.(db, ctx, parsed.data, runId);
@@ -226,9 +241,10 @@ function materialiseArtifacts(
   card: Card,
   worktreePath: string,
   runId: string,
-  stage: StageDefinition<never>,
+  stage: ClaudeTask<never>,
   ctx: StageContext,
   output: never,
+  runStage: CardStage,
 ): void {
   for (const draft of stage.onComplete(ctx, output)) {
     // The server writes the file. Claude only returned data, which is what lets
@@ -243,7 +259,7 @@ function materialiseArtifacts(
         id: crypto.randomUUID(),
         cardId: card.id,
         runId,
-        stage: stage.id,
+        stage: runStage,
         kind: draft.kind,
         path: draft.path ?? null,
         content: draft.content,
