@@ -14,6 +14,7 @@ import {
 import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column } from './board/Column.js';
+import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { ProjectsModal } from './projects/ProjectsModal.js';
 import { api, cardsIn } from './lib/api.js';
@@ -22,6 +23,7 @@ export function App() {
   const qc = useQueryClient();
   const [swimlanes, setSwimlanes] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
   const [openCard, openAndClose] = useOpenCard();
 
@@ -122,6 +124,7 @@ export function App() {
         projects={data?.projects ?? []}
         onAdd={(title, projectId) => create.mutate({ title, projectId, stage: 'backlog' })}
         onManageProjects={() => setProjectsOpen(true)}
+        onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
       />
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -152,6 +155,15 @@ export function App() {
       </DndContext>
       {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} />}
       {projectsOpen && <ProjectsModal onClose={() => setProjectsOpen(false)} />}
+      {archiveOpen && (
+        <ArchiveModal
+          onClose={() => setArchiveOpen(false)}
+          onOpen={(id) => {
+            setArchiveOpen(false);
+            openAndClose.open(id);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -204,12 +216,13 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, onManageProjects, cardCount }: {
+function Header({ swimlanes, onToggle, projects, onAdd, onManageProjects, onOpenArchive, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
   projects: ApiProject[];
   onAdd: (title: string, projectId: string | null) => void;
   onManageProjects: () => void;
+  onOpenArchive: () => void;
   cardCount: number;
 }) {
   const [title, setTitle] = useState('');
@@ -275,6 +288,12 @@ function Header({ swimlanes, onToggle, projects, onAdd, onManageProjects, cardCo
         {/* Highlighted when there are none, because an empty board with no repo
             is a board where nothing can ever run, and this is the way out. */}
         {projects.length === 0 ? 'Add a repo' : 'Projects'}
+      </button>
+      <button
+        onClick={onOpenArchive}
+        className="rounded-md border border-(--color-edge) px-3 py-1.5 text-sm text-(--color-muted) hover:border-slate-600"
+      >
+        Archive
       </button>
       <button
         onClick={onToggle}
