@@ -1,3 +1,4 @@
+import type { ApiCard, ApiProject, ApiRunSummary } from './api.js';
 import type { Stage } from './stages.js';
 
 /**
@@ -152,4 +153,121 @@ export interface ApiDifference {
   note: string | null;
   mockupAssetId: string | null;
   screenshotAssetId: string | null;
+}
+
+// --- The plan, the build, the checks ---------------------------------------
+
+export interface ApiPlanStep {
+  title: string;
+  detail: string;
+  files: string[];
+  /** The 1-based question number this waits on, matching ApiQuestion.position. */
+  blockedOnQuestion: number | null;
+}
+
+export interface ApiPlan {
+  runId: string;
+  /** Which attempt this is — the "v2" beside the tab. */
+  version: number;
+  createdAt: number;
+  summary: string;
+  risk: 'low' | 'medium' | 'high';
+  /** Sections Claude chose and titled. Render in order, however many there are. */
+  details: Array<{ heading: string; body: string }>;
+  steps: ApiPlanStep[];
+  filesToTouch: string[];
+}
+
+export interface ApiImplementation {
+  runId: string;
+  createdAt: number;
+  summary: string;
+  commits: string[];
+  filesChanged: string[];
+  deviations: string[];
+  followUps: string[];
+}
+
+export interface ApiCheckFailure {
+  test: string;
+  reason: string;
+  fixed: boolean;
+}
+
+/** What the last Testing run found. Null until one has run. */
+export interface ApiChecks {
+  runId: string;
+  createdAt: number;
+  passed: boolean;
+  summary: string;
+  criteriaVerified: number;
+  criteriaTotal: number;
+  differenceCount: number;
+  failures: ApiCheckFailure[];
+  fixesApplied: string[];
+}
+
+// --- The worktree -----------------------------------------------------------
+
+/**
+ * Read from the persisted run row, never from the in-memory registry.
+ *
+ * A restart empties the registry and kills every child process, but the boot
+ * reaper marks those runs interrupted — so the row is right across a restart
+ * and the registry is only right while the process lives. The registry is for
+ * acting on a server; this is for describing one.
+ */
+export interface ApiDevServer {
+  runId: string;
+  /** `running` only while the row says so; anything terminal reads as stopped. */
+  running: boolean;
+  port: number | null;
+  url: string | null;
+  since: number | null;
+  /** Set when it stopped badly, e.g. a port already in use. */
+  errorMessage: string | null;
+}
+
+export interface ApiWorktree {
+  branch: string | null;
+  path: string | null;
+  /** The sha everything is measured against, captured once at creation. */
+  base: string | null;
+  baseBranch: string;
+  /** Commits the base branch has gained since; null if it could not be counted. */
+  behind: number | null;
+  /** False once the directory has been removed from under us. */
+  exists: boolean;
+  server: ApiDevServer | null;
+}
+
+// --- The whole card ---------------------------------------------------------
+
+/**
+ * Everything the detail view renders, in one response.
+ *
+ * One payload and so one query key and one poll: a modal whose header, tabs
+ * and rail each fetched separately would show a card mid-transition, with the
+ * stage in the header disagreeing with the stage in the rail. The diff and the
+ * commit list are the deliberate exceptions — they shell out to git, and are
+ * only wanted while the Changes tab is open.
+ */
+export interface CardDetail {
+  card: ApiCard;
+  project: ApiProject | null;
+  criteria: ApiCriterion[];
+  refs: ApiCardRef[];
+  /** The questions the card's current run asked. Empty when it asked none. */
+  questions: ApiQuestion[];
+  plan: ApiPlan | null;
+  implementation: ApiImplementation | null;
+  checks: ApiChecks | null;
+  /** Newest first, every kind. The header's "4 runs · $0.184" is counted here. */
+  runs: ApiRunSummary[];
+  /** Newest first: the activity tab reads top-down, and so does a person. */
+  events: ApiCardEvent[];
+  stageHistory: StageHistory;
+  worktree: ApiWorktree;
+  assets: ApiAsset[];
+  differences: ApiDifference[];
 }

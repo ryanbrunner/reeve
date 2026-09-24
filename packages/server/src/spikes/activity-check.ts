@@ -16,9 +16,20 @@ const project = createProject(db, {
   teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
 });
 
-const plan = { plan_markdown: '# plan', summary: 's', files_to_touch: [], open_questions: [] as string[], risk: 'low' };
+// A minimal plan the current contract accepts. If this stops parsing, awaitsInput
+// quietly returns false and the questions case below is what catches it.
+const plan = {
+  summary: 's', details: [], steps: [], acceptance_criteria: [], captures: [],
+  files_to_touch: [], risk: 'low',
+  open_questions: [] as Array<{ question: string; suggestions: string[] }>,
+};
 
-function activityOf(opts: { stage?: 'backlog' | 'planning'; status?: RunStatus; kind?: 'claude' | 'server'; questions?: string[] }) {
+function activityOf(opts: {
+  stage?: 'backlog' | 'planning';
+  status?: RunStatus;
+  kind?: 'claude' | 'server';
+  questions?: string[];
+}) {
   const c = createCard(db, { title: 'probe', projectId: project.id, stage: opts.stage ?? 'planning' });
   if (opts.status) {
     const r = insertRun(db, {
@@ -27,7 +38,10 @@ function activityOf(opts: { stage?: 'backlog' | 'planning'; status?: RunStatus; 
     });
     setRunStatus(db, r.id, {
       status: opts.status,
-      structuredOutput: { ...plan, open_questions: opts.questions ?? [] },
+      structuredOutput: {
+        ...plan,
+        open_questions: (opts.questions ?? []).map((question) => ({ question, suggestions: [] })),
+      },
     });
   }
   return toBoardCard(db, getCard(db, c.id)!, null, null).activity;

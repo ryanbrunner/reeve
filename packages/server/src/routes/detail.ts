@@ -25,6 +25,7 @@ import {
 } from '../db/queries.js';
 import { checkWorktree, commitsSince, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
+import { cardDetail } from '../detail.js';
 import { toApiAsset, toApiCardEvent, toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
 import {
   CONTENT_TYPES,
@@ -64,6 +65,14 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
 
   const found = (id: string) => Boolean(getCard(db, id));
+
+  /** The whole card, in one response. See detail.ts for why it is one. */
+  routes.get('/:id/detail', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+    return c.json(await cardDetail(db, card, project?.name ?? null, project?.laneColor ?? null, project ?? null));
+  });
 
   routes.get('/:id/criteria', (c) => {
     const id = c.req.param('id');

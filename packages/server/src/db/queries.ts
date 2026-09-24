@@ -65,8 +65,17 @@ export function eventsSince(db: Db, runId: string, since: number) {
     .all();
 }
 
+/**
+ * Stamped from JS rather than left to the column default, which is
+ * `unixepoch() * 1000` and so accurate only to the second.
+ *
+ * Every "which run is current" question in the system — the board's activity,
+ * the modal's plan, the review gate — answers itself by ordering on this. Two
+ * runs starting in the same second would make that order arbitrary, and a
+ * rejection forks a new run immediately after the one it rejected.
+ */
 export function insertRun(db: Db, values: NewRun) {
-  return db.insert(run).values(values).returning().get();
+  return db.insert(run).values({ createdAt: new Date(), ...values }).returning().get();
 }
 
 /** Batched to keep synchronous SQLite writes off the event loop's critical path. */
