@@ -1,5 +1,14 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { STAGES, STAGE_LABELS, isRunnable, type ApiRunSummary, type CardDetail, type Stage } from '@reeve/shared';
+import {
+  STAGES,
+  STAGE_LABELS,
+  isRunnable,
+  needsWorktree,
+  type ApiRunSummary,
+  type CardDetail,
+  type Stage,
+} from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
 import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
@@ -122,6 +131,7 @@ function Worktree({ detail }: { detail: CardDetail }) {
       <section className="flex flex-col gap-2">
         <SectionHead>Worktree</SectionHead>
         <Empty>None yet</Empty>
+        <Handoff detail={detail} />
       </section>
     );
   }
@@ -186,7 +196,62 @@ function Worktree({ detail }: { detail: CardDetail }) {
       {(start.error ?? stop.error) && (
         <p className="font-mono text-[10px]/4 text-red-300">{(start.error ?? stop.error)!.message}</p>
       )}
+      <Handoff detail={detail} />
     </section>
+  );
+}
+
+/**
+ * Take the card into Claude Code in a terminal, for work that needs a person
+ * sitting with it rather than another unattended run.
+ *
+ * The server writes the context into the worktree and answers with a short
+ * command; this copies it and also shows it. The clipboard only exists in a
+ * secure context, so over a LAN address the text on screen is the only copy.
+ */
+function Handoff({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const [copied, setCopied] = useState(false);
+  const handoff = useMutation({
+    mutationFn: () => api.handoff(detail.card.id),
+    onMutate: () => setCopied(false),
+    onSuccess: ({ command }) => {
+      // In `onSuccess` rather than the mutation: the file and the event exist by
+      // now, and a refused clipboard must not read as a failed handoff.
+      navigator.clipboard?.writeText(command).then(() => setCopied(true), () => {});
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    },
+  });
+
+  const { card, worktree } = detail;
+  if (card.stage === 'done') return null;
+  const blocked =
+    !needsWorktree(card.stage) ? 'Move to Planning to get a worktree'
+    : !worktree.path ? 'Start the stage first. Its worktree is made then.'
+    : !worktree.exists ? 'The worktree is missing from disk.'
+    : card.activity === 'running' ? 'Claude is working here. Stop the run before taking over.'
+    : null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        <SmallButton disabled={Boolean(blocked) || handoff.isPending} onClick={() => handoff.mutate()}>
+          {handoff.isPending ? 'Writing handoff…' : 'Hand off to Claude Code'}
+        </SmallButton>
+      </div>
+      {blocked && <p className="font-mono text-[10px]/4 text-(--color-muted)">{blocked}</p>}
+      {!blocked && handoff.data && (
+        <>
+          <p className="font-mono text-[10px]/4 text-(--color-muted)">
+            {copied ? 'Copied. Paste it into a terminal:' : 'Paste this into a terminal:'}
+          </p>
+          <pre className="overflow-x-auto rounded-sm border border-(--color-edge) bg-(--color-ink) p-2 font-mono text-[10px]/4 break-all whitespace-pre-wrap text-(--color-text) select-all">
+            {handoff.data.command}
+          </pre>
+        </>
+      )}
+      {handoff.error && <p className="font-mono text-[10px]/4 text-red-300">{handoff.error.message}</p>}
+    </div>
   );
 }
 
