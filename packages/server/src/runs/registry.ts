@@ -4,6 +4,8 @@ export interface ActiveRun {
   runId: string;
   kind: RunKind;
   cardId: string;
+  /** A task beside the card's stage, which does not hold the card's run lock. See ClaudeTask.outOfBand. */
+  outOfBand?: boolean;
   /** Best-effort graceful stop, then force. Resolves once the run is terminal. */
   stop: (reason: StopReason) => Promise<void>;
 }
