@@ -120,6 +120,10 @@ export const run = sqliteTable(
     kind: text('kind').$type<RunKind>().notNull(),
     stage: text('stage').$type<CardStage>().notNull(),
     status: text('status').$type<RunStatus>().notNull().default('queued'),
+    // Null for a stage's own attempt. Set to the task's id for work done beside
+    // the stage — the brief's Suggest — which must never read as the card's
+    // current run, however recently it finished.
+    task: text('task'),
 
     // --- claude runs ---
     // Written BEFORE the subprocess exists, which is what makes the boot reaper useful.
