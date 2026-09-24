@@ -123,3 +123,33 @@ export interface ApiCommit {
   sha: string;
   subject: string;
 }
+
+// --- Pictures ---------------------------------------------------------------
+
+export type AssetKind = 'mockup' | 'screenshot';
+
+export interface ApiAsset {
+  id: string;
+  kind: AssetKind;
+  label: string;
+  /** The app path this shows, e.g. `/cart`. */
+  url: string | null;
+  viewport: number | null;
+  /** Where to fetch the bytes. Ready to put in a `src`. */
+  src: string;
+  width: number | null;
+  height: number | null;
+  /** The run that captured it; null on a mockup, which a person attached. */
+  runId: string | null;
+  createdAt: number;
+}
+
+/** Where the build and the mockup disagree, in Claude's words rather than pixels. */
+export interface ApiDifference {
+  id: string;
+  position: number;
+  claim: string;
+  note: string | null;
+  mockupAssetId: string | null;
+  screenshotAssetId: string | null;
+}

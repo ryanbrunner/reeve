@@ -6,6 +6,10 @@ import {
   addCriterion,
   addRef,
   answerQuestion,
+  assetsFor,
+  deleteAssetRow,
+  getAsset,
+  insertAsset,
   criteriaFor,
   deleteCriterion,
   deleteRef,
@@ -21,7 +25,15 @@ import {
 } from '../db/queries.js';
 import { checkWorktree, commitsSince, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
-import { toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
+import { toApiAsset, toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
+import {
+  CONTENT_TYPES,
+  MAX_ASSET_BYTES,
+  deleteAsset,
+  imageSize,
+  relativeAssetPath,
+  writeAsset,
+} from '../assets/store.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
@@ -188,6 +200,64 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       deletions: files.reduce((n, f) => n + f.deletions, 0),
     };
     return c.json(body);
+  });
+
+  /**
+   * Attach a mockup: the picture of what this should look like.
+   *
+   * `url` and `viewport` are not decoration — they are what tells the capturer
+   * which page to photograph and how wide, so that a mockup and its screenshot
+   * end up as a pair rather than two unrelated images.
+   */
+  routes.post('/:id/assets', async (c) => {
+    const cardId = c.req.param('id');
+    if (!found(cardId)) return c.json({ error: 'not found' }, 404);
+
+    const form = await c.req.parseBody().catch(() => null);
+    const file = form?.['file'];
+    if (!(file instanceof File)) return c.json({ error: 'expected a file field' }, 400);
+    if (!CONTENT_TYPES[file.type]) {
+      return c.json({ error: 'unsupported image type', detail: `${file.type || 'unknown'}; use png, jpeg or webp` }, 415);
+    }
+    if (file.size > MAX_ASSET_BYTES) {
+      return c.json({ error: 'image too large', detail: `${file.size} bytes, limit is ${MAX_ASSET_BYTES}` }, 413);
+    }
+
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const id = crypto.randomUUID();
+    const rel = relativeAssetPath(cardId, id, file.type);
+    writeAsset(rel, bytes);
+
+    const size = imageSize(bytes);
+    const viewport = Number(form?.['viewport']);
+    const row = insertAsset(db, {
+      cardId,
+      kind: 'mockup',
+      label: String(form?.['label'] ?? file.name),
+      url: form?.['url'] ? String(form['url']) : null,
+      // Falls back to the image's own width, which is usually what was meant.
+      viewport: Number.isFinite(viewport) && viewport > 0 ? viewport : (size?.width ?? null),
+      path: rel,
+      contentType: file.type,
+      width: size?.width ?? null,
+      height: size?.height ?? null,
+    });
+    return c.json(toApiAsset(row), 201);
+  });
+
+  routes.get('/:id/assets', (c) => {
+    const id = c.req.param('id');
+    if (!found(id)) return c.json({ error: 'not found' }, 404);
+    return c.json(assetsFor(db, id).map(toApiAsset));
+  });
+
+  routes.delete('/:id/assets/:assetId', (c) => {
+    const row = getAsset(db, c.req.param('assetId'));
+    if (!row || row.cardId !== c.req.param('id')) return c.json({ error: 'not found' }, 404);
+    // Row first: a file with no row is litter, a row with no file is a broken image.
+    deleteAssetRow(db, row.id);
+    deleteAsset(row.path);
+    return c.json({ ok: true });
   });
 
   routes.get('/:id/commits', async (c) => {

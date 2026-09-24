@@ -5,6 +5,8 @@ const root = resolve(import.meta.dirname, '../../..');
 export const config = {
   root,
   dbFile: process.env.REEVE_DB ?? resolve(root, 'data/reeve.db'),
+  /** Mockups and screenshots, beside the database. Blobs do not belong in SQLite. */
+  assetsDir: process.env.REEVE_ASSETS ?? resolve(root, 'data/assets'),
   migrationsFolder: resolve(root, 'packages/server/drizzle'),
   webDist: resolve(root, 'packages/web/dist'),
   port: Number(process.env.REEVE_PORT ?? 4317),

@@ -34,6 +34,10 @@ export type CardEventActor = (typeof CARD_EVENT_ACTORS)[number];
 export const CRITERION_VERDICTS = ['pass', 'fail'] as const;
 export type CriterionVerdict = (typeof CRITERION_VERDICTS)[number];
 
+/** A picture of the work: one drawn beforehand, or one taken of the build. */
+export const ASSET_KINDS = ['mockup', 'screenshot'] as const;
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
 /** What a piece of context points at: a path in the repo, another card, a link. */
 export const CARD_REF_KINDS = ['file', 'card', 'url'] as const;
 export type CardRefKind = (typeof CARD_REF_KINDS)[number];
@@ -292,6 +296,72 @@ export const question = sqliteTable(
   (t) => [index('question_card').on(t.cardId, t.position), index('question_run').on(t.runId, t.position)],
 );
 
+/**
+ * An image belonging to a card: a mockup someone attached, or a screenshot of
+ * what got built.
+ *
+ * The bytes live on disk under `config.assetsDir` and the row holds the path.
+ * A database is a bad place for blobs, and keeping them out means a screenshot
+ * costs the same to list as it does to ignore.
+ *
+ * `url` and `viewport` are what a mockup asks for and what a screenshot answers
+ * — a mockup of the cart at 1280 tells the capturer exactly what to go and
+ * photograph, which is how the two end up side by side.
+ */
+export const asset = sqliteTable(
+  'asset',
+  {
+    id: text('id').primaryKey(),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    // Set on a screenshot: the run that captured it. Null on a mockup, which a
+    // person attached and which outlives every run.
+    runId: text('run_id').references(() => run.id, { onDelete: 'set null' }),
+    kind: text('kind').$type<AssetKind>().notNull(),
+    label: text('label').notNull(),
+    /** The app path this shows, e.g. `/cart`. */
+    url: text('url'),
+    /** Viewport width in CSS pixels. */
+    viewport: integer('viewport'),
+    /** Relative to config.assetsDir, never absolute: the data dir can move. */
+    path: text('path').notNull(),
+    contentType: text('content_type').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index('asset_card').on(t.cardId, t.createdAt)],
+);
+
+/**
+ * A place the build and the mockup disagree, in Claude's words.
+ *
+ * Prose rather than pixels on purpose: "Save for later is a link here but a
+ * button in the mockup" is a judgement about intent, and a pixel differ would
+ * report the same thing as eleven thousand changed pixels.
+ */
+export const difference = sqliteTable(
+  'difference',
+  {
+    id: text('id').primaryKey(),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    runId: text('run_id').references(() => run.id, { onDelete: 'cascade' }),
+    mockupAssetId: text('mockup_asset_id').references(() => asset.id, { onDelete: 'cascade' }),
+    screenshotAssetId: text('screenshot_asset_id').references(() => asset.id, { onDelete: 'cascade' }),
+    /** 1-based, and the number shown in the callout beside the images. */
+    position: integer('position').notNull(),
+    /** The difference itself, in one sentence. */
+    claim: text('claim').notNull(),
+    /** Why it happened, or why it might be fine. Shown muted beside the claim. */
+    note: text('note'),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index('difference_card').on(t.cardId, t.position)],
+);
+
 export const artifact = sqliteTable(
   'artifact',
   {
@@ -342,6 +412,8 @@ export type CardEvent = typeof cardEvent.$inferSelect;
 export type NewCardEvent = typeof cardEvent.$inferInsert;
 export type AcceptanceCriterion = typeof acceptanceCriterion.$inferSelect;
 export type Question = typeof question.$inferSelect;
+export type Asset = typeof asset.$inferSelect;
+export type Difference = typeof difference.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;

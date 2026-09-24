@@ -2,13 +2,16 @@ import type {
   ApiCard,
   ApiCardEvent,
   ApiCardRef,
+  ApiAsset,
   ApiCriterion,
+  ApiDifference,
   ApiProject,
   ApiQuestion,
   ApiRunSummary,
   CardActivity,
   CardEventActor,
   CardEventKind,
+  AssetKind,
   CardRefKind,
   CriterionVerdict,
   RunKind,
@@ -16,7 +19,17 @@ import type {
   Stage,
   StopReason,
 } from '@reeve/shared';
-import type { AcceptanceCriterion, Card, CardEvent, CardRef, Project, Question, Run } from './db/schema.js';
+import type {
+  AcceptanceCriterion,
+  Asset,
+  Card,
+  CardEvent,
+  CardRef,
+  Difference,
+  Project,
+  Question,
+  Run,
+} from './db/schema.js';
 
 const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
@@ -124,5 +137,32 @@ export function toApiQuestion(q: Question): ApiQuestion {
     suggestions: q.suggestions ?? [],
     answer: q.answer,
     answeredAt: ms(q.answeredAt),
+  };
+}
+
+export function toApiAsset(a: Asset): ApiAsset {
+  return {
+    id: a.id,
+    kind: a.kind as AssetKind,
+    label: a.label,
+    url: a.url,
+    viewport: a.viewport,
+    // The on-disk path never leaves the server; the client gets a route.
+    src: `/api/assets/${a.id}`,
+    width: a.width,
+    height: a.height,
+    runId: a.runId,
+    createdAt: ms(a.createdAt) ?? 0,
+  };
+}
+
+export function toApiDifference(d: Difference): ApiDifference {
+  return {
+    id: d.id,
+    position: d.position,
+    claim: d.claim,
+    note: d.note,
+    mockupAssetId: d.mockupAssetId,
+    screenshotAssetId: d.screenshotAssetId,
   };
 }

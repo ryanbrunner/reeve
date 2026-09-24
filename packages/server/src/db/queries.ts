@@ -3,15 +3,18 @@ import type { Db } from './client.js';
 import {
   acceptanceCriterion,
   artifact,
+  asset,
   card,
   cardEvent,
   cardRef,
+  difference,
   project,
   question,
   review,
   run,
   runEvent,
   type AcceptanceCriterion,
+  type AssetKind,
   type Card,
   type ArtifactKind,
   type CardRefKind,
@@ -508,4 +511,87 @@ export function answerQuestion(db: Db, id: string, answer: string) {
     .where(eq(question.id, id))
     .returning()
     .get();
+}
+
+// ---------------------------------------------------------------------------
+// Pictures
+// ---------------------------------------------------------------------------
+
+export interface AssetDraft {
+  cardId: string;
+  runId?: string | null;
+  kind: AssetKind;
+  label: string;
+  url?: string | null;
+  viewport?: number | null;
+  path: string;
+  contentType: string;
+  width?: number | null;
+  height?: number | null;
+}
+
+export function insertAsset(db: Db, draft: AssetDraft) {
+  return db.insert(asset).values({ ...draft, id: crypto.randomUUID() }).returning().get();
+}
+
+export function assetsFor(db: Db, cardId: string) {
+  return db.select().from(asset).where(eq(asset.cardId, cardId)).orderBy(asc(asset.createdAt)).all();
+}
+
+export function getAsset(db: Db, id: string) {
+  return db.select().from(asset).where(eq(asset.id, id)).get();
+}
+
+export function deleteAssetRow(db: Db, id: string) {
+  return db.delete(asset).where(eq(asset.id, id)).returning().get();
+}
+
+/**
+ * The screenshots a run took, replaced wholesale when it runs again.
+ *
+ * A second Testing run photographs the same states afresh, so keeping the
+ * first run's pictures would leave the Preview tab showing two versions of
+ * "Cart with saved items" with no way to tell which is current.
+ */
+export function replaceScreenshots(db: Db, cardId: string, runId: string): string[] {
+  const stale = db
+    .select()
+    .from(asset)
+    .where(and(eq(asset.cardId, cardId), eq(asset.kind, 'screenshot')))
+    .all()
+    .filter((a) => a.runId !== runId);
+  for (const a of stale) db.delete(asset).where(eq(asset.id, a.id)).run();
+  return stale.map((a) => a.path);
+}
+
+export function differencesFor(db: Db, cardId: string) {
+  return db.select().from(difference).where(eq(difference.cardId, cardId)).orderBy(asc(difference.position)).all();
+}
+
+/** As with screenshots: a fresh run's judgement replaces the previous one's. */
+export function replaceDifferences(
+  db: Db,
+  cardId: string,
+  runId: string,
+  found: Array<{ claim: string; note: string; mockupAssetId: string | null; screenshotAssetId: string | null }>,
+) {
+  return db.transaction((tx) => {
+    tx.delete(difference).where(eq(difference.cardId, cardId)).run();
+    return found.map((d, i) =>
+      tx
+        .insert(difference)
+        .values({
+          id: crypto.randomUUID(),
+          cardId,
+          runId,
+          position: i + 1,
+          claim: d.claim,
+          note: d.note,
+          mockupAssetId: d.mockupAssetId,
+          screenshotAssetId: d.screenshotAssetId,
+        })
+        .returning()
+        .get(),
+    );
+  });
 }
