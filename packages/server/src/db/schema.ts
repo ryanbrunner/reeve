@@ -51,6 +51,8 @@ export const CARD_EVENT_KINDS = [
   'question_asked',
   'answered',
   'note',
+  'archived',
+  'restored',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

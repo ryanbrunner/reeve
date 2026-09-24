@@ -149,6 +149,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return 'answered';
     case 'note':
       return 'left a note';
+    case 'archived':
+      return 'archived the card';
+    case 'restored':
+      return `restored the card to ${stage(e.stage)}`;
   }
 }
 

@@ -190,6 +190,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const blocked = (detail: string) =>
       c.json({ ok: true, answered: siblings.length, of: siblings.length, resumed: null, blocked: detail });
 
+    if (card.archivedAt) return blocked('card is archived');
     const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
     if (!project) return blocked('card has no project');
     if (!isRunnable(card.stage as Stage)) return blocked('stage has no Claude work');

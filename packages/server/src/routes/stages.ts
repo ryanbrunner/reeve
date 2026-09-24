@@ -32,6 +32,8 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   const load = (cardId: string) => {
     const card = getCard(db, cardId);
     if (!card) return { error: 'not found' as const, status: 404 as const };
+    // Off the board means nothing happens to it until it is restored.
+    if (card.archivedAt) return { error: 'card is archived' as const, status: 409 as const };
     const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
     if (!project) return { error: 'card has no project' as const, status: 400 as const };
     return { card, project };

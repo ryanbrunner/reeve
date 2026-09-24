@@ -22,6 +22,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const cardId = c.req.param('id');
     const card = getCard(db, cardId);
     if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const project = projectFor(card.projectId);
     if (!project) return c.json({ error: 'card has no project', detail: 'a worktree needs a repo' }, 400);
     if (!needsWorktree(card.stage)) {
@@ -86,6 +87,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const cardId = c.req.param('id');
     const card = getCard(db, cardId);
     if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const project = projectFor(card.projectId);
     if (!project) return c.json({ error: 'card has no project' }, 400);
 
@@ -109,6 +111,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const cardId = c.req.param('id');
     const card = getCard(db, cardId);
     if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const project = projectFor(card.projectId);
     if (!project?.testCommand) return c.json({ error: 'project has no test command' }, 400);
     if (!card.worktreePath) return c.json({ error: 'card has no worktree' }, 400);

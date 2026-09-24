@@ -58,6 +58,8 @@ export interface ApiCard {
    * make a card look like Claude is working on it.
    */
   latestRun: ApiRunSummary | null;
+  /** Set when the card has been taken off the board. Nothing is deleted; restoring clears it. */
+  archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
