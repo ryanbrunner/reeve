@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { isRunnable, nextStage, type Stage } from '@reeve/shared';
-import { config } from '../config.js';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   getCard,
+  getSettings,
   cardsInStage,
   insertCardEvent,
   insertReview,
@@ -53,9 +53,11 @@ export function stageRoutes(db: Db, writer: EventWriter) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
     // Approving four cards at once shouldn't launch four sessions and burn
-    // through budget in parallel.
-    if (runRegistry.countByKind('claude') >= config.maxConcurrentRuns) {
-      return c.json({ error: 'too many concurrent runs', detail: `limit is ${config.maxConcurrentRuns}` }, 429);
+    // through budget in parallel. Read per request so a change in Settings
+    // applies to the next run; lowering it stops nothing already going.
+    const { maxConcurrentRuns } = getSettings(db);
+    if (runRegistry.countByKind('claude') >= maxConcurrentRuns) {
+      return c.json({ error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` }, 429);
     }
 
     const health = await checkWorktree(project.repoPath, card.worktreePath);

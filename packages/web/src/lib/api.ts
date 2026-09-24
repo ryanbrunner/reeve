@@ -8,6 +8,7 @@ import type {
   ApiDiff,
   ApiProject,
   ApiQuestion,
+  ApiSettings,
   BoardResponse,
   CardDetail,
   CreateCardBody,
@@ -15,6 +16,7 @@ import type {
   MoveCardBody,
   Stage,
   UpdateProjectBody,
+  UpdateSettingsBody,
 } from '@reeve/shared';
 
 async function json<T>(res: Response): Promise<T> {
@@ -39,6 +41,9 @@ const del = (url: string) => fetch(url, { method: 'DELETE' });
 
 export const api = {
   board: () => fetch('/api/board').then(json<BoardResponse>),
+
+  settings: () => fetch('/api/settings').then(json<ApiSettings>),
+  updateSettings: (body: UpdateSettingsBody) => patch('/api/settings', body).then(json<ApiSettings>),
 
   // --- repos ---
   createProject: (body: CreateProjectBody) => post('/api/projects', body).then(json<ApiProject>),
