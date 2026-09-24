@@ -235,30 +235,57 @@ function SortableCard({ card }: { card: ApiCard }) {
 }
 
 /**
- * The card's sub-state, as colour. The column is where the human put the card;
+ * The card's sub-state, as light. The column is where the human put the card;
  * this is what the machine has done with it since, and it is the only thing on
- * the board that changes without a drag.
+ * the board that changes without a drag. A card Claude has touched glows from
+ * all four edges into a dark centre; an idle one is plain panel.
  */
 const ACTIVITY_STYLE: Record<CardActivity, string> = {
   idle: 'border-(--color-edge) bg-(--color-panel) hover:border-slate-600',
-  running: 'border-sky-600/60 bg-sky-500/15',
-  needs_review: 'border-emerald-600/60 bg-emerald-500/15',
-  needs_input: 'border-amber-500/60 bg-amber-500/15',
-  error: 'border-red-600/60 bg-red-500/15',
-};
-
-const CHIP_STYLE: Record<CardActivity, string> = {
-  idle: 'bg-slate-500/15 text-slate-300',
-  running: 'bg-sky-500/25 text-sky-200',
-  needs_review: 'bg-emerald-500/25 text-emerald-200',
-  needs_input: 'bg-amber-500/25 text-amber-100',
-  error: 'bg-red-500/25 text-red-200',
+  running: 'card-glow card-glow-running',
+  needs_review: 'card-glow card-glow-review',
+  needs_input: 'card-glow card-glow-input',
+  error: 'card-glow card-glow-error',
 };
 
 /**
- * Colour alone is a poor signal, so every non-idle state says its name too.
- * `idle` has no label on purpose: it falls through to the raw run status, which
- * is the only way a deliberately cancelled run still shows up on the face.
+ * The second signal, so a state never rests on colour alone: a 68px outline
+ * mark, centred behind the card's own content and faint enough to read through.
+ * `running` has none — it carries the progress rail instead — and `idle` has
+ * nothing to say.
+ */
+const ACTIVITY_MARKS: Partial<Record<CardActivity, React.ReactNode>> = {
+  needs_review: (
+    <Mark>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </Mark>
+  ),
+  needs_input: (
+    <Mark>
+      <path d="M9 9a3 3 0 1 1 4.5 2.6c-.9.5-1.5 1.2-1.5 2.2V15" />
+      <path d="M12 18.5v.01" />
+    </Mark>
+  ),
+  error: (
+    <Mark>
+      <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />
+    </Mark>
+  ),
+};
+
+function Mark({ children }: { children: React.ReactNode }) {
+  return (
+    <svg className="card-mark" viewBox="0 0 24 24" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+/**
+ * Every non-idle state says its name, as hidden text rather than a chip: the
+ * glow and the mark carry it for the eye, this carries it for a screen reader.
+ * `idle` has no label on purpose — it falls through to the raw run status,
+ * which is the only way a deliberately cancelled run still shows on the face.
  */
 const ACTIVITY_LABELS: Partial<Record<CardActivity, string>> = {
   running: 'Claude running',
@@ -269,14 +296,17 @@ const ACTIVITY_LABELS: Partial<Record<CardActivity, string>> = {
 
 function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolean }) {
   const run = card.latestRun;
+  const label = ACTIVITY_LABELS[card.activity];
   return (
     <article
-      className={`cursor-grab rounded-md border p-2.5 ${ACTIVITY_STYLE[card.activity]} ${
+      className={`relative cursor-grab rounded-md border p-2.5 ${ACTIVITY_STYLE[card.activity]} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
       }`}
     >
-      <p className="text-sm leading-snug font-medium tracking-[-0.01em]">{card.title}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {ACTIVITY_MARKS[card.activity]}
+      {/* The title and footer are positioned so they read above the mark. */}
+      <p className="relative text-sm leading-snug font-medium tracking-[-0.01em]">{card.title}</p>
+      <div className="relative mt-2 flex flex-wrap items-center gap-1.5">
         {card.projectName && (
           <span
             className="rounded px-1.5 py-0.5 font-mono text-[10px]/4"
@@ -285,9 +315,12 @@ function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolea
             {card.projectName}
           </span>
         )}
-        {run && (
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${CHIP_STYLE[card.activity]}`}>
-            {ACTIVITY_LABELS[card.activity] ?? run.status}
+        {label && <span className="sr-only">{label}</span>}
+        {/* Only an idle card shows a status chip, and only to surface the run
+            status the glow cannot say — a cancelled run. */}
+        {card.activity === 'idle' && run && (
+          <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
+            {run.status}
           </span>
         )}
         {run?.totalCostUsd != null && (
@@ -297,6 +330,11 @@ function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolea
         )}
         {!dragging && canStartRun(card) && <RunButton card={card} />}
       </div>
+      {card.activity === 'running' && (
+        <span className="card-rail" aria-hidden="true">
+          <span />
+        </span>
+      )}
     </article>
   );
 }
@@ -304,7 +342,9 @@ function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolea
 /**
  * The only thing on the board that starts Claude. It sits on the card rather
  * than in the column header because a stage runs per card, and it is absent
- * once a run has succeeded: from there the review gate takes over.
+ * once a run has succeeded: from there the review gate takes over. On an error
+ * card it takes that card's red, because a button on a tinted card belongs to
+ * it; everywhere else it stays sky, because sky is Claude.
  */
 function RunButton({ card }: { card: ApiCard }) {
   const qc = useQueryClient();
@@ -312,6 +352,7 @@ function RunButton({ card }: { card: ApiCard }) {
     mutationFn: () => api.startStage(card.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['board'] }),
   });
+  const retry = card.activity === 'error';
 
   return (
     <>
@@ -321,10 +362,14 @@ function RunButton({ card }: { card: ApiCard }) {
         onPointerDown={(e) => e.stopPropagation()}
         onClick={() => start.mutate()}
         disabled={start.isPending}
-        title={card.activity === 'error' ? 'Start a fresh run' : 'Run this stage'}
-        className="ml-auto rounded border border-sky-800 px-1.5 py-0.5 font-mono text-[10px]/4 text-sky-300 hover:border-sky-600 hover:bg-sky-500/10 disabled:opacity-40"
+        title={retry ? 'Start a fresh run' : 'Run this stage'}
+        className={`ml-auto rounded border px-1.5 py-0.5 font-mono text-[10px]/4 disabled:opacity-40 ${
+          retry
+            ? 'border-(--color-btn-error-border) bg-(--color-btn-error-fill) text-red-200 shadow-(--shadow-btn-error-glow) hover:border-(--color-btn-error-hover-border) hover:bg-(--color-btn-error-hover-fill)'
+            : 'border-sky-800 text-sky-300 hover:border-sky-600 hover:bg-sky-500/10'
+        }`}
       >
-        {start.isPending ? 'Starting…' : card.activity === 'error' ? 'Retry' : 'Run'}
+        {start.isPending ? 'Starting…' : retry ? 'Retry' : 'Run'}
       </button>
       {/* Cleared by the next click: a fresh attempt resets the mutation. */}
       {start.error && (

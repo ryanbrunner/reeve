@@ -14,7 +14,157 @@
   --color-edge: #262d38;
   --color-muted: #8b949e;
   --color-text: #e6edf3;
+
+  /* The centre of a tinted card. The edge glow fades into it, so the middle of
+     a card that is doing something reads darker than an idle one, not lighter. */
+  --color-card-core: #0f1318;
+
+  --color-activity-running-border: #38bdf899;
+  --color-activity-running-fill: #00a6f41f;
+  --color-activity-running-mark: #38bdf8;
+  --color-activity-running-track: #00a6f41f;
+
+  --color-activity-review-border: #10b98199;
+  --color-activity-review-fill: #00bc7d1f;
+  --color-activity-review-mark: #34d399;
+
+  --color-activity-input-border: #fbbf2499;
+  --color-activity-input-fill: #fe9a001f;
+  --color-activity-input-mark: #fbbf24;
+
+  --color-activity-error-border: #f8717199;
+  --color-activity-error-fill: #fb2c361f;
+  --color-activity-error-mark: #f87171;
+
+  /* A button on a tinted card takes its card's colour. Retry is the only one. */
+  --color-btn-error-border: #f8717199;
+  --color-btn-error-fill: #fb2c361f;
+  --color-btn-error-hover-border: #f87171;
+  --color-btn-error-hover-fill: #fb2c3633;
+
+  --shadow-card-glow-running: inset 0 0 18px 0 #00a6f459, inset 0 0 4px 0 #00a6f466, 0 0 18px -8px #00a6f48c;
+  --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
+  --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
+  --shadow-card-glow-error: inset 0 0 18px 0 #fb2c3659, inset 0 0 4px 0 #fb2c3666, 0 0 18px -8px #fb2c368c;
+  --shadow-btn-error-glow: 0 0 10px -4px #fb2c3680;
 }
 
 html, body, #root { height: 100%; }
 body { background: var(--color-ink); color: var(--color-text); }
+
+@layer components {
+  /*
+   * A tinted card is three background layers: the dark core, a flat tint over
+   * it, and a radial of the core on top that darkens the middle. With the glow
+   * shadow that is light rising from all four borders and fading inward — which
+   * no utility can say, so the four states live here and ACTIVITY_STYLE points
+   * at them. `overflow: hidden` is what clips the mark and the rail.
+   */
+  .card-glow { overflow: hidden; }
+
+  .card-glow-running {
+    border-color: var(--color-activity-running-border);
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 50%, var(--color-card-core) 0%, transparent 100%),
+      linear-gradient(var(--color-activity-running-fill), var(--color-activity-running-fill)),
+      var(--color-card-core);
+    box-shadow: var(--shadow-card-glow-running);
+  }
+
+  .card-glow-review {
+    border-color: var(--color-activity-review-border);
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 50%, var(--color-card-core) 0%, transparent 100%),
+      linear-gradient(var(--color-activity-review-fill), var(--color-activity-review-fill)),
+      var(--color-card-core);
+    box-shadow: var(--shadow-card-glow-review);
+  }
+
+  .card-glow-input {
+    border-color: var(--color-activity-input-border);
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 50%, var(--color-card-core) 0%, transparent 100%),
+      linear-gradient(var(--color-activity-input-fill), var(--color-activity-input-fill)),
+      var(--color-card-core);
+    box-shadow: var(--shadow-card-glow-input);
+  }
+
+  .card-glow-error {
+    border-color: var(--color-activity-error-border);
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 50%, var(--color-card-core) 0%, transparent 100%),
+      linear-gradient(var(--color-activity-error-fill), var(--color-activity-error-fill)),
+      var(--color-card-core);
+    box-shadow: var(--shadow-card-glow-error);
+  }
+
+  /* Centred behind the card's own content, which is why the title and footer
+     are positioned. Decorative: the state's name rides along as hidden text. */
+  .card-mark {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 68px;
+    height: 68px;
+    transform: translate(-50%, -50%);
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  .card-glow-review .card-mark {
+    stroke: var(--color-activity-review-mark);
+    filter: drop-shadow(0 0 2px var(--color-activity-review-mark)) drop-shadow(0 0 8px var(--color-activity-review-mark));
+  }
+
+  .card-glow-input .card-mark {
+    stroke: var(--color-activity-input-mark);
+    filter: drop-shadow(0 0 2px var(--color-activity-input-mark)) drop-shadow(0 0 8px var(--color-activity-input-mark));
+  }
+
+  .card-glow-error .card-mark {
+    stroke: var(--color-activity-error-mark);
+    filter: drop-shadow(0 0 2px var(--color-activity-error-mark)) drop-shadow(0 0 8px var(--color-activity-error-mark));
+  }
+
+  /* The only thing on a card that animates: a light travelling along the
+     bottom edge while Claude works. A running card carries this instead of a
+     mark. */
+  .card-rail {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--color-activity-running-track);
+    overflow: hidden;
+  }
+
+  .card-rail > span {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--color-activity-running-mark) 50%, #e0f2fe 60%, transparent);
+    box-shadow: 0 0 8px var(--color-activity-running-mark);
+    transform: translateX(-100%);
+    animation: card-rail 1.6s ease-in-out infinite;
+  }
+
+  /* Stopped, but held near the middle so the card still reads as running. */
+  @media (prefers-reduced-motion: reduce) {
+    .card-rail > span {
+      animation: none;
+      transform: translateX(75%);
+    }
+  }
+}
+
+@keyframes card-rail {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
