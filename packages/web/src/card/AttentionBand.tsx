@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
@@ -212,13 +212,16 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
   const elapsed = live?.elapsedMs ?? (run?.startedAt ? Date.now() - run.startedAt : null);
 
   return (
-    <div className="flex items-center gap-4">
+    // Top-aligned so a summary growing beneath the status line does not drag
+    // the Stop button down with it.
+    <div className="flex items-start gap-4">
       <div className="min-w-0 grow">
         <div className="text-sm/5 font-medium text-(--color-text)">Claude running</div>
         <p className="mt-0.5 truncate text-sm/5 text-(--color-muted)">
           {live?.turns ? `Turn ${live.turns}${steps ? ` of ${steps} steps` : ''}` : 'Starting up'}
           {live?.activity ? ` · ${live.activity}` : ''}
         </p>
+        {live?.thinking && <ThinkingSummary text={live.thinking} />}
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <span className="font-mono text-[11px]/4 text-(--color-muted)">
@@ -229,6 +232,44 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
           {stop.isPending ? 'Stopping…' : 'Stop'}
         </SmallButton>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The latest summary of Claude's reasoning, clamped to three lines.
+ *
+ * Expanding sticks when a newer summary replaces this one: someone who chose to
+ * read in full is likely still reading, and snapping shut on every block would
+ * be jumpy. Expanded, it scrolls within a cap rather than pushing the band's
+ * header off the modal.
+ */
+function ThinkingSummary({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  // Measured only while clamped. Expanded, it never overflows the clamp, and
+  // measuring then would hide the button that collapses it again.
+  useLayoutEffect(() => {
+    if (!expanded && ref.current) setOverflows(ref.current.scrollHeight > ref.current.clientHeight);
+  }, [text, expanded]);
+
+  return (
+    <div className="mt-1.5 flex flex-col items-start gap-1">
+      <p
+        ref={ref}
+        className={`text-sm/5 whitespace-pre-line text-(--color-muted) italic ${
+          expanded ? 'max-h-48 overflow-y-auto' : 'line-clamp-3'
+        }`}
+      >
+        {text}
+      </p>
+      {(expanded || overflows) && (
+        <SmallButton aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+          {expanded ? 'Show less' : 'Show more'}
+        </SmallButton>
+      )}
     </div>
   );
 }
