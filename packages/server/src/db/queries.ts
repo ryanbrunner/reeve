@@ -661,11 +661,15 @@ export function replaceDifferences(
  * "Unread" is defined by when the previous run began rather than by a flag,
  * because that is what the human means: a note written while Claude was
  * working, or after it stopped, is for the next attempt. Nothing needs marking
- * off, and a note can never be consumed twice or silently lost.
+ * off, and a note can never be consumed twice or silently lost. A Suggest
+ * starting is not the previous run: it never reads the notes, so it must not
+ * mark them read either.
  */
 export function unreadNotesFor(db: Db, cardId: string): string[] {
   const events = cardEventsFor(db, cardId);
-  const lastStart = events.find((e) => e.kind === 'run_started')?.createdAt?.getTime() ?? 0;
+  const tasks = new Set(runsForCard(db, cardId).filter((r) => r.task !== null).map((r) => r.id));
+  const lastStart =
+    events.find((e) => e.kind === 'run_started' && !(e.runId && tasks.has(e.runId)))?.createdAt?.getTime() ?? 0;
   return events
     .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart)
     .map((e) => e.body)
