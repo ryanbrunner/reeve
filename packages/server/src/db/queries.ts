@@ -129,12 +129,13 @@ export function reapOrphanedRuns(db: Db, now: Date) {
  * filter by kind used to exist beside this, and starting a dev server after
  * the last Claude run made it answer with the server: the card was suddenly
  * unreviewable because the newest run for the stage was a `vite` process.
+ * An out-of-band task — Suggest — is excluded for the same reason.
  */
 export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage) {
   return db
     .select()
     .from(run)
-    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude')))
+    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task)))
     .orderBy(desc(run.createdAt))
     .limit(1)
     .get();
