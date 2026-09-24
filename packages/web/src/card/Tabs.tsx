@@ -90,11 +90,14 @@ export function Tabs({ detail }: { detail: CardDetail }) {
 
 function defaultTab(detail: CardDetail): TabId {
   if (detail.card.activity === 'needs_input') return 'plan';
+  // Claude's notes once it has written them; until then — a card still running
+  // — the diff is the only account of the work there is.
+  const work: TabId = detail.implementation ? 'changes' : 'diff';
   switch (detail.card.stage) {
     case 'planning': return 'plan';
-    case 'in_progress': return 'changes';
-    case 'testing': return detail.assets.some((a) => a.kind === 'screenshot') ? 'preview' : 'changes';
-    case 'done': return 'changes';
+    case 'in_progress': return work;
+    case 'testing': return detail.assets.some((a) => a.kind === 'screenshot') ? 'preview' : work;
+    case 'done': return work;
     default: return 'brief';
   }
 }
