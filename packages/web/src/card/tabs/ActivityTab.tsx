@@ -149,6 +149,8 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return 'answered';
     case 'note':
       return 'left a note';
+    case 'handed_off':
+      return `handed off to Claude Code in ${stage(e.stage)}`;
   }
 }
 
