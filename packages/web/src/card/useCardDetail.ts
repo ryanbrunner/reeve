@@ -30,6 +30,8 @@ export interface LiveRun {
   elapsedMs: number;
   /** The last thing Claude said or did, one line. */
   activity: string | null;
+  /** The latest summary of Claude's reasoning, whole. */
+  thinking: string | null;
   /** Turns completed so far, as the stream reports them. */
   turns: number;
 }
@@ -60,7 +62,7 @@ export function useLiveRun(
     // From when the run actually began, not from when this modal opened. A run
     // that has been going half an hour reads "31m", not "0s" counting up.
     since.current = startedAt ?? Date.now();
-    setLive({ elapsedMs: Date.now() - since.current, activity: null, turns: 0 });
+    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null, turns: 0 });
 
     // `since=live` asks for new events only. Without it the server replays the
     // whole transcript, which for a long run is thousands of messages to learn
@@ -68,16 +70,21 @@ export function useLiveRun(
     const source = new EventSource(`/api/runs/${runId}/events?since=live`);
     let turns = 0;
 
-    source.onmessage = (e) => {
+    const onEvent = (e: MessageEvent<string>) => {
       const line = describeMessage(e.data);
       if (line === null) return;
       if (line.turn) turns++;
       setLive((prev) => ({
         elapsedMs: prev?.elapsedMs ?? Date.now() - since.current,
         activity: line.text ?? prev?.activity ?? null,
+        thinking: line.thinking ?? prev?.thinking ?? null,
         turns,
       }));
     };
+    // The server names every event after its kind, and a named event never
+    // reaches `onmessage` — so each kind describeMessage reads is listened for.
+    source.addEventListener('assistant', onEvent);
+    source.addEventListener('system:thinking_tokens', onEvent);
     source.addEventListener('end', () => {
       source.close();
       void qc.invalidateQueries({ queryKey: ['card', cardId] });
