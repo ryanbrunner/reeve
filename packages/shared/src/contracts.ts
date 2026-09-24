@@ -84,9 +84,19 @@ export type StageOutput = {
   testing: TestingOutput;
 };
 
-/** JSON Schema as handed to the SDK's `outputFormat`. */
+/**
+ * JSON Schema as handed to the SDK's `outputFormat`.
+ *
+ * The `$schema` key is stripped deliberately. Zod emits a meta-schema ref
+ * (`https://json-schema.org/draft/2020-12/schema`) that Claude Code's validator
+ * cannot resolve, and it rejects the whole schema with:
+ *   `--json-schema is not a valid JSON Schema: no schema with key or ref ...`
+ * The run then dies at spawn with exit code 1 before a single token is spent.
+ */
 export function jsonSchemaFor(schema: z.ZodType): Record<string, unknown> {
-  return z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output' }) as Record<string, unknown>;
+  const generated = z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output' }) as Record<string, unknown>;
+  const { $schema: _metaSchemaRef, ...rest } = generated;
+  return rest;
 }
 
 /**
