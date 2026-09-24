@@ -134,7 +134,7 @@ export function App() {
           {lanes.map((lane) => (
             <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
               {swimlanes && (
-                <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-wide text-(--color-muted) uppercase">
+                <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
                   <span className="h-2 w-2 rounded-full" style={{ background: lane.color ?? '#3f4754' }} />
                   {lane.name}
                 </h2>
@@ -164,8 +164,10 @@ function Header({ swimlanes, onToggle, onAdd, cardCount }: {
   const [title, setTitle] = useState('');
   return (
     <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
-      <h1 className="text-sm font-semibold tracking-wide">Reeve</h1>
-      <span className="text-xs text-(--color-muted)">{cardCount} cards</span>
+      <h1 className="text-sm font-semibold tracking-[-0.02em]">Reeve</h1>
+      <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)">
+        {cardCount} cards
+      </span>
       <form
         className="ml-auto flex items-center gap-2"
         onSubmit={(e) => { e.preventDefault(); if (title.trim()) { onAdd(title.trim()); setTitle(''); } }}
@@ -200,8 +202,12 @@ function Column({ stage, laneId, cards }: { stage: Stage; laneId: string | null 
       }`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
-        <h3 className="text-xs font-semibold tracking-wide text-(--color-muted) uppercase">{STAGE_LABELS[stage]}</h3>
-        <span className="text-xs text-(--color-muted)/60">{cards.length}</span>
+        <h3 className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
+          {STAGE_LABELS[stage]}
+        </h3>
+        <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)/60">
+          {cards.length}
+        </span>
         {isRunnable(stage) && <span title="Claude runs here" className="ml-auto text-xs text-sky-500">◆</span>}
       </div>
       <SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
@@ -269,11 +275,11 @@ function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolea
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
       }`}
     >
-      <p className="text-sm leading-snug">{card.title}</p>
+      <p className="text-sm leading-snug font-medium tracking-[-0.01em]">{card.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {card.projectName && (
           <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+            className="rounded px-1.5 py-0.5 font-mono text-[10px]/4"
             style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
           >
             {card.projectName}
@@ -285,7 +291,9 @@ function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolea
           </span>
         )}
         {run?.totalCostUsd != null && (
-          <span className="text-[10px] text-(--color-muted)">${run.totalCostUsd.toFixed(3)}</span>
+          <span className="font-mono text-[10px] leading-snug text-(--color-muted)">
+            ${run.totalCostUsd.toFixed(3)}
+          </span>
         )}
         {!dragging && canStartRun(card) && <RunButton card={card} />}
       </div>
@@ -314,13 +322,13 @@ function RunButton({ card }: { card: ApiCard }) {
         onClick={() => start.mutate()}
         disabled={start.isPending}
         title={card.activity === 'error' ? 'Start a fresh run' : 'Run this stage'}
-        className="ml-auto rounded border border-sky-800 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 hover:border-sky-600 hover:bg-sky-500/10 disabled:opacity-40"
+        className="ml-auto rounded border border-sky-800 px-1.5 py-0.5 font-mono text-[10px]/4 text-sky-300 hover:border-sky-600 hover:bg-sky-500/10 disabled:opacity-40"
       >
         {start.isPending ? 'Starting…' : card.activity === 'error' ? 'Retry' : 'Run'}
       </button>
       {/* Cleared by the next click: a fresh attempt resets the mutation. */}
       {start.error && (
-        <p className="basis-full text-[10px] leading-snug text-red-300">{start.error.message}</p>
+        <p className="basis-full font-mono text-[10px] leading-snug text-red-300">{start.error.message}</p>
       )}
     </>
   );
