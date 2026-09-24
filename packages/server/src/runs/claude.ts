@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { StopReason } from '@reeve/shared';
 import { jsonSchemaFor } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { insertCardEvent, insertRun, setRunStatus } from '../db/queries.js';
+import { artifactsForCard, insertCardEvent, insertRun, setRunStatus } from '../db/queries.js';
 import { artifact as artifactTable, type Card, type Project } from '../db/schema.js';
 import type { StageContext, StageDefinition } from '../stages/types.js';
 import type { EventWriter } from './events.js';
@@ -79,6 +79,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     card, project, worktreePath,
     reviewNotes: reviewNotes ?? null,
     answers: answers ?? [],
+    // What earlier stages produced, newest first. In Progress reads the plan
+    // this way; Planning has nothing before it and ignores the list.
+    priorArtifacts: artifactsForCard(db, card.id)
+      .filter((a) => a.stage !== stage.id && a.supersededBy === null)
+      .map((a) => ({ kind: a.kind, content: a.content })),
   };
   const promptText = stage.buildPrompt(ctx);
   // Generated here and stored BEFORE the subprocess exists, so an orphaned run
