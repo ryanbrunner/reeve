@@ -51,6 +51,7 @@ export const CARD_EVENT_KINDS = [
   'question_asked',
   'answered',
   'note',
+  'merged',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
@@ -98,6 +99,13 @@ export const card = sqliteTable(
     worktreePath: text('worktree_path'),
     // Captured once at worktree creation; the diff is `git diff <base_sha>` with no second ref.
     baseSha: text('base_sha'),
+    /**
+     * The squash commit this card landed as on the default branch. Stored
+     * rather than derived like everything else about a card: a squash leaves no
+     * ancestry to test, and the branch that could have told us is deleted.
+     */
+    mergedSha: text('merged_sha'),
+    mergedAt: timestamp('merged_at'),
     activeRunId: text('active_run_id'),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
