@@ -15,11 +15,13 @@ import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage }
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column } from './board/Column.js';
 import { CardModal } from './card/CardModal.js';
+import { ProjectsModal } from './projects/ProjectsModal.js';
 import { api, cardsIn } from './lib/api.js';
 
 export function App() {
   const qc = useQueryClient();
   const [swimlanes, setSwimlanes] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
   const [openCard, openAndClose] = useOpenCard();
 
@@ -119,6 +121,7 @@ export function App() {
         onToggle={() => setSwimlanes((s) => !s)}
         projects={data?.projects ?? []}
         onAdd={(title, projectId) => create.mutate({ title, projectId, stage: 'backlog' })}
+        onManageProjects={() => setProjectsOpen(true)}
         cardCount={cards.length}
       />
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -148,6 +151,7 @@ export function App() {
         <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
       </DndContext>
       {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} />}
+      {projectsOpen && <ProjectsModal onClose={() => setProjectsOpen(false)} />}
     </div>
   );
 }
@@ -200,11 +204,12 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, cardCount }: {
+function Header({ swimlanes, onToggle, projects, onAdd, onManageProjects, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
   projects: ApiProject[];
   onAdd: (title: string, projectId: string | null) => void;
+  onManageProjects: () => void;
   cardCount: number;
 }) {
   const [title, setTitle] = useState('');
@@ -259,6 +264,18 @@ function Header({ swimlanes, onToggle, projects, onAdd, cardCount }: {
           Add
         </button>
       </form>
+      <button
+        onClick={onManageProjects}
+        className={`rounded-md border px-3 py-1.5 text-sm ${
+          projects.length === 0 ?
+            'border-sky-600 text-sky-300'
+          : 'border-(--color-edge) text-(--color-muted) hover:border-slate-600'
+        }`}
+      >
+        {/* Highlighted when there are none, because an empty board with no repo
+            is a board where nothing can ever run, and this is the way out. */}
+        {projects.length === 0 ? 'Add a repo' : 'Projects'}
+      </button>
       <button
         onClick={onToggle}
         className={`rounded-md border px-3 py-1.5 text-sm ${swimlanes ? 'border-sky-600 text-sky-300' : 'border-(--color-edge) text-(--color-muted)'}`}

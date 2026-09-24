@@ -6,18 +6,25 @@ import type {
   ApiCommit,
   ApiCriterion,
   ApiDiff,
+  ApiProject,
   ApiQuestion,
   BoardResponse,
   CardDetail,
   CreateCardBody,
+  CreateProjectBody,
   MoveCardBody,
   Stage,
+  UpdateProjectBody,
 } from '@reeve/shared';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
-    throw new Error(body.error ?? `HTTP ${res.status}`);
+    // `detail` is where the server puts the sentence worth reading — which
+    // branch does not exist, which directory is not a repo. Dropping it left
+    // forms showing "invalid project" and nothing a person could act on.
+    const message = body.detail ? `${body.error}: ${body.detail}` : body.error;
+    throw new Error(message ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -32,6 +39,12 @@ const del = (url: string) => fetch(url, { method: 'DELETE' });
 
 export const api = {
   board: () => fetch('/api/board').then(json<BoardResponse>),
+
+  // --- repos ---
+  createProject: (body: CreateProjectBody) => post('/api/projects', body).then(json<ApiProject>),
+  updateProject: (id: string, body: UpdateProjectBody) =>
+    patch(`/api/projects/${id}`, body).then(json<ApiProject>),
+
   createCard: (body: CreateCardBody) => post('/api/cards', body).then(json<ApiCard>),
   moveCard: (id: string, body: MoveCardBody) => post(`/api/cards/${id}/move`, body).then(json<ApiCard>),
   archiveCard: (id: string) => post(`/api/cards/${id}/archive`, {}).then(json<{ ok: true }>),
