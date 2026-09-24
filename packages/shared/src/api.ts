@@ -49,6 +49,12 @@ export interface ApiCard {
   position: number;
   branchName: string | null;
   worktreePath: string | null;
+  /**
+   * The squash commit on the default branch, once merged. Stored, unlike
+   * everything else here: the branch that could have told us is gone.
+   */
+  mergedSha: string | null;
+  mergedAt: number | null;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**

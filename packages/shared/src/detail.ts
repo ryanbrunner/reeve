@@ -25,7 +25,8 @@ export type CardEventKind =
   | 'reviewed'
   | 'question_asked'
   | 'answered'
-  | 'note';
+  | 'note'
+  | 'merged';
 
 export interface ApiCardEvent {
   id: string;
