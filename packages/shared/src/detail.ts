@@ -82,3 +82,44 @@ export interface ApiQuestion {
   answer: string | null;
   answeredAt: number | null;
 }
+
+// --- Changes ----------------------------------------------------------------
+
+export type DiffLineKind = 'context' | 'add' | 'del';
+export type DiffStatus = 'added' | 'deleted' | 'renamed' | 'modified';
+
+export interface ApiDiffLine {
+  kind: DiffLineKind;
+  oldLine: number | null;
+  newLine: number | null;
+  text: string;
+}
+
+export interface ApiDiffHunk {
+  header: string;
+  lines: ApiDiffLine[];
+}
+
+export interface ApiDiffFile {
+  path: string;
+  oldPath: string | null;
+  status: DiffStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  hunks: ApiDiffHunk[];
+}
+
+export interface ApiDiff {
+  /** The sha the worktree started from; everything here is measured against it. */
+  base: string;
+  baseBranch: string;
+  files: ApiDiffFile[];
+  additions: number;
+  deletions: number;
+}
+
+export interface ApiCommit {
+  sha: string;
+  subject: string;
+}

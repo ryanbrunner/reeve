@@ -145,9 +145,38 @@ export async function diffSince(worktreePath: string, baseSha: string): Promise<
   return git(worktreePath, ['diff', baseSha]);
 }
 
-export async function commitsSince(worktreePath: string, baseSha: string): Promise<string[]> {
-  const out = await git(worktreePath, ['log', '--format=%s', `${baseSha}..HEAD`]);
-  return out.split('\n').map((l) => l.trim()).filter(Boolean);
+export interface CommitRef {
+  sha: string;
+  subject: string;
+}
+
+/**
+ * NUL-separated rather than split on a delimiter that could appear in a commit
+ * subject. Newest first, which is the order the rail lists them in.
+ */
+export async function commitsSince(worktreePath: string, baseSha: string): Promise<CommitRef[]> {
+  const out = await git(worktreePath, ['log', '--format=%h%x00%s', `${baseSha}..HEAD`]);
+  return out
+    .split('\n')
+    .map((line) => line.split('\0'))
+    .filter((parts): parts is [string, string] => parts.length === 2 && Boolean(parts[0]))
+    .map(([sha, subject]) => ({ sha, subject }));
+}
+
+/**
+ * How far the base branch has moved on since this worktree started — the rail's
+ * "main · 2 behind". Counts commits on the base that the worktree lacks, which
+ * is not the same as commits it is missing from its own history.
+ */
+export async function behindBase(worktreePath: string, baseBranch: string): Promise<number | null> {
+  try {
+    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..${baseBranch}`]);
+    const n = Number.parseInt(out.trim(), 10);
+    return Number.isNaN(n) ? null : n;
+  } catch {
+    // A base branch that isn't fetched here is not worth failing a card view for.
+    return null;
+  }
 }
 
 export async function isDirty(worktreePath: string): Promise<boolean> {

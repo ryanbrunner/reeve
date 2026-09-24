@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { isRunnable, type Stage } from '@reeve/shared';
+import { isRunnable, type ApiDiff, type Stage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   addCriterion,
@@ -19,7 +19,8 @@ import {
   refsFor,
   updateCriterion,
 } from '../db/queries.js';
-import { checkWorktree } from '../git/worktree.js';
+import { checkWorktree, commitsSince, diffSince } from '../git/worktree.js';
+import { parseDiff } from '../git/parseDiff.js';
 import { toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
@@ -162,6 +163,38 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       parentRunId: asked?.id ?? null,
     });
     return c.json({ ok: true, answered: siblings.length, of: siblings.length, resumed: handle.runId }, 201);
+  });
+
+  /**
+   * What the card has changed, against the sha its worktree started from.
+   *
+   * Its own endpoint rather than part of `/detail` because it shells out to
+   * git, and the modal only needs it when the Changes tab is actually open.
+   */
+  routes.get('/:id/diff', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+    if (!card.worktreePath || !card.baseSha || !project) {
+      // No worktree is a normal state for a card in Backlog, not an error.
+      return c.json({ base: '', baseBranch: project?.defaultBranch ?? '', files: [], additions: 0, deletions: 0 } satisfies ApiDiff);
+    }
+    const files = parseDiff(await diffSince(card.worktreePath, card.baseSha));
+    const body: ApiDiff = {
+      base: card.baseSha,
+      baseBranch: project.defaultBranch,
+      files,
+      additions: files.reduce((n, f) => n + f.additions, 0),
+      deletions: files.reduce((n, f) => n + f.deletions, 0),
+    };
+    return c.json(body);
+  });
+
+  routes.get('/:id/commits', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (!card.worktreePath || !card.baseSha) return c.json([]);
+    return c.json(await commitsSince(card.worktreePath, card.baseSha));
   });
 
   return routes;
