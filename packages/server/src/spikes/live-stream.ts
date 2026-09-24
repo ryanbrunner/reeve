@@ -95,6 +95,8 @@ const checks: Array<[string, boolean, string]> = [
   ['live-only skips the replay', count(live, '"tool_use"') <= 1 && !live.includes('Reading the cart code'), `${count(live, 'data:')} events`],
   ['...but does deliver what happens next', live.includes('Writing the e2e tests'), ''],
   ['since=0 replays everything', replayed.includes('Reading the cart code'), `${count(replayed, 'data:')} events`],
+  // useLiveRun listens by these names; a renamed kind would go silently unheard.
+  ['events are named after their kind', replayed.includes('event: assistant') && replayed.includes('event: system:thinking_tokens'), ''],
   ['live-only survives a reconnect', !reconnect.includes('Reading the cart code'), `${count(reconnect, 'data:')} events`],
   ['tool calls and prose are turns', turns.length >= 3 && turns.every((d) => d.thinking === undefined), `${turns.length} turns`],
   ['thinking is not a turn', reasoning.length === 3 && reasoning.every((d) => !d.turn), `${reasoning.length} thinking`],
