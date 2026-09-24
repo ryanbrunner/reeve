@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { RunnableStage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
+import type { EventWriter } from '../runs/events.js';
 import type { Card, Project } from '../db/schema.js';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto';
@@ -20,6 +21,8 @@ export interface StageContext {
   answers?: Array<{ question: string; answer: string }>;
   /** Prior stage output this stage should build on, e.g. the approved plan. */
   priorArtifacts?: Array<{ kind: string; content: string }>;
+  /** The card's acceptance criteria, in order. Testing is handed these to check. */
+  criteria?: string[];
 }
 
 export interface ArtifactDraft {
@@ -32,13 +35,23 @@ export interface ArtifactDraft {
 export interface StageDefinition<Output = unknown> {
   id: RunnableStage;
   schema: z.ZodType<Output>;
-  buildPrompt(ctx: StageContext): string;
+  buildPrompt(ctx: StageContext, prepared?: Record<string, string>): string;
   permissionMode: PermissionMode;
   allowedTools: string[];
   maxBudgetUsd: number;
   maxTurns?: number;
   model?: string;
   effort?: EffortLevel;
+  /**
+   * Work the server does before the prompt is built, when the prompt needs
+   * something that does not exist yet — Testing photographs the build here, so
+   * `buildPrompt` can hand Claude the file paths of the pictures.
+   *
+   * Runs inside the run's own async body, after the run row exists, so a slow
+   * preparation shows on the board as a card already working rather than a
+   * request that hangs. Whatever it returns is merged into the template vars.
+   */
+  prepare?(db: Db, writer: EventWriter, ctx: StageContext, runId: string): Promise<Record<string, string>>;
   /** Turn validated output into artifacts. The server materialises them. */
   onComplete(ctx: StageContext, output: Output): ArtifactDraft[];
   /**

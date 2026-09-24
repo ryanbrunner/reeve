@@ -114,6 +114,28 @@ export const testingOutput = z.object({
     )
     .describe('Failures encountered. Empty if the suite was green first time.'),
   fixes_applied: z.array(z.string()).describe('Changes you made to get to green. Empty if none.'),
+  criteria: z
+    .array(
+      z.object({
+        index: z.number().int().describe('The criterion\u2019s number, exactly as it was given to you, counting from 1.'),
+        verdict: z.enum(['pass', 'fail']).describe('Whether this is true of the build right now.'),
+        evidence: z
+          .string()
+          .describe('How you know: a test name, a screenshot label, a line of output. Not a restatement of the criterion.'),
+      }),
+    )
+    .describe('A verdict on every acceptance criterion you were given. Do not invent or omit numbers.'),
+  differences: z
+    .array(
+      z.object({
+        capture_label: z.string().describe('The screenshot this is about, by its label.'),
+        claim: z.string().describe('The difference itself, in one sentence a designer would recognise.'),
+        note: z.string().describe('Why it is this way, or why it might be fine. One sentence.'),
+      }),
+    )
+    .describe(
+      'Where the build and the mockup differ, judged by looking at both images. Report what a person would notice — a control that became a link, spacing that changed the rhythm — not every pixel. Empty if there were no mockups, or if they match.',
+    ),
 });
 
 export const triageOutput = z.object({
@@ -130,6 +152,20 @@ export const triageOutput = z.object({
   notes: z.string().describe('Anything about the backlog as a whole worth saying. May be empty.'),
 });
 
+/**
+ * Not a stage — a one-shot Claude call behind the brief's Suggest button. It
+ * still gets a real run, because it costs money and belongs in the card's
+ * history like anything else Claude did.
+ */
+export const criteriaOutput = z.object({
+  criteria: z
+    .array(z.string())
+    .describe(
+      'What must be true for this card to be done, each independently checkable and written as something a person could observe rather than a task to perform.',
+    ),
+});
+
+export type CriteriaOutput = z.infer<typeof criteriaOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
 export type ImplementationOutput = z.infer<typeof implementationOutput>;
 export type TestingOutput = z.infer<typeof testingOutput>;
@@ -175,4 +211,5 @@ export function assertContractsConvertible(): void {
     }
   }
   jsonSchemaFor(triageOutput);
+  jsonSchemaFor(criteriaOutput);
 }

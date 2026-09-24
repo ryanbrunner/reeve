@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { StopReason } from '@reeve/shared';
 import { jsonSchemaFor } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { artifactsForCard, insertCardEvent, insertRun, setRunStatus } from '../db/queries.js';
+import { artifactsForCard, criteriaFor, insertCardEvent, insertRun, setRunStatus } from '../db/queries.js';
 import { artifact as artifactTable, type Card, type Project } from '../db/schema.js';
 import type { StageContext, StageDefinition } from '../stages/types.js';
 import type { EventWriter } from './events.js';
@@ -84,8 +84,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     priorArtifacts: artifactsForCard(db, card.id)
       .filter((a) => a.stage !== stage.id && a.supersededBy === null)
       .map((a) => ({ kind: a.kind, content: a.content })),
+    criteria: criteriaFor(db, card.id).map((c) => c.text),
   };
-  const promptText = stage.buildPrompt(ctx);
   // Generated here and stored BEFORE the subprocess exists, so an orphaned run
   // is still resumable after a restart.
   const sessionId = crypto.randomUUID();
@@ -103,7 +103,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     effort: stage.effort ?? null,
     permissionMode: stage.permissionMode,
     maxBudgetUsd: stage.maxBudgetUsd,
-    prompt: promptText,
+    // Filled in once the prompt exists. A stage that has to prepare something
+    // first — Testing takes its screenshots — writes the prompt after that, so
+    // the row is briefly a run with no prompt, exactly as it is briefly a run
+    // with no process.
+    prompt: null,
     cwd: worktreePath,
     startedAt: new Date(),
   });
@@ -121,7 +125,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const abortController = new AbortController();
   let cancelled = false;
 
-  const options: Options = {
+  const options: Omit<Options, 'prompt'> = {
     cwd: worktreePath,
     abortController,
     // sessionId cannot combine with resume unless forkSession is also set, so a
@@ -144,6 +148,12 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const done = (async () => {
     let result: Extract<SDKMessage, { type: 'result' }> | null = null;
     try {
+      // Anything the prompt needs that does not exist yet. A stage without a
+      // `prepare` contributes nothing and this is one await of undefined.
+      const prepared = (await stage.prepare?.(db, writer, ctx, runId)) ?? {};
+      const promptText = stage.buildPrompt(ctx, prepared);
+      setRunStatus(db, runId, { prompt: promptText });
+
       const q = query({ prompt: singleMessage(promptText), options });
       runRegistry.register({
         runId,

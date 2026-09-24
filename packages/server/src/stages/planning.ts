@@ -115,6 +115,12 @@ function composePlan(output: PlanningOutput): string {
     out.push('');
   }
 
+  if (output.captures.length) {
+    out.push('## Captures', '');
+    for (const c of output.captures) out.push(`- ${c.label} — \`${c.path}\` at ${c.viewport}px`);
+    out.push('');
+  }
+
   if (output.acceptance_criteria.length) {
     out.push('## Acceptance criteria', '');
     for (const c of output.acceptance_criteria) out.push(`- [ ] ${c}`);

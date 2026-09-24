@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { needsWorktree } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getCard, listProjects, runsForCard } from '../db/queries.js';
+import { getCard, listProjects } from '../db/queries.js';
 import { card as cardTable } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkWorktree, createWorktree, isDirty, removeWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
 import type { EventWriter } from '../runs/events.js';
-import { findFreePort } from '../runs/ports.js';
+import { ensureDevServer } from '../runs/devServer.js';
 import { runRegistry } from '../runs/registry.js';
 import { startShellRun } from '../runs/shell.js';
 
@@ -87,22 +87,13 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const card = getCard(db, cardId);
     if (!card) return c.json({ error: 'not found' }, 404);
     const project = projectFor(card.projectId);
-    if (!project?.serverCommand) return c.json({ error: 'project has no server command' }, 400);
-    if (!card.worktreePath) return c.json({ error: 'card has no worktree' }, 400);
+    if (!project) return c.json({ error: 'card has no project' }, 400);
 
-    const existing = runRegistry.all().find((r) => r.cardId === cardId && r.kind === 'server');
-    if (existing) return c.json({ error: 'server already running', detail: existing.runId }, 409);
-
-    const taken = new Set(
-      runsForCard(db, cardId).map((r) => r.port).filter((p): p is number => p != null),
-    );
-    const port = await findFreePort(taken);
-    const handle = startShellRun({
-      db, writer, cardId, stage: card.stage,
-      command: project.serverCommand, cwd: card.worktreePath,
-      port, longLived: true,
-    });
-    return c.json({ ok: true, runId: handle.runId, port, url: `http://localhost:${port}` }, 201);
+    const server = await ensureDevServer(db, writer, card, project);
+    if (server.state === 'unavailable') return c.json({ error: server.reason }, 400);
+    // Pressing start twice is not an error, but it is worth saying which it was.
+    if (!server.started) return c.json({ error: 'server already running', detail: server.runId }, 409);
+    return c.json({ ok: true, runId: server.runId, port: server.port, url: server.url }, 201);
   });
 
   routes.delete('/:id/server', async (c) => {
