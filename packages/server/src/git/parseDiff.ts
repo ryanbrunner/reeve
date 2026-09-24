@@ -1,5 +1,5 @@
 /**
- * Unified diff to rows the Changes tab can render directly.
+ * Unified diff to rows the Diff tab can render directly.
  *
  * Parsed here rather than in the browser for the same reason the plan document
  * is composed here: the client should receive what it displays, not a format it

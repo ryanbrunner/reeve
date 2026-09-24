@@ -249,8 +249,8 @@ export interface ApiWorktree {
  * One payload and so one query key and one poll: a modal whose header, tabs
  * and rail each fetched separately would show a card mid-transition, with the
  * stage in the header disagreeing with the stage in the rail. The diff and the
- * commit list are the deliberate exceptions — they shell out to git, and are
- * only wanted while the Changes tab is open.
+ * commit list are the deliberate exceptions — they shell out to git, and so
+ * are fetched once when the modal opens rather than on every poll.
  */
 export interface CardDetail {
   card: ApiCard;

@@ -217,7 +217,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
    * What the card has changed, against the sha its worktree started from.
    *
    * Its own endpoint rather than part of `/detail` because it shells out to
-   * git, and the modal only needs it when the Changes tab is actually open.
+   * git, and has no reason to be re-read on every poll of `/detail`.
    */
   /**
    * A note for Claude's next run. The third thing a human can say, beside a

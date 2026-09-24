@@ -11,7 +11,7 @@ import type { StageDefinition } from './types.js';
  * throwaway branch — which is the whole reason a card gets one.
  *
  * It commits as it goes. A card's work being four commits rather than one diff
- * is what lets the Changes tab show the shape of the work, and what makes a bad
+ * is what lets the Commits rail show the shape of the work, and what makes a bad
  * run something to drop rather than unpick.
  */
 export const inProgressStage: StageDefinition<ImplementationOutput> = {
