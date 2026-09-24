@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -540,6 +540,22 @@ export function replaceQuestions(
 
 export function questionsForRun(db: Db, runId: string) {
   return db.select().from(question).where(eq(question.runId, runId)).orderBy(asc(question.position)).all();
+}
+
+/**
+ * Every question the card has had answered, oldest run first.
+ *
+ * Card-wide rather than per run: answering the last question forks a new run,
+ * which asks nothing, so the latest run's questions are exactly the ones
+ * already settled and no longer attached to it.
+ */
+export function answeredQuestionsFor(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(question)
+    .where(and(eq(question.cardId, cardId), isNotNull(question.answer)))
+    .orderBy(asc(question.createdAt), asc(question.position))
+    .all();
 }
 
 export function getQuestion(db: Db, id: string) {

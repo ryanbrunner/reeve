@@ -242,6 +242,15 @@ export interface ApiWorktree {
   server: ApiDevServer | null;
 }
 
+/**
+ * What `POST /cards/:id/handoff` answers with: where the context file landed,
+ * and the one line to paste into a terminal to start Claude Code on it.
+ */
+export interface HandoffResponse {
+  path: string;
+  command: string;
+}
+
 // --- The whole card ---------------------------------------------------------
 
 /**

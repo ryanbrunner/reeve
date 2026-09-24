@@ -12,6 +12,7 @@ import type {
   CardDetail,
   CreateCardBody,
   CreateProjectBody,
+  HandoffResponse,
   MoveCardBody,
   Stage,
   UpdateProjectBody,
@@ -112,6 +113,8 @@ export const api = {
     post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number; url: string }>),
   stopServer: (id: string) => del(`/api/cards/${id}/server`).then(json<{ ok: true }>),
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
+  /** Writes `.reeve/handoff.md` into the worktree and answers with the command to paste. */
+  handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
 };
 
 export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>
