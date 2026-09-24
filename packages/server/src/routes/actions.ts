@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { needsWorktree } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getCard, insertCardEvent, listProjects } from '../db/queries.js';
+import { getCard, insertCardEvent, latestClaudeRunForStage, listProjects } from '../db/queries.js';
 import { card as cardTable } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkWorktree, createWorktree, isDirty, removeWorktree } from '../git/worktree.js';
@@ -123,7 +123,14 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (card.stage === 'done' || !needsWorktree(card.stage)) {
       return c.json({ error: 'stage cannot be handed off', detail: card.stage }, 400);
     }
-    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude')) {
+    // The row as well as the registry: a run is only registered once its
+    // `prepare` is done, and Testing's takes a dev server boot and a round of
+    // screenshots — long enough to hand off a tree it is about to edit.
+    const latest = latestClaudeRunForStage(db, cardId, card.stage);
+    if (
+      runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude') ||
+      (latest && ['queued', 'running', 'stopping'].includes(latest.status))
+    ) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
     const health = await checkWorktree(project.repoPath, card.worktreePath);
