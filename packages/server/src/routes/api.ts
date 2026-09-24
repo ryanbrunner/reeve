@@ -82,15 +82,44 @@ export function apiRoutes(db: Db) {
   api.post('/cards', async (c) => {
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
+    if (parsed.data.projectId && !listProjects(db).some((p) => p.id === parsed.data.projectId)) {
+      return c.json({ error: 'no such project', detail: parsed.data.projectId }, 400);
+    }
     const created = createCard(db, parsed.data);
-    return c.json(toBoardCard(db, created, null, null), 201);
+    const project = created.projectId ? listProjects(db).find((p) => p.id === created.projectId) : undefined;
+    return c.json(toBoardCard(db, created, project?.name ?? null, project?.laneColor ?? null), 201);
   });
 
   api.patch('/cards/:id', async (c) => {
     const parsed = updateCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
-    const updated = updateCard(db, c.req.param('id'), parsed.data);
-    return updated ? c.json(toBoardCard(db, updated, null, null)) : c.json({ error: 'not found' }, 404);
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+
+    const { projectId } = parsed.data;
+    if (projectId !== undefined && projectId !== existing.projectId) {
+      // The branch and the directory on disk belong to the repo the card was in
+      // when they were made. Repointing the card leaves them behind in a repo
+      // nothing looks at any more, and every later call — diff, server, run —
+      // would resolve the new project's `repoPath` against the old tree.
+      if (existing.worktreePath) {
+        return c.json(
+          { error: 'card has a worktree', detail: 'remove the worktree before moving the card to another project' },
+          400,
+        );
+      }
+      // Without this the foreign key raises, which is a 500 for what is a
+      // caller's mistake.
+      if (projectId !== null && !listProjects(db).some((p) => p.id === projectId)) {
+        return c.json({ error: 'no such project', detail: projectId }, 400);
+      }
+    }
+
+    const updated = updateCard(db, id, parsed.data);
+    if (!updated) return c.json({ error: 'not found' }, 404);
+    const project = updated.projectId ? listProjects(db).find((p) => p.id === updated.projectId) : undefined;
+    return c.json(toBoardCard(db, updated, project?.name ?? null, project?.laneColor ?? null));
   });
 
   api.post('/cards/:id/move', async (c) => {

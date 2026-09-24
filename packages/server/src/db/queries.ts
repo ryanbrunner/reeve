@@ -252,8 +252,26 @@ function nextCardNumber(db: Db, projectId: string | null): number {
   return (top?.max ?? 0) + 1;
 }
 
+/**
+ * Moving a card to another project renumbers it into that project's sequence.
+ * `#n` is per-project, so carrying the old number across would put two `#3`s in
+ * one project — worse than a number that changed once while the card was still
+ * being filed. The number it vacates is not reused: `nextCardNumber` reads a
+ * high-water mark, not a count.
+ */
 export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title' | 'body' | 'projectId'>>) {
-  return db.update(card).set({ ...patch, updatedAt: new Date() }).where(eq(card.id, id)).returning().get();
+  const before = patch.projectId === undefined ? undefined : getCard(db, id);
+  const reassigned = before !== undefined && patch.projectId !== before.projectId;
+  return db
+    .update(card)
+    .set({
+      ...patch,
+      ...(reassigned ? { number: nextCardNumber(db, patch.projectId ?? null) } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(card.id, id))
+    .returning()
+    .get();
 }
 
 export function archiveCard(db: Db, id: string) {
