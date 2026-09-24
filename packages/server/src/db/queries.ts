@@ -1,15 +1,20 @@
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from './client.js';
 import {
+  acceptanceCriterion,
   artifact,
   card,
   cardEvent,
+  cardRef,
   project,
   review,
   run,
   runEvent,
+  type AcceptanceCriterion,
   type Card,
   type ArtifactKind,
+  type CardRefKind,
+  type CriterionVerdict,
   type CardEventActor,
   type CardEventKind,
   type CardStage,
@@ -353,4 +358,97 @@ export function stageHistory(db: Db, cardId: string): Partial<Record<CardStage, 
     else if (e.kind === 'created' && e.stage) entered[e.stage] = at;
   }
   return entered;
+}
+
+// ---------------------------------------------------------------------------
+// What "done" means, and what to read first
+// ---------------------------------------------------------------------------
+
+export function criteriaFor(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(acceptanceCriterion)
+    .where(eq(acceptanceCriterion.cardId, cardId))
+    .orderBy(asc(acceptanceCriterion.position))
+    .all();
+}
+
+/** Appended at the end of the list, which is where a new one belongs. */
+export function addCriterion(
+  db: Db,
+  cardId: string,
+  text: string,
+  source: CardEventActor = 'human',
+) {
+  const siblings = criteriaFor(db, cardId);
+  const last = siblings[siblings.length - 1]?.position ?? 0;
+  return db
+    .insert(acceptanceCriterion)
+    .values({ id: crypto.randomUUID(), cardId, position: last + POSITION_GAP, text, source })
+    .returning()
+    .get();
+}
+
+export function updateCriterion(
+  db: Db,
+  id: string,
+  patch: Partial<Pick<AcceptanceCriterion, 'text' | 'position' | 'verdict' | 'evidence' | 'verifiedRunId'>>,
+) {
+  return db.update(acceptanceCriterion).set(patch).where(eq(acceptanceCriterion.id, id)).returning().get();
+}
+
+export function deleteCriterion(db: Db, id: string) {
+  return db.delete(acceptanceCriterion).where(eq(acceptanceCriterion.id, id)).returning().get();
+}
+
+/**
+ * Record a Testing run's verdicts by the position a person sees, not by id:
+ * Claude is handed a numbered list and answers in those numbers, so this is
+ * where "criterion 3" becomes a row. Numbers that match nothing are dropped
+ * rather than throwing — a miscounted index should not fail a whole run.
+ */
+export function recordVerdicts(
+  db: Db,
+  cardId: string,
+  runId: string,
+  verdicts: Array<{ index: number; verdict: CriterionVerdict; evidence: string }>,
+): number {
+  const ordered = criteriaFor(db, cardId);
+  let applied = 0;
+  for (const v of verdicts) {
+    const row = ordered[v.index - 1];
+    if (!row) continue;
+    updateCriterion(db, row.id, { verdict: v.verdict, evidence: v.evidence, verifiedRunId: runId });
+    applied++;
+  }
+  return applied;
+}
+
+/** Wipe the previous run's marking, so a fresh Testing run starts unjudged. */
+export function clearVerdicts(db: Db, cardId: string) {
+  db.update(acceptanceCriterion)
+    .set({ verdict: null, evidence: null, verifiedRunId: null })
+    .where(eq(acceptanceCriterion.cardId, cardId))
+    .run();
+}
+
+export function refsFor(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(cardRef)
+    .where(eq(cardRef.cardId, cardId))
+    .orderBy(asc(cardRef.createdAt))
+    .all();
+}
+
+export function addRef(db: Db, cardId: string, kind: CardRefKind, value: string, label?: string | null) {
+  return db
+    .insert(cardRef)
+    .values({ id: crypto.randomUUID(), cardId, kind, value, label: label ?? null })
+    .returning()
+    .get();
+}
+
+export function deleteRef(db: Db, id: string) {
+  return db.delete(cardRef).where(eq(cardRef.id, id)).returning().get();
 }

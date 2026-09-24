@@ -1,17 +1,21 @@
 import type {
   ApiCard,
   ApiCardEvent,
+  ApiCardRef,
+  ApiCriterion,
   ApiProject,
   ApiRunSummary,
   CardActivity,
   CardEventActor,
   CardEventKind,
+  CardRefKind,
+  CriterionVerdict,
   RunKind,
   RunStatus,
   Stage,
   StopReason,
 } from '@reeve/shared';
-import type { Card, CardEvent, Project, Run } from './db/schema.js';
+import type { AcceptanceCriterion, Card, CardEvent, CardRef, Project, Run } from './db/schema.js';
 
 const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
@@ -92,4 +96,20 @@ export function toApiCardEvent(e: CardEvent): ApiCardEvent {
     meta: e.meta ?? null,
     createdAt: ms(e.createdAt) ?? 0,
   };
+}
+
+export function toApiCriterion(c: AcceptanceCriterion): ApiCriterion {
+  return {
+    id: c.id,
+    position: c.position,
+    text: c.text,
+    source: c.source as CardEventActor,
+    verdict: (c.verdict ?? null) as CriterionVerdict | null,
+    evidence: c.evidence,
+    verifiedRunId: c.verifiedRunId,
+  };
+}
+
+export function toApiCardRef(r: CardRef): ApiCardRef {
+  return { id: r.id, kind: r.kind as CardRefKind, value: r.value, label: r.label };
 }

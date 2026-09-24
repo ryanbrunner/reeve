@@ -15,6 +15,13 @@
       "when": 1790250836181,
       "tag": "0001_spooky_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790251048770,
+      "tag": "0002_even_rhodey",
+      "breakpoints": true
     }
   ]
 }

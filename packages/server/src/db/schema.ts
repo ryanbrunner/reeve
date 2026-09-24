@@ -31,6 +31,13 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 export const CARD_EVENT_ACTORS = ['human', 'claude'] as const;
 export type CardEventActor = (typeof CARD_EVENT_ACTORS)[number];
 
+export const CRITERION_VERDICTS = ['pass', 'fail'] as const;
+export type CriterionVerdict = (typeof CRITERION_VERDICTS)[number];
+
+/** What a piece of context points at: a path in the repo, another card, a link. */
+export const CARD_REF_KINDS = ['file', 'card', 'url'] as const;
+export type CardRefKind = (typeof CARD_REF_KINDS)[number];
+
 export const CARD_EVENT_KINDS = [
   'created',
   'moved',
@@ -206,6 +213,53 @@ export const cardEvent = sqliteTable(
   (t) => [index('card_event_card').on(t.cardId, t.createdAt)],
 );
 
+/**
+ * What "done" means for this card, in the human's words before Claude writes a
+ * line — and afterwards, in Testing, the checklist Claude marks off.
+ *
+ * Both readings are the same rows: the brief's numbered list and the rail's
+ * "6 of 6 verified" cannot disagree because there is nothing for them to
+ * disagree about. A verdict belongs to the run that reached it, so re-running
+ * Testing replaces the verdicts without touching what was asked for.
+ */
+export const acceptanceCriterion = sqliteTable(
+  'acceptance_criterion',
+  {
+    id: text('id').primaryKey(),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    // Fractional, like card.position: reordering rewrites one row, not the list.
+    position: real('position').notNull(),
+    text: text('text').notNull(),
+    // Whether a person wrote this or accepted Claude's suggestion of it.
+    source: text('source').$type<CardEventActor>().notNull().default('human'),
+    verifiedRunId: text('verified_run_id').references(() => run.id, { onDelete: 'set null' }),
+    verdict: text('verdict').$type<CriterionVerdict>(),
+    /** How Claude knows: a test name, a screenshot label, a line of output. */
+    evidence: text('evidence'),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index('criterion_card').on(t.cardId, t.position)],
+);
+
+/** The handful of things worth reading before starting: files, cards, links. */
+export const cardRef = sqliteTable(
+  'card_ref',
+  {
+    id: text('id').primaryKey(),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<CardRefKind>().notNull(),
+    /** A repo-relative path, another card's id, or a URL, per `kind`. */
+    value: text('value').notNull(),
+    label: text('label'),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index('card_ref_card').on(t.cardId, t.createdAt)],
+);
+
 export const artifact = sqliteTable(
   'artifact',
   {
@@ -254,5 +308,7 @@ export type RunEvent = typeof runEvent.$inferSelect;
 export type NewRunEvent = typeof runEvent.$inferInsert;
 export type CardEvent = typeof cardEvent.$inferSelect;
 export type NewCardEvent = typeof cardEvent.$inferInsert;
+export type AcceptanceCriterion = typeof acceptanceCriterion.$inferSelect;
+export type CardRef = typeof cardRef.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;

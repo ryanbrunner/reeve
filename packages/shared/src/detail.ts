@@ -46,3 +46,26 @@ export interface ApiCardEvent {
  * `moved` events, never stored.
  */
 export type StageHistory = Partial<Record<Stage, number>>;
+
+export type CriterionVerdict = 'pass' | 'fail';
+
+export interface ApiCriterion {
+  id: string;
+  position: number;
+  text: string;
+  /** Whether a person wrote this, or accepted Claude's suggestion of it. */
+  source: CardEventActor;
+  /** Null until a Testing run has judged it. */
+  verdict: CriterionVerdict | null;
+  evidence: string | null;
+  verifiedRunId: string | null;
+}
+
+export type CardRefKind = 'file' | 'card' | 'url';
+
+export interface ApiCardRef {
+  id: string;
+  kind: CardRefKind;
+  value: string;
+  label: string | null;
+}
