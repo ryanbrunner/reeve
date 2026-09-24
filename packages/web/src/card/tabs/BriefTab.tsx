@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
+import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
 /**
@@ -52,7 +53,7 @@ function Purpose({ detail }: { detail: CardDetail }) {
       </SectionHead>
       {draft === null ? (
         detail.card.body.trim() ? (
-          <p className="max-w-[40rem] text-sm/5 whitespace-pre-wrap text-(--color-text)">{detail.card.body}</p>
+          <Markdown className="max-w-[40rem]">{detail.card.body}</Markdown>
         ) : (
           <Empty>Nothing written yet.</Empty>
         )
