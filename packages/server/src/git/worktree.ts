@@ -315,7 +315,7 @@ export async function squashMerge(opts: {
       .then((out) => out.split('\n').filter(Boolean))
       .catch(() => []);
     await abandon();
-    if (conflicted.length) throw new GitError('the squash conflicts', `conflicts in ${conflicted.join(', ')}`);
+    if (conflicted.length) throw new GitError('the squash conflicts', conflicted.join(', '));
     throw cause;
   }
 
