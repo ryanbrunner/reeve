@@ -29,6 +29,7 @@ export const STOP_REASONS = [
   'completed',
   'cancelled_by_user',
   'budget_exhausted',
+  'max_turns',
   'invalid_output',
   'sdk_error',
   'process_died',
@@ -43,7 +44,7 @@ export type StopReason = (typeof STOP_REASONS)[number];
 export function recoveryFor(status: RunStatus, reason: StopReason | null): Array<'resume' | 'retry'> {
   if (status === 'succeeded') return [];
   if (reason === 'invalid_output') return ['retry'];
-  if (reason === 'budget_exhausted' || status === 'interrupted' || status === 'cancelled') {
+  if (reason === 'budget_exhausted' || reason === 'max_turns' || status === 'interrupted' || status === 'cancelled') {
     return ['resume', 'retry'];
   }
   return ['retry', 'resume'];
