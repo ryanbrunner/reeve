@@ -56,6 +56,7 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     kind: r.kind as RunKind,
     stage: r.stage as Stage,
     status: r.status as RunStatus,
+    task: r.task,
     stopReason: (r.stopReason ?? null) as StopReason | null,
     totalCostUsd: r.totalCostUsd,
     port: r.port,
