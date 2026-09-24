@@ -1,0 +1,21 @@
+{
+  "name": "reeve",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @reeve/server & npm run dev --workspace @reeve/web",
+    "dev:server": "npm run dev --workspace @reeve/server",
+    "dev:web": "npm run dev --workspace @reeve/web",
+    "build": "npm run build --workspace @reeve/web",
+    "start": "npm run start --workspace @reeve/server",
+    "seed": "npm run seed --workspace @reeve/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run db:generate --workspace @reeve/server"
+  }
+}
