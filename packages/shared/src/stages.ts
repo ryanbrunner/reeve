@@ -34,13 +34,18 @@ export function isRunnable(stage: Stage): stage is RunnableStage {
 }
 
 /**
- * There is deliberately no `advance()` here.
+ * The stage after this one, or null at the end of the board.
  *
- * A card changes column only when the human drags it. Finishing a stage, and
- * even approving it, leaves the card exactly where it is and shows up as a
- * change of `CardActivity` instead — see ./activity.ts. The board is the
- * human's model of the work, so nothing but the human rearranges it.
+ * The rule this exists to serve is human-in-the-loop, not never-advance. A run
+ * finishing on its own must never carry a card forward — that shows up as a
+ * change of `CardActivity` instead, see ./activity.ts — but a human saying the
+ * work is good is exactly the signal to move on, so approving a stage advances
+ * the card. Claude never moves a card; a human action does, whether that action
+ * is a drag or an approval.
  */
+export function nextStage(stage: Stage): Stage | null {
+  return STAGES[STAGES.indexOf(stage) + 1] ?? null;
+}
 
 /** A card needs a worktree from Planning onward; Backlog and Ready don't. */
 export function needsWorktree(stage: Stage): boolean {

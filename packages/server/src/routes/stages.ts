@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { isRunnable, type Stage } from '@reeve/shared';
+import { isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { config } from '../config.js';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   getCard,
+  cardsInStage,
   insertReview,
   latestRunForStage,
   listProjects,
+  moveCard,
   reviewsForCard,
 } from '../db/queries.js';
 import { checkWorktree } from '../git/worktree.js';
@@ -71,10 +73,13 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * The human gate, and only a gate: it records a verdict and never moves the
-   * card. Approving marks the stage's output good and leaves it sitting in its
-   * column for the human to drag on; rejecting forks the session so the prior
-   * attempt stays intact and readable.
+   * The human gate. Approving says the stage's output is good, so it records the
+   * verdict AND advances the card one column — a human deciding the work is done
+   * is the whole point of the gate, and making them then drag the card is asking
+   * them to say it twice. A run finishing on its own still moves nothing.
+   *
+   * Rejecting moves nothing either: it forks the session so the prior attempt
+   * stays intact and readable, and the notes become the revision prompt.
    */
   routes.post('/:id/review', async (c) => {
     const loaded = load(c.req.param('id'));
@@ -91,13 +96,19 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
+      // Done is the end of the board; approving there is a verdict with nowhere
+      // to go, so the card stays put rather than the request failing.
+      const to = nextStage(card.stage as Stage) ?? card.stage;
       insertReview(db, {
         id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
         stage: card.stage, decision: 'approved', notes: notes ?? null,
-        // Same column in and out: approval is a verdict on the work, not a move.
-        fromStage: card.stage, toStage: card.stage,
+        fromStage: card.stage, toStage: to,
       });
-      return c.json({ ok: true, stage: card.stage, moved: false });
+      if (to !== card.stage) {
+        // Appended, not inserted: the human chose the column, not the slot.
+        moveCard(db, card.id, to, cardsInStage(db, to).length);
+      }
+      return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
     }
 
     if (!notes?.trim()) {
