@@ -33,18 +33,14 @@ export function isRunnable(stage: Stage): stage is RunnableStage {
   return (RUNNABLE_STAGES as readonly string[]).includes(stage);
 }
 
-export function nextStage(stage: Stage): Stage | null {
-  const i = STAGES.indexOf(stage);
-  return i < 0 || i === STAGES.length - 1 ? null : (STAGES[i + 1] as Stage);
-}
-
 /**
- * Approving a stage advances the card but never auto-starts the next stage —
- * the human kicks each one off.
+ * There is deliberately no `advance()` here.
+ *
+ * A card changes column only when the human drags it. Finishing a stage, and
+ * even approving it, leaves the card exactly where it is and shows up as a
+ * change of `CardActivity` instead — see ./activity.ts. The board is the
+ * human's model of the work, so nothing but the human rearranges it.
  */
-export function stageAfterApproval(stage: Stage): Stage | null {
-  return nextStage(stage);
-}
 
 /** A card needs a worktree from Planning onward; Backlog and Ready don't. */
 export function needsWorktree(stage: Stage): boolean {

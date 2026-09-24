@@ -139,6 +139,7 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
   return true;
 }
 
+/** The only place a card's stage changes. Reached solely by a human drag. */
 export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
   const position = positionForSlot(db, stage, index, id);
   const updated = db
@@ -245,8 +246,4 @@ export function insertReview(db: Db, values: typeof review.$inferInsert) {
 
 export function reviewsForCard(db: Db, cardId: string) {
   return db.select().from(review).where(eq(review.cardId, cardId)).orderBy(desc(review.createdAt)).all();
-}
-
-export function setCardStage(db: Db, id: string, stage: CardStage) {
-  return db.update(card).set({ stage, updatedAt: new Date() }).where(eq(card.id, id)).returning().get();
 }

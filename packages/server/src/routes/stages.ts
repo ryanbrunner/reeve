@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { isRunnable, stageAfterApproval, type Stage } from '@reeve/shared';
+import { isRunnable, type Stage } from '@reeve/shared';
 import { config } from '../config.js';
 import type { Db } from '../db/client.js';
 import {
@@ -10,7 +10,6 @@ import {
   latestRunForStage,
   listProjects,
   reviewsForCard,
-  setCardStage,
 } from '../db/queries.js';
 import { checkWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
@@ -72,8 +71,10 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * The human gate. Approving advances the column but never auto-starts the
-   * next stage; rejecting forks the session so the prior attempt stays intact.
+   * The human gate, and only a gate: it records a verdict and never moves the
+   * card. Approving marks the stage's output good and leaves it sitting in its
+   * column for the human to drag on; rejecting forks the session so the prior
+   * attempt stays intact and readable.
    */
   routes.post('/:id/review', async (c) => {
     const loaded = load(c.req.param('id'));
@@ -90,14 +91,13 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
-      const next = stageAfterApproval(card.stage as Stage);
       insertReview(db, {
         id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
         stage: card.stage, decision: 'approved', notes: notes ?? null,
-        fromStage: card.stage, toStage: (next ?? card.stage),
+        // Same column in and out: approval is a verdict on the work, not a move.
+        fromStage: card.stage, toStage: card.stage,
       });
-      const updated = next ? setCardStage(db, card.id, next) : card;
-      return c.json({ ok: true, stage: updated.stage, startedNextStage: false });
+      return c.json({ ok: true, stage: card.stage, moved: false });
     }
 
     if (!notes?.trim()) {
