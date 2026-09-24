@@ -77,7 +77,7 @@ export function ArchiveModal({ onClose, onOpen }: { onClose: () => void; onOpen:
           : error ?
             <Empty>Could not load the archive. {error.message}</Empty>
           : cards.length === 0 ?
-            <Empty>Nothing archived. Archive a card from its header to take it off the board.</Empty>
+            <Empty>Nothing archived. A card deleted from its header lands here.</Empty>
           : <ul className="-mx-1.5 flex flex-col">
               {cards.map((card) => (
                 <ArchivedRow key={card.id} card={card} onOpen={onOpen} />

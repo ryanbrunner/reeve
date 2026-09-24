@@ -75,10 +75,10 @@ export function CardHeader({
             <span className="font-mono text-[10px]/4 text-(--color-muted)">Updated {when(card.updatedAt)}</span>
             <SmallButton
               disabled={running || archive.isPending}
-              title={running ? 'Stop the run before archiving' : 'Take the card off the board'}
+              title={running ? 'Stop the run before deleting' : 'Take the card off the board. The Archive can restore it.'}
               onClick={() => archive.mutate()}
             >
-              {archive.isPending ? 'Archiving…' : 'Archive'}
+              {archive.isPending ? 'Deleting…' : 'Delete'}
             </SmallButton>
           </>
         }
