@@ -24,6 +24,25 @@ export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 export const ARTIFACT_KINDS = ['plan', 'diff', 'test_report', 'summary'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
+/**
+ * Who did a thing, at the only resolution this tool has: a person, or Claude.
+ * `card_event.actorId` is the seat kept warm for a real user table.
+ */
+export const CARD_EVENT_ACTORS = ['human', 'claude'] as const;
+export type CardEventActor = (typeof CARD_EVENT_ACTORS)[number];
+
+export const CARD_EVENT_KINDS = [
+  'created',
+  'moved',
+  'run_started',
+  'run_finished',
+  'reviewed',
+  'question_asked',
+  'answered',
+  'note',
+] as const;
+export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
+
 const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' });
 
 export const project = sqliteTable('project', {
@@ -50,6 +69,13 @@ export const card = sqliteTable(
   {
     id: text('id').primaryKey(),
     projectId: text('project_id').references(() => project.id, { onDelete: 'restrict' }),
+    /**
+     * Per-project, monotonic, and the only human-sized name a card has: `#142`.
+     * The default exists solely so SQLite could add the column to existing rows
+     * — the migration backfills them and `createCard` has assigned one ever
+     * since, so a zero here means something inserted behind that function.
+     */
+    number: integer('number').notNull().default(0),
     title: text('title').notNull(),
     body: text('body').notNull().default(''),
     stage: text('stage').$type<CardStage>().notNull().default('backlog'),
@@ -69,6 +95,7 @@ export const card = sqliteTable(
   (t) => [
     index('card_board').on(t.stage, t.position),
     index('card_project').on(t.projectId, t.stage, t.position),
+    index('card_number').on(t.projectId, t.number),
   ],
 );
 
@@ -145,6 +172,40 @@ export const runEvent = sqliteTable(
   (t) => [primaryKey({ columns: [t.runId, t.seq] })],
 );
 
+/**
+ * The card's story, in the terms a person tells it: moved, ran, asked, answered.
+ *
+ * Deliberately not `run_event`, which is the raw SDK transcript — thousands of
+ * rows a run, in Claude's vocabulary rather than the human's. This table is
+ * written at the handful of moments that would appear in a changelog, and one
+ * table serves three surfaces: the activity timeline, the stage rail's "since
+ * 10:38", and the card's own age. Stage history is read back off the `moved`
+ * rows rather than kept in a second table that could disagree with this one.
+ */
+export const cardEvent = sqliteTable(
+  'card_event',
+  {
+    id: text('id').primaryKey(),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    actor: text('actor').$type<CardEventActor>().notNull(),
+    // Nothing writes this yet. It is here so that the day there is a user table,
+    // adding it is a column filling in rather than a migration over every row.
+    actorId: text('actor_id'),
+    kind: text('kind').$type<CardEventKind>().notNull(),
+    // The stage the card was in when this happened, not where it went.
+    stage: text('stage').$type<CardStage>(),
+    runId: text('run_id').references(() => run.id, { onDelete: 'set null' }),
+    fromStage: text('from_stage').$type<CardStage>(),
+    toStage: text('to_stage').$type<CardStage>(),
+    body: text('body'),
+    meta: text('meta', { mode: 'json' }).$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index('card_event_card').on(t.cardId, t.createdAt)],
+);
+
 export const artifact = sqliteTable(
   'artifact',
   {
@@ -191,5 +252,7 @@ export type Run = typeof run.$inferSelect;
 export type NewRun = typeof run.$inferInsert;
 export type RunEvent = typeof runEvent.$inferSelect;
 export type NewRunEvent = typeof runEvent.$inferInsert;
+export type CardEvent = typeof cardEvent.$inferSelect;
+export type NewCardEvent = typeof cardEvent.$inferInsert;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;

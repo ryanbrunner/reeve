@@ -3,13 +3,17 @@ import type { Db } from './client.js';
 import {
   artifact,
   card,
+  cardEvent,
   project,
   review,
   run,
   runEvent,
   type Card,
   type ArtifactKind,
+  type CardEventActor,
+  type CardEventKind,
   type CardStage,
+  type NewCardEvent,
   type NewRun,
   type NewRunEvent,
   type RunStatus,
@@ -139,8 +143,14 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
   return true;
 }
 
-/** The only place a card's stage changes. Reached solely by a human drag. */
+/**
+ * The only place a card's stage changes, and it is only ever reached by a human
+ * — a drag, a click in the stage rail, or an approval. A move into a different
+ * column is recorded; a reorder within one is not, because where a card sits
+ * among its neighbours is not a thing anyone wants to read back later.
+ */
 export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
+  const before = getCard(db, id);
   const position = positionForSlot(db, stage, index, id);
   const updated = db
     .update(card)
@@ -148,6 +158,16 @@ export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
     .where(eq(card.id, id))
     .returning()
     .get();
+  if (before && before.stage !== stage) {
+    insertCardEvent(db, {
+      cardId: id,
+      actor: 'human',
+      kind: 'moved',
+      stage: before.stage,
+      fromStage: before.stage,
+      toStage: stage,
+    });
+  }
   renormaliseIfNeeded(db, stage);
   return updated;
 }
@@ -156,18 +176,44 @@ export function createCard(db: Db, values: { title: string; body?: string; proje
   const stage = values.stage ?? 'backlog';
   const siblings = cardsInStage(db, stage);
   const last = siblings[siblings.length - 1]?.position ?? 0;
-  return db
+  const projectId = values.projectId ?? null;
+  const created = db
     .insert(card)
     .values({
       id: crypto.randomUUID(),
+      number: nextCardNumber(db, projectId),
       title: values.title,
       body: values.body ?? '',
-      projectId: values.projectId ?? null,
+      projectId,
       stage,
       position: last + POSITION_GAP,
     })
     .returning()
     .get();
+  // The first entry in the card's story, and the one the stage rail reads as
+  // the moment it arrived in whatever column it started in.
+  insertCardEvent(db, {
+    cardId: created.id,
+    actor: 'human',
+    kind: 'created',
+    stage,
+    createdAt: created.createdAt,
+  });
+  return created;
+}
+
+/**
+ * Next free `#n` for a project. Counting live rows would reuse an archived
+ * card's number, so this reads the high-water mark instead: numbers are handed
+ * out once and never again, which is what makes them worth quoting to a person.
+ */
+function nextCardNumber(db: Db, projectId: string | null): number {
+  const top = db
+    .select({ max: sql<number | null>`max(${card.number})` })
+    .from(card)
+    .where(projectId === null ? isNull(card.projectId) : eq(card.projectId, projectId))
+    .get();
+  return (top?.max ?? 0) + 1;
 }
 
 export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title' | 'body' | 'projectId'>>) {
@@ -246,4 +292,65 @@ export function insertReview(db: Db, values: typeof review.$inferInsert) {
 
 export function reviewsForCard(db: Db, cardId: string) {
   return db.select().from(review).where(eq(review.cardId, cardId)).orderBy(desc(review.createdAt)).all();
+}
+
+// ---------------------------------------------------------------------------
+// The card's story
+// ---------------------------------------------------------------------------
+
+export interface CardEventDraft {
+  cardId: string;
+  actor: CardEventActor;
+  kind: CardEventKind;
+  stage?: CardStage | null;
+  runId?: string | null;
+  fromStage?: CardStage | null;
+  toStage?: CardStage | null;
+  body?: string | null;
+  meta?: Record<string, unknown> | null;
+  /** Only for backfills, where the event's real time is not now. */
+  createdAt?: Date;
+}
+
+/**
+ * Stamped from JS rather than left to the column default, which is
+ * `unixepoch() * 1000` and so only accurate to the second. Everywhere else
+ * that is fine; here it is not. Approving a card writes a verdict and a move
+ * in the same breath, and at second resolution the timeline could show them
+ * the wrong way round.
+ */
+export function insertCardEvent(db: Db, draft: CardEventDraft) {
+  const row: NewCardEvent = { createdAt: new Date(), ...draft, id: crypto.randomUUID() };
+  return db.insert(cardEvent).values(row).returning().get();
+}
+
+/** Newest first: the activity tab reads top-down and so does a person. */
+export function cardEventsFor(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(cardEvent)
+    .where(eq(cardEvent.cardId, cardId))
+    .orderBy(desc(cardEvent.createdAt), desc(cardEvent.id))
+    .all();
+}
+
+/**
+ * When the card entered each stage, or null for stages it has never reached.
+ *
+ * Read off the `moved` events rather than stored, for the same reason activity
+ * is derived: a second copy of the card's history is a second thing that can be
+ * wrong. A card that has bounced back to a column shows its LATEST arrival,
+ * which is what "since 10:38" means to the person reading it.
+ */
+export function stageHistory(db: Db, cardId: string): Partial<Record<CardStage, number>> {
+  const entered: Partial<Record<CardStage, number>> = {};
+  // Oldest first, so a later arrival in the same column overwrites an earlier one.
+  for (const e of cardEventsFor(db, cardId).reverse()) {
+    const at = e.createdAt?.getTime();
+    if (at === undefined) continue;
+    if (e.kind === 'moved' && e.toStage) entered[e.toStage] = at;
+    // A card starts life already in a column, and never moved into it.
+    else if (e.kind === 'created' && e.stage) entered[e.stage] = at;
+  }
+  return entered;
 }

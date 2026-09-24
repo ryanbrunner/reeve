@@ -38,6 +38,8 @@ export interface ApiRunSummary {
 
 export interface ApiCard {
   id: string;
+  /** Per-project and stable: the `#142` a person can say out loud. */
+  number: number;
   projectId: string | null;
   projectName: string | null;
   laneColor: string | null;

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { StopReason } from '@reeve/shared';
 import { jsonSchemaFor } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { insertRun, setRunStatus } from '../db/queries.js';
+import { insertCardEvent, insertRun, setRunStatus } from '../db/queries.js';
 import { artifact as artifactTable, type Card, type Project } from '../db/schema.js';
 import type { StageContext, StageDefinition } from '../stages/types.js';
 import type { EventWriter } from './events.js';
@@ -97,6 +97,15 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     startedAt: new Date(),
   });
   const runId = run.id;
+  insertCardEvent(db, {
+    cardId: card.id,
+    actor: 'claude',
+    kind: 'run_started',
+    stage: stage.id,
+    runId,
+    // A revision is a second attempt at the same thing, and reads differently.
+    meta: { revision: Boolean(resumeSessionId) },
+  });
 
   const abortController = new AbortController();
   let cancelled = false;
@@ -234,7 +243,7 @@ function finish(
     result?: string; structured_output?: unknown; permission_denials?: unknown;
     stop_reason?: string | null; terminal_reason?: string;
   };
-  setRunStatus(db, runId, {
+  const finished = setRunStatus(db, runId, {
     status,
     stopReason,
     errorMessage,
@@ -249,4 +258,25 @@ function finish(
     sdkStopReason: r?.stop_reason ?? null,
     sdkTerminalReason: r?.terminal_reason ?? null,
   });
+  // Every exit path lands here, so the timeline gets its closing entry from one
+  // place and cannot end up with a start that never finished.
+  if (finished) {
+    insertCardEvent(db, {
+      cardId: finished.cardId,
+      actor: 'claude',
+      kind: 'run_finished',
+      stage: finished.stage,
+      runId,
+      body: errorMessage,
+      meta: {
+        status,
+        stopReason,
+        costUsd: finished.totalCostUsd,
+        durationMs:
+          finished.startedAt && finished.finishedAt
+            ? finished.finishedAt.getTime() - finished.startedAt.getTime()
+            : null,
+      },
+    });
+  }
 }

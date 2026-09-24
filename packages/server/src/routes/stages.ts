@@ -7,6 +7,7 @@ import {
   artifactsForCard,
   getCard,
   cardsInStage,
+  insertCardEvent,
   insertReview,
   latestRunForStage,
   listProjects,
@@ -104,8 +105,14 @@ export function stageRoutes(db: Db, writer: EventWriter) {
         stage: card.stage, decision: 'approved', notes: notes ?? null,
         fromStage: card.stage, toStage: to,
       });
+      insertCardEvent(db, {
+        cardId: card.id, actor: 'human', kind: 'reviewed', stage: card.stage,
+        runId: lastRun.id, body: notes ?? null, meta: { decision: 'approved' },
+      });
       if (to !== card.stage) {
         // Appended, not inserted: the human chose the column, not the slot.
+        // moveCard writes the `moved` event, so the timeline reads as a verdict
+        // followed by a move rather than one conflated entry.
         moveCard(db, card.id, to, cardsInStage(db, to).length);
       }
       return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
@@ -118,6 +125,10 @@ export function stageRoutes(db: Db, writer: EventWriter) {
       id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
       stage: card.stage, decision: 'rejected', notes,
       fromStage: card.stage, toStage: card.stage,
+    });
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'reviewed', stage: card.stage,
+      runId: lastRun.id, body: notes, meta: { decision: 'rejected' },
     });
 
     const stage = stageDefinition(card.stage as never);
