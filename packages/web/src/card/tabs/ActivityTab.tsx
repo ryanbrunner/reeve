@@ -126,7 +126,10 @@ function NoteComposer({ detail }: { detail: CardDetail }) {
 function matches(e: ApiCardEvent, filter: Filter): boolean {
   if (filter === 'all') return true;
   if (filter === 'runs') return e.kind === 'run_started' || e.kind === 'run_finished';
-  return e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed';
+  return (
+    e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
+    e.kind === 'merged'
+  );
 }
 
 /** What the event says, as a sentence following the actor's name. */
@@ -149,6 +152,12 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return 'answered';
     case 'note':
       return 'left a note';
+    case 'merged': {
+      const sha = e.meta?.['sha'];
+      const into = e.meta?.['into'];
+      return `merged the work into ${typeof into === 'string' ? into : 'the base branch'}` +
+        (typeof sha === 'string' ? ` as ${sha.slice(0, 7)}` : '');
+    }
   }
 }
 

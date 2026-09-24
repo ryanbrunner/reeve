@@ -25,11 +25,12 @@ export function Tabs({ detail }: { detail: CardDetail }) {
   // Only fetched once the Changes tab is open: it shells out to git.
   // Fetched for any card that has a worktree rather than only while the tab is
   // open: the tab's own count comes out of it, and a count that only becomes
-  // true after you click is worse than no count.
+  // true after you click is worse than no count. A merged card has no worktree
+  // left, but the server reads its diff back off the squash commit.
   const diff = useQuery({
     queryKey: ['diff', detail.card.id],
     queryFn: () => api.diff(detail.card.id),
-    enabled: Boolean(detail.worktree.path),
+    enabled: Boolean(detail.worktree.path || detail.card.mergedSha),
   });
 
   const shots = detail.assets.filter((a) => a.kind === 'screenshot');
