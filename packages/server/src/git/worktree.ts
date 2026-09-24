@@ -26,8 +26,10 @@ async function git(repoPath: string, args: string[]): Promise<string> {
     const { stdout } = await exec('git', ['-C', repoPath, ...args], { maxBuffer: 16 * 1024 * 1024 });
     return stdout;
   } catch (cause) {
-    const e = cause as { stderr?: string; message?: string };
-    throw new GitError(`git ${args[0]} failed in ${repoPath}`, (e.stderr ?? e.message ?? '').trim());
+    // Falls back to stdout because some failures only speak there: a merge
+    // prints its CONFLICT lines to stdout, and so do plenty of commit hooks.
+    const e = cause as { stderr?: string; stdout?: string; message?: string };
+    throw new GitError(`git ${args[0]} failed in ${repoPath}`, (e.stderr?.trim() || e.stdout?.trim() || e.message || '').trim());
   }
 }
 
@@ -226,12 +228,27 @@ export interface CommitRef {
  * subject. Newest first, which is the order the rail lists them in.
  */
 export async function commitsSince(worktreePath: string, baseSha: string): Promise<CommitRef[]> {
-  const out = await git(worktreePath, ['log', '--format=%h%x00%s', `${baseSha}..HEAD`]);
+  return parseLog(await git(worktreePath, ['log', '--format=%h%x00%s', `${baseSha}..HEAD`]));
+}
+
+function parseLog(out: string): CommitRef[] {
   return out
     .split('\n')
     .map((line) => line.split('\0'))
     .filter((parts): parts is [string, string] => parts.length === 2 && Boolean(parts[0]))
     .map(([sha, subject]) => ({ sha, subject }));
+}
+
+/**
+ * What one commit changed. Two refs rather than `diffSince`'s one, because the
+ * checkout this runs in is the user's, and its working tree is none of ours.
+ */
+export async function diffOfCommit(repoPath: string, sha: string): Promise<string> {
+  return git(repoPath, ['diff', `${sha}^`, sha]);
+}
+
+export async function commitAt(repoPath: string, sha: string): Promise<CommitRef[]> {
+  return parseLog(await git(repoPath, ['log', '-1', '--format=%h%x00%s', sha]));
 }
 
 /**
@@ -250,6 +267,79 @@ export async function behindBase(worktreePath: string, baseBranch: string): Prom
   }
 }
 
-export async function isDirty(worktreePath: string): Promise<boolean> {
-  return (await git(worktreePath, ['status', '--porcelain'])).trim().length > 0;
+/**
+ * `ignore` is for paths that are nobody's work, and `untracked: false` counts
+ * only changes to files git already knows — which is all a merge can trample.
+ */
+export async function isDirty(
+  worktreePath: string,
+  opts: { untracked?: boolean; ignore?: string[] } = {},
+): Promise<boolean> {
+  const args = ['status', '--porcelain'];
+  if (opts.untracked === false) args.push('--untracked-files=no');
+  if (opts.ignore?.length) args.push('--', '.', ...opts.ignore.map((p) => `:(exclude)${p}`));
+  return (await git(worktreePath, args)).trim().length > 0;
+}
+
+/**
+ * Where a branch is checked out, if anywhere. For the default branch that is
+ * usually the repo's own directory, but nothing makes it so: the person may be
+ * sitting on a feature branch there with main checked out in a worktree.
+ */
+export async function findCheckout(repoPath: string, branch: string): Promise<string | null> {
+  const refs = await listWorktrees(repoPath);
+  return refs.find((r) => r.branch === branch && !r.prunable)?.path ?? null;
+}
+
+/**
+ * Squash `branch` into whatever `checkoutPath` has checked out, as one commit.
+ *
+ * Every failure puts the checkout back with `git reset --merge`. `merge
+ * --abort` would not: a squash leaves no MERGE_HEAD, so there is nothing for
+ * it to abort, and a conflicted squash would stay half-applied in the user's
+ * own tree. The reset is only safe because the caller has refused a checkout
+ * with changes of its own — past that point, everything in the index is ours.
+ */
+export async function squashMerge(opts: {
+  checkoutPath: string;
+  branch: string;
+  message: string[];
+}): Promise<string> {
+  const { checkoutPath, branch, message } = opts;
+  const abandon = () => git(checkoutPath, ['reset', '--merge']).catch(() => undefined);
+
+  try {
+    await git(checkoutPath, ['merge', '--squash', branch]);
+  } catch (cause) {
+    const conflicted = await git(checkoutPath, ['diff', '--name-only', '--diff-filter=U'])
+      .then((out) => out.split('\n').filter(Boolean))
+      .catch(() => []);
+    await abandon();
+    if (conflicted.length) throw new GitError('the squash conflicts', `conflicts in ${conflicted.join(', ')}`);
+    throw cause;
+  }
+
+  // `--quiet` exits non-zero exactly when something is staged, which the
+  // helper reports as a throw — so here the throw is the good news.
+  const empty = await git(checkoutPath, ['diff', '--cached', '--quiet']).then(() => true, () => false);
+  if (empty) {
+    await abandon();
+    throw new GitError('nothing to merge', `${branch} changes nothing that is not already on the base`);
+  }
+
+  try {
+    await git(checkoutPath, ['commit', ...message.flatMap((m) => ['-m', m])]);
+  } catch (cause) {
+    await abandon();
+    throw cause;
+  }
+  return (await git(checkoutPath, ['rev-parse', 'HEAD'])).trim();
+}
+
+/**
+ * Capital D, always: git judges merged-ness by ancestry, and a squash leaves
+ * none, so `-d` refuses every branch this is ever asked to delete.
+ */
+export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  await git(repoPath, ['branch', '-D', branch]);
 }
