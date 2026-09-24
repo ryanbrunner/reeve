@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { STAGES } from '@reeve/shared';
 import type { BoardResponse } from '@reeve/shared';
+import { toBoardCard } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
@@ -9,14 +10,13 @@ import {
   createCard,
   createProject,
   getCard,
-  latestRunForCard,
   listProjects,
   moveCard,
   runsForCard,
   updateCard,
   updateProject,
 } from '../db/queries.js';
-import { toApiCard, toApiProject, toApiRunSummary } from '../mappers.js';
+import { toApiProject, toApiRunSummary } from '../mappers.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -59,9 +59,7 @@ export function apiRoutes(db: Db) {
     const rows = boardCards(db);
     const body: BoardResponse = {
       projects: listProjects(db).map(toApiProject),
-      cards: rows.map((r) =>
-        toApiCard(r.card, r.projectName, r.laneColor, latestRunForCard(db, r.card.id) ?? null),
-      ),
+      cards: rows.map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor)),
     };
     return c.json(body);
   });
@@ -85,14 +83,14 @@ export function apiRoutes(db: Db) {
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     const created = createCard(db, parsed.data);
-    return c.json(toApiCard(created, null, null, null), 201);
+    return c.json(toBoardCard(db, created, null, null), 201);
   });
 
   api.patch('/cards/:id', async (c) => {
     const parsed = updateCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     const updated = updateCard(db, c.req.param('id'), parsed.data);
-    return updated ? c.json(toApiCard(updated, null, null, null)) : c.json({ error: 'not found' }, 404);
+    return updated ? c.json(toBoardCard(db, updated, null, null)) : c.json({ error: 'not found' }, 404);
   });
 
   api.post('/cards/:id/move', async (c) => {
@@ -101,7 +99,7 @@ export function apiRoutes(db: Db) {
     const id = c.req.param('id');
     if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index);
-    return moved ? c.json(toApiCard(moved, null, null, null)) : c.json({ error: 'not found' }, 404);
+    return moved ? c.json(toBoardCard(db, moved, null, null)) : c.json({ error: 'not found' }, 404);
   });
 
   api.post('/cards/:id/archive', (c) => {

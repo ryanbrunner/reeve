@@ -1,4 +1,13 @@
-import type { ApiCard, ApiProject, ApiRunSummary, RunKind, RunStatus, Stage, StopReason } from '@reeve/shared';
+import type {
+  ApiCard,
+  ApiProject,
+  ApiRunSummary,
+  CardActivity,
+  RunKind,
+  RunStatus,
+  Stage,
+  StopReason,
+} from '@reeve/shared';
 import type { Card, Project, Run } from './db/schema.js';
 
 const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
@@ -35,11 +44,17 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
   };
 }
 
+/**
+ * Pure on purpose: `latestRun` and `activity` are handed in already agreed with
+ * each other (see ./board.ts), which keeps this module free of the stage
+ * definitions and the database.
+ */
 export function toApiCard(
   c: Card,
   projectName: string | null,
   laneColor: string | null,
   latestRun: Run | null,
+  activity: CardActivity,
 ): ApiCard {
   return {
     id: c.id,
@@ -52,6 +67,7 @@ export function toApiCard(
     position: c.position,
     branchName: c.branchName,
     worktreePath: c.worktreePath,
+    activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     createdAt: ms(c.createdAt) ?? 0,
     updatedAt: ms(c.updatedAt) ?? 0,

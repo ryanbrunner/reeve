@@ -34,6 +34,12 @@ export interface StageDefinition<Output = unknown> {
   effort?: EffortLevel;
   /** Turn validated output into artifacts. The server materialises them. */
   onComplete(ctx: StageContext, output: Output): ArtifactDraft[];
+  /**
+   * Does this output leave a question for the human rather than finished work?
+   * Drives the yellow card face. Omitted means "never asks" — a succeeded run
+   * then reads as ready for review.
+   */
+  awaitsInput?(output: Output): boolean;
   /** One-line card summary from the output. */
   summarise(output: Output): string;
 }

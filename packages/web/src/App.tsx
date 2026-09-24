@@ -13,7 +13,15 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { STAGES, STAGE_LABELS, isRunnable, type ApiCard, type BoardResponse, type Stage } from '@reeve/shared';
+import {
+  STAGES,
+  STAGE_LABELS,
+  isRunnable,
+  type ApiCard,
+  type BoardResponse,
+  type CardActivity,
+  type Stage,
+} from '@reeve/shared';
 import { api, cardsIn } from './lib/api.js';
 
 const COLUMN_PREFIX = 'col:';
@@ -22,8 +30,6 @@ export function App() {
   const qc = useQueryClient();
   const [swimlanes, setSwimlanes] = useState(false);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
-
-  const { data, isLoading, error } = useQuery({ queryKey: ['board'], queryFn: api.board });
 
   const move = useMutation({
     mutationFn: ({ id, stage, index }: { id: string; stage: Stage; index: number }) =>
@@ -53,6 +59,19 @@ export function App() {
     },
     onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(['board'], ctx.prev),
     onSettled: () => qc.invalidateQueries({ queryKey: ['board'] }),
+  });
+
+  // A card's activity changes on its own as a run progresses, and nothing pushes
+  // that to the board — the SSE stream is per-run, not board-wide — so it polls:
+  // briskly while Claude is working, lazily when the board is quiet. Paused
+  // mid-drag so a refetch cannot yank a card out from under the cursor.
+  const held = dragging !== null || move.isPending;
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['board'],
+    queryFn: api.board,
+    staleTime: 0,
+    refetchInterval: (q) =>
+      held ? false : q.state.data?.cards.some((c) => c.activity === 'running') ? 1_500 : 5_000,
   });
 
   const create = useMutation({
@@ -208,22 +227,45 @@ function SortableCard({ card }: { card: ApiCard }) {
   );
 }
 
-const STATUS_STYLE: Record<string, string> = {
-  running: 'bg-sky-500/15 text-sky-300',
-  queued: 'bg-slate-500/15 text-slate-300',
-  succeeded: 'bg-emerald-500/15 text-emerald-300',
-  failed: 'bg-red-500/15 text-red-300',
-  cancelled: 'bg-amber-500/15 text-amber-300',
-  interrupted: 'bg-amber-500/15 text-amber-300',
-  stopping: 'bg-amber-500/15 text-amber-300',
+/**
+ * The card's sub-state, as colour. The column is where the human put the card;
+ * this is what the machine has done with it since, and it is the only thing on
+ * the board that changes without a drag.
+ */
+const ACTIVITY_STYLE: Record<CardActivity, string> = {
+  idle: 'border-(--color-edge) bg-(--color-panel) hover:border-slate-600',
+  running: 'border-sky-600/60 bg-sky-500/15',
+  needs_review: 'border-emerald-600/60 bg-emerald-500/15',
+  needs_input: 'border-amber-500/60 bg-amber-500/15',
+  error: 'border-red-600/60 bg-red-500/15',
+};
+
+const CHIP_STYLE: Record<CardActivity, string> = {
+  idle: 'bg-slate-500/15 text-slate-300',
+  running: 'bg-sky-500/25 text-sky-200',
+  needs_review: 'bg-emerald-500/25 text-emerald-200',
+  needs_input: 'bg-amber-500/25 text-amber-100',
+  error: 'bg-red-500/25 text-red-200',
+};
+
+/**
+ * Colour alone is a poor signal, so every non-idle state says its name too.
+ * `idle` has no label on purpose: it falls through to the raw run status, which
+ * is the only way a deliberately cancelled run still shows up on the face.
+ */
+const ACTIVITY_LABELS: Partial<Record<CardActivity, string>> = {
+  running: 'Claude running',
+  needs_review: 'Ready for review',
+  needs_input: 'Needs your answer',
+  error: 'Error',
 };
 
 function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolean }) {
   const run = card.latestRun;
   return (
     <article
-      className={`cursor-grab rounded-md border border-(--color-edge) bg-(--color-panel) p-2.5 ${
-        dragging ? 'rotate-2 shadow-xl shadow-black/40' : 'hover:border-slate-600'
+      className={`cursor-grab rounded-md border p-2.5 ${ACTIVITY_STYLE[card.activity]} ${
+        dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
       }`}
     >
       <p className="text-sm leading-snug">{card.title}</p>
@@ -237,8 +279,8 @@ function CardFace({ card, dragging = false }: { card: ApiCard; dragging?: boolea
           </span>
         )}
         {run && (
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_STYLE[run.status] ?? 'bg-slate-500/15 text-slate-300'}`}>
-            {run.status}
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${CHIP_STYLE[card.activity]}`}>
+            {ACTIVITY_LABELS[card.activity] ?? run.status}
           </span>
         )}
         {run?.totalCostUsd != null && (

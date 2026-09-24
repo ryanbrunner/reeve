@@ -1,4 +1,5 @@
 import type { Stage } from './stages.js';
+import type { CardActivity } from './activity.js';
 import type { RunKind, RunStatus, StopReason } from './runs.js';
 
 /**
@@ -46,6 +47,14 @@ export interface ApiCard {
   position: number;
   branchName: string | null;
   worktreePath: string | null;
+  /** Sub-state within the column. Derived from `latestRun`, never stored. */
+  activity: CardActivity;
+  /**
+   * The latest Claude run for the card's CURRENT stage — the same run `activity`
+   * is derived from, so the tint and the chip can never disagree. Shell and
+   * server runs are excluded on purpose: a dev server left running should not
+   * make a card look like Claude is working on it.
+   */
   latestRun: ApiRunSummary | null;
   createdAt: number;
   updatedAt: number;

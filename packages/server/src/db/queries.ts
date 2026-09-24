@@ -85,11 +85,16 @@ export function reapOrphanedRuns(db: Db, now: Date) {
     .all();
 }
 
-export function latestRunForCard(db: Db, cardId: string) {
+/**
+ * The run the board reads a card's sub-state from: Claude only, and only for
+ * the stage the card currently sits in. Shell and server runs are excluded
+ * because a dev server left running is not Claude working on the card.
+ */
+export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage) {
   return db
     .select()
     .from(run)
-    .where(eq(run.cardId, cardId))
+    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude')))
     .orderBy(desc(run.createdAt))
     .limit(1)
     .get();

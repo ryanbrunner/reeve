@@ -57,6 +57,12 @@ export const planningStage: StageDefinition<PlanningOutput> = {
     ];
   },
 
+  // Open questions are the plan asking for a decision, not offering one. The
+  // card goes yellow and waits rather than green and inviting approval.
+  awaitsInput(output) {
+    return output.open_questions.length > 0;
+  },
+
   summarise(output) {
     const q = output.open_questions.length;
     return `${output.summary}${q ? ` (${q} open question${q === 1 ? '' : 's'})` : ''}`;
