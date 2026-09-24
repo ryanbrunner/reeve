@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardDetail } from '@reeve/shared';
+import { describeMessage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
@@ -42,18 +42,25 @@ export interface LiveRun {
  * On `end` the detail query is invalidated, which is what turns the card from
  * running into whatever it became.
  */
-export function useLiveRun(cardId: string | null, runId: string | null, running: boolean): LiveRun | null {
+export function useLiveRun(
+  cardId: string | null,
+  runId: string | null,
+  running: boolean,
+  startedAt: number | null,
+): LiveRun | null {
   const qc = useQueryClient();
   const [live, setLive] = useState<LiveRun | null>(null);
-  const startedAt = useRef<number>(Date.now());
+  const since = useRef<number>(Date.now());
 
   useEffect(() => {
     if (!running || !runId) {
       setLive(null);
       return;
     }
-    startedAt.current = Date.now();
-    setLive({ elapsedMs: 0, activity: null, turns: 0 });
+    // From when the run actually began, not from when this modal opened. A run
+    // that has been going half an hour reads "31m", not "0s" counting up.
+    since.current = startedAt ?? Date.now();
+    setLive({ elapsedMs: Date.now() - since.current, activity: null, turns: 0 });
 
     // `since=live` asks for new events only. Without it the server replays the
     // whole transcript, which for a long run is thousands of messages to learn
@@ -62,11 +69,11 @@ export function useLiveRun(cardId: string | null, runId: string | null, running:
     let turns = 0;
 
     source.onmessage = (e) => {
-      const line = describe(e.data);
+      const line = describeMessage(e.data);
       if (line === null) return;
       if (line.turn) turns++;
       setLive((prev) => ({
-        elapsedMs: prev?.elapsedMs ?? 0,
+        elapsedMs: prev?.elapsedMs ?? Date.now() - since.current,
         activity: line.text ?? prev?.activity ?? null,
         turns,
       }));
@@ -81,55 +88,14 @@ export function useLiveRun(cardId: string | null, runId: string | null, running:
     source.onerror = () => {};
 
     const tick = setInterval(() => {
-      setLive((prev) => (prev ? { ...prev, elapsedMs: Date.now() - startedAt.current } : prev));
+      setLive((prev) => (prev ? { ...prev, elapsedMs: Date.now() - since.current } : prev));
     }, 1_000);
 
     return () => {
       clearInterval(tick);
       source.close();
     };
-  }, [cardId, runId, running, qc]);
+  }, [cardId, runId, running, startedAt, qc]);
 
   return live;
 }
-
-/**
- * One line of "what is happening", from a raw SDK message.
- *
- * Deliberately shallow. The stream carries forty-odd message shapes and this
- * needs exactly two facts: whether a turn happened, and the most recent human
- * -readable thing to put after the step count. Anything it does not recognise
- * is skipped rather than guessed at.
- */
-function describe(raw: string): { text: string | null; turn: boolean } | null {
-  let msg: { type?: string; message?: { content?: unknown } };
-  try {
-    msg = JSON.parse(raw) as typeof msg;
-  } catch {
-    return null;
-  }
-  if (msg.type !== 'assistant') return null;
-
-  const content = msg.message?.content;
-  if (!Array.isArray(content)) return { text: null, turn: true };
-
-  for (const block of content as Array<{ type?: string; name?: string; text?: string }>) {
-    if (block.type === 'tool_use' && block.name) return { text: toolLine(block.name), turn: true };
-    if (block.type === 'text' && block.text?.trim()) {
-      return { text: block.text.trim().split('\n')[0]!.slice(0, 120), turn: true };
-    }
-  }
-  return { text: null, turn: true };
-}
-
-const toolLine = (name: string): string => {
-  switch (name) {
-    case 'Read': return 'reading a file';
-    case 'Glob':
-    case 'Grep': return 'searching the codebase';
-    case 'Edit':
-    case 'Write': return 'editing a file';
-    case 'Bash': return 'running a command';
-    default: return `using ${name}`;
-  }
-};

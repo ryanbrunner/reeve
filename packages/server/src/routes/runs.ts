@@ -28,13 +28,18 @@ export function runRoutes(db: Db) {
   routes.get('/:id/events', (c) => {
     const runId = c.req.param('id');
     const header = c.req.header('Last-Event-ID');
-    const raw = header ?? c.req.query('since') ?? '0';
+    const query = c.req.query('since');
     // `since=live` skips the replay entirely. A transcript viewer wants the
     // whole run; the card modal wants only the line telling it what Claude is
     // doing right now, and replaying thousands of messages to reach it would
     // be the expensive way to learn one fact.
-    const liveOnly = raw === 'live';
-    const since = liveOnly ? 0 : Number(raw) || 0;
+    //
+    // Checked BEFORE Last-Event-ID, and that order is the whole point: the
+    // browser sends that header on every automatic reconnect once the stream
+    // has delivered an id, so letting it win would make a live-only subscriber
+    // replay the entire transcript the first time the connection blipped.
+    const liveOnly = query === 'live';
+    const since = liveOnly ? 0 : Number(header ?? query ?? '0') || 0;
 
     return streamSSE(c, async (stream) => {
       const buffered: EmittedEvent[] = [];

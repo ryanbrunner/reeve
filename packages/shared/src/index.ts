@@ -4,3 +4,4 @@ export * from './activity.js';
 export * from './contracts.js';
 export * from './api.js';
 export * from './detail.js';
+export * from './transcript.js';

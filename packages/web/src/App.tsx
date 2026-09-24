@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -160,9 +160,16 @@ export function App() {
 function useOpenCard() {
   const read = () => new URLSearchParams(window.location.search).get('card');
   const [openCard, setOpenCard] = useState<string | null>(read);
+  // Whether the entry currently in the URL is one we pushed, or the one the
+  // tab was opened on. Closing a card someone arrived at by link has nothing
+  // to go back to, and back() there would leave the app entirely.
+  const pushed = useRef(false);
 
   useEffect(() => {
-    const onPop = () => setOpenCard(read());
+    const onPop = () => {
+      pushed.current = false;
+      setOpenCard(read());
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -171,13 +178,21 @@ function useOpenCard() {
     const url = new URL(window.location.href);
     url.searchParams.set('card', id);
     window.history.pushState(null, '', url);
+    pushed.current = true;
     setOpenCard(id);
   }, []);
 
   const close = useCallback(() => {
-    // back() so the entry this pushed is consumed rather than stacked, which is
-    // what makes Escape and the browser's Back button do the same thing.
-    if (new URLSearchParams(window.location.search).get('card')) window.history.back();
+    if (pushed.current) {
+      // Consume the entry rather than stacking another, so Escape and the
+      // browser's Back button end up doing the same thing.
+      pushed.current = false;
+      window.history.back();
+    } else {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('card');
+      window.history.replaceState(null, '', url);
+    }
     setOpenCard(null);
   }, []);
 

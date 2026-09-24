@@ -32,7 +32,7 @@ export function CardModal({ cardId, onClose }: { cardId: string; onClose: () => 
   const restoreFocus = useRef<HTMLElement | null>(null);
 
   const run = data?.card.latestRun ?? null;
-  const live = useLiveRun(cardId, run?.id ?? null, data?.card.activity === 'running');
+  const live = useLiveRun(cardId, run?.id ?? null, data?.card.activity === 'running', run?.startedAt ?? null);
 
   // Escape closes, and focus goes back where it came from. The board behind is
   // inert only in the sense that the scrim swallows clicks — a modal this size
@@ -42,10 +42,17 @@ export function CardModal({ cardId, onClose }: { cardId: string; onClose: () => 
     restoreFocus.current = document.activeElement as HTMLElement | null;
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
+      if (e.key !== 'Escape') return;
+      // Not while someone is typing. Escape closing the modal out from under a
+      // half-written brief or a rejection note would throw away their words on
+      // one keystroke; every one of those fields has its own Cancel.
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        target.blur();
+        return;
       }
+      e.stopPropagation();
+      onClose();
     };
     document.addEventListener('keydown', onKey);
     const overflow = document.body.style.overflow;
