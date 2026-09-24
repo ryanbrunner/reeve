@@ -64,6 +64,17 @@ succeededPlan(rejected.id);
 await review(rejected.id, { decision: 'rejected', notes: 'try again' });
 const rejectedStage = getCard(db, rejected.id)!.stage;
 
+// A dev server started after the last Claude run must not make the card
+// unreviewable. It once did: the stage's newest run was a `vite` process.
+const served = createCard(db, { title: 'served', projectId: project.id, stage: 'planning' });
+succeededPlan(served.id);
+insertRun(db, {
+  id: crypto.randomUUID(), cardId: served.id, kind: 'server', stage: 'planning',
+  status: 'running', cwd: '/tmp/x', port: 5174,
+});
+const servedRes = await review(served.id, { decision: 'approved' });
+const servedStage = getCard(db, served.id)!.stage;
+
 const checks: Array<[string, boolean, string]> = [
   ['a succeeded run moves nothing', onBoard?.stage === 'planning', String(onBoard?.stage)],
   ['...and still reads as needing review', onBoard?.activity === 'needs_review', String(onBoard?.activity)],
@@ -72,6 +83,8 @@ const checks: Array<[string, boolean, string]> = [
   ['both stages recorded', body.fromStage === 'planning' && body.toStage === 'in_progress' && body.moved === true, JSON.stringify(body)],
   ['verdict recorded', reviews.length === 1 && reviews[0]?.decision === 'approved', JSON.stringify(reviews)],
   ['rejection moves nothing', rejectedStage === 'planning', rejectedStage],
+  ['a running dev server does not block review', servedRes.status === 200, `HTTP ${servedRes.status}`],
+  ['...and the card still advances', servedStage === 'in_progress', servedStage],
 ];
 
 let failed = 0;

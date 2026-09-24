@@ -16,7 +16,7 @@ import {
   cardEventsFor,
   criteriaFor,
   differencesFor,
-  latestRunForStage,
+  latestClaudeRunForStage,
   refsFor,
   runsForCard,
   questionsForRun,
@@ -52,7 +52,7 @@ export async function cardDetail(
 ): Promise<CardDetail> {
   const runs = runsForCard(db, card.id);
   const claudeRuns = runs.filter((r) => r.kind === 'claude');
-  const current = latestRunForStage(db, card.id, card.stage);
+  const current = latestClaudeRunForStage(db, card.id, card.stage);
 
   return {
     card: toBoardCard(db, card, projectName, laneColor),

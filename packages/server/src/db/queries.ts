@@ -86,6 +86,17 @@ export function insertEvents(db: Db, rows: NewRunEvent[]): void {
   });
 }
 
+/** The highest seq a run has written, or 0. Where a live-only stream starts. */
+export function latestSeq(db: Db, runId: string): number {
+  return (
+    db
+      .select({ max: sql<number | null>`max(${runEvent.seq})` })
+      .from(runEvent)
+      .where(eq(runEvent.runId, runId))
+      .get()?.max ?? 0
+  );
+}
+
 export function nextSeq(db: Db, runId: string): number {
   const row = db
     .select({ max: sql<number | null>`max(${runEvent.seq})` })
@@ -109,9 +120,15 @@ export function reapOrphanedRuns(db: Db, now: Date) {
 }
 
 /**
- * The run the board reads a card's sub-state from: Claude only, and only for
- * the stage the card currently sits in. Shell and server runs are excluded
- * because a dev server left running is not Claude working on the card.
+ * The run that IS the card's attempt at its current stage: Claude only, and
+ * only for the stage the card sits in.
+ *
+ * Every question about "the current run" goes through here — the board's
+ * activity, the review gate, the questions in the modal — because the answer
+ * has to be the same one in all three. A stage-scoped query that did not
+ * filter by kind used to exist beside this, and starting a dev server after
+ * the last Claude run made it answer with the server: the card was suddenly
+ * unreviewable because the newest run for the stage was a `vite` process.
  */
 export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage) {
   return db
@@ -295,15 +312,6 @@ export function latestArtifact(db: Db, cardId: string, stage: CardStage, kind: A
 }
 
 /** The most recent run of a given stage, whatever its outcome. */
-export function latestRunForStage(db: Db, cardId: string, stage: CardStage) {
-  return db
-    .select()
-    .from(run)
-    .where(and(eq(run.cardId, cardId), eq(run.stage, stage)))
-    .orderBy(desc(run.createdAt))
-    .limit(1)
-    .get();
-}
 
 export function insertReview(db: Db, values: typeof review.$inferInsert) {
   return db.insert(review).values(values).returning().get();
@@ -343,13 +351,20 @@ export function insertCardEvent(db: Db, draft: CardEventDraft) {
   return db.insert(cardEvent).values(row).returning().get();
 }
 
-/** Newest first: the activity tab reads top-down and so does a person. */
+/**
+ * Newest first: the activity tab reads top-down and so does a person.
+ *
+ * Tie-broken on rowid, which is insertion order, because `createdAt` is only
+ * accurate to the millisecond and several of these land together — approving a
+ * card writes a verdict and a move in the same breath. An id tie-break would
+ * be a random UUID, which is to say no order at all.
+ */
 export function cardEventsFor(db: Db, cardId: string) {
   return db
     .select()
     .from(cardEvent)
     .where(eq(cardEvent.cardId, cardId))
-    .orderBy(desc(cardEvent.createdAt), desc(cardEvent.id))
+    .orderBy(desc(cardEvent.createdAt), desc(sql`rowid`))
     .all();
 }
 

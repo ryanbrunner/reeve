@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { isTerminal, type RunStatus } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { eventsSince, getRun, runsForCard } from '../db/queries.js';
+import { eventsSince, getRun, latestSeq, runsForCard } from '../db/queries.js';
 import { toApiRunSummary } from '../mappers.js';
 import { runBus, type EmittedEvent } from '../runs/bus.js';
 import { runRegistry } from '../runs/registry.js';
@@ -28,7 +28,13 @@ export function runRoutes(db: Db) {
   routes.get('/:id/events', (c) => {
     const runId = c.req.param('id');
     const header = c.req.header('Last-Event-ID');
-    const since = Number(header ?? c.req.query('since') ?? 0) || 0;
+    const raw = header ?? c.req.query('since') ?? '0';
+    // `since=live` skips the replay entirely. A transcript viewer wants the
+    // whole run; the card modal wants only the line telling it what Claude is
+    // doing right now, and replaying thousands of messages to reach it would
+    // be the expensive way to learn one fact.
+    const liveOnly = raw === 'live';
+    const since = liveOnly ? 0 : Number(raw) || 0;
 
     return streamSSE(c, async (stream) => {
       const buffered: EmittedEvent[] = [];
@@ -47,10 +53,15 @@ export function runRoutes(db: Db) {
       stream.onAbort(unsubscribe);
 
       try {
-        // 2. Replay what is already persisted.
-        for (const row of eventsSince(db, runId, since)) {
-          await write({ seq: row.seq, kind: row.kind, payload: row.payload });
-          lastSeq = row.seq;
+        // 2. Replay what is already persisted, unless the client asked for
+        //    live only — in which case start from wherever the run has got to.
+        if (liveOnly) {
+          lastSeq = latestSeq(db, runId);
+        } else {
+          for (const row of eventsSince(db, runId, since)) {
+            await write({ seq: row.seq, kind: row.kind, payload: row.payload });
+            lastSeq = row.seq;
+          }
         }
 
         // 3. Drain anything that arrived while replaying, discarding ids the

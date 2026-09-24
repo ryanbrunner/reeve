@@ -9,7 +9,7 @@ import {
   cardsInStage,
   insertCardEvent,
   insertReview,
-  latestRunForStage,
+  latestClaudeRunForStage,
   listProjects,
   moveCard,
   reviewsForCard,
@@ -91,7 +91,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
     const { decision, notes } = parsed.data;
 
-    const lastRun = latestRunForStage(db, card.id, card.stage);
+    const lastRun = latestClaudeRunForStage(db, card.id, card.stage);
     if (!lastRun || lastRun.status !== 'succeeded') {
       return c.json({ error: 'nothing to review', detail: `latest run is ${lastRun?.status ?? 'absent'}` }, 409);
     }
@@ -169,7 +169,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   routes.get('/:id/latest-run', (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
-    const r = latestRunForStage(db, card.id, card.stage);
+    const r = latestClaudeRunForStage(db, card.id, card.stage);
     return r ? c.json(toApiRunSummary(r)) : c.json(null);
   });
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -14,12 +14,14 @@ import {
 import { STAGES, type ApiCard, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column } from './board/Column.js';
+import { CardModal } from './card/CardModal.js';
 import { api, cardsIn } from './lib/api.js';
 
 export function App() {
   const qc = useQueryClient();
   const [swimlanes, setSwimlanes] = useState(false);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
+  const [openCard, openAndClose] = useOpenCard();
 
   const move = useMutation({
     mutationFn: ({ id, stage, index }: { id: string; stage: Stage; index: number }) =>
@@ -135,6 +137,7 @@ export function App() {
                     stage={stage}
                     laneId={lane.id}
                     cards={cardsIn(cards, stage, lane.id)}
+                    onOpen={openAndClose.open}
                   />
                 ))}
               </div>
@@ -143,8 +146,42 @@ export function App() {
         </div>
         <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
       </DndContext>
+      {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} />}
     </div>
   );
+}
+
+/**
+ * Which card is open, kept in the URL as `?card=<id>`.
+ *
+ * A card becomes a link someone can send, a reload lands back on it, and Back
+ * closes it — all without adding a router for one parameter.
+ */
+function useOpenCard() {
+  const read = () => new URLSearchParams(window.location.search).get('card');
+  const [openCard, setOpenCard] = useState<string | null>(read);
+
+  useEffect(() => {
+    const onPop = () => setOpenCard(read());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const open = useCallback((id: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('card', id);
+    window.history.pushState(null, '', url);
+    setOpenCard(id);
+  }, []);
+
+  const close = useCallback(() => {
+    // back() so the entry this pushed is consumed rather than stacked, which is
+    // what makes Escape and the browser's Back button do the same thing.
+    if (new URLSearchParams(window.location.search).get('card')) window.history.back();
+    setOpenCard(null);
+  }, []);
+
+  return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
 function Header({ swimlanes, onToggle, onAdd, cardCount }: {
@@ -153,7 +190,10 @@ function Header({ swimlanes, onToggle, onAdd, cardCount }: {
   const [title, setTitle] = useState('');
   return (
     <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
-      <h1 className="text-sm font-semibold tracking-[-0.02em]">Reeve</h1>
+      <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
+        <img src="/reeve-glyph.svg" alt="" className="h-5 w-auto" />
+        Reeve
+      </h1>
       <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)">
         {cardCount} cards
       </span>

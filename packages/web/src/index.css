@@ -47,6 +47,14 @@
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
   --shadow-card-glow-error: inset 0 0 18px 0 #fb2c3659, inset 0 0 4px 0 #fb2c3666, 0 0 18px -8px #fb2c368c;
   --shadow-btn-error-glow: 0 0 10px -4px #fb2c3680;
+
+  /* The modal wears a card's glow at ten times the size, so it also throws a
+     little light onto the scrim behind it. On a 10rem card this would be a
+     halo; at this size it is the difference between a lit panel and a sticker. */
+  --shadow-modal-bloom-running: 0 0 60px -20px #00a6f440;
+  --shadow-modal-bloom-review: 0 0 60px -20px #00bc7d40;
+  --shadow-modal-bloom-input: 0 0 60px -20px #fe9a0040;
+  --shadow-modal-bloom-error: 0 0 60px -20px #fb2c3640;
 }
 
 html, body, #root { height: 100%; }
@@ -96,6 +104,29 @@ body { background: var(--color-ink); color: var(--color-text); }
       linear-gradient(var(--color-activity-error-fill), var(--color-activity-error-fill)),
       var(--color-card-core);
     box-shadow: var(--shadow-card-glow-error);
+  }
+
+  /*
+   * The detail modal is a card that got bigger, so it takes the same four
+   * skins and adds the outer bloom. Composed rather than redefined: if the
+   * glow changes, the modal changes with it, which is the whole point of
+   * opening a card feeling like the card rather than like somewhere else.
+   */
+  .modal-glow-running { box-shadow: var(--shadow-card-glow-running), var(--shadow-modal-bloom-running); }
+  .modal-glow-review { box-shadow: var(--shadow-card-glow-review), var(--shadow-modal-bloom-review); }
+  .modal-glow-input { box-shadow: var(--shadow-card-glow-input), var(--shadow-modal-bloom-input); }
+  .modal-glow-error { box-shadow: var(--shadow-card-glow-error), var(--shadow-modal-bloom-error); }
+
+  /*
+   * The mark sits behind the header rather than the whole panel: centred in
+   * 820px of modal it would float in the middle of the plan, which is where
+   * the reading is.
+   */
+  .modal-glow-running .card-mark,
+  .modal-glow-review .card-mark,
+  .modal-glow-input .card-mark,
+  .modal-glow-error .card-mark {
+    top: 50px;
   }
 
   /* Centred behind the card's own content, which is why the title and footer

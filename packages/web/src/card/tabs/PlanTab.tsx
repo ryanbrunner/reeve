@@ -1,0 +1,170 @@
+import { useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { ApiAsset, CardDetail } from '@reeve/shared';
+import { api } from '../../lib/api.js';
+import { when } from '../format.js';
+import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
+
+/**
+ * How Claude means to do it.
+ *
+ * The prose sections are whatever Claude decided this task needed — the
+ * contract does not name them, so neither does this: however many come back,
+ * in order, with their own headings. A migration's sections are not a UI
+ * change's sections, and a fixed "Risks" heading only ever gets padded.
+ */
+export function PlanTab({ detail }: { detail: CardDetail }) {
+  const { plan } = detail;
+  if (!plan) {
+    return (
+      <Empty>
+        No plan yet. Move this card to Planning and run it, and Claude will write one here.
+      </Empty>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid grid-cols-[minmax(0,1fr)_312px] gap-6">
+        <div className="flex flex-col gap-4">
+          {plan.details.map((section) => (
+            <section key={section.heading} className="flex flex-col gap-2">
+              <SectionHead>{section.heading}</SectionHead>
+              <p className="text-sm/5 whitespace-pre-wrap text-(--color-text)">{section.body}</p>
+            </section>
+          ))}
+          {plan.details.length === 0 && <Empty>{plan.summary}</Empty>}
+        </div>
+        <Designs detail={detail} />
+      </div>
+
+      <section className="flex flex-col gap-2">
+        <SectionHead
+          count={plan.steps.length || undefined}
+          aside={
+            <span className="font-mono text-[11px]/4 text-(--color-muted)">
+              v{plan.version} · Claude · {when(plan.createdAt)}
+            </span>
+          }
+        >
+          Steps
+        </SectionHead>
+        {plan.steps.length === 0 ? (
+          <Empty>This plan has no separate steps.</Empty>
+        ) : (
+          <ol className="flex flex-col gap-2.5">
+            {plan.steps.map((step, i) => {
+              const blocking = step.blockedOnQuestion
+                ? detail.questions.find((q) => q.position === step.blockedOnQuestion)
+                : undefined;
+              return (
+                <li key={i} className="flex gap-3">
+                  <span className="mt-px w-3 shrink-0 font-mono text-[11px]/5 text-(--color-muted)">{i + 1}</span>
+                  <div className="flex min-w-0 grow flex-col gap-1">
+                    <div className="text-sm/5 text-(--color-text)">
+                      <span className="font-medium">{step.title}</span>
+                      {step.detail && <span className="text-(--color-muted)"> — {step.detail}</span>}
+                    </div>
+                    {step.files.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {step.files.map((f) => <Code key={f}>{f}</Code>)}
+                      </div>
+                    )}
+                  </div>
+                  <span className="shrink-0 font-mono text-[11px]/5 text-(--color-muted)">
+                    {/* A step blocked on a question that has since been answered
+                        is not blocked any more, and shouldn't still say so. */}
+                    {step.blockedOnQuestion && blocking?.answer === null
+                      ? `waits on question ${step.blockedOnQuestion}`
+                      : 'planned'}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Designs({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const file = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const mockups = detail.assets.filter((a) => a.kind === 'mockup');
+
+  const upload = useMutation({
+    mutationFn: async (chosen: File) => {
+      const form = new FormData();
+      form.set('file', chosen);
+      form.set('label', chosen.name.replace(/\.[a-z]+$/i, ''));
+      return api.uploadMockup(detail.card.id, form);
+    },
+    onSuccess: () => { setError(null); void qc.invalidateQueries({ queryKey: ['card', detail.card.id] }); },
+    onError: (e: Error) => setError(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: (assetId: string) => api.deleteAsset(detail.card.id, assetId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['card', detail.card.id] }),
+  });
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead
+        count={mockups.length || undefined}
+        aside={
+          <SmallButton disabled={upload.isPending} onClick={() => file.current?.click()}>
+            {upload.isPending ? 'Uploading…' : 'Attach mockup'}
+          </SmallButton>
+        }
+      >
+        Designs
+      </SectionHead>
+      <input
+        ref={file}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const chosen = e.target.files?.[0];
+          if (chosen) upload.mutate(chosen);
+          e.target.value = '';
+        }}
+      />
+      {mockups.length === 0 ? (
+        <Empty>
+          None attached. A mockup with a page and a width is what tells Testing which screen to
+          photograph.
+        </Empty>
+      ) : (
+        <div className="flex flex-wrap gap-3">
+          {mockups.map((m) => <Thumb key={m.id} asset={m} onRemove={() => remove.mutate(m.id)} />)}
+        </div>
+      )}
+      {error && <p className="font-mono text-[10px]/4 text-red-300">{error}</p>}
+    </section>
+  );
+}
+
+function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
+  return (
+    <figure className="m-0 flex flex-col gap-1.5">
+      <div className="overflow-hidden rounded-md border border-(--color-edge)">
+        <img
+          src={asset.src}
+          alt={asset.label}
+          width={150}
+          height={asset.width && asset.height ? Math.round((150 * asset.height) / asset.width) : 94}
+          className="block w-[150px] bg-(--color-ink) object-cover"
+        />
+      </div>
+      <figcaption className="flex items-baseline justify-between gap-2 font-mono text-[10px]/4 text-(--color-muted)">
+        <span className="truncate">{asset.label}</span>
+        <button type="button" onClick={onRemove} aria-label={`Remove ${asset.label}`} className="hover:text-red-300">
+          ✕
+        </button>
+      </figcaption>
+    </figure>
+  );
+}

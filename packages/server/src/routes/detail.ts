@@ -17,7 +17,7 @@ import {
   getQuestion,
   getRun,
   insertCardEvent,
-  latestRunForStage,
+  latestClaudeRunForStage,
   listProjects,
   questionsForRun,
   refsFor,
@@ -149,7 +149,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.get('/:id/questions', (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
-    const run = latestRunForStage(db, card.id, card.stage);
+    const run = latestClaudeRunForStage(db, card.id, card.stage);
     return c.json(run ? questionsForRun(db, run.id).map(toApiQuestion) : []);
   });
 
@@ -244,7 +244,11 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       // No worktree is a normal state for a card in Backlog, not an error.
       return c.json({ base: '', baseBranch: project?.defaultBranch ?? '', files: [], additions: 0, deletions: 0 } satisfies ApiDiff);
     }
-    const files = parseDiff(await diffSince(card.worktreePath, card.baseSha));
+    // A worktree removed from under the card is a state the rail already
+    // reports, so it reads here as "nothing changed" rather than a 500 that
+    // takes the tab down with it.
+    const raw = await diffSince(card.worktreePath, card.baseSha).catch(() => null);
+    const files = raw === null ? [] : parseDiff(raw);
     const body: ApiDiff = {
       base: card.baseSha,
       baseBranch: project.defaultBranch,
@@ -317,7 +321,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     if (!card.worktreePath || !card.baseSha) return c.json([]);
-    return c.json(await commitsSince(card.worktreePath, card.baseSha));
+    return c.json(await commitsSince(card.worktreePath, card.baseSha).catch(() => []));
   });
 
   return routes;
