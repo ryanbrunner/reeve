@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -53,6 +54,76 @@ export async function listWorktrees(repoPath: string): Promise<WorktreeRef[]> {
   }
   if (current?.path) refs.push({ locked: false, prunable: false, branch: null, head: null, ...current } as WorktreeRef);
   return refs;
+}
+
+/**
+ * A path as a person typed it, as the filesystem wants it.
+ *
+ * `~` is the one expansion worth doing here: the field a repo path is typed
+ * into is a browser text input, which has no shell behind it to do this, and
+ * `~/code/thing` is how anyone would write the answer.
+ */
+export function expandPath(input: string): string {
+  const trimmed = input.trim();
+  if (trimmed === '~') return homedir();
+  const expanded = trimmed.startsWith('~/') ? join(homedir(), trimmed.slice(2)) : trimmed;
+  return isAbsolute(expanded) ? expanded : resolve(expanded);
+}
+
+export interface RepoInspection {
+  /** The path after expansion — what the other fields were read from. */
+  path: string;
+  exists: boolean;
+  isRepo: boolean;
+  /**
+   * The repository root. A path inside a repo inspects as that repo, so
+   * pointing at `packages/web` files the project against the whole thing
+   * rather than storing a path git would keep reinterpreting.
+   */
+  toplevel: string | null;
+  currentBranch: string | null;
+  branches: string[];
+}
+
+/**
+ * What a repo path really is, before a project is built on top of it.
+ *
+ * Every failure mode here — a typo'd path, a directory that was never a repo,
+ * a branch that does not exist — otherwise surfaces hours later as a failed
+ * worktree on the first run, which is the worst possible moment to learn it.
+ */
+export async function inspectRepo(input: string): Promise<RepoInspection> {
+  const path = expandPath(input);
+  const blank: RepoInspection = { path, exists: false, isRepo: false, toplevel: null, currentBranch: null, branches: [] };
+  if (!existsSync(path)) return blank;
+  try {
+    if (!statSync(path).isDirectory()) return { ...blank, exists: true };
+  } catch {
+    return blank;
+  }
+
+  let toplevel: string;
+  try {
+    toplevel = (await git(path, ['rev-parse', '--show-toplevel'])).trim();
+  } catch {
+    return { ...blank, exists: true };
+  }
+
+  // A repo with no commits yet has a HEAD that points nowhere, so neither of
+  // these is guaranteed even once we know it is a repository.
+  const currentBranch = await git(toplevel, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    .then((out) => out.trim())
+    .catch(() => null);
+  const branches = await git(toplevel, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+    .then((out) => out.split('\n').map((b) => b.trim()).filter(Boolean))
+    .catch(() => []);
+
+  return { path, exists: true, isRepo: true, toplevel, currentBranch: currentBranch === 'HEAD' ? null : currentBranch, branches };
+}
+
+/** Where a project's worktrees go when nobody says: beside the repo, out of it. */
+export function defaultWorktreeRoot(toplevel: string): string {
+  return join(dirname(toplevel), '.reeve-worktrees');
 }
 
 export function branchNameFor(cardId: string, title: string): string {

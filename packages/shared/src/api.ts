@@ -74,6 +74,27 @@ export interface CreateCardBody {
   stage?: Stage;
 }
 
+/**
+ * Adding a repo. `worktreeRoot` and `defaultBranch` are optional because the
+ * server can read better answers off the repository itself than a person can
+ * be bothered to type: the branch it is on, and a `.reeve-worktrees` beside it.
+ */
+export interface CreateProjectBody {
+  name: string;
+  repoPath: string;
+  worktreeRoot?: string;
+  defaultBranch?: string;
+  setupCommand?: string | null;
+  testCommand?: string | null;
+  serverCommand?: string | null;
+  teardownCommand?: string | null;
+  finishCommand?: string | null;
+  laneColor?: string | null;
+  maxBudgetUsd?: number | null;
+}
+
+export type UpdateProjectBody = Partial<CreateProjectBody>;
+
 /** Drag-and-drop target: the column, and the slot within it. */
 export interface MoveCardBody {
   stage: Stage;

@@ -17,6 +17,7 @@ import {
   updateProject,
 } from '../db/queries.js';
 import { toApiProject, toApiRunSummary } from '../mappers.js';
+import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -38,11 +39,19 @@ const moveCardSchema = z.object({
   index: z.number().int().min(0),
 });
 
+/**
+ * Note the absence of `.default()`. `projectSchema.partial()` used to carry
+ * `defaultBranch: z.string().default('main')` into PATCH, where zod applied
+ * the default to the ABSENT key — so renaming a project silently moved it from
+ * `develop` back to `main`. Defaults belong at the create call below, where
+ * the repository can be asked what the answer should be, and nowhere else.
+ */
 const projectSchema = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1),
-  worktreeRoot: z.string().min(1),
-  defaultBranch: z.string().default('main'),
+  /** Optional: derived from the repo when blank. */
+  worktreeRoot: z.string().min(1).optional(),
+  defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
   serverCommand: z.string().nullable().optional(),
@@ -51,6 +60,43 @@ const projectSchema = z.object({
   laneColor: z.string().nullable().optional(),
   maxBudgetUsd: z.number().nullable().optional(),
 });
+
+/**
+ * What a project has to be before it is stored: a real directory, a real
+ * repository, and a branch that resolves inside it. Every one of these
+ * otherwise surfaces as a failed worktree on the first run, long after the
+ * typo, with an error about git rather than about the field that was wrong.
+ *
+ * Returns the sentence to hand back, or the repo facts when it all checks out.
+ */
+async function checkRepo(
+  repoPath: string,
+  defaultBranch: string | undefined,
+): Promise<{ error: string } | { toplevel: string; branch: string }> {
+  const repo = await inspectRepo(repoPath);
+  if (!repo.exists) return { error: `no such directory: ${repo.path}` };
+  if (!repo.isRepo) return { error: `not a git repository: ${repo.path}` };
+  const toplevel = repo.toplevel!;
+  if (defaultBranch === undefined) {
+    const branch = repo.currentBranch;
+    if (!branch) return { error: `${toplevel} has no commits yet, so there is no branch to work from` };
+    return { toplevel, branch };
+  }
+  if (!repo.branches.includes(defaultBranch)) {
+    const known = repo.branches.length ? ` Known branches: ${repo.branches.join(', ')}.` : '';
+    return { error: `branch '${defaultBranch}' does not exist in ${toplevel}.${known}` };
+  }
+  return { toplevel, branch: defaultBranch };
+}
+
+/**
+ * `name` is unique across every project including archived ones, which
+ * `listProjects` cannot see — so this reads the constraint rather than
+ * pre-checking a list that is missing rows.
+ */
+function isDuplicateName(e: unknown): boolean {
+  return e instanceof Error && /UNIQUE constraint failed: project\.name/.test(e.message);
+}
 
 export function apiRoutes(db: Db) {
   const api = new Hono();
@@ -69,14 +115,57 @@ export function apiRoutes(db: Db) {
   api.post('/projects', async (c) => {
     const parsed = projectSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid project', detail: parsed.error.message }, 400);
-    return c.json(toApiProject(createProject(db, parsed.data)), 201);
+
+    const checked = await checkRepo(parsed.data.repoPath, parsed.data.defaultBranch);
+    if ('error' in checked) return c.json({ error: 'unusable repository', detail: checked.error }, 400);
+
+    // The repo's own answers beat anything a person would type: the branch it
+    // is actually on, and a worktree root beside it rather than inside it.
+    const values = {
+      ...parsed.data,
+      repoPath: checked.toplevel,
+      defaultBranch: checked.branch,
+      worktreeRoot:
+        parsed.data.worktreeRoot ? expandPath(parsed.data.worktreeRoot) : defaultWorktreeRoot(checked.toplevel),
+    };
+    try {
+      return c.json(toApiProject(createProject(db, values)), 201);
+    } catch (e) {
+      if (isDuplicateName(e)) {
+        return c.json({ error: 'name taken', detail: `another project is already called '${values.name}'` }, 409);
+      }
+      throw e;
+    }
   });
 
   api.patch('/projects/:id', async (c) => {
     const parsed = projectSchema.partial().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid project', detail: parsed.error.message }, 400);
-    const updated = updateProject(db, c.req.param('id'), parsed.data);
-    return updated ? c.json(toApiProject(updated)) : c.json({ error: 'not found' }, 404);
+    const existing = listProjects(db).find((p) => p.id === c.req.param('id'));
+    if (!existing) return c.json({ error: 'not found' }, 404);
+
+    const values = { ...parsed.data };
+    // Either field can invalidate the other, so a change to one is re-checked
+    // against the stored value of the other rather than on its own.
+    if (values.repoPath !== undefined || values.defaultBranch !== undefined) {
+      const checked = await checkRepo(
+        values.repoPath ?? existing.repoPath,
+        values.defaultBranch ?? existing.defaultBranch,
+      );
+      if ('error' in checked) return c.json({ error: 'unusable repository', detail: checked.error }, 400);
+      if (values.repoPath !== undefined) values.repoPath = checked.toplevel;
+    }
+    if (values.worktreeRoot !== undefined) values.worktreeRoot = expandPath(values.worktreeRoot);
+
+    try {
+      const updated = updateProject(db, c.req.param('id'), values);
+      return updated ? c.json(toApiProject(updated)) : c.json({ error: 'not found' }, 404);
+    } catch (e) {
+      if (isDuplicateName(e)) {
+        return c.json({ error: 'name taken', detail: `another project is already called '${values.name}'` }, 409);
+      }
+      throw e;
+    }
   });
 
   api.post('/cards', async (c) => {
