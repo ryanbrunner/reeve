@@ -17,12 +17,93 @@ export function Rail({ detail }: { detail: CardDetail }) {
       aria-label="Card facts"
       className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
     >
+      <Project detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
       <Runs detail={detail} />
       <StageList detail={detail} />
     </aside>
+  );
+}
+
+/**
+ * Which repo this card's work happens in.
+ *
+ * First in the rail because everything under it depends on the answer: with no
+ * project there is no `repoPath`, so there is no worktree, and with no worktree
+ * Claude has nowhere to run. A card filed from the header without one lands
+ * here to be adopted.
+ *
+ * Buttons rather than a dropdown, for the same reason `StageList` uses them:
+ * this is a short list of named places, and seeing the other ones is most of
+ * the value of showing it at all.
+ */
+function Project({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  // Same key the board is already holding, so this is the cache rather than a
+  // second request — and an observer rather than a `getQueryData` peek, so the
+  // list still fills in for a card opened by link before the board has landed.
+  const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const projects = data?.projects ?? [];
+  const assign = useMutation({
+    mutationFn: (projectId: string) => api.updateCard(detail.card.id, { projectId }),
+    onSuccess: () => {
+      // The chip in the header comes from the card, the swim lane from the
+      // board. Both move on this one click.
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+
+  // The branch and the directory on disk belong to the repo they were cut from,
+  // so once there is a tree the answer is settled. The server refuses this too.
+  const settled = Boolean(detail.worktree.path);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead>Project</SectionHead>
+      {projects.length === 0 ?
+        <Empty>No projects yet</Empty>
+      : <div role="group" aria-label="File the card under a project" className="-mx-1.5 flex flex-col">
+          {projects.map((p) => {
+            const here = p.id === detail.card.projectId;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                disabled={here || settled || assign.isPending}
+                aria-current={here ? 'true' : undefined}
+                onClick={() => assign.mutate(p.id)}
+                className={`flex w-full items-center gap-2 rounded-sm border px-1.5 py-0.5 text-left font-mono text-[11px]/[18px] disabled:cursor-default ${
+                  here ?
+                    'border-(--color-edge) bg-white/4 font-medium text-(--color-text)'
+                  : `border-transparent text-(--color-muted) ${settled ? 'opacity-40' : 'hover:border-(--color-edge) hover:bg-white/4'}`
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: p.laneColor ?? '#3f4754' }}
+                />
+                <span className="min-w-0 truncate">{p.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      }
+      {!detail.card.projectId && !settled && projects.length > 0 && (
+        <p className="font-mono text-[10px]/4 text-(--color-muted)">
+          Unfiled — pick a repo before starting a stage.
+        </p>
+      )}
+      {settled && (
+        <p className="font-mono text-[10px]/4 text-(--color-muted)">
+          Fixed by the worktree. Remove it to move the card.
+        </p>
+      )}
+      {assign.error && <p className="font-mono text-[10px]/4 text-red-300">{assign.error.message}</p>}
+    </section>
   );
 }
 

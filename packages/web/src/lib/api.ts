@@ -51,7 +51,7 @@ export const api = {
     );
     return post(`/api/cards/${id}/run`, {}).then(json<{ ok: true; runId: string; sessionId: string }>);
   },
-  updateCard: (id: string, body: { title?: string; body?: string }) =>
+  updateCard: (id: string, body: { title?: string; body?: string; projectId?: string | null }) =>
     patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
   // --- one card, in full ---
