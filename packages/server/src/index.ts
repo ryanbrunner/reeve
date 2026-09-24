@@ -8,7 +8,10 @@ import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { reapOrphanedRuns } from './db/queries.js';
+import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
+import { runRoutes } from './routes/runs.js';
+import { EventWriter } from './runs/events.js';
 
 /**
  * Boot order matters. Contracts convert first so a schema JSON Schema can't
@@ -31,8 +34,12 @@ export function createApp() {
     // TODO(step 7): also kill orphaned server_command process groups by pid.
   }
 
+  const writer = new EventWriter(db);
+
   const app = new Hono();
   app.route('/api', apiRoutes(db));
+  app.route('/api/runs', runRoutes(db));
+  app.route('/api/cards', actionRoutes(db, writer));
   app.get('/healthz', (c) => c.json({ ok: true }));
 
   // In production the built frontend is served from the same origin and port.
@@ -43,7 +50,7 @@ export function createApp() {
     app.get('*', serveStatic({ path: `${rel}/index.html` }));
   }
 
-  return { app, db };
+  return { app, db, writer };
 }
 
 const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
