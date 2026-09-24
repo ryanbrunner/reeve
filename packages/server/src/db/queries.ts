@@ -141,6 +141,22 @@ export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage
     .get();
 }
 
+/**
+ * A task of this kind still in flight for the card, if there is one.
+ *
+ * Read off the rows rather than the registry, which only hears about a run once
+ * its body has started: two requests close together would both find it empty.
+ * The boot reaper settles anything a restart left behind, so a stale row here
+ * cannot lock the task out for good.
+ */
+export function liveTaskRun(db: Db, cardId: string, task: string) {
+  return db
+    .select()
+    .from(run)
+    .where(and(eq(run.cardId, cardId), eq(run.task, task), inArray(run.status, NON_TERMINAL)))
+    .get();
+}
+
 // ---------------------------------------------------------------------------
 // Board mutations
 // ---------------------------------------------------------------------------
