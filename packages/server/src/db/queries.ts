@@ -7,6 +7,7 @@ import {
   cardEvent,
   cardRef,
   project,
+  question,
   review,
   run,
   runEvent,
@@ -15,6 +16,7 @@ import {
   type ArtifactKind,
   type CardRefKind,
   type CriterionVerdict,
+  type Question,
   type CardEventActor,
   type CardEventKind,
   type CardStage,
@@ -451,4 +453,59 @@ export function addRef(db: Db, cardId: string, kind: CardRefKind, value: string,
 
 export function deleteRef(db: Db, id: string) {
   return db.delete(cardRef).where(eq(cardRef.id, id)).returning().get();
+}
+
+// ---------------------------------------------------------------------------
+// Questions
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace a run's questions with the ones it just asked.
+ *
+ * `position` is 1-based and assigned in array order, because that number is
+ * what a person sees in the band AND what a plan step means by "waits on
+ * question 2". Nothing else keeps those two in step.
+ */
+export function replaceQuestions(
+  db: Db,
+  cardId: string,
+  runId: string,
+  stage: CardStage,
+  asked: Array<{ question: string; suggestions: string[] }>,
+): Question[] {
+  return db.transaction((tx) => {
+    tx.delete(question).where(eq(question.runId, runId)).run();
+    return asked.map((q, i) =>
+      tx
+        .insert(question)
+        .values({
+          id: crypto.randomUUID(),
+          cardId,
+          runId,
+          stage,
+          position: i + 1,
+          text: q.question,
+          suggestions: q.suggestions,
+        })
+        .returning()
+        .get(),
+    );
+  });
+}
+
+export function questionsForRun(db: Db, runId: string) {
+  return db.select().from(question).where(eq(question.runId, runId)).orderBy(asc(question.position)).all();
+}
+
+export function getQuestion(db: Db, id: string) {
+  return db.select().from(question).where(eq(question.id, id)).get();
+}
+
+export function answerQuestion(db: Db, id: string, answer: string) {
+  return db
+    .update(question)
+    .set({ answer, answeredAt: new Date() })
+    .where(eq(question.id, id))
+    .returning()
+    .get();
 }

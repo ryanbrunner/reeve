@@ -260,6 +260,38 @@ export const cardRef = sqliteTable(
   (t) => [index('card_ref_card').on(t.cardId, t.createdAt)],
 );
 
+/**
+ * A question Claude could not answer for itself, and the human's answer.
+ *
+ * Stored as rows rather than left in the run's structured output because they
+ * are answered one at a time, by a person, possibly hours later — and because
+ * `position` is the number shown in the card, which is how a plan step says
+ * "waits on question 2". Written in array order so that number means the same
+ * thing on both sides.
+ */
+export const question = sqliteTable(
+  'question',
+  {
+    id: text('id').primaryKey(),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    // The run that asked. A later attempt asks its own questions rather than
+    // inheriting these, so the band always shows one run's worth.
+    runId: text('run_id').references(() => run.id, { onDelete: 'cascade' }),
+    stage: text('stage').$type<CardStage>().notNull(),
+    /** 1-based, and the number a person sees. */
+    position: integer('position').notNull(),
+    text: text('text').notNull(),
+    /** Concrete answers offered as buttons; the human may write their own. */
+    suggestions: text('suggestions', { mode: 'json' }).$type<string[]>(),
+    answer: text('answer'),
+    answeredAt: timestamp('answered_at'),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index('question_card').on(t.cardId, t.position), index('question_run').on(t.runId, t.position)],
+);
+
 export const artifact = sqliteTable(
   'artifact',
   {
@@ -309,6 +341,7 @@ export type NewRunEvent = typeof runEvent.$inferInsert;
 export type CardEvent = typeof cardEvent.$inferSelect;
 export type NewCardEvent = typeof cardEvent.$inferInsert;
 export type AcceptanceCriterion = typeof acceptanceCriterion.$inferSelect;
+export type Question = typeof question.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;

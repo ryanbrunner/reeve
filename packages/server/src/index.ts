@@ -43,7 +43,7 @@ export function createApp() {
   app.route('/api/runs', runRoutes(db));
   app.route('/api/cards', actionRoutes(db, writer));
   app.route('/api/cards', stageRoutes(db, writer));
-  app.route('/api/cards', detailRoutes(db));
+  app.route('/api/cards', detailRoutes(db, writer));
   app.get('/healthz', (c) => c.json({ ok: true }));
 
   // In production the built frontend is served from the same origin and port.

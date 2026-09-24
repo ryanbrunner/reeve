@@ -14,17 +14,80 @@ import type { RunnableStage } from './stages.js';
  * lets Planning run with no write tools at all.
  */
 
+/**
+ * There is deliberately no `plan_markdown` here.
+ *
+ * A prose copy of the plan alongside a structured one is a second source of
+ * truth, and the two drift: Claude writes steps in the paragraph that are not
+ * in `steps`, and nothing catches it. The server composes `.reeve/plan.md` from
+ * these fields instead, which is the same inversion the rest of this file runs
+ * on — Claude returns data, the server writes the document.
+ *
+ * `details` is open rather than a fixed approach/risks pair, because the
+ * sections a migration plan needs are not the ones a UI change needs, and a
+ * required "Risks" field only teaches Claude to invent a risk.
+ */
 export const planningOutput = z.object({
-  plan_markdown: z
-    .string()
-    .describe('The full implementation plan as markdown. This is the document the human reviews.'),
   summary: z.string().describe('One or two sentences describing the approach, for the card face.'),
+  details: z
+    .array(
+      z.object({
+        heading: z.string().describe('A short title for this section, in Title Case.'),
+        body: z.string().describe('A paragraph or two of plain prose. No markdown headings.'),
+      }),
+    )
+    .describe(
+      'The parts of this plan worth saying in prose, as the sections THIS task needs — approach and risks are common, a migration might want a rollback section, a small fix might want one section only. Two to four is usual.',
+    ),
+  steps: z
+    .array(
+      z.object({
+        title: z.string().describe('What this step does, in one line.'),
+        detail: z.string().describe('One sentence on how, or on why it is shaped this way.'),
+        files: z.array(z.string()).describe('Repo-relative paths this step creates or modifies.'),
+        blocked_on_question: z
+          .number()
+          .int()
+          .nullable()
+          .describe(
+            'The 1-based number of the open question this step cannot proceed without, counting into your own open_questions array. Null if nothing blocks it.',
+          ),
+      }),
+    )
+    .describe('The implementation, in the order you would do it.'),
+  open_questions: z
+    .array(
+      z.object({
+        question: z
+          .string()
+          .describe('Something genuinely ambiguous a human should settle. Ask only what you cannot decide yourself.'),
+        suggestions: z
+          .array(z.string())
+          .describe(
+            'Two to four concrete answers a human could pick without typing. Phrase each as the decision itself ("Keep them until removed"), never as another question.',
+          ),
+      }),
+    )
+    .describe('Empty if nothing is genuinely ambiguous.'),
+  acceptance_criteria: z
+    .array(z.string())
+    .describe(
+      'What must be true for this card to be done, each one independently checkable. These become the checklist Testing verifies, so write them as observations a person could make, not as tasks.',
+    ),
+  captures: z
+    .array(
+      z.object({
+        label: z.string().describe('What this screenshot shows, e.g. "Cart with saved items".'),
+        path: z.string().describe('The app path to visit, e.g. "/cart".'),
+        viewport: z.number().int().describe('Viewport width in CSS pixels, e.g. 1280 or 390.'),
+      }),
+    )
+    .describe(
+      'States worth a screenshot when this is tested. Only states reachable by URL alone — the capturer navigates and shoots, it does not click through journeys. Empty if this change is not visual.',
+    ),
   files_to_touch: z
     .array(z.string())
     .describe('Repo-relative paths you expect to create or modify.'),
-  open_questions: z
-    .array(z.string())
-    .describe('Anything genuinely ambiguous that a human should settle before implementation. Empty if none.'),
   risk: z.enum(['low', 'medium', 'high']).describe('How likely this is to go wrong or need rework.'),
 });
 

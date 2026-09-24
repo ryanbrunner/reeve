@@ -69,3 +69,16 @@ export interface ApiCardRef {
   value: string;
   label: string | null;
 }
+
+export interface ApiQuestion {
+  id: string;
+  /** The run that asked. A later attempt asks its own. */
+  runId: string | null;
+  /** 1-based, and the number a plan step means by "waits on question 2". */
+  position: number;
+  text: string;
+  /** Concrete answers offered as buttons; a person may still write their own. */
+  suggestions: string[];
+  answer: string | null;
+  answeredAt: number | null;
+}

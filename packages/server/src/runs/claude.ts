@@ -21,6 +21,8 @@ export interface ClaudeRunParams {
   stage: StageDefinition<never>;
   worktreePath: string;
   reviewNotes?: string | null;
+  /** Answers to the questions the forked run asked. See StageContext.answers. */
+  answers?: Array<{ question: string; answer: string }>;
   /** Set for a revision: the prior run's session is forked, not continued. */
   resumeSessionId?: string | null;
   parentRunId?: string | null;
@@ -71,9 +73,13 @@ function stopReasonForSubtype(subtype: string): StopReason {
 }
 
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
-  const { db, writer, card, project, stage, worktreePath, reviewNotes, resumeSessionId, parentRunId } = params;
+  const { db, writer, card, project, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
 
-  const ctx: StageContext = { card, project, worktreePath, reviewNotes: reviewNotes ?? null };
+  const ctx: StageContext = {
+    card, project, worktreePath,
+    reviewNotes: reviewNotes ?? null,
+    answers: answers ?? [],
+  };
   const promptText = stage.buildPrompt(ctx);
   // Generated here and stored BEFORE the subprocess exists, so an orphaned run
   // is still resumable after a restart.
@@ -191,6 +197,9 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     }
 
     materialiseArtifacts(db, card, worktreePath, runId, stage, ctx, parsed.data);
+    // Files first, then rows, then the run is marked done — so nothing can read
+    // a succeeded run whose plan or questions have not landed yet.
+    stage.onPersist?.(db, ctx, parsed.data, runId);
     finish(db, writer, runId, 'succeeded', 'completed', null, result);
   })();
 

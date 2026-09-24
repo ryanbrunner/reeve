@@ -4,6 +4,7 @@ import type {
   ApiCardRef,
   ApiCriterion,
   ApiProject,
+  ApiQuestion,
   ApiRunSummary,
   CardActivity,
   CardEventActor,
@@ -15,7 +16,7 @@ import type {
   Stage,
   StopReason,
 } from '@reeve/shared';
-import type { AcceptanceCriterion, Card, CardEvent, CardRef, Project, Run } from './db/schema.js';
+import type { AcceptanceCriterion, Card, CardEvent, CardRef, Project, Question, Run } from './db/schema.js';
 
 const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
@@ -112,4 +113,16 @@ export function toApiCriterion(c: AcceptanceCriterion): ApiCriterion {
 
 export function toApiCardRef(r: CardRef): ApiCardRef {
   return { id: r.id, kind: r.kind as CardRefKind, value: r.value, label: r.label };
+}
+
+export function toApiQuestion(q: Question): ApiQuestion {
+  return {
+    id: q.id,
+    runId: q.runId,
+    position: q.position,
+    text: q.text,
+    suggestions: q.suggestions ?? [],
+    answer: q.answer,
+    answeredAt: ms(q.answeredAt),
+  };
 }

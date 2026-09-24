@@ -1,17 +1,29 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { isRunnable, type Stage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   addCriterion,
   addRef,
+  answerQuestion,
   criteriaFor,
   deleteCriterion,
   deleteRef,
   getCard,
+  getQuestion,
+  getRun,
+  insertCardEvent,
+  latestRunForStage,
+  listProjects,
+  questionsForRun,
   refsFor,
   updateCriterion,
 } from '../db/queries.js';
-import { toApiCardRef, toApiCriterion } from '../mappers.js';
+import { checkWorktree } from '../git/worktree.js';
+import { toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
+import { startClaudeRun } from '../runs/claude.js';
+import type { EventWriter } from '../runs/events.js';
+import { stageDefinition } from '../stages/index.js';
 
 /**
  * Everything the card detail view reads and writes that the board never needed.
@@ -31,8 +43,9 @@ const refSchema = z.object({
   value: z.string().min(1),
   label: z.string().nullable().optional(),
 });
+const answerSchema = z.object({ answer: z.string().min(1, 'an answer needs words') });
 
-export function detailRoutes(db: Db) {
+export function detailRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
 
   const found = (id: string) => Boolean(getCard(db, id));
@@ -81,6 +94,74 @@ export function detailRoutes(db: Db) {
   routes.delete('/:id/refs/:refId', (c) => {
     const gone = deleteRef(db, c.req.param('refId'));
     return gone ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+  });
+
+  /** The questions the card's current run asked, answered or not. */
+  routes.get('/:id/questions', (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const run = latestRunForStage(db, card.id, card.stage);
+    return c.json(run ? questionsForRun(db, run.id).map(toApiQuestion) : []);
+  });
+
+  /**
+   * Answer one question, and when it was the last one, put Claude back to work.
+   *
+   * The resume forks the session exactly as a rejection does: the attempt that
+   * asked stays readable, and the answers arrive as prompt rather than as some
+   * second channel Claude has to be taught about. Answering out of order is
+   * fine — what matters is that none are left, not which came last.
+   */
+  routes.post('/:id/questions/:questionId/answer', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+
+    const parsed = answerSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid answer', detail: parsed.error.message }, 400);
+
+    const existing = getQuestion(db, c.req.param('questionId'));
+    if (!existing || existing.cardId !== card.id) return c.json({ error: 'not found' }, 404);
+
+    const answered = answerQuestion(db, existing.id, parsed.data.answer.trim());
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'answered', stage: existing.stage,
+      runId: existing.runId, body: answered.answer,
+      meta: { question: existing.text, position: existing.position },
+    });
+
+    const siblings = existing.runId ? questionsForRun(db, existing.runId) : [];
+    const pending = siblings.filter((q) => q.answer === null);
+    if (pending.length > 0) {
+      return c.json({ ok: true, answered: siblings.length - pending.length, of: siblings.length, resumed: null });
+    }
+
+    // Everything answered. Anything that stops the resume is reported rather
+    // than thrown: the answer is already saved, and losing it because the
+    // worktree went missing would be the worse failure.
+    const blocked = (detail: string) =>
+      c.json({ ok: true, answered: siblings.length, of: siblings.length, resumed: null, blocked: detail });
+
+    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+    if (!project) return blocked('card has no project');
+    if (!isRunnable(card.stage as Stage)) return blocked('stage has no Claude work');
+    const stage = stageDefinition(card.stage as never);
+    if (!stage) return blocked('stage not implemented yet');
+    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    if (health.state !== 'ok') return blocked('card has no usable worktree');
+
+    // Fork the run that ASKED, not simply the latest one: those are the same
+    // run today, and would quietly stop being so the moment anything else can
+    // start one in between.
+    const asked = existing.runId ? getRun(db, existing.runId) : null;
+
+    const handle = startClaudeRun({
+      db, writer, card, project, stage,
+      worktreePath: health.path,
+      answers: siblings.map((q) => ({ question: q.text, answer: q.answer ?? '' })),
+      resumeSessionId: asked?.sessionId ?? null,
+      parentRunId: asked?.id ?? null,
+    });
+    return c.json({ ok: true, answered: siblings.length, of: siblings.length, resumed: handle.runId }, 201);
   });
 
   return routes;
