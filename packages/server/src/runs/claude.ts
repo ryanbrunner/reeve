@@ -157,6 +157,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(stage.model ? { model: stage.model } : {}),
     ...(stage.effort ? { effort: stage.effort } : {}),
+    // The card modal shows what Claude is reasoning about. Left to default,
+    // adaptive thinking on this model omits the text and stores an empty block
+    // with only a signature. Explicitly 'adaptive' because no stage pins a model
+    // today; one that pins a model without adaptive thinking needs this revisited.
+    thinking: { type: 'adaptive', display: 'summarized' },
     outputFormat: { type: 'json_schema', schema: jsonSchemaFor(stage.schema) },
   };
 
