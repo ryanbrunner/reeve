@@ -1,5 +1,6 @@
 import { canStartRun, type ApiCard } from '@reeve/shared';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
+import { MergeButton } from './MergeButton.js';
 import { RunButton } from './RunButton.js';
 
 export function CardFace({
@@ -48,7 +49,13 @@ export function CardFace({
             ${run.totalCostUsd.toFixed(3)}
           </span>
         )}
+        {card.mergedAt != null && (
+          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-emerald-300">
+            merged
+          </span>
+        )}
         {!dragging && canStartRun(card) && <RunButton card={card} />}
+        {!dragging && card.stage === 'done' && card.worktreePath && card.mergedAt == null && <MergeButton card={card} />}
       </div>
       {card.activity === 'running' && (
         <span className="card-rail" aria-hidden="true">

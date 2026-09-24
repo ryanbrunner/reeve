@@ -112,6 +112,12 @@ export const api = {
     post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number; url: string }>),
   stopServer: (id: string) => del(`/api/cards/${id}/server`).then(json<{ ok: true }>),
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
+  /**
+   * Squash into the default branch, then remove the worktree and branch.
+   * `cleanup` is set when the merge landed but the tidying after it did not.
+   */
+  merge: (id: string) =>
+    post(`/api/cards/${id}/merge`, {}).then(json<{ ok: true; sha: string; cleanup?: string }>),
 };
 
 export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>

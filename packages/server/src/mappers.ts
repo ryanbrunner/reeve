@@ -89,6 +89,8 @@ export function toApiCard(
     position: c.position,
     branchName: c.branchName,
     worktreePath: c.worktreePath,
+    mergedSha: c.mergedSha,
+    mergedAt: ms(c.mergedAt),
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     createdAt: ms(c.createdAt) ?? 0,
