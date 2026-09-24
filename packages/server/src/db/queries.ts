@@ -1,11 +1,14 @@
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from './client.js';
 import {
+  artifact,
   card,
   project,
+  review,
   run,
   runEvent,
   type Card,
+  type ArtifactKind,
   type CardStage,
   type NewRun,
   type NewRunEvent,
@@ -195,4 +198,50 @@ export function getRun(db: Db, id: string) {
 
 export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>) {
   return db.update(run).set(patch).where(eq(run.id, id)).returning().get();
+}
+
+// ---------------------------------------------------------------------------
+// Artifacts and reviews
+// ---------------------------------------------------------------------------
+
+export function artifactsForCard(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(artifact)
+    .where(eq(artifact.cardId, cardId))
+    .orderBy(desc(artifact.createdAt))
+    .all();
+}
+
+export function latestArtifact(db: Db, cardId: string, stage: CardStage, kind: ArtifactKind) {
+  return db
+    .select()
+    .from(artifact)
+    .where(and(eq(artifact.cardId, cardId), eq(artifact.stage, stage), eq(artifact.kind, kind)))
+    .orderBy(desc(artifact.createdAt))
+    .limit(1)
+    .get();
+}
+
+/** The most recent run of a given stage, whatever its outcome. */
+export function latestRunForStage(db: Db, cardId: string, stage: CardStage) {
+  return db
+    .select()
+    .from(run)
+    .where(and(eq(run.cardId, cardId), eq(run.stage, stage)))
+    .orderBy(desc(run.createdAt))
+    .limit(1)
+    .get();
+}
+
+export function insertReview(db: Db, values: typeof review.$inferInsert) {
+  return db.insert(review).values(values).returning().get();
+}
+
+export function reviewsForCard(db: Db, cardId: string) {
+  return db.select().from(review).where(eq(review.cardId, cardId)).orderBy(desc(review.createdAt)).all();
+}
+
+export function setCardStage(db: Db, id: string, stage: CardStage) {
+  return db.update(card).set({ stage, updatedAt: new Date() }).where(eq(card.id, id)).returning().get();
 }

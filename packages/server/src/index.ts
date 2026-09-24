@@ -11,6 +11,7 @@ import { reapOrphanedRuns } from './db/queries.js';
 import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
 import { runRoutes } from './routes/runs.js';
+import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
 
 /**
@@ -40,6 +41,7 @@ export function createApp() {
   app.route('/api', apiRoutes(db));
   app.route('/api/runs', runRoutes(db));
   app.route('/api/cards', actionRoutes(db, writer));
+  app.route('/api/cards', stageRoutes(db, writer));
   app.get('/healthz', (c) => c.json({ ok: true }));
 
   // In production the built frontend is served from the same origin and port.
