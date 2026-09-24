@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
-import { Button, SmallButton } from './ui.js';
+import { Button, Code, SmallButton } from './ui.js';
 import { cost, duration, plural } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
 
@@ -13,9 +13,19 @@ import type { LiveRun } from './useCardDetail.js';
  * construction: `needs_input` beats `needs_review` in deriveActivity, so a plan
  * that ended in questions is a question and never also a deliverable. An idle
  * card asks for nothing and the band is absent rather than empty.
+ *
+ * Done is the exception. Claude never runs there, so a Done card is always
+ * idle — and that is exactly when it has one thing left to ask for: a merge.
  */
 export function AttentionBand({ detail, live }: { detail: CardDetail; live: LiveRun | null }) {
   const { card } = detail;
+  if (card.stage === 'done' && (detail.worktree.path || card.mergedSha)) {
+    return (
+      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+        <ReadyToMerge detail={detail} />
+      </div>
+    );
+  }
   if (card.activity === 'idle') return null;
 
   return (
@@ -258,6 +268,79 @@ function Failed({ detail }: { detail: CardDetail }) {
         </Button>
       </div>
       {retry.error && <p className="basis-full text-sm/5 text-red-300">{retry.error.message}</p>}
+    </div>
+  );
+}
+
+function ReadyToMerge({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const { card, worktree } = detail;
+  // Same key the rail's commit list holds, so this is its cache, not a second call.
+  const commits = useQuery({
+    queryKey: ['commits', card.id],
+    queryFn: () => api.commits(card.id),
+    enabled: Boolean(worktree.path && worktree.base) && !card.mergedSha,
+  });
+  const merge = useMutation({
+    mutationFn: () => api.merge(card.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+      // Both now read from the squash commit rather than the worktree.
+      void qc.invalidateQueries({ queryKey: ['diff', card.id] });
+      void qc.invalidateQueries({ queryKey: ['commits', card.id] });
+    },
+  });
+
+  const base = worktree.baseBranch;
+
+  if (card.mergedSha) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="min-w-0">
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            Merged into {base} as <Code>{card.mergedSha.slice(0, 7)}</Code>
+          </div>
+          <p className="mt-0.5 text-sm/5 text-(--color-muted)">One commit, titled with this card.</p>
+        </div>
+        {merge.data?.cleanup && (
+          <p className="text-sm/5 text-amber-200">The merge landed, but tidying up after it did not: {merge.data.cleanup}</p>
+        )}
+      </div>
+    );
+  }
+
+  const count = commits.data?.length ?? null;
+  // Refused here only where the answer is already on screen. Everything the
+  // page cannot see — a dirty tree, a conflict — the server says instead.
+  const blocked = !worktree.exists
+    ? 'The worktree is missing, so there is nothing left to merge.'
+    : count === 0
+      ? 'No commits on this branch yet. Only committed work is merged.'
+      : null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 grow">
+          <div className="text-sm/5 font-medium text-(--color-text)">{blocked ? 'Nothing to merge' : 'Ready to merge'}</div>
+          <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+            {blocked ?? (
+              <>
+                {count !== null && `${plural(count, 'commit')} on ${worktree.branch ?? 'the branch'}, squashed into one. `}
+                {worktree.behind ? `${base} is ${plural(worktree.behind, 'commit')} ahead of it. ` : ''}
+                The worktree and branch are removed afterwards.
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button tone="review" disabled={Boolean(blocked) || merge.isPending} onClick={() => merge.mutate()}>
+            {merge.isPending ? 'Merging…' : `Squash & merge into ${base}`}
+          </Button>
+        </div>
+      </div>
+      {merge.error && <p className="text-sm/5 text-red-300">{merge.error.message}</p>}
     </div>
   );
 }
