@@ -1,4 +1,5 @@
 import type { RunStatus } from './runs.js';
+import { isRunnable, type Stage } from './stages.js';
 
 /**
  * A card's sub-state *within* its column.
@@ -41,4 +42,20 @@ export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActi
     case 'succeeded':
       return awaitsInput ? 'needs_input' : 'needs_review';
   }
+}
+
+/**
+ * Activities a fresh run may be started from. `needs_review` and `needs_input`
+ * are absent on purpose: once a run has succeeded the way forward is the review
+ * gate, which forks the session so the attempt stays readable — a bare second
+ * run would throw that history away.
+ *
+ * This is the board's affordance rule, not server policy. `POST /:id/run` gates
+ * on the stage, the run registry, the concurrency cap and worktree health, and
+ * never looks at the last run's status.
+ */
+const STARTABLE: readonly CardActivity[] = ['idle', 'error'];
+
+export function canStartRun(card: { stage: Stage; activity: CardActivity }): boolean {
+  return isRunnable(card.stage) && STARTABLE.includes(card.activity);
 }
