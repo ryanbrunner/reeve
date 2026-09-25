@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
-import { Button, SmallButton } from './ui.js';
+import { Button, Code, SmallButton } from './ui.js';
 import { cost, duration, plural } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
 
@@ -13,9 +13,20 @@ import type { LiveRun } from './useCardDetail.js';
  * construction: `needs_input` beats `needs_review` in deriveActivity, so a plan
  * that ended in questions is a question and never also a deliverable. An idle
  * card asks for nothing and the band is absent rather than empty.
+ *
+ * Done is the exception. Claude never runs there, so a Done card is always
+ * idle — and that is exactly when there is one thing left to say about it:
+ * where its pull request is, or why there is not one yet.
  */
 export function AttentionBand({ detail, live }: { detail: CardDetail; live: LiveRun | null }) {
   const { card } = detail;
+  if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
+    return (
+      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+        <PullRequest detail={detail} />
+      </div>
+    );
+  }
   if (card.activity === 'idle') return null;
 
   return (
@@ -299,6 +310,113 @@ function Failed({ detail }: { detail: CardDetail }) {
         </Button>
       </div>
       {retry.error && <p className="basis-full text-sm/5 text-red-300">{retry.error.message}</p>}
+    </div>
+  );
+}
+
+/**
+ * Where a Done card's work went. Entering Done pushes the branch and opens a
+ * pull request on its own, so this mostly reports: the pull request, the
+ * attempt still under way, or why the last attempt failed — with a button to
+ * try again once the cause is put right.
+ */
+function PullRequest({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const { card, worktree } = detail;
+  // Same key the rail's commit list holds, so this is its cache, not a second call.
+  const commits = useQuery({
+    queryKey: ['commits', card.id],
+    queryFn: () => api.commits(card.id),
+    enabled: Boolean(worktree.path && worktree.base) && !card.mergedSha,
+  });
+  const open = useMutation({
+    mutationFn: () => api.openPr(card.id),
+    // Settled, not succeeded: a failure is written to the card too, and the
+    // band reads its reason from there.
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['card', card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+
+  const base = worktree.baseBranch;
+
+  // From before pull requests replaced the merge. Nothing merges any more,
+  // but a card that did still says where it went.
+  if (card.mergedSha) {
+    return (
+      <div className="min-w-0">
+        <div className="text-sm/5 font-medium text-(--color-text)">
+          Merged into {base} as <Code>{card.mergedSha.slice(0, 7)}</Code>
+        </div>
+        <p className="mt-0.5 text-sm/5 text-(--color-muted)">One commit, titled with this card.</p>
+      </div>
+    );
+  }
+
+  // Events are newest first, so this is how the latest attempt ended.
+  const last = detail.events.find((e) => e.kind === 'pr_opened' || e.kind === 'pr_failed');
+  const failure = last?.kind === 'pr_failed' ? (last.body ?? 'reason unrecorded') : null;
+  const busy = card.openingPr || open.isPending;
+  const count = commits.data?.length ?? null;
+  const retry = (label: string) => (
+    <Button tone={card.prUrl ? 'plain' : 'review'} disabled={busy || !worktree.exists} onClick={() => open.mutate()}>
+      {busy ? 'Pushing…' : label}
+    </Button>
+  );
+  // The same sentence the event holds, so a refusal is said once, not twice.
+  const refused = open.error && open.error.message !== failure ? open.error.message : null;
+
+  if (card.prUrl) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 grow">
+            <div className="text-sm/5 font-medium text-(--color-text)">
+              Pull request{' '}
+              <a href={card.prUrl} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
+                #{card.prNumber}
+              </a>{' '}
+              open against {base}
+            </div>
+            <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+              {busy
+                ? 'Pushing the latest commits to it…'
+                : 'The worktree and branch stay, for whatever review asks for. Moving the card back into Done pushes again.'}
+            </p>
+          </div>
+          {failure && !busy && <div className="flex shrink-0 gap-2">{retry('Push again')}</div>}
+        </div>
+        {failure && !busy && <p className="text-sm/5 text-amber-200">The last push did not reach it: {failure}</p>}
+        {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 grow">
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            {busy ? 'Opening a pull request' : failure ? 'No pull request yet' : 'Ready for a pull request'}
+          </div>
+          <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+            {busy
+              ? `Pushing ${worktree.branch ?? 'the branch'} to origin, then asking GitHub for a pull request into ${base}.`
+              : !worktree.exists
+                ? 'The worktree is missing, so there is nothing left to push.'
+                : (
+                  <>
+                    {count !== null && `${plural(count, 'commit')} on ${worktree.branch ?? 'the branch'}. `}
+                    Only committed work is pushed, as a pull request into {base}.
+                  </>
+                )}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">{retry('Open pull request')}</div>
+      </div>
+      {failure && !busy && <p className="text-sm/5 text-red-300">{failure}</p>}
+      {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
     </div>
   );
 }

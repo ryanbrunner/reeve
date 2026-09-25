@@ -193,9 +193,28 @@ body { background: var(--color-ink); color: var(--color-text); }
       transform: translateX(75%);
     }
   }
+
+  /* A busy button breathes in the running colour. For work that is not the
+     card's own run — Suggest — this is the only sign anything is happening. */
+  .btn-busy {
+    animation: btn-busy 1.6s ease-in-out infinite;
+  }
+
+  /* Still, but lit, so it still reads as working rather than switched off. */
+  @media (prefers-reduced-motion: reduce) {
+    .btn-busy {
+      animation: none;
+      box-shadow: 0 0 8px -2px var(--color-activity-running-mark);
+    }
+  }
 }
 
 @keyframes card-rail {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(250%); }
+}
+
+@keyframes btn-busy {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 8px -2px var(--color-activity-running-mark); }
 }

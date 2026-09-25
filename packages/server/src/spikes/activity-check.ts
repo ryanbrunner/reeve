@@ -29,6 +29,8 @@ function activityOf(opts: {
   status?: RunStatus;
   kind?: 'claude' | 'server';
   questions?: string[];
+  /** A Suggest run in the same stage, newer than the stage's own. */
+  suggest?: RunStatus;
 }) {
   const c = createCard(db, { title: 'probe', projectId: project.id, stage: opts.stage ?? 'planning' });
   if (opts.status) {
@@ -44,6 +46,14 @@ function activityOf(opts: {
       },
     });
   }
+  if (opts.suggest) {
+    // Stamped a second on, so it is the newest run by more than a tie.
+    const s = insertRun(db, {
+      id: crypto.randomUUID(), cardId: c.id, kind: 'claude', task: 'suggest_criteria',
+      stage: 'planning', status: 'running', cwd: '/tmp/x', createdAt: new Date(Date.now() + 1_000),
+    });
+    setRunStatus(db, s.id, { status: opts.suggest });
+  }
   return toBoardCard(db, getCard(db, c.id)!, null, null).activity;
 }
 
@@ -58,6 +68,9 @@ const cases: Array<[string, string, string]> = [
   ['orphaned by restart', activityOf({ status: 'interrupted' }), 'error'],
   ['stopped on purpose', activityOf({ status: 'cancelled' }), 'idle'],
   ['dev server running is not Claude', activityOf({ status: 'running', kind: 'server' }), 'idle'],
+  ['suggest finished after the plan', activityOf({ status: 'succeeded', suggest: 'succeeded' }), 'needs_review'],
+  ['suggest failed after the plan', activityOf({ status: 'succeeded', suggest: 'failed' }), 'needs_review'],
+  ['suggest running, no plan yet', activityOf({ suggest: 'running' }), 'idle'],
 ];
 
 let failed = 0;

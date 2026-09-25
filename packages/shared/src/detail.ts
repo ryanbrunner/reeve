@@ -25,7 +25,13 @@ export type CardEventKind =
   | 'reviewed'
   | 'question_asked'
   | 'answered'
-  | 'note';
+  | 'note'
+  | 'merged'
+  | 'pr_opened'
+  | 'pr_failed'
+  | 'archived'
+  | 'restored'
+  | 'handed_off';
 
 export interface ApiCardEvent {
   id: string;
@@ -241,6 +247,15 @@ export interface ApiWorktree {
   server: ApiDevServer | null;
 }
 
+/**
+ * What `POST /cards/:id/handoff` answers with: where the context file landed,
+ * and the one line to paste into a terminal to start Claude Code on it.
+ */
+export interface HandoffResponse {
+  path: string;
+  command: string;
+}
+
 // --- The whole card ---------------------------------------------------------
 
 /**
@@ -249,8 +264,8 @@ export interface ApiWorktree {
  * One payload and so one query key and one poll: a modal whose header, tabs
  * and rail each fetched separately would show a card mid-transition, with the
  * stage in the header disagreeing with the stage in the rail. The diff and the
- * commit list are the deliberate exceptions — they shell out to git, and are
- * only wanted while the Changes tab is open.
+ * commit list are the deliberate exceptions — they shell out to git, and so
+ * are fetched once when the modal opens rather than on every poll.
  */
 export interface CardDetail {
   card: ApiCard;

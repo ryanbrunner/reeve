@@ -12,6 +12,9 @@ export const config = {
   port: Number(process.env.REEVE_PORT ?? 4317),
   /** Loopback only: there is no auth and this runs arbitrary code in your repos. */
   hostname: '127.0.0.1',
-  /** Simultaneous Claude runs. Approving four cards shouldn't launch four sessions. */
+  /**
+   * Simultaneous Claude runs. Approving four cards shouldn't launch four sessions.
+   * Only the default: the Settings screen stores its own, which wins.
+   */
   maxConcurrentRuns: Number(process.env.REEVE_MAX_CONCURRENT ?? 3),
 } as const;
