@@ -59,6 +59,10 @@ export const CARD_EVENT_KINDS = [
   'archived',
   'restored',
   'handed_off',
+  // A review in Crit that ended without a verdict: stopped, failed, or
+  // finished after the plan had already moved on. One that reached a verdict
+  // writes `reviewed` instead, the same as the buttons.
+  'crit_reviewed',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
