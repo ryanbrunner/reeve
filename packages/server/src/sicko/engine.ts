@@ -1,4 +1,4 @@
-import { canStartRun, isRunnable, nextStage, type Stage } from '@reeve/shared';
+import { PLACEHOLDER_TITLE, canStartRun, isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
 import { cardActivity } from '../board.js';
 import type { Db } from '../db/client.js';
@@ -111,6 +111,14 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
   // Backlog. Nobody is going to drag this, so it goes, and then starts the way
   // a card dragged into Planning starts.
   if (!isRunnable(stage)) {
+    // Except a card nobody has said anything about yet. A card is made with a
+    // placeholder title and an empty brief and opened for the details to be
+    // typed in, and planning THAT is guaranteed waste: a stage run on "Untitled"
+    // with nothing to go on can only produce a plan for nothing. It is also the
+    // difference between the switch being fun and the switch being a trap —
+    // otherwise the card is taken away mid-sentence, two seconds after the Add
+    // button. Say what it is and it goes.
+    if (card.title.trim() === PLACEHOLDER_TITLE && card.body.trim() === '') return;
     const to = nextStage(stage);
     if (!to) return;
     const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');

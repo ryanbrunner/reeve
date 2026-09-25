@@ -48,7 +48,18 @@ export interface Sicko {
  * the board response, so a reload lands back in the same place with the same
  * totals. Only what is inherently momentary lives here.
  */
-export function useSicko(state: SickoState | null, mergedIds: readonly string[]): Sicko {
+export function useSicko(
+  state: SickoState | null,
+  mergedIds: readonly string[],
+  /**
+   * Whether a board has arrived at all. Without it the loading render — no
+   * data, so no merged cards — counts as the first reading, and the real board
+   * that follows reads as every card in Done having just landed: a reload with
+   * SICKO MODE on would stamp old cards MERGED, flash the screen and shake the
+   * stage for work that finished days ago.
+   */
+  ready: boolean,
+): Sicko {
   const qc = useQueryClient();
   const [arming, setArming] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -96,10 +107,11 @@ export function useSicko(state: SickoState | null, mergedIds: readonly string[])
    */
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
+    if (!ready) return;
     const before = seen.current;
     const now = new Set(mergedIds);
     seen.current = now;
-    // First board response after a reload: everything already merged is old news.
+    // The first real board: everything already merged is old news.
     if (before === null) return;
     const fresh = mergedIds.filter((id) => !before.has(id));
     if (fresh.length === 0) return;
@@ -111,7 +123,7 @@ export function useSicko(state: SickoState | null, mergedIds: readonly string[])
       lastFlashAt.current = at;
       setFlash((f) => (f === null ? true : !f));
     }
-  }, [mergedIds]);
+  }, [mergedIds, ready]);
 
   // The stamp is a moment, not a state: it slams on, holds, and goes, leaving
   // the card wearing its merged glow.

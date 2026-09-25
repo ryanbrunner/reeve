@@ -21,8 +21,10 @@ import {
   questionsForRun,
   replaceQuestions,
   setRunStatus,
+  updateCard,
   updateSettings,
 } from '../db/queries.js';
+import { PLACEHOLDER_TITLE } from '@reeve/shared';
 import { sickoSweep } from '../sicko/engine.js';
 import { sickoState } from '../sicko/state.js';
 
@@ -64,6 +66,17 @@ updateSettings(db, { sicko: true });
 await sickoSweep(db, writer);
 const movedTo = getCard(db, asleep.id)!.stage;
 const movedBy = actorsOf(asleep.id, 'moved');
+
+// --- the card nobody has named yet ----------------------------------------
+// Add makes a card called "Untitled" and opens it for the details. Planning
+// that is guaranteed waste, and taking it away mid-sentence is the difference
+// between the switch being fun and the switch being a trap.
+const unnamed = createCard(db, { title: PLACEHOLDER_TITLE, repoId: repo.id, stage: 'backlog' });
+await sickoSweep(db, writer);
+const unnamedStage = getCard(db, unnamed.id)!.stage;
+updateCard(db, unnamed.id, { title: 'Gift notes at checkout' });
+await sickoSweep(db, writer);
+const namedStage = getCard(db, unnamed.id)!.stage;
 
 // --- the review gate ------------------------------------------------------
 // A plan waiting to be read is approved without being read, and the card
@@ -107,6 +120,8 @@ ok('and is still left alone after it has been on and off', afterOff, 'backlog');
 console.log('\n--- with the switch on ---');
 ok('backlog moves itself into planning', movedTo, 'planning');
 ok('and the move is recorded as Claude, not as you', movedBy, ['claude']);
+ok('a card nobody has named yet is left where it is', unnamedStage, 'backlog');
+ok('and goes the moment it is named', namedStage, 'planning');
 ok('a plan waiting for review is approved', reviewedBy, ['claude']);
 ok('and the card advances', afterReview, 'in_progress');
 ok('a question is answered with Claude’s own first suggestion', answers, ['Left']);
@@ -116,7 +131,7 @@ console.log('\n--- the scoreboard ---');
 ok('human approvals', state.humanApprovals, 0);
 ok('reviews skipped', state.reviewsSkipped, 1);
 ok('questions self-answered', state.questionsSelfAnswered, 1);
-ok('moves', state.moves, 2);
+ok('moves', state.moves, 3);
 ok('spend counts the runs since', state.spendUsd, 0.5);
 console.log('log:');
 for (const line of state.log) console.log(`  ◆ ${line}`);

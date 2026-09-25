@@ -161,6 +161,17 @@ export interface SickoState {
   log: string[];
 }
 
+/**
+ * The title a card is born with, before anyone has typed one.
+ *
+ * A card is made and opened rather than asked for a title first, because
+ * criteria and context can only hang off a card that exists — so for a moment
+ * every new card is called this. SICKO MODE has to be able to tell that moment
+ * apart from a card somebody meant, which is why the string is here rather than
+ * spelled out twice.
+ */
+export const PLACEHOLDER_TITLE = 'Untitled';
+
 export interface CreateCardBody {
   title: string;
   body?: string;

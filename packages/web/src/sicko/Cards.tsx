@@ -51,8 +51,6 @@ interface Placed {
   delay: number;
   /** Alternates on each arrival, which is what restarts the slam. */
   bump: boolean;
-  /** On its way off the board. */
-  ship: boolean;
 }
 
 interface Motion {
@@ -60,9 +58,6 @@ interface Motion {
   rot: number;
   delay: number;
   bump: boolean;
-  /** Last placement, kept so a card that has left the board can fly from it. */
-  col: number;
-  y: number;
 }
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
@@ -72,7 +67,6 @@ export function useSickoLane(cards: ApiCard[]) {
   // writing it must not itself cause a render: it is derived from `cards` and
   // read in the same pass that computes it.
   const motion = useRef(new Map<string, Motion>());
-  const [leaving, setLeaving] = useState<Placed[]>([]);
   const [hot, setHot] = useState<ReadonlySet<number>>(() => new Set());
 
   const { placed, height, arrivals } = useMemo(() => {
@@ -100,12 +94,12 @@ export function useSickoLane(cards: ApiCard[]) {
         const moved = prev !== undefined && prev.stage !== card.stage;
         const m: Motion =
           prev === undefined ?
-            { stage: card.stage, rot: rnd(-3.5, 3.5), delay: -rnd(0, 2), bump: col % 2 === 0, col, y }
-          : moved ? { stage: card.stage, rot: rnd(-4.5, 4.5), delay: prev.delay, bump: !prev.bump, col, y }
-          : { ...prev, col, y };
+            { stage: card.stage, rot: rnd(-3.5, 3.5), delay: -rnd(0, 2), bump: col % 2 === 0 }
+          : moved ? { stage: card.stage, rot: rnd(-4.5, 4.5), delay: prev.delay, bump: !prev.bump }
+          : prev;
         motion.current.set(card.id, m);
         if (moved) arrivals.add(col);
-        placed.push({ card, col, y, z: k + 1, rot: m.rot, delay: m.delay, bump: m.bump, ship: false });
+        placed.push({ card, col, y, z: k + 1, rot: m.rot, delay: m.delay, bump: m.bump });
       });
     });
 
@@ -123,9 +117,6 @@ export function useSickoLane(cards: ApiCard[]) {
      */
     placed.sort((a, b) => (a.card.id < b.card.id ? -1 : 1));
 
-    // Cards that are no longer on the board — archived, or filed under another
-    // repo — get one more render on their way out, so they leave by flying off
-    // to main rather than by blinking out of existence.
     const live = new Set(cards.map((c) => c.id));
     for (const id of motion.current.keys()) {
       if (!live.has(id)) motion.current.delete(id);
@@ -142,20 +133,7 @@ export function useSickoLane(cards: ApiCard[]) {
     return () => clearTimeout(t);
   }, [arrivals]);
 
-  // Held one render behind so a departing card can be handed its last known
-  // position; cleared once the flight is over.
-  const previous = useRef<Placed[]>([]);
-  useEffect(() => {
-    const live = new Set(placed.map((p) => p.card.id));
-    const gone = previous.current.filter((p) => !live.has(p.card.id) && !p.ship);
-    previous.current = placed;
-    if (gone.length === 0) return;
-    setLeaving(gone.map((p) => ({ ...p, ship: true })));
-    const t = setTimeout(() => setLeaving([]), 600);
-    return () => clearTimeout(t);
-  }, [placed]);
-
-  return { placed: [...placed, ...leaving], height, hot };
+  return { placed, height, hot };
 }
 
 export function SickoCards({ placed, justMerged, onOpen }: {
@@ -168,7 +146,7 @@ export function SickoCards({ placed, justMerged, onOpen }: {
       {placed.map((p) => (
         <div
           key={p.card.id}
-          className={`sk-slot${p.ship ? ' sk-ship' : ''}`}
+          className="sk-slot"
           style={{
             zIndex: p.z,
             '--sk-i': p.col,

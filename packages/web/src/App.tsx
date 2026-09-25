@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
+import { PLACEHOLDER_TITLE, STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
 import { Glyph } from './board/Glyph.js';
@@ -96,13 +96,22 @@ export function App() {
     if (freshId && openCard !== freshId) setFreshId(null);
   }, [openCard, freshId]);
 
-  // Made with a placeholder title and opened, rather than asked for a title
-  // first: criteria and context can only hang off a card that exists.
+  /**
+   * Add makes the card and opens it, because criteria and context can only hang
+   * off a card that exists, and a card needs a title typed into it.
+   *
+   * Ship it, in SICKO MODE, does not open anything: the title came with the
+   * request and the card is already on its way, so putting a modal over the
+   * board would hide the one thing worth watching.
+   */
   const create = useMutation({
-    mutationFn: (repoId: string | null) => api.createCard({ title: 'Untitled', repoId, stage: 'backlog' }),
-    onSuccess: (card) => {
-      setFreshId(card.id);
-      openAndClose.open(card.id);
+    mutationFn: ({ repoId, title }: { repoId: string | null; title: string }) =>
+      api.createCard({ title, repoId, stage: 'backlog' }),
+    onSuccess: (card, { title }) => {
+      if (title === PLACEHOLDER_TITLE) {
+        setFreshId(card.id);
+        openAndClose.open(card.id);
+      }
       return qc.invalidateQueries({ queryKey: ['board'] });
     },
   });
@@ -117,7 +126,7 @@ export function App() {
   // on.
   const mergedKey = cards.filter((c) => c.mergedAt != null).map((c) => c.id).sort().join(',');
   const mergedIds = useMemo(() => (mergedKey ? mergedKey.split(',') : []), [mergedKey]);
-  const sicko = useSicko(data?.sicko ?? null, mergedIds);
+  const sicko = useSicko(data?.sicko ?? null, mergedIds, data !== undefined);
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);
@@ -329,7 +338,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
   swimlanes: boolean;
   onToggle: () => void;
   repos: ApiRepo[];
-  onAdd: (repoId: string | null) => void;
+  onAdd: (v: { repoId: string | null; title: string }) => void;
   adding: boolean;
   addError: Error | null;
   onOpenSettings: (pane: SettingsPane) => void;
@@ -345,6 +354,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
   // and collapsing them makes No repo unpickable: the fallback below would
   // read the empty string as untouched and snap the select back to the first.
   const [repoId, setRepoId] = useState<string | null>(null);
+  const [idea, setIdea] = useState('');
   const chosen = repoId === '' || repos.some((p) => p.id === repoId);
   const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
   const sick = sicko.sick;
@@ -357,7 +367,20 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
         {cardCount} cards
       </span>
-      <div className="ml-auto flex shrink-0 items-center gap-2">
+      {/* In SICKO MODE the idea is typed here rather than into a modal: the card
+          it makes is named, so the sweep can take it immediately, and nothing
+          covers the board while it goes. */}
+      <form
+        className="ml-auto flex shrink-0 items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!sick) return onAdd({ repoId: filedUnder || null, title: PLACEHOLDER_TITLE });
+          const title = idea.trim();
+          if (!title) return;
+          onAdd({ repoId: filedUnder || null, title });
+          setIdea('');
+        }}
+      >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
         {repos.length > 0 && (
           <select
@@ -374,20 +397,32 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
             <option value="">No repo</option>
           </select>
         )}
+        {sick && (
+          <>
+            <label className="sr-only" htmlFor="new-idea">New idea</label>
+            <input
+              id="new-idea"
+              type="text"
+              value={idea}
+              onChange={(e) => setIdea(e.target.value)}
+              placeholder="New idea → main"
+              className="sk-field w-56 rounded-md border border-(--color-edge) bg-(--color-panel) px-3 py-1.5 text-sm text-(--color-text) outline-none placeholder:text-(--color-muted)"
+            />
+          </>
+        )}
         {/* Held while the card is being made: a double-click would otherwise
             make two, and open both. */}
         <button
-          type="button"
-          disabled={adding}
-          onClick={() => onAdd(filedUnder || null)}
-          className={`rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600 disabled:opacity-40 ${
+          type="submit"
+          disabled={adding || (sick && idea.trim() === '')}
+          className={`rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium whitespace-nowrap hover:bg-sky-600 disabled:opacity-40 ${
             sick ? 'sk-add' : ''
           }`}
         >
           {/* A card added while this is on does not wait in Backlog for anyone. */}
           {sick ? 'Ship it' : 'Add'}
         </button>
-      </div>
+      </form>
       <button
         onClick={() => onOpenSettings(repos.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
         className={`shrink-0 rounded-md border px-3 py-1.5 text-sm whitespace-nowrap ${
