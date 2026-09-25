@@ -94,6 +94,8 @@ export const api = {
     del(`/api/cards/${id}/criteria/${criterionId}`).then(json<{ ok: true }>),
   suggestCriteria: (id: string) =>
     post(`/api/cards/${id}/criteria/suggest`, {}).then(json<{ ok: true; runId: string }>),
+  /** A project's brief, broken into Backlog cards under it. Titles it already has are skipped. */
+  splitProject: (id: string) => post(`/api/cards/${id}/split`, {}).then(json<{ ok: true; runId: string }>),
   addRef: (id: string, body: { kind: ApiCardRef['kind']; value: string; label?: string | null }) =>
     post(`/api/cards/${id}/refs`, body).then(json<ApiCardRef>),
   deleteRef: (id: string, refId: string) => del(`/api/cards/${id}/refs/${refId}`).then(json<{ ok: true }>),

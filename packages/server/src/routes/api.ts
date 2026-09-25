@@ -18,6 +18,7 @@ import {
   moveCard,
   restoreCard,
   runsForCard,
+  tasksInProject,
   updateCard,
   updateRepo,
   updateSettings,
@@ -29,6 +30,7 @@ import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
 import { maybeStartStage } from '../startStage.js';
+import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
 
 const stageSchema = z.enum(STAGES);
@@ -285,6 +287,19 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
     const updated = updateCard(db, id, parsed.data);
     if (!updated) return c.json({ error: 'not found' }, 404);
+    // A project's first brief is split on its own. Only the first: compared
+    // against the body before this save, so rewording a brief later never
+    // spends money unasked — that is the Split button's job. A refusal, or
+    // anything thrown, must not fail the save: the brief is already stored.
+    if (updated.kind === 'project' && !existing.body.trim() && updated.body.trim()
+      && tasksInProject(db, id).length === 0) {
+      try {
+        const split = startSplit(db, writer, updated);
+        if (!split.ok) console.log(`[reeve] project "${updated.title}" not split: ${split.error}`);
+      } catch (e) {
+        console.error(`[reeve] splitting project "${updated.title}" failed: ${String(e)}`);
+      }
+    }
     const repo = updated.repoId ? listRepos(db).find((p) => p.id === updated.repoId) : undefined;
     return c.json(toBoardCard(db, updated, repo?.name ?? null, repo?.laneColor ?? null));
   });

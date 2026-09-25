@@ -37,7 +37,9 @@ import {
   writeAsset,
 } from '../assets/store.js';
 import { startClaudeRun } from '../runs/claude.js';
+import { splitProjectTask } from '../stages/split_project.js';
 import { suggestCriteriaTask } from '../stages/suggest_criteria.js';
+import type { Card } from '../db/schema.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
 
@@ -61,6 +63,36 @@ const refSchema = z.object({
 });
 const answerSchema = z.object({ answer: z.string().min(1, 'an answer needs words') });
 const noteSchema = z.object({ body: z.string().min(1, 'a note needs words') });
+
+export type StartSplitResult =
+  | { ok: true; runId: string }
+  | { ok: false; status: 400 | 409; error: string; detail?: string };
+
+/**
+ * Ask Claude to break a project's brief into tasks. The Split button and a
+ * project's first brief both come through here, so they refuse the same
+ * things. Like Suggest it reads the repo's checkout: a project never has a
+ * worktree of its own.
+ */
+export function startSplit(db: Db, writer: EventWriter, card: Card): StartSplitResult {
+  if (card.kind !== 'project') return { ok: false, status: 400, error: 'only a project can be split' };
+  if (card.archivedAt) return { ok: false, status: 400, error: 'project is archived' };
+  if (!card.body.trim()) return { ok: false, status: 400, error: 'project has no brief', detail: 'write one to split' };
+  const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+  if (!repo) return { ok: false, status: 400, error: 'project has no repo', detail: 'splitting needs a repo to read' };
+  // One at a time. Nothing is awaited between this and startClaudeRun writing
+  // its row, so two presses cannot both get through.
+  if (liveTaskRun(db, card.id, splitProjectTask.id)) {
+    return { ok: false, status: 409, error: 'already splitting this project' };
+  }
+  const handle = startClaudeRun({
+    db, writer, card, repo,
+    stage: splitProjectTask as never,
+    runStage: card.stage,
+    worktreePath: repo.repoPath,
+  });
+  return { ok: true, runId: handle.runId };
+}
 
 export function detailRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
@@ -118,6 +150,15 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       worktreePath: cwd,
     });
     return c.json({ ok: true, runId: handle.runId }, 201);
+  });
+
+  /** Break a project's brief into tasks, again or for the first time. */
+  routes.post('/:id/split', (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const result = startSplit(db, writer, card);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json({ ok: true, runId: result.runId }, 201);
   });
 
   routes.patch('/:id/criteria/:criterionId', async (c) => {
