@@ -84,7 +84,11 @@ export function App() {
       // that flew while the board was not looking would land without the
       // flight. Kept brisk whatever the cards are doing.
       : q.state.data?.sicko ? 1_000
-      : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts) ? 1_500
+      // A card in SICKO MODE on its own moves with nobody touching it too, and
+      // at the idle rate it would jump a column without anyone seeing it go.
+      : q.state.data?.cards.some(
+          (c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts || (c.sicko && c.mergedAt == null),
+        ) ? 1_500
       : 5_000,
   });
 
