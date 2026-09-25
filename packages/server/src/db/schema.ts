@@ -320,6 +320,29 @@ export const cardRef = sqliteTable(
 );
 
 /**
+ * One card waiting on another: `cardId` cannot leave Backlog until
+ * `dependsOnId` is done.
+ *
+ * Its own table rather than a `card_ref` of kind `card`. A ref is something
+ * worth reading before starting, and it would be wrong for a link dropped in
+ * as context to stop a card from starting at all. What counts as done is
+ * decided in `blockers.ts`, not here.
+ */
+export const cardDependency = sqliteTable(
+  'card_dependency',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    dependsOnId: text('depends_on_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_on').on(t.dependsOnId)],
+);
+
+/**
  * A question Claude could not answer for itself, and the human's answer.
  *
  * Stored as rows rather than left in the run's structured output because they
@@ -500,5 +523,6 @@ export type Question = typeof question.$inferSelect;
 export type Asset = typeof asset.$inferSelect;
 export type Difference = typeof difference.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
+export type CardDependency = typeof cardDependency.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;

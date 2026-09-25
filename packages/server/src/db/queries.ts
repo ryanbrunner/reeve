@@ -7,6 +7,7 @@ import {
   artifact,
   asset,
   card,
+  cardDependency,
   cardEvent,
   cardRef,
   difference,
@@ -807,6 +808,31 @@ export function addRef(db: Db, cardId: string, kind: CardRefKind, value: string,
 
 export function deleteRef(db: Db, id: string) {
   return db.delete(cardRef).where(eq(cardRef.id, id)).returning().get();
+}
+
+// ---------------------------------------------------------------------------
+// Dependencies
+// ---------------------------------------------------------------------------
+
+/** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
+export function dependenciesOf(db: Db, cardId: string): Card[] {
+  return db
+    .select({ card })
+    .from(cardDependency)
+    .innerJoin(card, eq(cardDependency.dependsOnId, card.id))
+    .where(eq(cardDependency.cardId, cardId))
+    .orderBy(asc(cardDependency.createdAt))
+    .all()
+    .map((r) => r.card);
+}
+
+export function addDependency(db: Db, cardId: string, dependsOnId: string) {
+  return db
+    .insert(cardDependency)
+    .values({ cardId, dependsOnId })
+    .onConflictDoNothing()
+    .returning()
+    .get();
 }
 
 // ---------------------------------------------------------------------------
