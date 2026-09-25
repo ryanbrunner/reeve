@@ -21,51 +21,92 @@ export function BriefTab({ detail }: { detail: CardDetail }) {
   );
 }
 
+/**
+ * The field's own look, worn by the textarea and — when nothing is written yet —
+ * by the empty box standing in for it, so clicking one doesn't change the shape
+ * of the other.
+ */
+const FIELD =
+  'max-w-[40rem] rounded-md border border-(--color-edge) bg-(--color-ink) p-3 text-sm/5 outline-none focus:border-sky-600';
+
+const PROMPT = 'What is this card for?';
+
 function Purpose({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: (body: string) => api.updateCard(detail.card.id, { body }),
-    onSuccess: () => {
-      setDraft(null);
-      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    onSuccess: async () => {
       void qc.invalidateQueries({ queryKey: ['board'] });
+      await qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      setDraft(null);
     },
   });
 
+  // Clicking the text is what edits it, except where the click meant something
+  // else: following a link, or finishing a selection to copy.
+  const edit = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('a')) return;
+    if (window.getSelection()?.toString()) return;
+    setDraft(detail.card.body);
+  };
+  // Enter on the field itself, not on a link inside it.
+  const open = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && e.target === e.currentTarget) setDraft(detail.card.body);
+  };
+
+  // Blur is the save — and Escape blurs (see CardModal), so it saves too. The
+  // draft stays up until the save lands, rather than flashing the old body.
+  const commit = () => {
+    if (draft === null) return;
+    if (draft === detail.card.body) setDraft(null);
+    else save.mutate(draft);
+  };
+
   return (
     <section className="flex flex-col gap-2">
-      <SectionHead
-        aside={
-          draft === null ? (
-            <SmallButton onClick={() => setDraft(detail.card.body)}>Edit</SmallButton>
-          ) : (
-            <div className="flex gap-1.5">
-              <SmallButton onClick={() => setDraft(null)}>Cancel</SmallButton>
-              <SmallButton tone="sky" disabled={save.isPending} onClick={() => save.mutate(draft)}>
-                {save.isPending ? 'Saving…' : 'Save'}
-              </SmallButton>
-            </div>
-          )
-        }
-      >
-        What this is for
-      </SectionHead>
-      {draft === null ? (
-        detail.card.body.trim() ? (
-          <Markdown className="max-w-[40rem]">{detail.card.body}</Markdown>
-        ) : (
-          <Empty>Nothing written yet.</Empty>
-        )
-      ) : (
+      {draft !== null ? (
         <textarea
           autoFocus
           rows={4}
           value={draft}
+          disabled={save.isPending}
+          placeholder={PROMPT}
+          // The heading used to name this field. Nothing else does now, and a
+          // placeholder stops naming it the moment there is something in it.
+          aria-label="What this card is for"
           onChange={(e) => setDraft(e.target.value)}
-          className="max-w-[40rem] resize-y rounded-md border border-(--color-edge) bg-(--color-ink) p-3 text-sm/5 outline-none focus:border-sky-600"
+          onBlur={commit}
+          className={`${FIELD} resize-y placeholder:text-(--color-muted)`}
         />
+      ) : detail.card.body.trim() ? (
+        // No role: the brief is a passage with links in it, and calling that a
+        // button would hand a screen reader the whole thing as one label.
+        <div
+          tabIndex={0}
+          title="Click to edit"
+          onClick={edit}
+          onKeyDown={open}
+          className="-m-2 max-w-[41rem] cursor-text rounded-md border border-transparent p-2 hover:border-(--color-edge) focus:border-sky-600 focus:outline-none"
+        >
+          <Markdown>{detail.card.body}</Markdown>
+        </div>
+      ) : (
+        // Nothing written: the field itself, waiting, rather than a note saying
+        // it is empty — there is nothing here to read, only somewhere to write.
+        <div
+          tabIndex={0}
+          title="Click to write"
+          onClick={edit}
+          onKeyDown={open}
+          // 6.625rem is the textarea's four rows, padding and border, so the
+          // box does not change height the moment it becomes one.
+          className={`${FIELD} min-h-[6.625rem] cursor-text text-(--color-muted) hover:border-slate-600`}
+        >
+          {PROMPT}
+        </div>
       )}
+      {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
     </section>
   );
 }
