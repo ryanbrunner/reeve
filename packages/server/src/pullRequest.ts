@@ -172,9 +172,11 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
       if (pr.state !== 'MERGED') continue;
 
       const now = new Date();
+      // Only if the card still points at the pull request that was asked
+      // about: a push while `gh` answered may have opened a different one.
       const updated = db.update(cardTable)
         .set({ mergedAt: pr.mergedAt ?? now, updatedAt: now })
-        .where(and(eq(cardTable.id, card.id), isNull(cardTable.mergedAt)))
+        .where(and(eq(cardTable.id, card.id), eq(cardTable.prUrl, card.prUrl), isNull(cardTable.mergedAt)))
         .run();
       if (updated.changes === 0) continue;
       insertCardEvent(db, {

@@ -85,10 +85,11 @@ export async function pullRequestState(cwd: string, url: string): Promise<PullRe
     throw new GitError('gh pr view gave no pull request state', out.trim());
   }
   const mergedAt = typeof pr.mergedAt === 'string' && pr.mergedAt ? new Date(pr.mergedAt) : null;
+  const sha = pr.mergeCommit?.oid;
   return {
     state: pr.state,
     mergedAt: mergedAt && !Number.isNaN(mergedAt.getTime()) ? mergedAt : null,
-    mergeSha: typeof pr.mergeCommit?.oid === 'string' ? pr.mergeCommit.oid : null,
+    mergeSha: typeof sha === 'string' ? sha : null,
     base: typeof pr.baseRefName === 'string' ? pr.baseRefName : '',
   };
 }
