@@ -138,7 +138,8 @@ export const api = {
   reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
 };
 
-export const cardsIn = (cards: ApiCard[], stage: Stage, repoId?: string | null): ApiCard[] =>
+/** A column's cards in order, or only one lane's of them when a project is given: null is No project. */
+export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>
   cards
-    .filter((c) => c.stage === stage && (repoId === undefined || c.repoId === repoId))
+    .filter((c) => c.stage === stage && (projectId === undefined || c.projectId === projectId))
     .sort((a, b) => a.position - b.position);

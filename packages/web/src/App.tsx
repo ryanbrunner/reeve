@@ -10,9 +10,16 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
+import {
+  STAGES,
+  type ApiCard,
+  type ApiRepo,
+  type BoardResponse,
+  type CreateCardBody,
+  type MoveCardBody,
+} from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
-import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
+import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/Column.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
@@ -20,7 +27,6 @@ import { api, cardsIn } from './lib/api.js';
 
 export function App() {
   const qc = useQueryClient();
-  const [swimlanes, setSwimlanes] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   // Which pane Settings opens on, or null while it is shut.
   const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
@@ -32,10 +38,9 @@ export function App() {
   const [openCard, openAndClose] = useOpenCard();
 
   const move = useMutation({
-    mutationFn: ({ id, stage, index }: { id: string; stage: Stage; index: number }) =>
-      api.moveCard(id, { stage, index }),
+    mutationFn: ({ id, ...body }: MoveCardBody & { id: string }) => api.moveCard(id, body),
     // Optimistic: the card must land under the cursor immediately, not after a round trip.
-    onMutate: async ({ id, stage, index }) => {
+    onMutate: async ({ id, stage, index, projectId }) => {
       await qc.cancelQueries({ queryKey: ['board'] });
       const prev = qc.getQueryData<BoardResponse>(['board']);
       if (prev) {
@@ -51,7 +56,9 @@ export function App() {
             : (before + after) / 2;
           qc.setQueryData<BoardResponse>(['board'], {
             ...prev,
-            cards: prev.cards.map((c) => (c.id === id ? { ...c, stage, position } : c)),
+            cards: prev.cards.map((c) =>
+              c.id === id ? { ...c, stage, position, ...(projectId !== undefined ? { projectId } : {}) } : c,
+            ),
           });
         }
       }
@@ -83,9 +90,10 @@ export function App() {
   }, [openCard, freshId]);
 
   // Made with a placeholder title and opened, rather than asked for a title
-  // first: criteria and context can only hang off a card that exists.
+  // first: criteria and context can only hang off a card that exists. A
+  // project the same way, since its brief is what it is for.
   const create = useMutation({
-    mutationFn: (repoId: string | null) => api.createCard({ title: 'Untitled', repoId, stage: 'backlog' }),
+    mutationFn: (body: CreateCardBody) => api.createCard(body),
     onSuccess: (card) => {
       setFreshId(card.id);
       openAndClose.open(card.id);
@@ -94,8 +102,29 @@ export function App() {
   });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const cards = data?.cards ?? [];
+  const repos = data?.repos ?? [];
+  const projects = data?.projects ?? [];
+  // A card whose project is no longer on the board — archived, most likely —
+  // is drawn under No project rather than in a lane that is not there.
+  const cards = useMemo(() => {
+    const live = new Set((data?.projects ?? []).map((p) => p.id));
+    return (data?.cards ?? []).map((c) => (c.projectId && !live.has(c.projectId) ? { ...c, projectId: null } : c));
+  }, [data]);
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+
+  // Filed under the lane's project and that project's repo, falling back to
+  // the first repo: an unfiled card is a dead one, since no repo means no
+  // worktree and no stage can run. The header's picker changes it after.
+  const addCard = (projectId: string | null) => {
+    const project = projects.find((p) => p.id === projectId);
+    create.mutate({
+      title: 'Untitled',
+      stage: 'backlog',
+      projectId,
+      repoId: project?.repoId ?? repos[0]?.id ?? null,
+    });
+  };
+  const addProject = () => create.mutate({ title: 'Untitled project', kind: 'project', repoId: repos[0]?.id ?? null });
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);
@@ -119,16 +148,17 @@ export function App() {
     // Put back down in its own slot: nothing moved.
     if (!card || overId === id) return;
 
-    // Dropped on empty column space, or onto another card.
-    let stage: Stage;
+    // Dropped on empty column space, or onto another card. Either way the lane
+    // is the column's, whose id a card carries as its sortable container.
+    const column = parseColumnId(overId) ?? parseColumnId(String(over.data.current?.sortable?.containerId ?? ''));
+    if (!column) return;
+    const { stage } = column;
+    // Counted through the whole column, every lane at once: positions are
+    // shared across lanes, and that is what the server counts through too.
     let index: number;
     if (overId.startsWith(COLUMN_PREFIX)) {
-      stage = overId.slice(COLUMN_PREFIX.length).split('|')[0] as Stage;
       index = cardsIn(cards, stage).filter((c) => c.id !== id).length;
     } else {
-      const target = byId.get(overId);
-      if (!target) return;
-      stage = target.stage;
       // The slot is the target's index in the column as it stands, dragged card
       // included — the index `arrayMove` takes, and the one the server reads by
       // dropping the card out of the column before counting off to it. Filtering
@@ -137,23 +167,26 @@ export function App() {
       index = cardsIn(cards, stage).findIndex((c) => c.id === overId);
       if (index < 0) return;
     }
-    move.mutate({ id, stage, index });
+    // Sent only when the lane changed, so a card whose project was archived is
+    // not quietly cut loose from it by a reorder under No project.
+    const projectId = column.laneId !== card.projectId ? column.laneId : undefined;
+    move.mutate({ id, stage, index, projectId });
   }
 
   if (isLoading) return <Centered>Loading board…</Centered>;
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
 
-  const lanes = swimlanes
-    ? (data?.repos ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
-    : [{ id: undefined as unknown as string | null, name: '', color: null }];
+  // A lane per project, oldest first, then everything that belongs to none.
+  const lanes = [
+    ...projects.map((p) => ({ id: p.id as string | null, name: p.title, color: p.laneColor })),
+    { id: null, name: 'No project', color: null },
+  ];
 
   return (
     <div className="flex h-full flex-col">
       <Header
-        swimlanes={swimlanes}
-        onToggle={() => setSwimlanes((s) => !s)}
-        repos={data?.repos ?? []}
-        onAdd={create.mutate}
+        repos={repos}
+        onAddProject={addProject}
         adding={create.isPending}
         addError={create.error}
         onOpenSettings={setSettingsOpen}
@@ -169,13 +202,21 @@ export function App() {
       >
         <div className="flex-1 overflow-auto p-4">
           {lanes.map((lane) => (
-            <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
-              {swimlanes && (
-                <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-                  <span className="h-2 w-2 rounded-full" style={{ background: lane.color ?? '#3f4754' }} />
-                  {lane.name}
-                </h2>
-              )}
+            <section key={lane.id ?? 'none'} className="mb-6 last:mb-0">
+              <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
+                <span className="h-2 w-2 rounded-full" style={{ background: lane.color ?? '#3f4754' }} />
+                {/* The lane is the project, and its header is the way into it. */}
+                {lane.id ?
+                  <button
+                    type="button"
+                    onClick={() => openAndClose.open(lane.id!)}
+                    title="Open the project"
+                    className="uppercase hover:text-(--color-text)"
+                  >
+                    {lane.name}
+                  </button>
+                : lane.name}
+              </h2>
               <div className="grid grid-cols-5 gap-3 min-w-[920px]">
                 {STAGES.map((stage) => (
                   <Column
@@ -184,6 +225,8 @@ export function App() {
                     laneId={lane.id}
                     cards={cardsIn(cards, stage, lane.id)}
                     onOpen={openAndClose.open}
+                    onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
+                    adding={create.isPending}
                   />
                 ))}
               </div>
@@ -192,7 +235,17 @@ export function App() {
         </div>
         <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
       </DndContext>
-      {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} editTitle={openCard === freshId} />}
+      {/* Keyed, so opening a task from its project's modal starts it afresh on
+          its own tabs rather than on whichever tab the project was showing. */}
+      {openCard && (
+        <CardModal
+          key={openCard}
+          cardId={openCard}
+          onClose={openAndClose.close}
+          onOpen={openAndClose.open}
+          editTitle={openCard === freshId}
+        />
+      )}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
       {archiveOpen && (
         <ArchiveModal
@@ -255,27 +308,15 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount }: {
-  swimlanes: boolean;
-  onToggle: () => void;
+function Header({ repos, onAddProject, adding, addError, onOpenSettings, onOpenArchive, cardCount }: {
   repos: ApiRepo[];
-  onAdd: (repoId: string | null) => void;
+  onAddProject: () => void;
   adding: boolean;
   addError: Error | null;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
 }) {
-  // Filed under the first repo unless told otherwise, because an unfiled
-  // card is a dead one: no repo means no worktree, which means no stage can
-  // run. The picker sits next to Add rather than hiding the choice, so
-  // "the first one" is never a silent answer.
-  // `null` is "hasn't said", `''` is "said no repo" — two different things,
-  // and collapsing them makes No repo unpickable: the fallback below would
-  // read the empty string as untouched and snap the select back to the first.
-  const [repoId, setRepoId] = useState<string | null>(null);
-  const chosen = repoId === '' || repos.some((p) => p.id === repoId);
-  const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
   return (
     <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
@@ -287,28 +328,16 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       </span>
       <div className="ml-auto flex items-center gap-2">
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
-        {repos.length > 0 && (
-          <select
-            value={filedUnder}
-            onChange={(e) => setRepoId(e.target.value)}
-            aria-label="Repo for the new card"
-            className="rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600"
-          >
-            {repos.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-            <option value="">No repo</option>
-          </select>
-        )}
-        {/* Held while the card is being made: a double-click would otherwise
-            make two, and open both. */}
+        {/* Held while the project is being made: a double-click would
+            otherwise make two, and open both. Cards are added from the ghost
+            at the foot of each Backlog column, in the lane they belong to. */}
         <button
           type="button"
           disabled={adding}
-          onClick={() => onAdd(filedUnder || null)}
+          onClick={onAddProject}
           className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600 disabled:opacity-40"
         >
-          Add
+          Add Project
         </button>
       </div>
       <button
@@ -329,12 +358,6 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
         className="rounded-md border border-(--color-edge) px-3 py-1.5 text-sm text-(--color-muted) hover:border-slate-600"
       >
         Archive
-      </button>
-      <button
-        onClick={onToggle}
-        className={`rounded-md border px-3 py-1.5 text-sm ${swimlanes ? 'border-sky-600 text-sky-300' : 'border-(--color-edge) text-(--color-muted)'}`}
-      >
-        Swim lanes
       </button>
     </header>
   );

@@ -6,6 +6,19 @@ import { CardFace } from './CardFace.js';
 
 export const COLUMN_PREFIX = 'col:';
 
+/** The lane key a column's id carries for No project. */
+const NO_PROJECT = 'all';
+
+/** A column's droppable id: its stage, and the lane it sits in. */
+export const columnId = (stage: Stage, laneId: string | null) => `${COLUMN_PREFIX}${stage}|${laneId ?? NO_PROJECT}`;
+
+/** Where a column id says a card dropped on it goes, or null for anything that is not one. */
+export function parseColumnId(id: string): { stage: Stage; laneId: string | null } | null {
+  if (!id.startsWith(COLUMN_PREFIX)) return null;
+  const [stage, lane] = id.slice(COLUMN_PREFIX.length).split('|');
+  return { stage: stage as Stage, laneId: !lane || lane === NO_PROJECT ? null : lane };
+}
+
 /**
  * What a dragged card is over: the column under the pointer, then the card
  * nearest the pointer inside it.
@@ -35,20 +48,25 @@ export function Column({
   laneId,
   cards,
   onOpen,
+  onAdd,
+  adding = false,
 }: {
   stage: Stage;
-  laneId: string | null | undefined;
+  laneId: string | null;
   cards: ApiCard[];
   onOpen?: (id: string) => void;
+  /** Offered as a ghost card at the foot of the column. Backlog is where new work goes, so only it has one. */
+  onAdd?: () => void;
+  adding?: boolean;
 }) {
-  const id = `${COLUMN_PREFIX}${stage}|${laneId ?? 'all'}`;
-  const { setNodeRef, isOver, over } = useDroppable({ id });
+  const id = columnId(stage, laneId);
+  const { setNodeRef, isOver, over, active } = useDroppable({ id });
   // Over one of its cards is over the column too; that is where the card lands.
   const lit = isOver || cards.some((c) => c.id === over?.id);
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
+      className={`group flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
         lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
       }`}
     >
@@ -67,6 +85,22 @@ export function Column({
           {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
         </div>
       </SortableContext>
+      {/* Outside the SortableContext, so columnCollisions never counts it as a
+          card, and gone while anything is dragged: a drop here is a drop on
+          the column. Faded in rather than mounted on hover, so it keeps its
+          place in the tab order. Held while a card is being made, since a
+          double-click would otherwise make two and open both. */}
+      {onAdd && !active && (
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={adding}
+          aria-label="Add a card"
+          className={`${cards.length ? 'mt-2' : ''} flex h-[3.75rem] items-center justify-center rounded-md border border-dashed border-(--color-edge) text-lg text-(--color-muted) opacity-0 transition-opacity group-hover:opacity-100 hover:border-slate-500 hover:text-(--color-text) focus-visible:opacity-100 focus-visible:outline-none focus-visible:border-sky-600 disabled:cursor-wait`}
+        >
+          +
+        </button>
+      )}
     </div>
   );
 }

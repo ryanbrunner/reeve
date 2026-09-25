@@ -26,9 +26,11 @@ const GLOW: Record<CardActivity, string> = {
   error: 'card-glow card-glow-error modal-glow-error',
 };
 
-export function CardModal({ cardId, onClose, editTitle = false }: {
+export function CardModal({ cardId, onClose, onOpen, editTitle = false }: {
   cardId: string;
   onClose: () => void;
+  /** Open another card in this one's place: a project's task, from its Tasks tab. */
+  onOpen: (id: string) => void;
   /** Open with the title selected for typing over: a card just made. */
   editTitle?: boolean;
 }) {
@@ -92,8 +94,9 @@ export function CardModal({ cardId, onClose, editTitle = false }: {
           <>
             <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
             <div className="flex min-h-0 grow">
-              <Tabs detail={data} />
-              <Rail detail={data} />
+              <Tabs detail={data} onOpen={onOpen} />
+              {/* The rail is the card's way through the stages, and a project has none. */}
+              {data.card.kind === 'task' && <Rail detail={data} />}
             </div>
             {/* The same rail of light the board card carries while Claude works. */}
             {activity === 'running' && (
