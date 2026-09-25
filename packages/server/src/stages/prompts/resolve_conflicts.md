@@ -40,6 +40,28 @@ the base branch since this branch started, and `git diff` helps too.
   function the base branch renamed.
 - `git add` each file once it is resolved.
 
+### Migrations
+
+Two branches that each add a drizzle migration both take the next free number,
+so they collide in `meta/_journal.json`, in the snapshots and in the `.sql`
+file names, even when the schema changes have nothing to do with each other.
+The base branch's migrations have already run wherever it is deployed, so they
+stay exactly as they are and this branch's migration moves after them.
+
+- Take the base's `meta/_journal.json` and every snapshot it added unchanged.
+  Read them with `git show :3:<path>` and write them back with the Write tool.
+- For a schema migration, `git rm` this branch's `.sql` file (and its snapshot,
+  if the base did not take that path), merge the schema source itself, then
+  run the package's `db:generate` script (`npm run db:generate` in the package
+  that owns the drizzle config). It writes a fresh migration numbered after the
+  base's, from the merged schema.
+- `db:generate` writes nothing for a data-only migration, so renumber that one
+  by hand: `git mv` the `.sql` file to the next free number, add a journal
+  entry with the next `idx` and that tag, and add a snapshot for it that copies
+  the base's last snapshot with a new `id` and a `prevId` of the base's last `id`.
+- Check the chain before you commit: each snapshot's `prevId` is the `id` of
+  the one before it, and the journal lists every `.sql` file once, in order.
+
 {{testCommand}}
 
 When every file is resolved and staged, conclude the merge with
