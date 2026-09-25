@@ -81,6 +81,8 @@ export interface ApiCard {
    */
   model: string | null;
   effort: EffortLevel | null;
+  /** Whether Planning draws its own mockups of the states this card changes. */
+  generateMockups: boolean;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -106,6 +108,8 @@ export interface CreateCardBody {
   body?: string;
   repoId?: string | null;
   stage?: Stage;
+  /** Omitted is on. */
+  generateMockups?: boolean;
 }
 
 /**

@@ -107,7 +107,47 @@ function Purpose({ detail }: { detail: CardDetail }) {
         </div>
       )}
       {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
+      <GenerateMockups detail={detail} />
     </section>
+  );
+}
+
+/**
+ * Whether Planning draws its own mockups. Here, under the description, because
+ * this is where a new card opens: the choice is made while the card is being
+ * written, and can be changed any time before Planning runs.
+ */
+function GenerateMockups({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const set = useMutation({
+    mutationFn: (generateMockups: boolean) => api.updateCard(detail.card.id, { generateMockups }),
+    // The card's refetch is returned rather than fired, so the mutation stays
+    // pending until the new value is in `detail` and the box cannot flick back.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['board'] });
+      return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    },
+  });
+  // The box follows the click at once rather than waiting on the round trip.
+  const checked = (set.isPending ? set.variables : undefined) ?? detail.card.generateMockups;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-sm/5 text-(--color-text)">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={set.isPending}
+          onChange={(e) => set.mutate(e.target.checked)}
+          className="accent-sky-600"
+        />
+        Generate mockups
+      </label>
+      <span className="font-mono text-[10px]/4 text-(--color-muted)">
+        Claude draws the screens this changes while planning, for Testing to compare the build against
+      </span>
+      {set.error && <p className="text-sm/5 text-red-300">{set.error.message}</p>}
+    </div>
   );
 }
 

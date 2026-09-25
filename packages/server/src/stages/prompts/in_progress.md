@@ -9,6 +9,7 @@ You are implementing a piece of work in the repository at `{{worktreePath}}`.
 ## The approved plan
 
 {{plan}}
+{{mockups}}
 
 ## What to do
 

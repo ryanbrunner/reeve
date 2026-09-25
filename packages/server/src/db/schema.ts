@@ -131,6 +131,10 @@ export const card = sqliteTable(
     // Settings default for the stage, then to the stage module's own value.
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
+    // Whether Planning draws its own mockups for the states this card changes.
+    // On by default, including for cards that predate the column: drawing them
+    // is what saves a person having to.
+    generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
@@ -338,8 +342,8 @@ export const question = sqliteTable(
 );
 
 /**
- * An image belonging to a card: a mockup someone attached, or a screenshot of
- * what got built.
+ * An image belonging to a card: a mockup someone attached or Planning drew, or
+ * a screenshot of what got built.
  *
  * The bytes live on disk under `config.assetsDir` and the row holds the path.
  * A database is a bad place for blobs, and keeping them out means a screenshot
@@ -356,8 +360,9 @@ export const asset = sqliteTable(
     cardId: text('card_id')
       .notNull()
       .references(() => card.id, { onDelete: 'cascade' }),
-    // Set on a screenshot: the run that captured it. Null on a mockup, which a
-    // person attached and which outlives every run.
+    // Set on a screenshot: the run that captured it. On a mockup, the planning
+    // run that drew it, which the next plan replaces; null on one a person
+    // attached, which outlives every run.
     runId: text('run_id').references(() => run.id, { onDelete: 'set null' }),
     kind: text('kind').$type<AssetKind>().notNull(),
     label: text('label').notNull(),

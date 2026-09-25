@@ -226,6 +226,8 @@ function Designs({ detail }: { detail: CardDetail }) {
         <Empty>
           None attached. A mockup with a page and a width is what tells Testing which screen to
           photograph.
+          {detail.card.generateMockups &&
+            ' With Generate mockups ticked in the Brief, Claude draws its own while planning.'}
         </Empty>
       ) : (
         <div className="flex flex-wrap gap-3">
@@ -251,9 +253,13 @@ function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
       </div>
       <figcaption className="flex items-baseline justify-between gap-2 font-mono text-[10px]/4 text-(--color-muted)">
         <span className="truncate">{asset.label}</span>
-        <button type="button" onClick={onRemove} aria-label={`Remove ${asset.label}`} className="hover:text-red-300">
-          ✕
-        </button>
+        <span className="flex shrink-0 items-baseline gap-2">
+          {/* A mockup with a run is one Planning drew; a person's has none. */}
+          {asset.runId && <span className="text-sky-300">by Claude</span>}
+          <button type="button" onClick={onRemove} aria-label={`Remove ${asset.label}`} className="hover:text-red-300">
+            ✕
+          </button>
+        </span>
       </figcaption>
     </figure>
   );

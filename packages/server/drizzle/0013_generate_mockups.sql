@@ -1,0 +1,1 @@
+ALTER TABLE `card` ADD `generate_mockups` integer DEFAULT true NOT NULL;

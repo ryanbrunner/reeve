@@ -44,6 +44,7 @@ const createCardSchema = z.object({
   body: z.string().optional(),
   repoId: z.string().nullable().optional(),
   stage: stageSchema.optional(),
+  generateMockups: z.boolean().optional(),
 });
 
 const updateCardSchema = z.object({
@@ -52,6 +53,7 @@ const updateCardSchema = z.object({
   repoId: z.string().nullable().optional(),
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
+  generateMockups: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({
