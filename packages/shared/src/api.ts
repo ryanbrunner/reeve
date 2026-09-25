@@ -2,6 +2,9 @@ import type { CardKind, RunnableStage, Stage } from './stages.js';
 import type { CardActivity } from './activity.js';
 import type { EffortLevel, RunKind, RunStatus, StopReason } from './runs.js';
 
+/** Where the server listens unless `REEVE_PORT` says otherwise. Here so the CLI finds it without importing the server. */
+export const DEFAULT_PORT = 4317;
+
 /**
  * Wire types. Deliberately plain interfaces rather than Drizzle's inferred row
  * types so this module stays free of server-only imports and the browser bundle
