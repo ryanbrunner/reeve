@@ -19,6 +19,7 @@ import {
   type AcceptanceCriterion,
   type AssetKind,
   type Card,
+  type CardKind,
   type ArtifactKind,
   type CardRefKind,
   type CriterionVerdict,
@@ -34,7 +35,15 @@ import {
 
 const NON_TERMINAL: RunStatus[] = ['queued', 'running', 'stopping'];
 
-/** The board query: every live card with its repo's lane colour. */
+/**
+ * Every card that is a piece of work rather than a project. Each query below
+ * that reads cards in bulk carries it: a project in a column's positions, or
+ * on the board as a card someone could drag into Planning, is a project being
+ * run as a stage.
+ */
+const isTask = eq(card.kind, 'task');
+
+/** The board query: every live task with its repo's lane colour. */
 export function boardCards(db: Db) {
   return db
     .select({
@@ -44,8 +53,48 @@ export function boardCards(db: Db) {
     })
     .from(card)
     .leftJoin(repo, eq(card.repoId, repo.id))
-    .where(isNull(card.archivedAt))
+    .where(and(isTask, isNull(card.archivedAt)))
     .orderBy(asc(card.stage), asc(card.position))
+    .all();
+}
+
+/**
+ * The board's lanes: every live project, oldest first, with its default repo's
+ * colour and how many live tasks it has.
+ */
+export function boardProjects(db: Db) {
+  const tasks = db
+    .select({ projectId: card.projectId, n: sql<number>`count(*)`.as('n') })
+    .from(card)
+    .where(and(isTask, isNull(card.archivedAt), isNotNull(card.projectId)))
+    .groupBy(card.projectId)
+    .as('tasks');
+  return db
+    .select({ card, laneColor: repo.laneColor, taskCount: sql<number>`coalesce(${tasks.n}, 0)` })
+    .from(card)
+    .leftJoin(repo, eq(card.repoId, repo.id))
+    .leftJoin(tasks, eq(tasks.projectId, card.id))
+    .where(and(eq(card.kind, 'project'), isNull(card.archivedAt)))
+    .orderBy(asc(card.createdAt))
+    .all();
+}
+
+/** A live project, or nothing: the check behind every card put under one. */
+export function liveProject(db: Db, id: string) {
+  return db
+    .select()
+    .from(card)
+    .where(and(eq(card.id, id), eq(card.kind, 'project'), isNull(card.archivedAt)))
+    .get();
+}
+
+/** A project's tasks, archived ones included: those were taken off on purpose. */
+export function tasksInProject(db: Db, projectId: string): Card[] {
+  return db
+    .select()
+    .from(card)
+    .where(and(isTask, eq(card.projectId, projectId)))
+    .orderBy(asc(card.createdAt))
     .all();
 }
 
@@ -59,7 +108,7 @@ export function cardsAwaitingMerge(db: Db) {
     .select({ card, repo })
     .from(card)
     .innerJoin(repo, eq(card.repoId, repo.id))
-    .where(and(isNotNull(card.prUrl), isNull(card.mergedAt), isNull(card.archivedAt)))
+    .where(and(isTask, isNotNull(card.prUrl), isNull(card.mergedAt), isNull(card.archivedAt)))
     .all();
 }
 
@@ -67,7 +116,7 @@ export function cardsInStage(db: Db, stage: CardStage): Card[] {
   return db
     .select()
     .from(card)
-    .where(and(eq(card.stage, stage), isNull(card.archivedAt)))
+    .where(and(isTask, eq(card.stage, stage), isNull(card.archivedAt)))
     .orderBy(asc(card.position))
     .all();
 }
@@ -231,14 +280,18 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
  * The only place a card's stage changes, and it is only ever reached by a human
  * — a drag, a click in the stage rail, or an approval. A move into a different
  * column is recorded; a reorder within one is not, because where a card sits
- * among its neighbours is not a thing anyone wants to read back later.
+ * among its neighbours is not a thing anyone wants to read back later, and
+ * neither is a drag into another project's lane.
+ *
+ * `index` counts through the whole column, not the lane: positions are shared
+ * by every lane, which is what keeps a card's place when it changes project.
  */
-export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
+export function moveCard(db: Db, id: string, stage: CardStage, index: number, projectId?: string | null) {
   const before = getCard(db, id);
   const position = positionForSlot(db, stage, index, id);
   const updated = db
     .update(card)
-    .set({ stage, position, updatedAt: new Date() })
+    .set({ stage, position, ...(projectId !== undefined ? { projectId } : {}), updatedAt: new Date() })
     .where(eq(card.id, id))
     .returning()
     .get();
@@ -256,21 +309,39 @@ export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
   return updated;
 }
 
-export function createCard(db: Db, values: { title: string; body?: string; repoId?: string | null; stage?: CardStage }) {
+/**
+ * A project takes no number and no place in a column: it is in none, and a
+ * `#n` spent on it would be one the repo's next task never gets.
+ */
+export function createCard(
+  db: Db,
+  values: {
+    title: string;
+    body?: string;
+    repoId?: string | null;
+    stage?: CardStage;
+    kind?: CardKind;
+    projectId?: string | null;
+    actor?: CardEventActor;
+  },
+) {
   const stage = values.stage ?? 'backlog';
-  const siblings = cardsInStage(db, stage);
+  const kind = values.kind ?? 'task';
+  const siblings = kind === 'project' ? [] : cardsInStage(db, stage);
   const last = siblings[siblings.length - 1]?.position ?? 0;
   const repoId = values.repoId ?? null;
   const created = db
     .insert(card)
     .values({
       id: crypto.randomUUID(),
-      number: nextCardNumber(db, repoId),
+      kind,
+      projectId: values.projectId ?? null,
+      number: kind === 'project' ? 0 : nextCardNumber(db, repoId),
       title: values.title,
       body: values.body ?? '',
       repoId,
       stage,
-      position: last + POSITION_GAP,
+      position: kind === 'project' ? 0 : last + POSITION_GAP,
     })
     .returning()
     .get();
@@ -278,7 +349,7 @@ export function createCard(db: Db, values: { title: string; body?: string; repoI
   // the moment it arrived in whatever column it started in.
   insertCardEvent(db, {
     cardId: created.id,
-    actor: 'human',
+    actor: values.actor ?? 'human',
     kind: 'created',
     stage,
     createdAt: created.createdAt,
@@ -305,7 +376,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
  * `#n` is per-repo, so carrying the old number across would put two `#3`s in
  * one repo — worse than a number that changed once while the card was still
  * being filed. The number it vacates is not reused: `nextCardNumber` reads a
- * high-water mark, not a count.
+ * high-water mark, not a count. A project has no number to renumber.
  */
 export function updateCard(
   db: Db,
@@ -313,7 +384,7 @@ export function updateCard(
   patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
-  const reassigned = before !== undefined && patch.repoId !== before.repoId;
+  const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
   return db
     .update(card)
     .set({
@@ -356,7 +427,7 @@ export function restoreCard(db: Db, id: string) {
     .update(card)
     .set({
       archivedAt: null,
-      position: positionForSlot(db, stage, cardsInStage(db, stage).length, id),
+      position: before.kind === 'project' ? before.position : positionForSlot(db, stage, cardsInStage(db, stage).length, id),
       updatedAt: new Date(),
     })
     .where(eq(card.id, id))
@@ -367,7 +438,11 @@ export function restoreCard(db: Db, id: string) {
   return restored;
 }
 
-/** The archive: every card taken off the board, most recently first. */
+/**
+ * The archive: every card taken off the board, most recently first. Projects
+ * included, unlike every other bulk read here: this is the only way back for
+ * one, and nothing here positions or runs what it returns.
+ */
 export function archivedCards(db: Db) {
   return db
     .select({
