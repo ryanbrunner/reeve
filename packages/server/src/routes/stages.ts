@@ -1,22 +1,18 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { isRunnable, nextStage, type Stage } from '@reeve/shared';
+import { isRunnable, type Stage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   getCard,
   getSettings,
-  cardsInStage,
-  insertCardEvent,
-  insertReview,
   latestClaudeRunForStage,
   listProjects,
-  moveCard,
   reviewsForCard,
 } from '../db/queries.js';
 import { checkWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
-import { maybeOpenPullRequest } from '../pullRequest.js';
+import { approveStage, sendBackForRevision } from '../review.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { runRegistry } from '../runs/registry.js';
@@ -81,13 +77,10 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * The human gate. Approving says the stage's output is good, so it records the
-   * verdict AND advances the card one column — a human deciding the work is done
-   * is the whole point of the gate, and making them then drag the card is asking
-   * them to say it twice. A run finishing on its own still moves nothing.
-   *
-   * Rejecting moves nothing either: it forks the session so the prior attempt
-   * stays intact and readable, and the notes become the revision prompt.
+   * The human gate. Approving records the verdict and advances the card one
+   * column; rejecting forks a revision run with the notes as its prompt. Both
+   * live in ../review.ts, which a review in Crit ends in too. A run finishing
+   * on its own still moves nothing.
    */
   routes.post('/:id/review', async (c) => {
     const loaded = load(c.req.param('id'));
@@ -104,57 +97,18 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
-      // Done is the end of the board; approving there is a verdict with nowhere
-      // to go, so the card stays put rather than the request failing.
-      const to = nextStage(card.stage as Stage) ?? card.stage;
-      insertReview(db, {
-        id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
-        stage: card.stage, decision: 'approved', notes: notes ?? null,
-        fromStage: card.stage, toStage: to,
-      });
-      insertCardEvent(db, {
-        cardId: card.id, actor: 'human', kind: 'reviewed', stage: card.stage,
-        runId: lastRun.id, body: notes ?? null, meta: { decision: 'approved' },
-      });
-      if (to !== card.stage) {
-        // Appended, not inserted: the human chose the column, not the slot.
-        // moveCard writes the `moved` event, so the timeline reads as a verdict
-        // followed by a move rather than one conflated entry.
-        const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
-        // The same automatic pull request a drag into Done gets.
-        if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, project);
-      }
-      return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
+      return c.json({ ok: true, ...approveStage(db, card, project, lastRun, { notes }) });
     }
 
     if (!notes?.trim()) {
       return c.json({ error: 'rejection needs notes', detail: 'the notes become the next run prompt' }, 400);
     }
-    insertReview(db, {
-      id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
-      stage: card.stage, decision: 'rejected', notes,
-      fromStage: card.stage, toStage: card.stage,
-    });
-    insertCardEvent(db, {
-      cardId: card.id, actor: 'human', kind: 'reviewed', stage: card.stage,
-      runId: lastRun.id, body: notes, meta: { decision: 'rejected' },
-    });
-
-    const stage = stageDefinition(card.stage as never);
-    if (!stage) return c.json({ error: 'stage not implemented yet' }, 501);
-    const health = await checkWorktree(project.repoPath, card.worktreePath);
-    if (health.state !== 'ok') return c.json({ error: 'card has no usable worktree' }, 409);
-
-    const handle = startClaudeRun({
-      db, writer, card, project, stage,
-      worktreePath: health.path,
-      reviewNotes: notes,
-      // Fork rather than continue: the rejected attempt stays readable and the
-      // card's history is a list of attempts, not one mutating session.
-      resumeSessionId: lastRun.sessionId,
-      parentRunId: lastRun.id,
-    });
-    return c.json({ ok: true, stage: card.stage, revisionRunId: handle.runId, forkedFrom: lastRun.sessionId }, 201);
+    const revision = await sendBackForRevision(db, writer, card, project, lastRun, notes);
+    if (!revision.ok) return c.json({ error: revision.error }, revision.status);
+    return c.json(
+      { ok: true, stage: card.stage, revisionRunId: revision.revisionRunId, forkedFrom: revision.forkedFrom },
+      201,
+    );
   });
 
   routes.get('/:id/artifacts', (c) =>
