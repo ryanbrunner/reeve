@@ -347,7 +347,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'sicko'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && patch.repoId !== before.repoId;

@@ -110,6 +110,12 @@ export interface ApiCard {
   effort: EffortLevel | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
+  /**
+   * SICKO MODE for this card alone: approved, answered, started and merged
+   * without anyone asked, while the rest of the board stays calm. Beside the
+   * board's own switch rather than under it — with that on, every card goes.
+   */
+  sicko: boolean;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**

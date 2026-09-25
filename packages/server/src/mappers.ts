@@ -125,6 +125,7 @@ export function toApiCard(
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
+    sicko: c.sicko,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     archivedAt: ms(c.archivedAt),
