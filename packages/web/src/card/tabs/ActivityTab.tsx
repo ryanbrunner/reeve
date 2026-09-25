@@ -191,7 +191,7 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'pr_failed':
       return 'could not open a pull request';
     case 'archived':
-      return 'archived the card';
+      return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged' : 'archived the card';
     case 'restored':
       return `restored the card to ${stage(e.stage)}`;
     case 'handed_off':

@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { reapOrphanedRuns } from './db/queries.js';
-import { syncMergedPullRequests } from './pullRequest.js';
+import { archiveMergedCards, syncMergedPullRequests } from './pullRequest.js';
 import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
 import { assetRoutes } from './routes/assets.js';
@@ -77,6 +77,20 @@ if (isEntry) {
   const syncMerges = () => {
     syncMergedPullRequests(db).catch((e) => console.error(`[reeve] merge sync failed: ${String(e)}`));
   };
+  // Beside the sync rather than inside it: a slow `gh` call skips the next
+  // sync, and archiving should not wait on it. Synchronous, so a throw here
+  // would escape the timer unless caught.
+  const archiveMerged = () => {
+    try {
+      archiveMergedCards(db);
+    } catch (e) {
+      console.error(`[reeve] archiving merged cards failed: ${String(e)}`);
+    }
+  };
   syncMerges();
-  setInterval(syncMerges, config.mergeSyncMs);
+  archiveMerged();
+  setInterval(() => {
+    syncMerges();
+    archiveMerged();
+  }, config.mergeSyncMs);
 }
