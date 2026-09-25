@@ -320,6 +320,28 @@ export const cardRef = sqliteTable(
 );
 
 /**
+ * One card that cannot start before another finishes. Its own table rather
+ * than a `card_ref` of kind `card`: a ref is something worth reading first,
+ * and reading every existing one as a blocker would jam cards nobody meant to.
+ *
+ * The pair is the key, so the same link twice is one row — which is what lets
+ * a project's Split run again without doubling every link it proposed.
+ */
+export const cardDependency = sqliteTable(
+  'card_dependency',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    dependsOnId: text('depends_on_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_on').on(t.dependsOnId)],
+);
+
+/**
  * A question Claude could not answer for itself, and the human's answer.
  *
  * Stored as rows rather than left in the run's structured output because they
@@ -500,5 +522,6 @@ export type Question = typeof question.$inferSelect;
 export type Asset = typeof asset.$inferSelect;
 export type Difference = typeof difference.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
+export type CardDependency = typeof cardDependency.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;
