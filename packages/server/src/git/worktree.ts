@@ -354,6 +354,11 @@ export async function isAncestor(worktreePath: string, ancestor: string, descend
   }
 }
 
+/** Paths HEAD differs from `sha` in, NUL-separated like `unmergedPaths`. */
+export async function changedPaths(worktreePath: string, sha: string): Promise<string[]> {
+  return (await git(worktreePath, ['diff', '--name-only', '-z', sha, 'HEAD'])).split('\0').filter(Boolean);
+}
+
 /**
  * Which of `paths` still carry a conflict marker as committed at HEAD. Only the
  * two ends of a hunk count: a bare `=======` is a heading underline in half the

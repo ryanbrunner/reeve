@@ -6,6 +6,7 @@ import { fetchBranch, pullRequestState, pushBranch, type PullRequestState } from
 import {
   GitError,
   abortMerge,
+  changedPaths,
   checkWorktree,
   conflictMarkersIn,
   headSha,
@@ -131,6 +132,11 @@ export async function resolveConflicts(
     }
 
     if (merge.clean) {
+      const unchecked = await uncheckedMarkers(facts);
+      if (unchecked) {
+        await resetTo(path, facts.before);
+        return refuse(409, 'nothing was pushed', unchecked);
+      }
       const pushed = await pushResolution(db, facts, null);
       return pushed.ok ? { ok: true, runId: null, pushed: true } : refuse(502, 'push to origin failed', pushed.detail);
     }
@@ -217,6 +223,31 @@ async function checkMerge(facts: MergeFacts, conflicts: string[]): Promise<strin
   if (!(await isAncestor(path, facts.baseSha))) return `the branch does not contain ${facts.base} as fetched`;
   if (!(await isAncestor(path, facts.before))) return 'the branch no longer contains its own commits';
   return null;
+}
+
+/**
+ * Why the clean path must not push, or null if it may.
+ *
+ * A restart between Claude committing its merge and the server checking it
+ * leaves that merge on the branch unchecked, and pressing the button again
+ * finds the base already merged and takes the clean path. So before anything
+ * goes out, what the push would add is checked for markers — only in files
+ * that differ from the base as well, so a file that came in whole from the
+ * base cannot trip it.
+ */
+async function uncheckedMarkers(facts: MergeFacts): Promise<string | null> {
+  const path = facts.worktreePath;
+  let pushed: string;
+  try {
+    pushed = await fetchBranch(path, facts.branch);
+  } catch (e) {
+    return `could not read ${facts.branch} from origin to check what is unpushed: ${reason(e)}`;
+  }
+  const fromBase = new Set(await changedPaths(path, facts.baseSha));
+  const marked = await conflictMarkersIn(path, (await changedPaths(path, pushed)).filter((p) => fromBase.has(p)));
+  return marked.length
+    ? `${marked.join(', ')} ${marked.length === 1 ? 'has' : 'have'} conflict markers in commits not yet pushed, likely from a resolution a restart cut short. Remove them in the worktree first.`
+    : null;
 }
 
 /**

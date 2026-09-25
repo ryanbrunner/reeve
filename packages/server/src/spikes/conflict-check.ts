@@ -349,5 +349,30 @@ for (const behaviour of ['fail', 'stop', 'markers'] as const) {
   check('stale merge then pushed', remoteSha(wt.branch) === head(wt.path) && parents(wt.path).includes(wt.before));
 }
 
+// --- a merge committed but never checked is not pushed by the clean path --------
+{
+  // As a restart between Claude's commit and the server's check leaves it.
+  const wt = await conflicted('Unchecked merge');
+  const remoteBefore = remoteSha(wt.branch);
+  run(wt.path, 'fetch', '-q', 'origin');
+  try {
+    run(wt.path, 'merge', '--no-edit', 'origin/main');
+  } catch {
+    // Stopped on its conflict; committed below with the markers still in.
+  }
+  run(wt.path, 'add', wt.file);
+  run(wt.path, 'commit', '-q', '--no-edit');
+  const merged = head(wt.path);
+  // A file from main that merely looks like a conflict must not trip the check.
+  land('fixture.txt', '<<<<<<< ours\n');
+  const result = await resolveConflicts(db, writer, getCard(db, wt.id)!, repo, standIn('resolve').start);
+  note('unchecked merge', result.ok ? `runId=${result.runId}` : `${result.error}: ${result.detail}`);
+  check('unchecked merge refused', !result.ok && result.status === 409 && result.detail.includes(wt.file));
+  check('fixture from main not blamed', !result.ok && !result.detail.includes('fixture.txt'));
+  check('unchecked merge not pushed', remoteSha(wt.branch) === remoteBefore);
+  check('unchecked merge left as it was', head(wt.path) === merged && !(await mergeInProgress(wt.path)));
+  check('no conflicts_resolved written', events(wt.id, 'conflicts_resolved').length === 0);
+}
+
 rmSync(root, { recursive: true, force: true });
 console.log(process.exitCode ? '\nSOME CONFLICT BEHAVIOURS FAILED' : '\nall conflict behaviours verified');
