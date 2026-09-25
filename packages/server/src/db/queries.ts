@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, sql } from 'drizzle-orm';
 import { RUNNABLE_STAGES, type ApiSettings, type StageRunDefaults, type UpdateSettingsBody } from '@reeve/shared';
 import { config } from '../config.js';
 import type { Db } from './client.js';
@@ -60,6 +60,32 @@ export function cardsAwaitingMerge(db: Db) {
     .from(card)
     .innerJoin(repo, eq(card.repoId, repo.id))
     .where(and(isNotNull(card.prUrl), isNull(card.mergedAt), isNull(card.archivedAt)))
+    .all();
+}
+
+/**
+ * Live cards merged at or before `cutoff`, for the sweep that takes them off
+ * the board. A card is only ever archived this way once: one that already has
+ * an automatic `archived` event was put back by a person, and stays.
+ */
+export function mergedCardsDueForArchive(db: Db, cutoff: Date): Card[] {
+  return db
+    .select()
+    .from(card)
+    .where(and(
+      isNull(card.archivedAt),
+      isNotNull(card.mergedAt),
+      lte(card.mergedAt, cutoff),
+      notExists(
+        db.select({ one: sql`1` })
+          .from(cardEvent)
+          .where(and(
+            eq(cardEvent.cardId, card.id),
+            eq(cardEvent.kind, 'archived'),
+            sql`json_extract(${cardEvent.meta}, '$.reason') = 'merged'`,
+          )),
+      ),
+    ))
     .all();
 }
 
@@ -329,8 +355,10 @@ export function updateCard(
 /**
  * Taking a card off the board is a soft delete: the row, its runs and its
  * worktree all stay put, and `archivedCards` is where it can be found again.
+ * `meta` goes on the `archived` event, to tell an automatic archive from a
+ * person's.
  */
-export function archiveCard(db: Db, id: string) {
+export function archiveCard(db: Db, id: string, meta?: Record<string, unknown>) {
   const now = new Date();
   const archived = db
     .update(card)
@@ -338,7 +366,7 @@ export function archiveCard(db: Db, id: string) {
     .where(and(eq(card.id, id), isNull(card.archivedAt)))
     .returning()
     .get();
-  if (archived) insertCardEvent(db, { cardId: id, actor: 'human', kind: 'archived', stage: archived.stage });
+  if (archived) insertCardEvent(db, { cardId: id, actor: 'human', kind: 'archived', stage: archived.stage, meta });
   return archived;
 }
 
