@@ -16,7 +16,10 @@ Each mockup is a complete HTML document the harness renders to a PNG at the
   type and spacing in plain CSS, so the mockup looks like this app rather than
   a generic page.
 - Draw the whole screen at that path, not only the new part, so it can sit
-  beside a screenshot of the same page.
+  beside a screenshot of the same page. Nothing wider than the viewport.
+- Keep each document compact: plain markup and a short stylesheet, with
+  placeholder text where the real content would be long. All of them share
+  one answer with the plan, and an answer that runs too long loses the plan.
 
 `path` must be reachable by URL alone, as for `captures`: Testing opens that
 path at that width and photographs it, and pairs the picture with your mockup

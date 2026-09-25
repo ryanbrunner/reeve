@@ -55,9 +55,8 @@ a picture, it does not click through a journey. Leave it empty for work with no
 visible surface.
 
 Leave `mockups` empty unless a Mockups section below asks you to draw them.
-{{mockups}}
 
 There is no `plan_markdown`. The harness composes the plan document from the
 fields above, so everything you want a reader to see belongs in one of them.
-{{answers}}{{reviewNotes}}
+{{mockups}}{{answers}}{{reviewNotes}}
 {{notes}}
