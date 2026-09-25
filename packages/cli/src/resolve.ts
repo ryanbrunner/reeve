@@ -90,6 +90,18 @@ export function findRepo(board: BoardResponse, ref: string): ApiRepo {
 }
 
 /**
+ * Where a new card goes when `--repo` does not say: the repo you are in, else
+ * its project's, else the only one there is. A card with no repo can have no
+ * worktree and so no run, which is why the board never makes one unasked.
+ */
+export function repoForNew(board: BoardResponse, here: Here, project: ApiProject | null): ApiRepo | null {
+  if (here.repo) return here.repo;
+  const ofProject = project?.repoId ? board.repos.find((r) => r.id === project.repoId) : undefined;
+  if (ofProject) return ofProject;
+  return board.repos.length === 1 ? board.repos[0]! : null;
+}
+
+/**
  * A project by its id or a prefix of one, or else by its title, exactly or
  * ignoring case: what `--project` takes. Projects have no number to say.
  */

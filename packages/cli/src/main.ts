@@ -1,8 +1,10 @@
 import { DEFAULT_PORT } from '@reeve/shared';
 import type { Command } from './command.js';
+import { card } from './commands/card.js';
+import { project } from './commands/project.js';
 import { CliError, note, print, usageError } from './output.js';
 
-const COMMANDS: Record<string, Command> = {};
+const COMMANDS: Record<string, Command> = { card, project };
 
 const USAGE = `Usage: reeve <command> [options]
 
