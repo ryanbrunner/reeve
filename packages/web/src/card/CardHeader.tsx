@@ -29,6 +29,7 @@ export function CardHeader({
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   const running = card.activity === 'running';
+  const createdBy = detail.events.find((e) => e.kind === 'created')?.actor;
 
   const qc = useQueryClient();
   const invalidate = () => {
@@ -124,14 +125,25 @@ export function CardHeader({
           ))}
           <option value="">No repo</option>
         </select>
-        <span className="font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>
-        <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
-        <span className="flex items-center gap-1.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
-          {STAGE_LABELS[card.stage]}
-          {isRunnable(card.stage) && (
-            <span title="Claude runs here" className="text-[10px] text-sky-500">◆</span>
-          )}
-        </span>
+        {/* A project has no number and sits in no column. */}
+        {card.kind === 'project' ?
+          <>
+            <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
+            <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
+              Project
+            </span>
+          </>
+        : <>
+            <span className="font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>
+            <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
+            <span className="flex items-center gap-1.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
+              {STAGE_LABELS[card.stage]}
+              {isRunnable(card.stage) && (
+                <span title="Claude runs here" className="text-[10px] text-sky-500">◆</span>
+              )}
+            </span>
+          </>
+        }
         <div className="grow" />
         {card.archivedAt ?
           <>
@@ -186,8 +198,9 @@ export function CardHeader({
 
       <div className="relative mt-1 font-mono text-[11px]/4 text-(--color-muted)">
         {/* "by you" is rendered, never stored: there is one person, and the day
-            there are two this is the line that changes. */}
-        Created {when(card.createdAt)} by you ·{' '}
+            there are two this is the line that changes. Claude is the other
+            author, of the tasks a project was split into. */}
+        Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
         {runs.length === 0 ? 'No runs yet' : `${plural(runs.length, 'run')} · ${cost(spent)}`}
         {running && runs.length > 0 && ' so far'}
       </div>
