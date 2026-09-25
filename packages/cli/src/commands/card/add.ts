@@ -8,8 +8,8 @@ import { findProject, findRepo, repoForNew, requireStage, whereAmI } from '../..
 import { watchStart } from '../../setOff.js';
 
 export const add: Command = {
-  usage: `  reeve card add <title> [--body TEXT | --body-file PATH|-] [--repo R] [--project P] [--stage S]
-                 [--ref PATH|URL]... [--no-mockups] [--json | --quiet]
+  usage: `  reeve card add <title> [--body TEXT | --body-file PATH|-] [--repo <repo>] [--project <project>]
+                 [--stage <stage>] [--ref PATH|URL]... [--no-mockups] [--json | --quiet]
       A new card, in Backlog unless --stage says otherwise. It goes in --repo, else the repo you
       are in, else its project's repo, else the only repo there is. --ref pins a file or a link
       to it, and may be given more than once. Made in Planning, In Progress or Testing, it starts

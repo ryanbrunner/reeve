@@ -6,7 +6,8 @@ import { CliError, note, parseOrUsage, print, printJson, usageError } from '../.
 import { findRepo, repoForNew, whereAmI } from '../../resolve.js';
 
 export const add: Command = {
-  usage: `  reeve project add <title> [--body TEXT | --body-file PATH|-] [--repo R] [--split] [--json | --quiet]
+  usage: `  reeve project add <title> [--body TEXT | --body-file PATH|-] [--repo <repo>] [--split]
+                    [--json | --quiet]
       A new project: a lane on the board that tasks are filed under with \`card add --project\`.
       It sits in no column and nothing runs a stage on it. --repo is the repo its split reads and
       its tasks fall back to: the repo you are in unless it says otherwise.

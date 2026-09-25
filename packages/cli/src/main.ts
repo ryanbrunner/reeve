@@ -6,9 +6,16 @@ import { CliError, note, print, usageError } from './output.js';
 
 const COMMANDS: Record<string, Command> = { card, project };
 
+/** A command's usage without its description: the forms alone, which is all the top-level help has room for. */
+const synopsis = (usage: string) =>
+  usage
+    .split('\n')
+    .filter((line) => !/^ {6}\S/.test(line))
+    .join('\n');
+
 const USAGE = `Usage: reeve <command> [options]
 
-${Object.values(COMMANDS).map((c) => c.usage).join('\n')}
+${Object.values(COMMANDS).map((c) => synopsis(c.usage)).join('\n')}
 
 <card>     142, #142, <repo>#142, or a card id or prefix of one. The card
            commands also take a project, by its id or its title.
@@ -16,7 +23,8 @@ ${Object.values(COMMANDS).map((c) => c.usage).join('\n')}
 <repo>     a repo's name or id
 <project>  a project's id or prefix of one, or its title
 
---json puts JSON alone on stdout; messages go to stderr. \`reeve <command> --help\` says more.
+--json puts JSON alone on stdout; messages go to stderr.
+\`reeve card --help\`, or \`reeve card move --help\`, says what each one does.
 Reeve must be running: the CLI talks to $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
 
 async function main(argv: string[]): Promise<void> {
