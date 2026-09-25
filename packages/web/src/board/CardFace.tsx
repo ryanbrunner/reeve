@@ -149,25 +149,28 @@ const NAMED = 3;
  * so it is a glyph and a count, with the names in the tooltip.
  *
  * SICKO MODE's card has one footer line and no room to spare, so there it is
- * the blocked chip alone, numbers only.
+ * the blocked chip alone: the first number and how many more.
  */
 function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
   const open = card.dependsOn.filter((d) => !d.done);
   // `#142` is per repo, so one from another repo says which.
   const ref = (d: ApiCardLink) => `${d.repoName && d.repoName !== card.repoName ? d.repoName : ''}#${d.number}`;
   const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${d.done ? ' (done)' : ''}`).join('\n');
-  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]/4 whitespace-nowrap';
+  // Free to wrap: a column can be 136px wide, and three refs from another repo
+  // are wider than that. SICKO's one footer line cannot wrap, so it names one.
+  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]/4';
+  const named = sicko ? 1 : NAMED;
   return (
     <>
       {open.length > 0 ?
         <span
           title={`Waits on\n${list}`}
-          className={`${chip} bg-(--color-dep-fill) text-(--color-dep) ${sicko ? 'sk-dep' : ''}`}
+          className={`${chip} bg-(--color-dep-fill) text-(--color-dep) ${sicko ? 'sk-dep whitespace-nowrap' : ''}`}
         >
           <WaitsGlyph />
           <span className="sr-only">Blocked:</span>
-          {!sicko && 'waits on'} {open.slice(0, NAMED).map(ref).join(' ')}
-          {open.length > NAMED && ` +${open.length - NAMED}`}
+          {!sicko && 'waits on'} {open.slice(0, named).map(ref).join(' ')}
+          {open.length > named && ` +${open.length - named}`}
         </span>
       : !sicko && card.dependsOn.length > 0 && (
           <span title={`Waited on, all done\n${list}`} className={`${chip} bg-slate-500/15 text-(--color-muted)`}>
