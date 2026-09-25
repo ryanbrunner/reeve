@@ -55,7 +55,7 @@ const USAGE = `Usage: reeve [command] [options]
                   [--setup CMD] [--test CMD] [--server CMD] [--teardown CMD]
                   [--finish CMD] [--color HEX] [--budget USD] [--json]
       Register the repo at <path>, or the one you are in. Name defaults to
-      the directory's; branch to the one it is on.
+      the repo's directory name; branch to the one it is on.
   reeve repos edit <repo> [--path P] [any flag add takes] [--json]
       Change a repo. An empty value, as in --setup '', clears a command.
 

@@ -115,7 +115,8 @@ reeve repos edit <repo> [--path P] [--test CMD] ...
 - **`models`** lists what the Claude CLI offers for `<stage>.model`. A model
   it does not list is saved anyway, with a warning.
 - **`repos add`** registers the repo at a path, or the one you are in. A path
-  inside a repo registers the whole repo. The name defaults to the directory's,
+  inside a repo registers the whole repo. It refuses a card's worktree and a
+  repo already registered. The name defaults to the repo's directory name,
   the branch to the one it is on, the worktree root to `.reeve-worktrees`
   beside it and the lane colour to one no other repo has. The other flags are
   `--worktree-root`, `--server`, `--teardown`, `--finish`, `--color` and

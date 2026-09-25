@@ -1,9 +1,16 @@
-import { basename, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { freeLaneColor, type ApiRepo, type CreateRepoBody, type UpdateRepoBody } from '@reeve/shared';
+import {
+  freeLaneColor,
+  type ApiRepo,
+  type BoardResponse,
+  type CreateRepoBody,
+  type UpdateRepoBody,
+} from '@reeve/shared';
 import { api } from '../client.js';
-import { parseOrUsage, print, printJson, usageError } from '../output.js';
-import { findRepo } from '../resolve.js';
+import { CliError, cardRef, parseOrUsage, print, printJson, usageError } from '../output.js';
+import { findRepo, realpathOrSelf } from '../resolve.js';
 
 /**
  * `reeve repos`: the repos Reeve may work in, and the Settings form that adds
@@ -93,20 +100,55 @@ function render(repo: ApiRepo): string {
 }
 
 /**
+ * The top of the git checkout a path is in, as the server will register it:
+ * the nearest directory holding a `.git`, which is a directory in a checkout
+ * and a file in a worktree. The path as given when there is none, for the
+ * server to refuse in its own words.
+ */
+function toplevelOf(path: string): string {
+  for (let dir = path; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, '.git'))) return dir;
+    if (dirname(dir) === dir) return path;
+  }
+}
+
+/**
+ * A card's worktree is a checkout of its own, so the server would register
+ * one as a repo — and an agent working in a card, running this with no path,
+ * is exactly who would ask it to. The server allows two names for one
+ * directory, too. Both are refused here, where the board is to hand.
+ * Compared exactly rather than by containment, so a repo nested in another
+ * can still be added.
+ */
+function refuseKnown(board: BoardResponse, toplevel: string): void {
+  const here = realpathOrSelf(toplevel);
+  const worktreeOf = board.cards.find((c) => c.worktreePath && realpathOrSelf(c.worktreePath) === here);
+  if (worktreeOf) {
+    throw new CliError(`${toplevel} is ${cardRef(worktreeOf)}'s worktree, not a repo. Add its repo by that repo's path`);
+  }
+  const registered = board.repos.find((r) => realpathOrSelf(r.repoPath) === here);
+  if (registered) throw new CliError(`${toplevel} is already registered, as ${registered.name}`);
+}
+
+/**
  * Registers the repo at a path, the cwd if none is given. A path inside a
- * repo registers the whole repo. The name defaults to the directory's, and
- * the lane colour to the first one no other repo has, as on the form.
+ * repo registers the whole repo, and the name defaults to that repo's
+ * directory. The lane colour defaults to the first one no other repo has, as
+ * on the form.
  */
 async function add(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() => parseArgs({ args, allowPositionals: true, options: FIELDS }));
   if (positionals.length > 1) throw usageError('repos add takes one path');
   const path = absolute(positionals[0] ?? '.');
+  // A `~` path is the server's to expand, so there is nothing here to look in.
+  const toplevel = path.startsWith('~') ? path : toplevelOf(path);
 
   const board = await api.board();
+  refuseKnown(board, toplevel);
   const fields = body(values);
   const created = await api.createRepo({
     ...fields,
-    name: fields.name ?? basename(path),
+    name: fields.name ?? basename(toplevel),
     repoPath: path,
     laneColor: fields.laneColor === undefined ? freeLaneColor(board.repos.map((r) => r.laneColor)) : fields.laneColor,
   } satisfies CreateRepoBody);
