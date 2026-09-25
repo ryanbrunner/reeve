@@ -48,7 +48,7 @@ export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onC
       // Same rule as the card: Escape gets you out of a field before it gets
       // you out of the dialog, so a half-typed path survives one keystroke.
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
         target.blur();
         return;
       }
