@@ -172,18 +172,19 @@ export interface CreatedWorktree {
   baseSha: string;
 }
 
+/** `base` is anything `rev-parse` takes: the sha just fetched, or a branch name. */
 export async function createWorktree(opts: {
   repoPath: string;
   worktreeRoot: string;
   cardId: string;
   title: string;
-  baseBranch: string;
+  base: string;
 }): Promise<CreatedWorktree> {
-  const { repoPath, worktreeRoot, cardId, title, baseBranch } = opts;
+  const { repoPath, worktreeRoot, cardId, title, base } = opts;
   const path = worktreePathFor(worktreeRoot, cardId);
   const branch = branchNameFor(cardId, title);
 
-  const baseSha = (await git(repoPath, ['rev-parse', baseBranch])).trim();
+  const baseSha = (await git(repoPath, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
   await git(repoPath, ['worktree', 'add', '-b', branch, path, baseSha]);
   return { path, branch, baseSha };
 }
