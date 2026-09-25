@@ -26,6 +26,9 @@ export type CardEventKind =
   | 'question_asked'
   | 'answered'
   | 'note'
+  | 'merged'
+  | 'pr_opened'
+  | 'pr_failed'
   | 'archived'
   | 'restored';
 

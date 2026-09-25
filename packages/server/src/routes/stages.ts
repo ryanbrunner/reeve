@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { isRunnable, nextStage, type Stage } from '@reeve/shared';
-import { config } from '../config.js';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   getCard,
+  getSettings,
   cardsInStage,
   insertCardEvent,
   insertReview,
@@ -16,6 +16,7 @@ import {
 } from '../db/queries.js';
 import { checkWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
+import { maybeOpenPullRequest } from '../pullRequest.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { runRegistry } from '../runs/registry.js';
@@ -51,13 +52,17 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     const stage = stageDefinition(card.stage as never);
     if (!stage) return c.json({ error: 'stage not implemented yet', detail: card.stage }, 501);
 
-    if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude')) {
+    // A Suggest running beside the stage does not hold the card: it only reads,
+    // and waiting on it to plan would make the button the thing that blocks.
+    if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
     // Approving four cards at once shouldn't launch four sessions and burn
-    // through budget in parallel.
-    if (runRegistry.countByKind('claude') >= config.maxConcurrentRuns) {
-      return c.json({ error: 'too many concurrent runs', detail: `limit is ${config.maxConcurrentRuns}` }, 429);
+    // through budget in parallel. Read per request so a change in Settings
+    // applies to the next run; lowering it stops nothing already going.
+    const { maxConcurrentRuns } = getSettings(db);
+    if (runRegistry.countByKind('claude') >= maxConcurrentRuns) {
+      return c.json({ error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` }, 429);
     }
 
     const health = await checkWorktree(project.repoPath, card.worktreePath);
@@ -115,7 +120,9 @@ export function stageRoutes(db: Db, writer: EventWriter) {
         // Appended, not inserted: the human chose the column, not the slot.
         // moveCard writes the `moved` event, so the timeline reads as a verdict
         // followed by a move rather than one conflated entry.
-        moveCard(db, card.id, to, cardsInStage(db, to).length);
+        const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
+        // The same automatic pull request a drag into Done gets.
+        if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, project);
       }
       return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
     }

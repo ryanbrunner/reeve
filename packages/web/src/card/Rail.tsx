@@ -118,10 +118,18 @@ function Worktree({ detail }: { detail: CardDetail }) {
   const stop = useMutation({ mutationFn: () => api.stopServer(detail.card.id), onSuccess: invalidate });
 
   if (!worktree.path) {
+    const merged = detail.card.mergedSha;
     return (
       <section className="flex flex-col gap-2">
         <SectionHead>Worktree</SectionHead>
-        <Empty>None yet</Empty>
+        {merged ? (
+          <div className="flex flex-col">
+            <Fact label="Merged as">{merged.slice(0, 7)}</Fact>
+            <Fact label="Into">{worktree.baseBranch}</Fact>
+          </div>
+        ) : (
+          <Empty>None yet</Empty>
+        )}
       </section>
     );
   }
@@ -214,11 +222,11 @@ function Checks({ detail }: { detail: CardDetail }) {
 }
 
 function Commits({ detail }: { detail: CardDetail }) {
-  // Only fetched once there is a worktree to ask about.
+  // Only fetched once there is a worktree to ask about, or a merge to read.
   const { data } = useQuery({
     queryKey: ['commits', detail.card.id],
     queryFn: () => api.commits(detail.card.id),
-    enabled: Boolean(detail.worktree.path && detail.worktree.base),
+    enabled: Boolean((detail.worktree.path && detail.worktree.base) || detail.card.mergedSha),
   });
   if (!data?.length) return null;
   return (

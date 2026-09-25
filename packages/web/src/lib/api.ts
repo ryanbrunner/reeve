@@ -8,6 +8,7 @@ import type {
   ApiDiff,
   ApiProject,
   ApiQuestion,
+  ApiSettings,
   BoardResponse,
   CardDetail,
   CreateCardBody,
@@ -15,6 +16,7 @@ import type {
   MoveCardBody,
   Stage,
   UpdateProjectBody,
+  UpdateSettingsBody,
 } from '@reeve/shared';
 
 async function json<T>(res: Response): Promise<T> {
@@ -39,6 +41,9 @@ const del = (url: string) => fetch(url, { method: 'DELETE' });
 
 export const api = {
   board: () => fetch('/api/board').then(json<BoardResponse>),
+
+  settings: () => fetch('/api/settings').then(json<ApiSettings>),
+  updateSettings: (body: UpdateSettingsBody) => patch('/api/settings', body).then(json<ApiSettings>),
 
   // --- repos ---
   createProject: (body: CreateProjectBody) => post('/api/projects', body).then(json<ApiProject>),
@@ -115,6 +120,12 @@ export const api = {
     post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number; url: string }>),
   stopServer: (id: string) => del(`/api/cards/${id}/server`).then(json<{ ok: true }>),
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
+  /**
+   * Push the branch and open its pull request, or push to the one already
+   * open. Entering Done does this on its own; this is the retry.
+   */
+  openPr: (id: string) =>
+    post(`/api/cards/${id}/pr`, {}).then(json<{ ok: true; url: string; number: number; reused: boolean }>),
 };
 
 export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>
