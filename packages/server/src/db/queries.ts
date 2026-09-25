@@ -256,7 +256,10 @@ export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
   return updated;
 }
 
-export function createCard(db: Db, values: { title: string; body?: string; repoId?: string | null; stage?: CardStage }) {
+export function createCard(
+  db: Db,
+  values: { title: string; body?: string; repoId?: string | null; stage?: CardStage; generateMockups?: boolean },
+) {
   const stage = values.stage ?? 'backlog';
   const siblings = cardsInStage(db, stage);
   const last = siblings[siblings.length - 1]?.position ?? 0;
@@ -271,6 +274,8 @@ export function createCard(db: Db, values: { title: string; body?: string; repoI
       repoId,
       stage,
       position: last + POSITION_GAP,
+      // Left out when not given, so the column's default decides.
+      ...(values.generateMockups === undefined ? {} : { generateMockups: values.generateMockups }),
     })
     .returning()
     .get();
@@ -310,7 +315,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && patch.repoId !== before.repoId;

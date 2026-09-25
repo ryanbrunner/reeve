@@ -76,6 +76,7 @@ export const api = {
       repoId?: string | null;
       model?: string | null;
       effort?: EffortLevel | null;
+      generateMockups?: boolean;
     },
   ) => patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
