@@ -17,6 +17,7 @@ import { artifact as artifactTable, type Card, type CardStage, type Repo } from 
 import type { ClaudeTask, StageContext } from '../stages/types.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
+import { decideToolUse } from './permissions.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -217,10 +218,14 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     ...(resumeSessionId ? { resume: resumeSessionId, forkSession: true } : {}),
     sessionId,
     permissionMode: stage.permissionMode,
-    // Nobody is watching to approve anything. Without this the run parks forever
-    // on the first tool call that isn't pre-approved.
-    permissionPrompts: 'none',
     allowedTools: stage.allowedTools,
+    // Nobody is watching to approve anything, and a run that parks on its first
+    // unmatched tool call parks forever — so something must answer immediately.
+    // This does, synchronously, and its answer is a better one than the SDK's
+    // own `permissionPrompts: 'none'`: see runs/permissions.ts for what that
+    // refusal cost us.
+    canUseTool: (toolName, input) =>
+      Promise.resolve(decideToolUse({ toolName, input, allowedTools: stage.allowedTools, worktreePath })),
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),

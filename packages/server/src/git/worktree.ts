@@ -203,7 +203,7 @@ export async function removeWorktree(repoPath: string, path: string, force = fal
  * missing. Compare resolved paths, falling back to the literal when the path is
  * already gone.
  */
-function realOrSelf(p: string): string {
+export function realOrSelf(p: string): string {
   try {
     return realpathSync(p);
   } catch {
