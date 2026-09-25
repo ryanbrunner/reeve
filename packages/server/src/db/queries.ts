@@ -259,7 +259,13 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
  * column is recorded; a reorder within one is not, because where a card sits
  * among its neighbours is not a thing anyone wants to read back later.
  */
-export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
+/**
+ * `actor` is all but always the human it defaults to — a drag, or an approval
+ * they gave. SICKO MODE is the exception, and it matters that the event says
+ * so: the board's own scoreboard counts human approvals, and an automatic move
+ * filed under `human` would make that number a lie.
+ */
+export function moveCard(db: Db, id: string, stage: CardStage, index: number, actor: CardEventActor = 'human') {
   const before = getCard(db, id);
   const position = positionForSlot(db, stage, index, id);
   const updated = db
@@ -271,7 +277,7 @@ export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
   if (before && before.stage !== stage) {
     insertCardEvent(db, {
       cardId: id,
-      actor: 'human',
+      actor,
       kind: 'moved',
       stage: before.stage,
       fromStage: before.stage,
