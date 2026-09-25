@@ -66,17 +66,21 @@ const notBash = decideToolUse({ toolName: 'WebFetch', input: { url: 'https://exa
 check('a tool it has no business with', notBash.behavior === 'deny' && notBash.message.includes('Read, Glob, Grep'));
 
 /**
- * The decisive half. Two commands: one the policy rewrites into an allow, one
- * it refuses. `permission_denials` on the result is the authoritative record,
- * so it is what the UI counts — this is where we find out whether a denial we
- * made ourselves books there the same way the SDK's own do.
+ * The decisive half. Three commands: one the policy rewrites into an allow, one
+ * it refuses, and one — a pipe — that must never reach the policy at all.
+ *
+ * That third one is the regression to watch. A piped read-only command is
+ * approved by the CLI's own subcommand matching, and runs lean on the form
+ * constantly. If installing a callback started routing pipes here instead, the
+ * policy would refuse every one of them, which would be a worse break than the
+ * one it was written to fix.
  */
 console.log('\n--- does the SDK ask us? ---');
 async function* once(text: string): AsyncIterable<SDKUserMessage> {
   yield { type: 'user', session_id: '', parent_tool_use_id: null, message: { role: 'user', content: text } };
 }
 
-let asked = 0;
+const asks: string[] = [];
 const commands: string[] = [];
 const results: string[] = [];
 let denials: unknown[] = [];
@@ -87,7 +91,7 @@ let recorded: ToolDenialRecord[] = [];
 for await (const m of query({
   prompt: once(
     `Do exactly this, one Bash call each, in order, and do not stop early:\n` +
-    `1. \`git -C ${wt} status --short\`\n2. \`gh pr view 1\`\n` +
+    `1. \`git -C ${wt} status --short\`\n2. \`gh pr view 1\`\n3. \`git log --oneline | head -3\`\n` +
     `Then say in one sentence what happened to each.`,
   ),
   options: {
@@ -98,7 +102,7 @@ for await (const m of query({
     maxBudgetUsd: 0.5,
     maxTurns: 12,
     canUseTool: (toolName, input, { toolUseID }) => {
-      asked++;
+      asks.push(typeof input['command'] === 'string' ? input['command'] : toolName);
       const decision = decideToolUse({ toolName, input, allowedTools, worktreePath: wt });
       if (decision.behavior === 'deny') recorded = recorder.refused(toolName, input, toolUseID) ?? recorded;
       return Promise.resolve(decision);
@@ -120,13 +124,24 @@ for await (const m of query({
   if (m.type === 'result') denials = msg.permission_denials ?? [];
 }
 
-note('canUseTool calls', asked);
+note('canUseTool was asked about', JSON.stringify(asks));
 note('commands attempted', JSON.stringify(commands));
 for (const r of results) note('tool result', r);
 note('permission_denials', JSON.stringify(denials).slice(0, 300));
 
-check('canUseTool was consulted', asked > 0, 'if this fails, runs park instead of being denied');
-check('the rewritten command ran', results.some((r) => r.includes('dirty.txt')));
+check('canUseTool was consulted', asks.length > 0, 'if this fails, runs park instead of being denied');
+check(
+  'a pipe never reaches the policy',
+  !asks.some((c) => c.includes('|')),
+  'the CLI approves piped read-only commands itself, and must go on doing so',
+);
+check('the piped command ran', results.some((r) => r.includes('base')));
+check(
+  'the -C form reached the policy',
+  asks.some((c) => c.startsWith('git -C ')),
+  'if the CLI allowed it outright, the rewrite is not what made it run',
+);
+check('and ran, rewritten', results.some((r) => r.includes('dirty.txt')));
 check('the refused one was refused', results.some((r) => r.includes('Denied')));
 check('denials are on the result', denials.length > 0, 'this is what the Activity tab counts');
 check(
