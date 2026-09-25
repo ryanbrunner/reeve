@@ -21,11 +21,11 @@ import {
   addCriterion,
   addRef,
   createCard,
-  createProject,
+  createRepo,
   insertAsset,
   insertCardEvent,
   insertRun,
-  listProjects,
+  listRepos,
   moveCard,
   recordVerdicts,
   replaceDifferences,
@@ -85,9 +85,9 @@ const SAVED_LIST = `export function SavedList({ items }: { items: CartLine[] }) 
 
 const { db } = createApp();
 
-const project =
-  listProjects(db).find((p) => p.name === 'storefront') ??
-  createProject(db, {
+const storefront =
+  listRepos(db).find((p) => p.name === 'storefront') ??
+  createRepo(db, {
     name: 'storefront',
     repoPath: '/tmp/reeve-seed-storefront',
     worktreeRoot: '/tmp/reeve-seed-worktrees',
@@ -124,7 +124,7 @@ git(repo, 'init', '-q', '-b', 'main');
 git(repo, 'add', '.');
 git(repo, 'commit', '-qm', 'Initial commit');
 const baseSha = git(repo, 'rev-parse', 'HEAD');
-db.run(`UPDATE project SET repo_path='${repo}', worktree_root='${repo}/../worktrees' WHERE id='${project.id}'` as never);
+db.run(`UPDATE repo SET repo_path='${repo}', worktree_root='${repo}/../worktrees' WHERE id='${storefront.id}'` as never);
 
 /** A worktree for a card, with the change the seeded plan describes. */
 function worktreeFor(cardId: string, number: number, slug: string, withChanges: boolean): string {
@@ -198,7 +198,7 @@ function pastRun(opts: {
 }
 
 function card(title: string, body: string, stage: CardStage, minsAgo: number) {
-  const c = createCard(db, { title, body, projectId: project.id });
+  const c = createCard(db, { title, body, repoId: storefront.id });
   if (stage !== 'backlog') {
     for (const s of ['planning', 'in_progress', 'testing', 'done'] as CardStage[]) {
       moveCard(db, c.id, s, 0);
@@ -430,7 +430,7 @@ if (shot.unavailable) {
   }
 }
 
-console.log(`\n  seeded ${project.name}: 5 cards, one per activity state`);
+console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state`);
 console.log('  idle · needs_input · running · error · needs_review');
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');

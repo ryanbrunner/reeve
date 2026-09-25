@@ -8,7 +8,7 @@ import type { RunKind, RunStatus, StopReason } from './runs.js';
  * never pulls in the ORM. Timestamps are epoch milliseconds.
  */
 
-export interface ApiProject {
+export interface ApiRepo {
   id: string;
   name: string;
   repoPath: string;
@@ -43,10 +43,10 @@ export interface ApiRunSummary {
 
 export interface ApiCard {
   id: string;
-  /** Per-project and stable: the `#142` a person can say out loud. */
+  /** Per-repo and stable: the `#142` a person can say out loud. */
   number: number;
-  projectId: string | null;
-  projectName: string | null;
+  repoId: string | null;
+  repoName: string | null;
   laneColor: string | null;
   title: string;
   body: string;
@@ -87,14 +87,14 @@ export interface ApiCard {
 }
 
 export interface BoardResponse {
-  projects: ApiProject[];
+  repos: ApiRepo[];
   cards: ApiCard[];
 }
 
 export interface CreateCardBody {
   title: string;
   body?: string;
-  projectId?: string | null;
+  repoId?: string | null;
   stage?: Stage;
 }
 
@@ -103,7 +103,7 @@ export interface CreateCardBody {
  * server can read better answers off the repository itself than a person can
  * be bothered to type: the branch it is on, and a `.reeve-worktrees` beside it.
  */
-export interface CreateProjectBody {
+export interface CreateRepoBody {
   name: string;
   repoPath: string;
   worktreeRoot?: string;
@@ -117,11 +117,11 @@ export interface CreateProjectBody {
   maxBudgetUsd?: number | null;
 }
 
-export type UpdateProjectBody = Partial<CreateProjectBody>;
+export type UpdateRepoBody = Partial<CreateRepoBody>;
 
-/** Reeve's own settings, as opposed to a project's. Every field is resolved: never null. */
+/** Reeve's own settings, as opposed to a repo's. Every field is resolved: never null. */
 export interface ApiSettings {
-  /** Claude runs allowed at once, across every card and project. */
+  /** Claude runs allowed at once, across every card and repo. */
   maxConcurrentRuns: number;
 }
 

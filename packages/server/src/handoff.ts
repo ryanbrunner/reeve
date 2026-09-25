@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { STAGE_LABELS, type HandoffResponse } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import { answeredQuestionsFor, latestClaudeRunForStage } from './db/queries.js';
-import type { Card, Project } from './db/schema.js';
+import type { Card, Repo } from './db/schema.js';
 import { stageContextFor } from './runs/claude.js';
 import { renderNotes, renderPrompt } from './stages/template.js';
 
@@ -26,10 +26,10 @@ const STAGE_FILES = [
  * the shell quoting or run. The command interpolates the worktree path and
  * nothing else.
  */
-export function writeHandoff(db: Db, card: Card, project: Project, worktreePath: string): HandoffResponse {
+export function writeHandoff(db: Db, card: Card, repo: Repo, worktreePath: string): HandoffResponse {
   // No stage excluded: the person taking over wants the latest of everything,
   // including whatever the current stage last produced.
-  const ctx = stageContextFor(db, { card, project, worktreePath });
+  const ctx = stageContextFor(db, { card, repo, worktreePath });
   const last = latestClaudeRunForStage(db, card.id, card.stage);
   const answered = answeredQuestionsFor(db, card.id);
 
@@ -54,7 +54,7 @@ export function writeHandoff(db: Db, card: Card, project: Project, worktreePath:
     stage: STAGE_LABELS[card.stage],
     worktreePath,
     branch: card.branchName ?? '(unknown)',
-    baseBranch: project.defaultBranch,
+    baseBranch: repo.defaultBranch,
     lastRun: last
       ? `${last.status}${last.stopReason && last.stopReason !== 'completed' ? ` (${last.stopReason})` : ''}`
       : 'none yet',
@@ -69,9 +69,9 @@ export function writeHandoff(db: Db, card: Card, project: Project, worktreePath:
       ? `\n## Questions already answered\n\n${answered.map((q) => `**${q.text}**\n${q.answer}`).join('\n\n')}\n`
       : '',
     notes: renderNotes(ctx.notes),
-    testCommand: project.testCommand
-      ? `Run \`${project.testCommand}\` before you call the work finished, and get it green.`
-      : 'This project defines no test command, so check the work by other means.',
+    testCommand: repo.testCommand
+      ? `Run \`${repo.testCommand}\` before you call the work finished, and get it green.`
+      : 'This repo defines no test command, so check the work by other means.',
   });
 
   const path = join(worktreePath, HANDOFF_PATH);

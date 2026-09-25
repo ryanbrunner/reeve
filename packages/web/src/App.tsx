@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage } from '@reeve/shared';
+import { STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
@@ -85,7 +85,7 @@ export function App() {
   // Made with a placeholder title and opened, rather than asked for a title
   // first: criteria and context can only hang off a card that exists.
   const create = useMutation({
-    mutationFn: (projectId: string | null) => api.createCard({ title: 'Untitled', projectId, stage: 'backlog' }),
+    mutationFn: (repoId: string | null) => api.createCard({ title: 'Untitled', repoId, stage: 'backlog' }),
     onSuccess: (card) => {
       setFreshId(card.id);
       openAndClose.open(card.id);
@@ -144,7 +144,7 @@ export function App() {
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
 
   const lanes = swimlanes
-    ? (data?.projects ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
+    ? (data?.repos ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
     : [{ id: undefined as unknown as string | null, name: '', color: null }];
 
   return (
@@ -152,7 +152,7 @@ export function App() {
       <Header
         swimlanes={swimlanes}
         onToggle={() => setSwimlanes((s) => !s)}
-        projects={data?.projects ?? []}
+        repos={data?.repos ?? []}
         onAdd={create.mutate}
         adding={create.isPending}
         addError={create.error}
@@ -255,27 +255,27 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount }: {
+function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
-  projects: ApiProject[];
-  onAdd: (projectId: string | null) => void;
+  repos: ApiRepo[];
+  onAdd: (repoId: string | null) => void;
   adding: boolean;
   addError: Error | null;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
 }) {
-  // Filed under the first project unless told otherwise, because an unfiled
+  // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
   // run. The picker sits next to Add rather than hiding the choice, so
   // "the first one" is never a silent answer.
-  // `null` is "hasn't said", `''` is "said no project" — two different things,
-  // and collapsing them makes No project unpickable: the fallback below would
+  // `null` is "hasn't said", `''` is "said no repo" — two different things,
+  // and collapsing them makes No repo unpickable: the fallback below would
   // read the empty string as untouched and snap the select back to the first.
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const chosen = projectId === '' || projects.some((p) => p.id === projectId);
-  const filedUnder = chosen ? projectId! : (projects[0]?.id ?? '');
+  const [repoId, setRepoId] = useState<string | null>(null);
+  const chosen = repoId === '' || repos.some((p) => p.id === repoId);
+  const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
   return (
     <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
@@ -287,17 +287,17 @@ function Header({ swimlanes, onToggle, projects, onAdd, adding, addError, onOpen
       </span>
       <div className="ml-auto flex items-center gap-2">
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
-        {projects.length > 0 && (
+        {repos.length > 0 && (
           <select
             value={filedUnder}
-            onChange={(e) => setProjectId(e.target.value)}
-            aria-label="Project for the new card"
+            onChange={(e) => setRepoId(e.target.value)}
+            aria-label="Repo for the new card"
             className="rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600"
           >
-            {projects.map((p) => (
+            {repos.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
-            <option value="">No project</option>
+            <option value="">No repo</option>
           </select>
         )}
         {/* Held while the card is being made: a double-click would otherwise
@@ -312,9 +312,9 @@ function Header({ swimlanes, onToggle, projects, onAdd, adding, addError, onOpen
         </button>
       </div>
       <button
-        onClick={() => onOpenSettings(projects.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
+        onClick={() => onOpenSettings(repos.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
         className={`rounded-md border px-3 py-1.5 text-sm ${
-          projects.length === 0 ?
+          repos.length === 0 ?
             'border-sky-600 text-sky-300'
           : 'border-(--color-edge) text-(--color-muted) hover:border-slate-600'
         }`}
@@ -322,7 +322,7 @@ function Header({ swimlanes, onToggle, projects, onAdd, adding, addError, onOpen
         {/* Highlighted, and straight to the new-repo form, when there are none:
             an empty board with no repo is a board where nothing can ever run,
             and this is the way out. */}
-        {projects.length === 0 ? 'Add a repo' : 'Settings'}
+        {repos.length === 0 ? 'Add a repo' : 'Settings'}
       </button>
       <button
         onClick={onOpenArchive}

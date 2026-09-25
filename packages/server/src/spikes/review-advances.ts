@@ -5,11 +5,11 @@
  */
 import type { BoardResponse } from '@reeve/shared';
 import { createApp } from '../index.js';
-import { createCard, createProject, getCard, insertRun, setRunStatus } from '../db/queries.js';
+import { createCard, createRepo, getCard, insertRun, setRunStatus } from '../db/queries.js';
 
 const { app, db } = createApp();
 
-const project = createProject(db, {
+const repo = createRepo(db, {
   name: `review-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
@@ -42,13 +42,13 @@ const review = (cardId: string, body: unknown) =>
   }));
 
 // A run that merely succeeded must leave the card exactly where it is.
-const untouched = createCard(db, { title: 'untouched', projectId: project.id, stage: 'planning' });
+const untouched = createCard(db, { title: 'untouched', repoId: repo.id, stage: 'planning' });
 succeededPlan(untouched.id);
 const board = await get<BoardResponse>('/api/board');
 const onBoard = board.cards.find((c) => c.id === untouched.id);
 
 // The same card, once a human approves it, moves on by one.
-const approved = createCard(db, { title: 'approved', projectId: project.id, stage: 'planning' });
+const approved = createCard(db, { title: 'approved', repoId: repo.id, stage: 'planning' });
 succeededPlan(approved.id);
 const before = getCard(db, approved.id)!.stage;
 const res = await review(approved.id, { decision: 'approved', notes: 'looks good' });
@@ -59,14 +59,14 @@ const reviews = await get<Array<{ decision: string }>>(`/api/cards/${approved.id
 // Rejecting is not a verdict that the work is good, so it moves nothing. (No
 // worktree here, so the forked revision run is refused after the row is written
 // — the review is recorded either way, which is what this checks.)
-const rejected = createCard(db, { title: 'rejected', projectId: project.id, stage: 'planning' });
+const rejected = createCard(db, { title: 'rejected', repoId: repo.id, stage: 'planning' });
 succeededPlan(rejected.id);
 await review(rejected.id, { decision: 'rejected', notes: 'try again' });
 const rejectedStage = getCard(db, rejected.id)!.stage;
 
 // A dev server started after the last Claude run must not make the card
 // unreviewable. It once did: the stage's newest run was a `vite` process.
-const served = createCard(db, { title: 'served', projectId: project.id, stage: 'planning' });
+const served = createCard(db, { title: 'served', repoId: repo.id, stage: 'planning' });
 succeededPlan(served.id);
 insertRun(db, {
   id: crypto.randomUUID(), cardId: served.id, kind: 'server', stage: 'planning',

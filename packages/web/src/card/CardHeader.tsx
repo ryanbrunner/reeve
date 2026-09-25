@@ -93,12 +93,12 @@ export function CardHeader({
   return (
     <header className="relative shrink-0 border-b border-(--color-edge) px-5 pt-3.5 pb-4">
       <div className="relative flex items-center gap-2">
-        {card.projectName && (
+        {card.repoName && (
           <span
             className="rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4"
             style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
           >
-            {card.projectName}
+            {card.repoName}
           </span>
         )}
         <span className="font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>

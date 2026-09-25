@@ -1,9 +1,9 @@
 import { createApp } from '../index.js';
-import { createCard, createProject, listProjects } from './queries.js';
+import { createCard, createRepo, listRepos } from './queries.js';
 
 const { db } = createApp();
-if (listProjects(db).length === 0) {
-  const p = createProject(db, {
+if (listRepos(db).length === 0) {
+  const p = createRepo(db, {
     name: 'reeve',
     repoPath: '/Users/ryan/code/reeve',
     worktreeRoot: '/Users/ryan/code/.reeve-worktrees',
@@ -16,11 +16,11 @@ if (listProjects(db).length === 0) {
     laneColor: '#6b7db3',
     maxBudgetUsd: 5,
   });
-  createCard(db, { title: 'Wire the Planning stage end to end', projectId: p.id, stage: 'planning', body: 'First runnable stage.' });
-  createCard(db, { title: 'Server supervisor: port allocation + start/stop', projectId: p.id, stage: 'backlog' });
-  createCard(db, { title: 'Backlog triage run', projectId: p.id, stage: 'backlog' });
-  createCard(db, { title: 'Diff artifact for In Progress', projectId: p.id, stage: 'backlog' });
-  console.log('[reeve] seeded 1 project, 4 cards');
+  createCard(db, { title: 'Wire the Planning stage end to end', repoId: p.id, stage: 'planning', body: 'First runnable stage.' });
+  createCard(db, { title: 'Server supervisor: port allocation + start/stop', repoId: p.id, stage: 'backlog' });
+  createCard(db, { title: 'Backlog triage run', repoId: p.id, stage: 'backlog' });
+  createCard(db, { title: 'Diff artifact for In Progress', repoId: p.id, stage: 'backlog' });
+  console.log('[reeve] seeded 1 repo, 4 cards');
 } else {
   console.log('[reeve] already seeded');
 }
