@@ -1,10 +1,13 @@
 import {
   DEFAULT_PORT,
   type ApiCard,
+  type ApiCommit,
+  type ApiDiff,
   type BoardResponse,
   type CardDetail,
   type CreateCardBody,
   type MoveCardBody,
+  type ResolveConflictsResponse,
 } from '@reeve/shared';
 import { CliError } from './output.js';
 
@@ -65,12 +68,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
+const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
+
 export const api = {
   board: () => request<BoardResponse>('/api/board'),
   createCard: (body: CreateCardBody) => post<ApiCard>('/api/cards', body),
   /** The card it answers with has `repoName: null`; take that from the board. */
   moveCard: (id: string, body: MoveCardBody) => post<ApiCard>(`/api/cards/${id}/move`, body),
   detail: (id: string) => request<CardDetail>(`/api/cards/${id}/detail`),
+
+  /** Made, or the healthy one already there. `setupRunId` only on the first. */
+  createWorktree: (id: string) =>
+    post<{ ok: true; reused: boolean; path: string; branch?: string; setupRunId?: string | null }>(
+      `/api/cards/${id}/worktree`,
+      {},
+    ),
+  /** `forced` is true when the tree had uncommitted work, which went with it. */
+  removeWorktree: (id: string) => del<{ ok: true; forced: boolean }>(`/api/cards/${id}/worktree`),
+  openPr: (id: string) =>
+    post<{ ok: true; url: string; number: number; reused: boolean }>(`/api/cards/${id}/pr`, {}),
+  resolveConflicts: (id: string) => post<ResolveConflictsResponse>(`/api/cards/${id}/resolve-conflicts`, {}),
+  startServer: (id: string) =>
+    post<{ ok: true; runId: string; port: number; url: string }>(`/api/cards/${id}/server`, {}),
+  stopServer: (id: string) => del<{ ok: true }>(`/api/cards/${id}/server`),
+  diff: (id: string) => request<ApiDiff>(`/api/cards/${id}/diff`),
+  commits: (id: string) => request<ApiCommit[]>(`/api/cards/${id}/commits`),
 };
 
 /**

@@ -1,5 +1,6 @@
 import { DEFAULT_PORT } from '@reeve/shared';
 import { add } from './commands/add.js';
+import { card } from './commands/card.js';
 import { list } from './commands/list.js';
 import { move } from './commands/move.js';
 import { open } from './commands/open.js';
@@ -22,13 +23,29 @@ const USAGE = `Usage: reeve [command] [options]
   reeve open [<card>]
       Open the board, or a card on it, in the browser.
 
-<card>   142, #142, <repo>#142, or a card id or prefix of one
+  reeve card worktree [<card>] [--remove]
+      Print the card's worktree path, making it first if need be. --remove
+      deletes it, uncommitted work included; the branch stays.
+  reeve card pr [<card>]
+      Push a Done card's branch and open its pull request, or push to the open one.
+  reeve card resolve-conflicts [<card>]
+      Merge the base branch into a Done card's branch; Claude resolves any conflicts.
+  reeve card server [<card>] [--stop]
+      Start the repo's dev server in the card's worktree and print its URL.
+  reeve card diff [<card>] [--stat]
+      What the card has changed since its worktree was made.
+  reeve card commits [<card>]
+      The card's commits, newest first.
+
+<card>   142, #142, <repo>#142, or a card id or prefix of one. Where it is
+         optional, leaving it out means the card whose worktree you are in.
 <stage>  backlog, planning, in-progress, testing or done
 
---json puts JSON alone on stdout; messages go to stderr.
+--json, which the card actions all take, puts JSON alone on stdout; messages
+go to stderr.
 Commands other than serve talk to $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
 
-const COMMANDS: Record<string, (args: string[]) => Promise<void>> = { serve, list, add, move, show, open };
+const COMMANDS: Record<string, (args: string[]) => Promise<void>> = { serve, list, add, move, show, open, card };
 
 async function main(argv: string[]): Promise<void> {
   const [first] = argv;
