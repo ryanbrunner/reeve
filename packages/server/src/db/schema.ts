@@ -51,7 +51,11 @@ export const CARD_EVENT_KINDS = [
   'question_asked',
   'answered',
   'note',
+  // Nothing writes this any more; cards that squash-merged before pull
+  // requests replaced it still carry one.
   'merged',
+  'pr_opened',
+  'pr_failed',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
@@ -103,9 +107,17 @@ export const card = sqliteTable(
      * The squash commit this card landed as on the default branch. Stored
      * rather than derived like everything else about a card: a squash leaves no
      * ancestry to test, and the branch that could have told us is deleted.
+     * Only cards from before pull requests replaced the merge have one.
      */
     mergedSha: text('merged_sha'),
     mergedAt: timestamp('merged_at'),
+    /**
+     * The pull request this card's branch was opened as. Stored because asking
+     * GitHub on every board poll would be slow, and would fail offline.
+     */
+    prUrl: text('pr_url'),
+    prNumber: integer('pr_number'),
+    prOpenedAt: timestamp('pr_opened_at'),
     activeRunId: text('active_run_id'),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),

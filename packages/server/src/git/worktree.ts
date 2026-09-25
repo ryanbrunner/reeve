@@ -21,16 +21,34 @@ export class GitError extends Error {
   }
 }
 
-async function git(repoPath: string, args: string[]): Promise<string> {
+/**
+ * `env` and `timeout` are for the commands that talk to a remote, where a
+ * credential prompt with nobody at the terminal would otherwise wait forever.
+ */
+export async function git(
+  repoPath: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
+): Promise<string> {
   try {
-    const { stdout } = await exec('git', ['-C', repoPath, ...args], { maxBuffer: 16 * 1024 * 1024 });
+    const { stdout } = await exec('git', ['-C', repoPath, ...args], { maxBuffer: 16 * 1024 * 1024, ...opts });
     return stdout;
   } catch (cause) {
-    // Falls back to stdout because some failures only speak there: a merge
-    // prints its CONFLICT lines to stdout, and so do plenty of commit hooks.
-    const e = cause as { stderr?: string; stdout?: string; message?: string };
-    throw new GitError(`git ${args[0]} failed in ${repoPath}`, (e.stderr?.trim() || e.stdout?.trim() || e.message || '').trim());
+    throw new GitError(`git ${args[0]} failed in ${repoPath}`, failureOutput(cause, opts.timeout));
   }
+}
+
+/**
+ * What a failed command had to say. Falls back to stdout because some failures
+ * only speak there: a merge prints its CONFLICT lines to stdout, and so do
+ * plenty of commit hooks. A command killed for taking too long often said
+ * nothing at all, so that is reported in words rather than as a blank.
+ */
+export function failureOutput(cause: unknown, timeout?: number): string {
+  const e = cause as { stderr?: string; stdout?: string; message?: string; killed?: boolean };
+  const said = e.stderr?.trim() || e.stdout?.trim() || '';
+  if (e.killed && timeout) return `no answer after ${timeout / 1000}s${said ? `: ${said}` : ''}`;
+  return said || e.message?.trim() || '';
 }
 
 /** `git worktree list --porcelain` is the only trustworthy source of what exists. */
@@ -267,73 +285,11 @@ export async function behindBase(worktreePath: string, baseBranch: string): Prom
   }
 }
 
-/**
- * `ignore` is for paths that are nobody's work, and `untracked: false` counts
- * only changes to files git already knows — which is all a merge can trample.
- */
-export async function isDirty(
-  worktreePath: string,
-  opts: { untracked?: boolean; ignore?: string[] } = {},
-): Promise<boolean> {
+/** `ignore` is for paths that are nobody's work. */
+export async function isDirty(worktreePath: string, opts: { ignore?: string[] } = {}): Promise<boolean> {
   const args = ['status', '--porcelain'];
-  if (opts.untracked === false) args.push('--untracked-files=no');
   if (opts.ignore?.length) args.push('--', '.', ...opts.ignore.map((p) => `:(exclude)${p}`));
   return (await git(worktreePath, args)).trim().length > 0;
-}
-
-/**
- * Where a branch is checked out, if anywhere. For the default branch that is
- * usually the repo's own directory, but nothing makes it so: the person may be
- * sitting on a feature branch there with main checked out in a worktree.
- */
-export async function findCheckout(repoPath: string, branch: string): Promise<string | null> {
-  const refs = await listWorktrees(repoPath);
-  return refs.find((r) => r.branch === branch && !r.prunable)?.path ?? null;
-}
-
-/**
- * Squash `branch` into whatever `checkoutPath` has checked out, as one commit.
- *
- * Every failure puts the checkout back with `git reset --merge`. `merge
- * --abort` would not: a squash leaves no MERGE_HEAD, so there is nothing for
- * it to abort, and a conflicted squash would stay half-applied in the user's
- * own tree. The reset is only safe because the caller has refused a checkout
- * with changes of its own — past that point, everything in the index is ours.
- */
-export async function squashMerge(opts: {
-  checkoutPath: string;
-  branch: string;
-  message: string[];
-}): Promise<string> {
-  const { checkoutPath, branch, message } = opts;
-  const abandon = () => git(checkoutPath, ['reset', '--merge']).catch(() => undefined);
-
-  try {
-    await git(checkoutPath, ['merge', '--squash', branch]);
-  } catch (cause) {
-    const conflicted = await git(checkoutPath, ['diff', '--name-only', '--diff-filter=U'])
-      .then((out) => out.split('\n').filter(Boolean))
-      .catch(() => []);
-    await abandon();
-    if (conflicted.length) throw new GitError('the squash conflicts', conflicted.join(', '));
-    throw cause;
-  }
-
-  // `--quiet` exits non-zero exactly when something is staged, which the
-  // helper reports as a throw — so here the throw is the good news.
-  const empty = await git(checkoutPath, ['diff', '--cached', '--quiet']).then(() => true, () => false);
-  if (empty) {
-    await abandon();
-    throw new GitError('nothing to merge', `${branch} changes nothing that is not already on the base`);
-  }
-
-  try {
-    await git(checkoutPath, ['commit', ...message.flatMap((m) => ['-m', m])]);
-  } catch (cause) {
-    await abandon();
-    throw cause;
-  }
-  return (await git(checkoutPath, ['rev-parse', 'HEAD'])).trim();
 }
 
 /**

@@ -1,6 +1,5 @@
 import { canStartRun, type ApiCard } from '@reeve/shared';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
-import { MergeButton } from './MergeButton.js';
 import { RunButton } from './RunButton.js';
 
 export function CardFace({
@@ -54,8 +53,27 @@ export function CardFace({
             merged
           </span>
         )}
+        {card.prUrl && (
+          <a
+            href={card.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            // The whole card is the drag handle, so the press has to stop here
+            // or the pointer sensor treats a click as the start of a drag.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            title={card.prUrl}
+            className="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-sky-300 hover:bg-sky-500/25"
+          >
+            PR{card.prNumber != null && ` #${card.prNumber}`}
+          </a>
+        )}
+        {card.openingPr && !card.prUrl && (
+          <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
+            opening PR…
+          </span>
+        )}
         {!dragging && canStartRun(card) && <RunButton card={card} />}
-        {!dragging && card.stage === 'done' && card.worktreePath && card.mergedAt == null && <MergeButton card={card} />}
       </div>
       {card.activity === 'running' && (
         <span className="card-rail" aria-hidden="true">

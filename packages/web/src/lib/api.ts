@@ -113,11 +113,11 @@ export const api = {
   stopServer: (id: string) => del(`/api/cards/${id}/server`).then(json<{ ok: true }>),
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
   /**
-   * Squash into the default branch, then remove the worktree and branch.
-   * `cleanup` is set when the merge landed but the tidying after it did not.
+   * Push the branch and open its pull request, or push to the one already
+   * open. Entering Done does this on its own; this is the retry.
    */
-  merge: (id: string) =>
-    post(`/api/cards/${id}/merge`, {}).then(json<{ ok: true; sha: string; cleanup?: string }>),
+  openPr: (id: string) =>
+    post(`/api/cards/${id}/pr`, {}).then(json<{ ok: true; url: string; number: number; reused: boolean }>),
 };
 
 export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>

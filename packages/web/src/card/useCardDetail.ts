@@ -19,8 +19,14 @@ export function useCardDetail(cardId: string | null) {
     queryFn: () => api.detail(cardId!),
     enabled: cardId !== null,
     // Slow: the live parts arrive over SSE, and everything else changes only
-    // when this modal or the board does something that invalidates it.
-    refetchInterval: (q) => (q.state.data?.card.activity === 'running' ? 5_000 : false),
+    // when this modal or the board does something that invalidates it — or
+    // when a pull request opened on entering Done comes back, which nothing
+    // pushes either.
+    refetchInterval: (q) => {
+      const card = q.state.data?.card;
+      if (card?.openingPr) return 1_500;
+      return card?.activity === 'running' ? 5_000 : false;
+    },
   });
   return query;
 }

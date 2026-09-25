@@ -15,14 +15,15 @@ import type { LiveRun } from './useCardDetail.js';
  * card asks for nothing and the band is absent rather than empty.
  *
  * Done is the exception. Claude never runs there, so a Done card is always
- * idle — and that is exactly when it has one thing left to ask for: a merge.
+ * idle — and that is exactly when there is one thing left to say about it:
+ * where its pull request is, or why there is not one yet.
  */
 export function AttentionBand({ detail, live }: { detail: CardDetail; live: LiveRun | null }) {
   const { card } = detail;
-  if (card.stage === 'done' && (detail.worktree.path || card.mergedSha)) {
+  if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
     return (
       <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
-        <ReadyToMerge detail={detail} />
+        <PullRequest detail={detail} />
       </div>
     );
   }
@@ -272,7 +273,13 @@ function Failed({ detail }: { detail: CardDetail }) {
   );
 }
 
-function ReadyToMerge({ detail }: { detail: CardDetail }) {
+/**
+ * Where a Done card's work went. Entering Done pushes the branch and opens a
+ * pull request on its own, so this mostly reports: the pull request, the
+ * attempt still under way, or why the last attempt failed — with a button to
+ * try again once the cause is put right.
+ */
+function PullRequest({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const { card, worktree } = detail;
   // Same key the rail's commit list holds, so this is its cache, not a second call.
@@ -281,66 +288,94 @@ function ReadyToMerge({ detail }: { detail: CardDetail }) {
     queryFn: () => api.commits(card.id),
     enabled: Boolean(worktree.path && worktree.base) && !card.mergedSha,
   });
-  const merge = useMutation({
-    mutationFn: () => api.merge(card.id),
-    onSuccess: () => {
+  const open = useMutation({
+    mutationFn: () => api.openPr(card.id),
+    // Settled, not succeeded: a failure is written to the card too, and the
+    // band reads its reason from there.
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['card', card.id] });
       void qc.invalidateQueries({ queryKey: ['board'] });
-      // Both now read from the squash commit rather than the worktree.
-      void qc.invalidateQueries({ queryKey: ['diff', card.id] });
-      void qc.invalidateQueries({ queryKey: ['commits', card.id] });
     },
   });
 
   const base = worktree.baseBranch;
 
+  // From before pull requests replaced the merge. Nothing merges any more,
+  // but a card that did still says where it went.
   if (card.mergedSha) {
     return (
-      <div className="flex flex-col gap-2">
-        <div className="min-w-0">
-          <div className="text-sm/5 font-medium text-(--color-text)">
-            Merged into {base} as <Code>{card.mergedSha.slice(0, 7)}</Code>
-          </div>
-          <p className="mt-0.5 text-sm/5 text-(--color-muted)">One commit, titled with this card.</p>
+      <div className="min-w-0">
+        <div className="text-sm/5 font-medium text-(--color-text)">
+          Merged into {base} as <Code>{card.mergedSha.slice(0, 7)}</Code>
         </div>
-        {merge.data?.cleanup && (
-          <p className="text-sm/5 text-amber-200">The merge landed, but tidying up after it did not: {merge.data.cleanup}</p>
-        )}
+        <p className="mt-0.5 text-sm/5 text-(--color-muted)">One commit, titled with this card.</p>
       </div>
     );
   }
 
+  // Events are newest first, so this is how the latest attempt ended.
+  const last = detail.events.find((e) => e.kind === 'pr_opened' || e.kind === 'pr_failed');
+  const failure = last?.kind === 'pr_failed' ? (last.body ?? 'reason unrecorded') : null;
+  const busy = card.openingPr || open.isPending;
   const count = commits.data?.length ?? null;
-  // Refused here only where the answer is already on screen. Everything the
-  // page cannot see — a dirty tree, a conflict — the server says instead.
-  const blocked = !worktree.exists
-    ? 'The worktree is missing, so there is nothing left to merge.'
-    : count === 0
-      ? 'No commits on this branch yet. Only committed work is merged.'
-      : null;
+  const retry = (label: string) => (
+    <Button tone={card.prUrl ? 'plain' : 'review'} disabled={busy || !worktree.exists} onClick={() => open.mutate()}>
+      {busy ? 'Pushing…' : label}
+    </Button>
+  );
+  // The same sentence the event holds, so a refusal is said once, not twice.
+  const refused = open.error && open.error.message !== failure ? open.error.message : null;
+
+  if (card.prUrl) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 grow">
+            <div className="text-sm/5 font-medium text-(--color-text)">
+              Pull request{' '}
+              <a href={card.prUrl} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
+                #{card.prNumber}
+              </a>{' '}
+              open against {base}
+            </div>
+            <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+              {busy
+                ? 'Pushing the latest commits to it…'
+                : 'The worktree and branch stay, for whatever review asks for. Moving the card back into Done pushes again.'}
+            </p>
+          </div>
+          {failure && !busy && <div className="flex shrink-0 gap-2">{retry('Push again')}</div>}
+        </div>
+        {failure && !busy && <p className="text-sm/5 text-amber-200">The last push did not reach it: {failure}</p>}
+        {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-4">
         <div className="min-w-0 grow">
-          <div className="text-sm/5 font-medium text-(--color-text)">{blocked ? 'Nothing to merge' : 'Ready to merge'}</div>
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            {busy ? 'Opening a pull request' : failure ? 'No pull request yet' : 'Ready for a pull request'}
+          </div>
           <p className="mt-0.5 text-sm/5 text-(--color-muted)">
-            {blocked ?? (
-              <>
-                {count !== null && `${plural(count, 'commit')} on ${worktree.branch ?? 'the branch'}, squashed into one. `}
-                {worktree.behind ? `${base} is ${plural(worktree.behind, 'commit')} ahead of it. ` : ''}
-                The worktree and branch are removed afterwards.
-              </>
-            )}
+            {busy
+              ? `Pushing ${worktree.branch ?? 'the branch'} to origin, then asking GitHub for a pull request into ${base}.`
+              : !worktree.exists
+                ? 'The worktree is missing, so there is nothing left to push.'
+                : (
+                  <>
+                    {count !== null && `${plural(count, 'commit')} on ${worktree.branch ?? 'the branch'}. `}
+                    Only committed work is pushed, as a pull request into {base}.
+                  </>
+                )}
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <Button tone="review" disabled={Boolean(blocked) || merge.isPending} onClick={() => merge.mutate()}>
-            {merge.isPending ? 'Merging…' : `Squash & merge into ${base}`}
-          </Button>
-        </div>
+        <div className="flex shrink-0 gap-2">{retry('Open pull request')}</div>
       </div>
-      {merge.error && <p className="text-sm/5 text-red-300">{merge.error.message}</p>}
+      {failure && !busy && <p className="text-sm/5 text-red-300">{failure}</p>}
+      {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
     </div>
   );
 }

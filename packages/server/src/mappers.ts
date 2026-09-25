@@ -76,6 +76,7 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
+  openingPr: boolean,
 ): ApiCard {
   return {
     id: c.id,
@@ -91,6 +92,10 @@ export function toApiCard(
     worktreePath: c.worktreePath,
     mergedSha: c.mergedSha,
     mergedAt: ms(c.mergedAt),
+    prUrl: c.prUrl,
+    prNumber: c.prNumber,
+    prOpenedAt: ms(c.prOpenedAt),
+    openingPr,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     createdAt: ms(c.createdAt) ?? 0,

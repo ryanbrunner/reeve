@@ -57,6 +57,10 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
                 {e.kind === 'reviewed' && e.body && <p className="text-sm/5 text-(--color-muted)">{e.body}</p>}
+                {e.kind === 'pr_opened' && <PullRequestLink event={e} />}
+                {e.kind === 'pr_failed' && e.body && (
+                  <p className="font-mono text-[11px]/4 whitespace-pre-wrap text-red-300">{e.body}</p>
+                )}
               </div>
             </li>
           ))}
@@ -86,6 +90,16 @@ function RunFacts({ event }: { event: ApiCardEvent }) {
       {usd !== null && <span className="text-(--color-muted)">{cost(usd)}</span>}
       {event.body && <span className="text-red-300">{event.body}</span>}
     </div>
+  );
+}
+
+function PullRequestLink({ event }: { event: ApiCardEvent }) {
+  const url = event.meta?.['url'];
+  if (typeof url !== 'string') return null;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="font-mono text-[11px]/4 text-sky-300 hover:underline">
+      {url}
+    </a>
   );
 }
 
@@ -128,7 +142,7 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   if (filter === 'runs') return e.kind === 'run_started' || e.kind === 'run_finished';
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
-    e.kind === 'merged'
+    e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed'
   );
 }
 
@@ -158,6 +172,15 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return `merged the work into ${typeof into === 'string' ? into : 'the base branch'}` +
         (typeof sha === 'string' ? ` as ${sha.slice(0, 7)}` : '');
     }
+    case 'pr_opened': {
+      const number = e.meta?.['number'];
+      const into = e.meta?.['into'];
+      return `${e.meta?.['reused'] ? 'pushed to' : 'opened'} pull request` +
+        (typeof number === 'number' ? ` #${number}` : '') +
+        ` into ${typeof into === 'string' ? into : 'the base branch'}`;
+    }
+    case 'pr_failed':
+      return 'could not open a pull request';
   }
 }
 
