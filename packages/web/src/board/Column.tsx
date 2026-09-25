@@ -42,12 +42,14 @@ export function Column({
   onOpen?: (id: string) => void;
 }) {
   const id = `${COLUMN_PREFIX}${stage}|${laneId ?? 'all'}`;
-  const { setNodeRef, isOver } = useDroppable({ id });
+  const { setNodeRef, isOver, over } = useDroppable({ id });
+  // Over one of its cards is over the column too; that is where the card lands.
+  const lit = isOver || cards.some((c) => c.id === over?.id);
   return (
     <div
       ref={setNodeRef}
       className={`flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
-        isOver ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
+        lit ?'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
       }`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
