@@ -49,7 +49,7 @@ export function Column({
     <div
       ref={setNodeRef}
       className={`flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
-        lit ?'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
+        lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
       }`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
