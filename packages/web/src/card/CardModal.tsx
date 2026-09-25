@@ -45,7 +45,8 @@ export function CardModal({ cardId, onClose }: { cardId: string; onClose: () => 
       if (e.key !== 'Escape') return;
       // Not while someone is typing. Escape closing the modal out from under a
       // half-written brief or a rejection note would throw away their words on
-      // one keystroke; every one of those fields has its own Cancel.
+      // one keystroke. Leaving the field is enough, and the brief and title
+      // save when they lose focus.
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         target.blur();
