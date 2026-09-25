@@ -8,6 +8,7 @@ import {
   type EffortLevel,
   type ModelsResponse,
   type RunnableStage,
+  type StageRunDefaults,
   type UpdateSettingsBody,
 } from '@reeve/shared';
 import { api } from '../client.js';
@@ -60,7 +61,9 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
   const next = { ...current.stageDefaults[key.stage] };
   if (key.field === 'effort') next.effort = value === null ? null : requireEffort(value);
   else next.model = value;
-  return { stageDefaults: { [key.stage]: next } };
+  const stageDefaults: Partial<StageRunDefaults> = {};
+  stageDefaults[key.stage] = next;
+  return { stageDefaults };
 }
 
 /** A null falls through to what the stage's own module asks for, and that to Claude's own default. */
