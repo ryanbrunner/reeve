@@ -138,8 +138,8 @@ export function App() {
       <Header
         swimlanes={swimlanes}
         onToggle={() => setSwimlanes((s) => !s)}
-        projects={data?.repos ?? []}
-        onAdd={(title, projectId) => create.mutate({ title, repoId: projectId, stage: 'backlog' })}
+        repos={data?.repos ?? []}
+        onAdd={(title, repoId) => create.mutate({ title, repoId, stage: 'backlog' })}
         onOpenSettings={setSettingsOpen}
         onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
@@ -239,26 +239,26 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenArchive, cardCount }: {
+function Header({ swimlanes, onToggle, repos, onAdd, onOpenSettings, onOpenArchive, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
-  projects: ApiRepo[];
-  onAdd: (title: string, projectId: string | null) => void;
+  repos: ApiRepo[];
+  onAdd: (title: string, repoId: string | null) => void;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
 }) {
   const [title, setTitle] = useState('');
-  // Filed under the first project unless told otherwise, because an unfiled
+  // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
   // run. The picker sits next to the field rather than hiding the choice, so
   // "the first one" is never a silent answer.
-  // `null` is "hasn't said", `''` is "said no project" — two different things,
-  // and collapsing them makes No project unpickable: the fallback below would
+  // `null` is "hasn't said", `''` is "said no repo" — two different things,
+  // and collapsing them makes No repo unpickable: the fallback below would
   // read the empty string as untouched and snap the select back to the first.
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const chosen = projectId === '' || projects.some((p) => p.id === projectId);
-  const filedUnder = chosen ? projectId! : (projects[0]?.id ?? '');
+  const [repoId, setRepoId] = useState<string | null>(null);
+  const chosen = repoId === '' || repos.some((p) => p.id === repoId);
+  const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
   return (
     <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
@@ -283,17 +283,17 @@ function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenAr
           placeholder="New idea → Backlog"
           className="w-64 rounded-md border border-(--color-edge) bg-(--color-panel) px-3 py-1.5 text-sm outline-none placeholder:text-(--color-muted) focus:border-sky-600"
         />
-        {projects.length > 0 && (
+        {repos.length > 0 && (
           <select
             value={filedUnder}
-            onChange={(e) => setProjectId(e.target.value)}
-            aria-label="Project for the new card"
+            onChange={(e) => setRepoId(e.target.value)}
+            aria-label="Repo for the new card"
             className="rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600"
           >
-            {projects.map((p) => (
+            {repos.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
-            <option value="">No project</option>
+            <option value="">No repo</option>
           </select>
         )}
         <button type="submit" className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600">
@@ -301,9 +301,9 @@ function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenAr
         </button>
       </form>
       <button
-        onClick={() => onOpenSettings(projects.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
+        onClick={() => onOpenSettings(repos.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
         className={`rounded-md border px-3 py-1.5 text-sm ${
-          projects.length === 0 ?
+          repos.length === 0 ?
             'border-sky-600 text-sky-300'
           : 'border-(--color-edge) text-(--color-muted) hover:border-slate-600'
         }`}
@@ -311,7 +311,7 @@ function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenAr
         {/* Highlighted, and straight to the new-repo form, when there are none:
             an empty board with no repo is a board where nothing can ever run,
             and this is the way out. */}
-        {projects.length === 0 ? 'Add a repo' : 'Settings'}
+        {repos.length === 0 ? 'Add a repo' : 'Settings'}
       </button>
       <button
         onClick={onOpenArchive}

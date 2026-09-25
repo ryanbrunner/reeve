@@ -26,7 +26,7 @@ export function Rail({ detail }: { detail: CardDetail }) {
       aria-label="Card facts"
       className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
     >
-      <Project detail={detail} />
+      <Repo detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -40,7 +40,7 @@ export function Rail({ detail }: { detail: CardDetail }) {
  * Which repo this card's work happens in.
  *
  * First in the rail because everything under it depends on the answer: with no
- * project there is no `repoPath`, so there is no worktree, and with no worktree
+ * repo there is no `repoPath`, so there is no worktree, and with no worktree
  * Claude has nowhere to run. A card filed from the header without one lands
  * here to be adopted.
  *
@@ -48,15 +48,15 @@ export function Rail({ detail }: { detail: CardDetail }) {
  * this is a short list of named places, and seeing the other ones is most of
  * the value of showing it at all.
  */
-function Project({ detail }: { detail: CardDetail }) {
+function Repo({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   // Same key the board is already holding, so this is the cache rather than a
   // second request — and an observer rather than a `getQueryData` peek, so the
   // list still fills in for a card opened by link before the board has landed.
   const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
-  const projects = data?.repos ?? [];
+  const repos = data?.repos ?? [];
   const assign = useMutation({
-    mutationFn: (projectId: string) => api.updateCard(detail.card.id, { repoId: projectId }),
+    mutationFn: (repoId: string) => api.updateCard(detail.card.id, { repoId }),
     onSuccess: () => {
       // The chip in the header comes from the card, the swim lane from the
       // board. Both move on this one click.
@@ -71,11 +71,11 @@ function Project({ detail }: { detail: CardDetail }) {
 
   return (
     <section className="flex flex-col gap-2">
-      <SectionHead>Project</SectionHead>
-      {projects.length === 0 ?
-        <Empty>No projects yet</Empty>
-      : <div role="group" aria-label="File the card under a project" className="-mx-1.5 flex flex-col">
-          {projects.map((p) => {
+      <SectionHead>Repo</SectionHead>
+      {repos.length === 0 ?
+        <Empty>No repos yet</Empty>
+      : <div role="group" aria-label="File the card under a repo" className="-mx-1.5 flex flex-col">
+          {repos.map((p) => {
             const here = p.id === detail.card.repoId;
             return (
               <button
@@ -101,7 +101,7 @@ function Project({ detail }: { detail: CardDetail }) {
           })}
         </div>
       }
-      {!detail.card.repoId && !settled && projects.length > 0 && (
+      {!detail.card.repoId && !settled && repos.length > 0 && (
         <p className="font-mono text-[10px]/4 text-(--color-muted)">
           Unfiled — pick a repo before starting a stage.
         </p>
