@@ -385,8 +385,10 @@ export function createCard(
       repoId,
       stage,
       position: kind === 'project' ? 0 : last + POSITION_GAP,
-      // Left out when not given, so the column's default decides.
-      ...(values.generateMockups === undefined ? {} : { generateMockups: values.generateMockups }),
+      // Opt-in: most cards change nothing worth drawing, and a mockup nobody
+      // needed is Planning's time and budget spent for nothing. Decided here
+      // rather than by the column's default, which still says true.
+      generateMockups: values.generateMockups ?? false,
     })
     .returning()
     .get();

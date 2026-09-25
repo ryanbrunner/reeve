@@ -199,7 +199,7 @@ export interface CreateCardBody {
   body?: string;
   repoId?: string | null;
   stage?: Stage;
-  /** Omitted is on. */
+  /** Omitted is off. */
   generateMockups?: boolean;
   /** Defaults to a task. */
   kind?: CardKind;
