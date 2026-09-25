@@ -42,7 +42,29 @@ export function CardHeader({
     },
   });
   const restore = useMutation({ mutationFn: () => api.restoreCard(card.id), onSuccess: invalidate });
-  const failed = archive.error ?? restore.error;
+  const rename = useMutation({
+    mutationFn: (title: string) => api.updateCard(card.id, { title }),
+    onSuccess: invalidate,
+  });
+  const failed = archive.error ?? restore.error ?? rename.error;
+
+  // The heading is the field. It is left to the DOM while it is being typed in,
+  // so everything that ends an edit without saving one — an empty title, no
+  // change, a failed save — has to put the text back by hand.
+  const commit = (el: HTMLElement) => {
+    // Collapsed, not just trimmed: Enter is handled, but a pasted paragraph
+    // still arrives with its newlines in it, and a title is one line.
+    const title = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!title || title === card.title) {
+      el.textContent = card.title;
+      return;
+    }
+    rename.mutate(title, {
+      onError: () => {
+        el.textContent = card.title;
+      },
+    });
+  };
 
   return (
     <header className="relative shrink-0 border-b border-(--color-edge) px-5 pt-3.5 pb-4">
@@ -95,9 +117,21 @@ export function CardHeader({
         </button>
       </div>
 
+      {/* Keyed on the title so a saved rename remounts it with React's text,
+          not the text the browser was left holding. */}
       <h2
+        key={card.title}
         id="card-title"
-        className="relative mt-2.5 max-w-[32rem] text-[18px]/[26px] font-medium tracking-[-0.01em] text-(--color-text)"
+        contentEditable="plaintext-only"
+        suppressContentEditableWarning
+        title="Click to edit"
+        onBlur={(e) => commit(e.currentTarget)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          e.currentTarget.blur();
+        }}
+        className="relative -mx-1.5 mt-2.5 max-w-[33rem] cursor-text rounded-sm border border-transparent px-1.5 text-[18px]/[26px] font-medium tracking-[-0.01em] text-(--color-text) outline-none hover:border-(--color-edge) focus:border-sky-600"
       >
         {card.title}
       </h2>
