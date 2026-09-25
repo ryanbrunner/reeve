@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeMessage, isTerminal, type CardDetail } from '@reeve/shared';
+import { describeMessage, isTerminal, nextThought, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
@@ -41,8 +41,6 @@ export interface LiveRun {
   activity: string | null;
   /** The latest summary of Claude's reasoning, whole. */
   thinking: string | null;
-  /** Turns completed so far, as the stream reports them. */
-  turns: number;
 }
 
 /**
@@ -71,23 +69,21 @@ export function useLiveRun(
     // From when the run actually began, not from when this modal opened. A run
     // that has been going half an hour reads "31m", not "0s" counting up.
     since.current = startedAt ?? Date.now();
-    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null, turns: 0 });
+    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null });
 
     // `since=live` asks for new events only. Without it the server replays the
     // whole transcript, which for a long run is thousands of messages to learn
-    // the one line this shows.
+    // the one line this shows. What came before is on the detail, as the
+    // thought the server stored; the band falls back to that until this has
+    // something of its own.
     const source = new EventSource(`/api/runs/${runId}/events?since=live`);
-    let turns = 0;
 
     const onEvent = (e: MessageEvent<string>) => {
       const line = describeMessage(e.data);
       if (line === null) return;
-      if (line.turn) turns++;
       setLive((prev) => ({
         elapsedMs: prev?.elapsedMs ?? Date.now() - since.current,
-        activity: line.text ?? prev?.activity ?? null,
-        thinking: line.thinking ?? prev?.thinking ?? null,
-        turns,
+        ...nextThought({ activity: prev?.activity ?? null, thinking: prev?.thinking ?? null }, line),
       }));
     };
     // The server names every event after its kind, and a named event never
