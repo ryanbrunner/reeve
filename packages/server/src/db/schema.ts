@@ -139,6 +139,11 @@ export const card = sqliteTable(
     // On by default, including for cards that predate the column: drawing them
     // is what saves a person having to.
     generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
+    // SICKO MODE for this card alone: the sweep takes it all the way to a
+    // merged pull request while the board's own switch is off. A flag rather
+    // than a timestamp like `settings.sickoSince`, which is only there to give
+    // the HUD something to count from, and one card has no HUD.
+    sicko: integer('sicko', { mode: 'boolean' }).notNull().default(false),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
