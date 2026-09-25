@@ -115,6 +115,19 @@ export interface ApiCard {
   effort: EffortLevel | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
+  /**
+   * The cards this one waits on, finished ones included, lowest number first.
+   * Whether each is done is worked out on the server against every card,
+   * archived ones too: a merged card leaves the board ten minutes after it
+   * lands, and a dependency that has gone from `cards` is almost always one
+   * that finished.
+   */
+  dependsOn: ApiCardLink[];
+  /**
+   * Live cards waiting on this one. Ids rather than a count because the board
+   * lights them up when this card is hovered; the face only shows how many.
+   */
+  dependents: string[];
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -128,6 +141,17 @@ export interface ApiCard {
   archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Another card, as much of it as a card face needs to name it. */
+export interface ApiCardLink {
+  id: string;
+  number: number;
+  /** `#142` is per repo, so a card in another repo needs this to say which #142. */
+  repoName: string | null;
+  title: string;
+  /** It has stopped holding anything up: in Done, or merged. */
+  done: boolean;
 }
 
 /**

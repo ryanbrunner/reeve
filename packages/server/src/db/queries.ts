@@ -7,6 +7,7 @@ import {
   artifact,
   asset,
   card,
+  cardDependency,
   cardEvent,
   cardRef,
   difference,
@@ -807,6 +808,39 @@ export function addRef(db: Db, cardId: string, kind: CardRefKind, value: string,
 
 export function deleteRef(db: Db, id: string) {
   return db.delete(cardRef).where(eq(cardRef.id, id)).returning().get();
+}
+
+// ---------------------------------------------------------------------------
+// Dependencies
+// ---------------------------------------------------------------------------
+
+/**
+ * The cards this one waits on, beside each one's repo name, archived ones
+ * included: a dependency that merged and was swept off the board is the
+ * commonest kind there is, and dropping it would make the card look as though
+ * it never waited on anything.
+ */
+export function dependenciesOf(db: Db, cardId: string) {
+  return db
+    .select({ card, repoName: repo.name })
+    .from(cardDependency)
+    .innerJoin(card, eq(cardDependency.dependsOnId, card.id))
+    .leftJoin(repo, eq(card.repoId, repo.id))
+    .where(eq(cardDependency.cardId, cardId))
+    .orderBy(asc(card.number))
+    .all();
+}
+
+/** Live cards waiting on this one. An archived card is waiting on nothing. */
+export function dependentsOf(db: Db, cardId: string): string[] {
+  return db
+    .select({ id: card.id })
+    .from(cardDependency)
+    .innerJoin(card, eq(cardDependency.cardId, card.id))
+    .where(and(eq(cardDependency.dependsOnId, cardId), isNull(card.archivedAt)))
+    .orderBy(asc(card.number))
+    .all()
+    .map((r) => r.id);
 }
 
 // ---------------------------------------------------------------------------

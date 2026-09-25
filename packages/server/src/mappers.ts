@@ -1,6 +1,7 @@
 import type {
   ApiCard,
   ApiCardEvent,
+  ApiCardLink,
   ApiCardRef,
   ApiAsset,
   ApiCriterion,
@@ -96,7 +97,8 @@ function toApiToolDenials(stored: unknown): ApiToolDenial[] {
 /**
  * Pure on purpose: `latestRun` and `activity` are handed in already agreed with
  * each other (see ./board.ts), which keeps this module free of the stage
- * definitions and the database.
+ * definitions and the database. The dependencies come in already read for the
+ * same reason.
  */
 export function toApiCard(
   c: Card,
@@ -105,6 +107,7 @@ export function toApiCard(
   latestRun: Run | null,
   activity: CardActivity,
   github: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts'>,
+  links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
 ): ApiCard {
   return {
     id: c.id,
@@ -129,12 +132,17 @@ export function toApiCard(
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
+    ...links,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     archivedAt: ms(c.archivedAt),
     createdAt: ms(c.createdAt) ?? 0,
     updatedAt: ms(c.updatedAt) ?? 0,
   };
+}
+
+export function toApiCardLink(c: Card, repoName: string | null, done: boolean): ApiCardLink {
+  return { id: c.id, number: c.number, repoName, title: c.title, done };
 }
 
 export function toApiProject(c: Card, laneColor: string | null, taskCount: number): ApiProject {
