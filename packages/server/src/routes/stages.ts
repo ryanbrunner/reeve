@@ -50,7 +50,9 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     const stage = stageDefinition(card.stage as never);
     if (!stage) return c.json({ error: 'stage not implemented yet', detail: card.stage }, 501);
 
-    if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude')) {
+    // A Suggest running beside the stage does not hold the card: it only reads,
+    // and waiting on it to plan would make the button the thing that blocks.
+    if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
     // Approving four cards at once shouldn't launch four sessions and burn

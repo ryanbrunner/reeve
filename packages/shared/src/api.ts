@@ -28,6 +28,11 @@ export interface ApiRunSummary {
   kind: RunKind;
   stage: Stage;
   status: RunStatus;
+  /**
+   * Null for the stage's own attempt. Set for work done beside it — Suggest is
+   * `suggest_criteria` — which never counts as the card's current run.
+   */
+  task: string | null;
   stopReason: StopReason | null;
   totalCostUsd: number | null;
   port: number | null;

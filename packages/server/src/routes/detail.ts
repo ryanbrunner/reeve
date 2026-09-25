@@ -19,6 +19,7 @@ import {
   insertCardEvent,
   latestClaudeRunForStage,
   listProjects,
+  liveTaskRun,
   questionsForRun,
   refsFor,
   updateCriterion,
@@ -103,6 +104,12 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     // Backlog has no worktree, and this is exactly the stage it is most useful.
     const health = await checkWorktree(project.repoPath, card.worktreePath);
     const cwd = health.state === 'ok' ? health.path : project.repoPath;
+
+    // One at a time. Checked after the last await, so nothing can start between
+    // this and startClaudeRun writing its row.
+    if (liveTaskRun(db, card.id, suggestCriteriaTask.id)) {
+      return c.json({ error: 'already suggesting for this card' }, 409);
+    }
 
     const handle = startClaudeRun({
       db, writer, card, project,
