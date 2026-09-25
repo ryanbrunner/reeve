@@ -106,7 +106,7 @@ const ago = (mins: number) => new Date(Date.now() - mins * 60_000);
 /**
  * A real git repo, and a real worktree per card with real changes in it.
  *
- * Faked paths would leave the Changes tab and the Commits rail showing their
+ * Faked paths would leave the Diff tab and the Commits rail showing their
  * empty states, which are the two surfaces most worth looking at — and a diff
  * viewer is not verified by a diff nobody produced.
  */
