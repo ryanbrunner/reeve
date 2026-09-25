@@ -111,12 +111,17 @@
   font-weight: 600;
 }
 
+/* The only thing in the header allowed to give way: on a narrow window it
+   truncates rather than folding the buttons onto a second line. */
 .sk-toast {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 16px;
   color: var(--color-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   animation: sk-fade 0.35s ease-out;
 }
 

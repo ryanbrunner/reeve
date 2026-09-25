@@ -109,6 +109,20 @@ export function useSickoLane(cards: ApiCard[]) {
       });
     });
 
+    /*
+     * Sorted by id, which is to say in no order at all — and that is the point.
+     *
+     * Built column by column above, this list reorders the moment a card
+     * changes column, and React answers a reordered keyed list by MOVING the
+     * DOM node. A move is a removal and an insertion, which throws away the
+     * computed style the transition needed as its starting point: the card
+     * would arrive in its new column instantly, and the one animation this
+     * whole layer exists for would silently never play. An order that does not
+     * depend on where a card is means React only ever writes new styles onto
+     * nodes that stay put. Painting order is `z` and is unaffected.
+     */
+    placed.sort((a, b) => (a.card.id < b.card.id ? -1 : 1));
+
     // Cards that are no longer on the board — archived, or filed under another
     // repo — get one more render on their way out, so they leave by flying off
     // to main rather than by blinking out of existence.

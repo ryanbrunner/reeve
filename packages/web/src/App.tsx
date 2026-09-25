@@ -350,14 +350,14 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
   const sick = sicko.sick;
   return (
     <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
-      <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
+      <h1 className="flex shrink-0 items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
         <Glyph />
         <span className={sick ? 'sk-wm' : ''}>Reeve</span>
       </h1>
-      <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)">
+      <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
         {cardCount} cards
       </span>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
         {repos.length > 0 && (
           <select
@@ -390,7 +390,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       </div>
       <button
         onClick={() => onOpenSettings(repos.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
-        className={`rounded-md border px-3 py-1.5 text-sm ${
+        className={`shrink-0 rounded-md border px-3 py-1.5 text-sm whitespace-nowrap ${
           repos.length === 0 ?
             'border-sky-600 text-sky-300'
           : 'border-(--color-edge) text-(--color-muted) hover:border-slate-600'
@@ -403,7 +403,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       </button>
       <button
         onClick={onOpenArchive}
-        className="rounded-md border border-(--color-edge) px-3 py-1.5 text-sm text-(--color-muted) hover:border-slate-600"
+        className="shrink-0 rounded-md border border-(--color-edge) px-3 py-1.5 text-sm whitespace-nowrap text-(--color-muted) hover:border-slate-600"
       >
         Archive
       </button>
@@ -415,7 +415,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       <SickoSwitch on={sick} onToggle={sicko.toggle} disabled={sicko.pending} />
       <button
         onClick={onToggle}
-        className={`rounded-md border px-3 py-1.5 text-sm ${swimlanes ? 'border-sky-600 text-sky-300' : 'border-(--color-edge) text-(--color-muted)'}`}
+        className={`shrink-0 rounded-md border px-3 py-1.5 text-sm whitespace-nowrap ${swimlanes ? 'border-sky-600 text-sky-300' : 'border-(--color-edge) text-(--color-muted)'}`}
       >
         Swim lanes
       </button>
