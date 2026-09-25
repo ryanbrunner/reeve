@@ -1,10 +1,34 @@
-import { useDroppable } from '@dnd-kit/core';
+import { closestCenter, pointerWithin, rectIntersection, useDroppable, type CollisionDetection } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { STAGE_LABELS, isRunnable, type ApiCard, type Stage } from '@reeve/shared';
 import { CardFace } from './CardFace.js';
 
 export const COLUMN_PREFIX = 'col:';
+
+/**
+ * What a dragged card is over: the column under the pointer, then the card
+ * nearest the pointer inside it.
+ *
+ * Not `closestCorners`. The grid stretches every column to the height of the
+ * tallest, so a column's corners sit far from the pointer and a card in the
+ * next column over wins instead — dragging into a sparse column landed the
+ * card on its neighbour, or back where it started. Below a column's last card
+ * is the column itself, so a drop there appends rather than slotting in above
+ * the last card.
+ */
+export const columnCollisions: CollisionDetection = (args) => {
+  const within = pointerWithin(args);
+  const hits = within.length > 0 ? within : rectIntersection(args);
+  const column = hits.find((h) => String(h.id).startsWith(COLUMN_PREFIX));
+  if (!column) return hits;
+
+  const cards = args.droppableContainers.filter((c) => c.data.current?.sortable?.containerId === column.id);
+  const bottom = Math.max(...cards.map((c) => args.droppableRects.get(c.id)?.bottom ?? -Infinity));
+  const pointer = args.pointerCoordinates;
+  if (cards.length === 0 || (pointer && pointer.y > bottom)) return [column];
+  return closestCenter({ ...args, droppableContainers: cards });
+};
 
 export function Column({
   stage,
@@ -17,7 +41,8 @@ export function Column({
   cards: ApiCard[];
   onOpen?: (id: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `${COLUMN_PREFIX}${stage}|${laneId ?? 'all'}` });
+  const id = `${COLUMN_PREFIX}${stage}|${laneId ?? 'all'}`;
+  const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
@@ -34,7 +59,8 @@ export function Column({
         </span>
         {isRunnable(stage) && <span title="Claude runs here" className="ml-auto text-xs text-sky-500">◆</span>}
       </div>
-      <SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+      {/* Named after the column so columnCollisions can find its cards. */}
+      <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
         <div className="flex flex-col gap-2">
           {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
         </div>
