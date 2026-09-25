@@ -42,6 +42,16 @@ export function CardFace({
         {card.title}
       </p>
       <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${sicko ? 'sk-card-foot' : ''}`}>
+        {/* In SICKO MODE on its own. The one mark of it on the calm board, and
+            gone once merged: after that there is nothing left for it to do. */}
+        {!sicko && card.sicko && card.mergedAt == null && (
+          <span
+            className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold"
+            title="In SICKO MODE: Claude approves and merges this card with nobody reviewing it"
+          >
+            <span>sicko</span>
+          </span>
+        )}
         {/* In SICKO MODE the repo chip, the Run button and the PR link all give
             way to one chip: at 88px there is room for the state and the bill,
             and nothing on the card is pressable any more anyway. */}

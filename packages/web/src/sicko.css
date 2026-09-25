@@ -37,6 +37,23 @@
   --sk-edge-focus: oklch(58.8% 0.158 241.966);
 }
 
+/* A card in SICKO MODE on its own, on the calm board — so, like the switch, it
+   carries the rainbow itself. Still, because nothing else on that board moves.
+   Two spans: the rainbow border is this one's background and the rainbow text
+   is the inner one's, and one element cannot clip a background both ways. */
+.sk-solo {
+  --sk-rainbow: linear-gradient(90deg, #ff2d95, #ff8a00, #ffe600, #2dff7a, #00d1ff, #9b5cff, #ff2d95);
+  border: 1px solid transparent;
+  background: linear-gradient(var(--color-ink), var(--color-ink)) padding-box, var(--sk-rainbow) border-box;
+}
+
+.sk-solo > span {
+  background: var(--sk-rainbow);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* ---------------------------------------------------------------- frame ---- */
 
 /*
