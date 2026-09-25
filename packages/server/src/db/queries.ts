@@ -159,6 +159,20 @@ export function liveTaskRun(db: Db, cardId: string, task: string) {
     .get();
 }
 
+/**
+ * A stage run still in flight for the card, in any column. The same reading as
+ * `liveTaskRun`, for the same reason, but for the one run a card may have at a
+ * time: a planning run carries on after the card is dragged to In Progress,
+ * and the stage it was for does not make it any less the card's run.
+ */
+export function liveStageRun(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(run)
+    .where(and(eq(run.cardId, cardId), eq(run.kind, 'claude'), isNull(run.task), inArray(run.status, NON_TERMINAL)))
+    .get();
+}
+
 // ---------------------------------------------------------------------------
 // Board mutations
 // ---------------------------------------------------------------------------

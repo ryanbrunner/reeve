@@ -4,7 +4,7 @@ import type { Db } from '../db/client.js';
 import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '../db/queries.js';
 import { card as cardTable, type Card, type Repo } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { checkWorktree, createWorktree, isDirty, removeWorktree } from '../git/worktree.js';
+import { checkWorktree, isDirty, removeWorktree } from '../git/worktree.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { openPullRequest } from '../pullRequest.js';
@@ -12,6 +12,7 @@ import type { EventWriter } from '../runs/events.js';
 import { ensureDevServer } from '../runs/devServer.js';
 import { runRegistry } from '../runs/registry.js';
 import { startShellRun } from '../runs/shell.js';
+import { ensureWorktree } from '../startStage.js';
 
 export function actionRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
@@ -52,30 +53,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
       return c.json({ error: 'stage does not need a worktree', detail: card.stage }, 400);
     }
 
-    const health = await checkWorktree(repo.repoPath, card.worktreePath);
-    if (health.state === 'ok') return c.json({ ok: true, reused: true, path: health.path });
-
-    const created = await createWorktree({
-      repoPath: repo.repoPath,
-      worktreeRoot: repo.worktreeRoot,
-      cardId,
-      title: card.title,
-      baseBranch: repo.defaultBranch,
-    });
-    db.update(cardTable)
-      .set({ worktreePath: created.path, branchName: created.branch, baseSha: created.baseSha, updatedAt: new Date() })
-      .where(eq(cardTable.id, cardId))
-      .run();
-
-    let setupRunId: string | null = null;
-    if (repo.setupCommand) {
-      const handle = startShellRun({
-        db, writer, cardId, stage: card.stage,
-        command: repo.setupCommand, cwd: created.path,
-      });
-      setupRunId = handle.runId;
-    }
-    return c.json({ ok: true, reused: false, path: created.path, branch: created.branch, setupRunId }, 201);
+    const worktree = await ensureWorktree(db, writer, card, repo);
+    return c.json({ ok: true, ...worktree }, worktree.reused ? 200 : 201);
   });
 
   routes.delete('/:id/worktree', async (c) => {
