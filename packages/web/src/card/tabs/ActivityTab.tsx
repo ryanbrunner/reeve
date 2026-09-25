@@ -12,9 +12,10 @@ type Filter = 'all' | 'runs' | 'human';
  *
  * Deliberately not the run transcript — that is thousands of SDK messages in
  * Claude's vocabulary. This is the handful of moments that would appear in a
- * changelog, in the terms a person tells them: who did what, and when.
+ * changelog, in the terms a person tells them: who did what, and when. In
+ * SICKO MODE, only that it happened: no run's status, time or cost.
  */
-export function ActivityTab({ detail }: { detail: CardDetail }) {
+export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sicko?: boolean }) {
   const [filter, setFilter] = useState<Filter>('all');
   const events = detail.events.filter((e) => matches(e, filter));
 
@@ -52,7 +53,7 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                 <p className="text-sm/5 text-(--color-text)">
                   <span className="font-medium">{e.actor === 'human' ? 'You' : 'Claude'}</span> {sentence(e, detail)}
                 </p>
-                {e.kind === 'run_finished' && <RunFacts event={e} />}
+                {e.kind === 'run_finished' && !sicko && <RunFacts event={e} />}
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
