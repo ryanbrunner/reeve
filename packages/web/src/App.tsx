@@ -107,8 +107,13 @@ export function App() {
       const target = byId.get(overId);
       if (!target) return;
       stage = target.stage;
-      index = cardsIn(cards, stage).filter((c) => c.id !== id).findIndex((c) => c.id === overId);
-      if (index < 0) index = 0;
+      // The slot is the target's index in the column as it stands, dragged card
+      // included — the index `arrayMove` takes, and the one the server reads by
+      // dropping the card out of the column before counting off to it. Filtering
+      // the card out here first made a nudge one slot down a no-op: its own
+      // removal pulled the target up into the slot the card had just left.
+      index = cardsIn(cards, stage).findIndex((c) => c.id === overId);
+      if (index < 0) return;
     }
     move.mutate({ id, stage, index });
   }
