@@ -1,11 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { isRunnable, nextStage, type Stage } from '@reeve/shared';
+import { nextStage, type Stage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   getCard,
-  getSettings,
   cardsInStage,
   insertCardEvent,
   insertReview,
@@ -19,8 +18,8 @@ import { toApiRunSummary } from '../mappers.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
-import { runRegistry } from '../runs/registry.js';
 import { stageDefinition } from '../stages/index.js';
+import { maybeStartStage, startStage } from '../startStage.js';
 
 const reviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
@@ -40,51 +39,25 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     return { card, repo };
   };
 
-  /** Kick off the current stage's Claude run. Nothing starts a stage but this. */
+  /**
+   * Kick off the current stage's Claude run, making the worktree first if there
+   * isn't one. A card entering a runnable column starts on its own; this is
+   * the Run button, for a card that didn't, or whose run failed.
+   */
   routes.post('/:id/run', async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
-    const { card, repo } = loaded;
-
-    if (!isRunnable(card.stage as Stage)) {
-      return c.json({ error: 'stage has no Claude work', detail: card.stage }, 400);
-    }
-    const stage = stageDefinition(card.stage as never);
-    if (!stage) return c.json({ error: 'stage not implemented yet', detail: card.stage }, 501);
-
-    // A Suggest running beside the stage does not hold the card: it only reads,
-    // and waiting on it to plan would make the button the thing that blocks.
-    if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
-      return c.json({ error: 'a run is already active for this card' }, 409);
-    }
-    // Approving four cards at once shouldn't launch four sessions and burn
-    // through budget in parallel. Read per request so a change in Settings
-    // applies to the next run; lowering it stops nothing already going.
-    const { maxConcurrentRuns } = getSettings(db);
-    if (runRegistry.countByKind('claude') >= maxConcurrentRuns) {
-      return c.json({ error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` }, 429);
-    }
-
-    const health = await checkWorktree(repo.repoPath, card.worktreePath);
-    if (health.state !== 'ok') {
-      return c.json(
-        { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
-        409,
-      );
-    }
-
-    const handle = startClaudeRun({
-      db, writer, card, repo, stage,
-      worktreePath: health.path,
-    });
-    return c.json({ ok: true, runId: handle.runId, sessionId: handle.sessionId }, 201);
+    const result = await startStage(db, writer, loaded.card, loaded.repo);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json(result, 201);
   });
 
   /**
    * The human gate. Approving says the stage's output is good, so it records the
    * verdict AND advances the card one column — a human deciding the work is done
    * is the whole point of the gate, and making them then drag the card is asking
-   * them to say it twice. A run finishing on its own still moves nothing.
+   * them to say it twice. A run finishing on its own still moves nothing. The
+   * card then starts its next stage as any card entering a column does.
    *
    * Rejecting moves nothing either: it forks the session so the prior attempt
    * stays intact and readable, and the notes become the revision prompt.
@@ -121,8 +94,9 @@ export function stageRoutes(db: Db, writer: EventWriter) {
         // moveCard writes the `moved` event, so the timeline reads as a verdict
         // followed by a move rather than one conflated entry.
         const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
-        // The same automatic pull request a drag into Done gets.
+        // The same automatic start, or pull request, that a drag there gets.
         if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+        else if (moved) maybeStartStage(db, writer, moved, repo);
       }
       return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
     }

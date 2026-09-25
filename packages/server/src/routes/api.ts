@@ -22,8 +22,10 @@ import {
 } from '../db/queries.js';
 import { toApiRepo, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import type { EventWriter } from '../runs/events.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
+import { maybeStartStage } from '../startStage.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -109,7 +111,7 @@ function isDuplicateName(e: unknown): boolean {
   return e instanceof Error && /UNIQUE constraint failed: repo\.name/.test(e.message);
 }
 
-export function apiRoutes(db: Db) {
+export function apiRoutes(db: Db, writer: EventWriter) {
   const api = new Hono();
 
   api.get('/board', (c) => {
@@ -201,6 +203,8 @@ export function apiRoutes(db: Db) {
     }
     const created = createCard(db, parsed.data);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
+    // Made straight into a column Claude works in is entering it, the same as a drag.
+    maybeStartStage(db, writer, created, repo);
     return c.json(toBoardCard(db, created, repo?.name ?? null, repo?.laneColor ?? null), 201);
   });
 
@@ -245,9 +249,12 @@ export function apiRoutes(db: Db) {
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index);
     if (!moved) return c.json({ error: 'not found' }, 404);
     // Started before the response is built, so the card it returns already
-    // says a pull request is on its way.
-    if (before.stage !== 'done' && moved.stage === 'done') {
-      maybeOpenPullRequest(db, moved, listRepos(db).find((p) => p.id === moved.repoId));
+    // says a pull request is on its way. A reorder within a column is not
+    // entering it, and starts nothing.
+    if (before.stage !== moved.stage) {
+      const repo = listRepos(db).find((p) => p.id === moved.repoId);
+      if (moved.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+      else maybeStartStage(db, writer, moved, repo);
     }
     return c.json(toBoardCard(db, moved, null, null));
   });
