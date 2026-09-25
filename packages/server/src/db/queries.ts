@@ -764,6 +764,22 @@ export function replaceScreenshots(db: Db, cardId: string, runId: string): strin
   return stale.map((a) => a.path);
 }
 
+/**
+ * The mockups an earlier plan drew, replaced wholesale when a new plan draws
+ * its own. Generated ones are the mockups with a run; a person's have none and
+ * are never touched here.
+ */
+export function replaceGeneratedMockups(db: Db, cardId: string, runId: string): string[] {
+  const stale = db
+    .select()
+    .from(asset)
+    .where(and(eq(asset.cardId, cardId), eq(asset.kind, 'mockup'), isNotNull(asset.runId)))
+    .all()
+    .filter((a) => a.runId !== runId);
+  for (const a of stale) db.delete(asset).where(eq(asset.id, a.id)).run();
+  return stale.map((a) => a.path);
+}
+
 export function differencesFor(db: Db, cardId: string) {
   return db.select().from(difference).where(eq(difference.cardId, cardId)).orderBy(asc(difference.position)).all();
 }
