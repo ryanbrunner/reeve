@@ -27,7 +27,9 @@ export function useCardDetail(cardId: string | null) {
     // by the server's own sync, which is slower still.
     refetchInterval: (q) => {
       const data = q.state.data;
-      if (data?.card.openingPr) return 1_500;
+      // A resolution checks and pushes after its run has ended, so it is
+      // watched by the card's own flag rather than the run's.
+      if (data?.card.openingPr || data?.card.resolvingConflicts) return 1_500;
       if (data?.runs.some((r) => r.task !== null && !isTerminal(r.status))) return 2_000;
       if (data?.card.activity === 'running') return 5_000;
       return data?.card.prUrl && data.card.mergedAt == null ? 15_000 : false;
