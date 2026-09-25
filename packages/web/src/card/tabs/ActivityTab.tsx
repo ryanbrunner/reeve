@@ -185,6 +185,8 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return 'archived the card';
     case 'restored':
       return `restored the card to ${stage(e.stage)}`;
+    case 'handed_off':
+      return `handed off to Claude Code in ${stage(e.stage)}`;
   }
 }
 

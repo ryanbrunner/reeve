@@ -58,6 +58,7 @@ export const CARD_EVENT_KINDS = [
   'pr_failed',
   'archived',
   'restored',
+  'handed_off',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { needsWorktree } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getCard, listProjects } from '../db/queries.js';
+import { getCard, insertCardEvent, latestClaudeRunForStage, listProjects } from '../db/queries.js';
 import { card as cardTable, type Card, type Project } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkWorktree, createWorktree, isDirty, removeWorktree } from '../git/worktree.js';
+import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { openPullRequest } from '../pullRequest.js';
 import type { EventWriter } from '../runs/events.js';
@@ -123,6 +124,50 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!active) return c.json({ error: 'no server running' }, 404);
     await active.stop('cancelled_by_user');
     return c.json({ ok: true });
+  });
+
+  /**
+   * Hand the card to Claude Code in a terminal: write the context file into the
+   * worktree and answer with the command that opens a session on it.
+   *
+   * Refused while a run is going, because a Reeve run and a CLI session editing
+   * the same tree at once is how work gets lost. Nothing is locked afterwards;
+   * the event records the handoff, and the human decides what runs next.
+   */
+  routes.post('/:id/handoff', async (c) => {
+    const cardId = c.req.param('id');
+    const card = getCard(db, cardId);
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const project = projectFor(card.projectId);
+    if (!project) return c.json({ error: 'card has no project', detail: 'a handoff needs a repo' }, 400);
+    // `needsWorktree` is true for Done too, and Done has nothing left to hand over.
+    if (card.stage === 'done' || !needsWorktree(card.stage)) {
+      return c.json({ error: 'stage cannot be handed off', detail: card.stage }, 400);
+    }
+    // The row as well as the registry: a run is only registered once its
+    // `prepare` is done, and Testing's takes a dev server boot and a round of
+    // screenshots — long enough to hand off a tree it is about to edit.
+    const latest = latestClaudeRunForStage(db, cardId, card.stage);
+    if (
+      runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude') ||
+      (latest && ['queued', 'running', 'stopping'].includes(latest.status))
+    ) {
+      return c.json({ error: 'a run is already active for this card' }, 409);
+    }
+    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    if (health.state !== 'ok') {
+      return c.json(
+        { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
+        409,
+      );
+    }
+
+    const handoff = writeHandoff(db, card, project, health.path);
+    insertCardEvent(db, {
+      cardId, actor: 'human', kind: 'handed_off', stage: card.stage,
+      meta: { path: handoff.path },
+    });
+    return c.json(handoff, 201);
   });
 
   /** Run the project's test command against the worktree. */
