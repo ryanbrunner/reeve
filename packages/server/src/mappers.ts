@@ -80,7 +80,7 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
-  openingPr: boolean,
+  github: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts'>,
 ): ApiCard {
   return {
     id: c.id,
@@ -99,7 +99,7 @@ export function toApiCard(
     prUrl: c.prUrl,
     prNumber: c.prNumber,
     prOpenedAt: ms(c.prOpenedAt),
-    openingPr,
+    ...github,
     model: c.model,
     effort: c.effort,
     activity,

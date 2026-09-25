@@ -76,6 +76,17 @@ export interface ApiCard {
    */
   openingPr: boolean;
   /**
+   * GitHub last said the pull request cannot merge for conflicts with its base.
+   * Only ever set on a Done card with an open pull request, and only by
+   * GitHub's own verdict, so it can lag a push by one sync.
+   */
+  prConflicting: boolean;
+  /**
+   * Reeve is merging the base branch into this card's branch right now: from
+   * the fetch, through Claude's run, to the push. In memory like `openingPr`.
+   */
+  resolvingConflicts: boolean;
+  /**
    * This card's override for every stage run, above the Settings default for
    * the stage. Null falls through. Suggest ignores both.
    */
