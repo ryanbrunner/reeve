@@ -34,6 +34,11 @@ spacing that changed the rhythm of a page, a state that renders when it should
 be hidden. Not every pixel: a shadow an eighth of a shade off is noise, and
 reporting it buries the thing that matters.
 
+A mockup marked as drawn by Claude was sketched in HTML while planning, from
+the app's styles as they were then. It shows what was meant, not the exact
+look: judge the build on layout, content and controls, and leave font, colour
+and spacing drift unreported unless it changes what a person would see.
+
 Each difference belongs to a screenshot by its exact label.
 
 ## Tests
