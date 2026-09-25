@@ -1,6 +1,6 @@
 import type { Db } from '../db/client.js';
 import { runsForCard } from '../db/queries.js';
-import type { Card, Project } from '../db/schema.js';
+import type { Card, Repo } from '../db/schema.js';
 import type { EventWriter } from './events.js';
 import { findFreePort } from './ports.js';
 import { runRegistry } from './registry.js';
@@ -23,9 +23,9 @@ export async function ensureDevServer(
   db: Db,
   writer: EventWriter,
   card: Card,
-  project: Project,
+  repo: Repo,
 ): Promise<DevServer> {
-  if (!project.serverCommand) return { state: 'unavailable', reason: 'project has no server command' };
+  if (!repo.serverCommand) return { state: 'unavailable', reason: 'repo has no server command' };
   if (!card.worktreePath) return { state: 'unavailable', reason: 'card has no worktree' };
 
   const existing = runRegistry.all().find((r) => r.cardId === card.id && r.kind === 'server');
@@ -43,7 +43,7 @@ export async function ensureDevServer(
   const port = await findFreePort(taken);
   const handle = startShellRun({
     db, writer, cardId: card.id, stage: card.stage,
-    command: project.serverCommand, cwd: card.worktreePath,
+    command: repo.serverCommand, cwd: card.worktreePath,
     port, longLived: true,
   });
   return { state: 'running', runId: handle.runId, port, url: `http://localhost:${port}`, started: true };
