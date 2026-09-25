@@ -1,23 +1,29 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { STAGES } from '@reeve/shared';
-import type { BoardResponse } from '@reeve/shared';
+import type { ApiSettings, BoardResponse } from '@reeve/shared';
 import { toBoardCard } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
+  archivedCards,
   boardCards,
   createCard,
   createProject,
   getCard,
+  getSettings,
   listProjects,
   moveCard,
+  restoreCard,
   runsForCard,
   updateCard,
   updateProject,
+  updateSettings,
 } from '../db/queries.js';
 import { toApiProject, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import { runRegistry } from '../runs/registry.js';
+import { maybeOpenPullRequest } from '../pullRequest.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -59,6 +65,11 @@ const projectSchema = z.object({
   finishCommand: z.string().nullable().optional(),
   laneColor: z.string().nullable().optional(),
   maxBudgetUsd: z.number().nullable().optional(),
+});
+
+/** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
+const settingsSchema = z.object({
+  maxConcurrentRuns: z.number().int().min(1).optional(),
 });
 
 /**
@@ -107,6 +118,20 @@ export function apiRoutes(db: Db) {
       projects: listProjects(db).map(toApiProject),
       cards: rows.map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor)),
     };
+    return c.json(body);
+  });
+
+  // Not on `/board`, which the board polls every few seconds for something
+  // that changes when a person opens Settings and nothing else.
+  api.get('/settings', (c) => {
+    const body: ApiSettings = getSettings(db);
+    return c.json(body);
+  });
+
+  api.patch('/settings', async (c) => {
+    const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
+    const body: ApiSettings = updateSettings(db, parsed.data);
     return c.json(body);
   });
 
@@ -215,14 +240,43 @@ export function apiRoutes(db: Db) {
     const parsed = moveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid move', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
-    if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
+    const before = getCard(db, id);
+    if (!before) return c.json({ error: 'not found' }, 404);
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index);
-    return moved ? c.json(toBoardCard(db, moved, null, null)) : c.json({ error: 'not found' }, 404);
+    if (!moved) return c.json({ error: 'not found' }, 404);
+    // Started before the response is built, so the card it returns already
+    // says a pull request is on its way.
+    if (before.stage !== 'done' && moved.stage === 'done') {
+      maybeOpenPullRequest(db, moved, listProjects(db).find((p) => p.id === moved.projectId));
+    }
+    return c.json(toBoardCard(db, moved, null, null));
   });
 
+  api.get('/cards/archived', (c) =>
+    c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor))),
+  );
+
   api.post('/cards/:id/archive', (c) => {
-    const archived = archiveCard(db, c.req.param('id'));
-    return archived ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+    if (existing.archivedAt) return c.json({ ok: true });
+    // Anything still running would carry on out of sight: a Claude run spending
+    // budget, or a dev server holding its port, on a card nobody can see.
+    if (runRegistry.all().some((r) => r.cardId === id)) {
+      return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
+    }
+    archiveCard(db, id);
+    return c.json({ ok: true });
+  });
+
+  api.post('/cards/:id/restore', (c) => {
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+    const restored = existing.archivedAt ? (restoreCard(db, id) ?? existing) : existing;
+    const project = restored.projectId ? listProjects(db).find((p) => p.id === restored.projectId) : undefined;
+    return c.json(toBoardCard(db, restored, project?.name ?? null, project?.laneColor ?? null));
   });
 
   api.get('/cards/:id/runs', (c) => c.json(runsForCard(db, c.req.param('id')).map(toApiRunSummary)));

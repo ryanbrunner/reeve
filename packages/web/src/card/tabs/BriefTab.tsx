@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { CardDetail } from '@reeve/shared';
+import { isTerminal, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
+import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
 /**
@@ -52,7 +53,7 @@ function Purpose({ detail }: { detail: CardDetail }) {
       </SectionHead>
       {draft === null ? (
         detail.card.body.trim() ? (
-          <p className="max-w-[40rem] text-sm/5 whitespace-pre-wrap text-(--color-text)">{detail.card.body}</p>
+          <Markdown className="max-w-[40rem]">{detail.card.body}</Markdown>
         ) : (
           <Empty>Nothing written yet.</Empty>
         )
@@ -82,12 +83,24 @@ function Criteria({ detail }: { detail: CardDetail }) {
     mutationFn: (id: string) => api.deleteCriterion(detail.card.id, id),
     onSuccess: invalidate,
   });
-  // A real run: it costs money and lands in the card's history like anything
-  // else Claude did, so the board wants invalidating too.
+  // A real run, but not the card's: the board never shows it, so only the card
+  // is refetched. Returned rather than fired, so the button stays pending until
+  // the refetch has the new run in it and `suggesting` below takes over —
+  // otherwise it would flicker back on for the length of one request.
   const suggest = useMutation({
     mutationFn: () => api.suggestCriteria(detail.card.id),
-    onSuccess: () => { invalidate(); void qc.invalidateQueries({ queryKey: ['board'] }); },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] }),
   });
+
+  // Read off the card's runs, newest first, rather than the mutation alone, so
+  // closing the modal and opening it again finds the button still busy.
+  const last = detail.runs.find((r) => r.task === 'suggest_criteria');
+  const suggesting = suggest.isPending || (last !== undefined && !isTerminal(last.status));
+  const failure =
+    suggest.error?.message ??
+    (!suggesting && (last?.status === 'failed' || last?.status === 'interrupted')
+      ? `Suggest failed: ${last.errorMessage ?? 'the run was interrupted'}`
+      : null);
 
   return (
     <section className="flex flex-col gap-2">
@@ -95,8 +108,8 @@ function Criteria({ detail }: { detail: CardDetail }) {
         count={detail.criteria.length || undefined}
         aside={
           <div className="flex gap-1.5">
-            <SmallButton tone="sky" disabled={suggest.isPending} onClick={() => suggest.mutate()}>
-              {suggest.isPending ? 'Asking…' : 'Suggest'}
+            <SmallButton tone="sky" busy={suggesting} onClick={() => suggest.mutate()}>
+              {suggesting ? 'Suggesting…' : 'Suggest'}
             </SmallButton>
             <SmallButton onClick={() => setAdding('')}>Add</SmallButton>
           </div>
@@ -168,7 +181,7 @@ function Criteria({ detail }: { detail: CardDetail }) {
       <span className="font-mono text-[10px]/4 text-(--color-muted)">
         Claude checks each one in Testing and links the evidence here
       </span>
-      {suggest.error && <p className="text-sm/5 text-red-300">{suggest.error.message}</p>}
+      {failure && <p className="text-sm/5 text-red-300">{failure}</p>}
     </section>
   );
 }

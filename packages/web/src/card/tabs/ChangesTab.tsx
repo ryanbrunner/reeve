@@ -1,5 +1,6 @@
 import type { CardDetail } from '@reeve/shared';
 import { when } from '../format.js';
+import { InlineMarkdown, Markdown } from '../Markdown.js';
 import { Empty, SectionHead } from '../ui.js';
 
 /**
@@ -23,12 +24,12 @@ export function ChangesTab({ detail }: { detail: CardDetail }) {
       >
         Implementation notes
       </SectionHead>
-      <p className="max-w-[44rem] text-sm/5 text-(--color-text)">{impl.summary}</p>
+      <Markdown className="max-w-[44rem]">{impl.summary}</Markdown>
       {(impl.deviations.length > 0 || impl.followUps.length > 0) && (
         <ul className="flex max-w-[44rem] list-disc flex-col gap-1 pl-5 text-sm/5 text-(--color-text) marker:text-(--color-muted)">
-          {impl.deviations.map((d) => <li key={d}>{d}</li>)}
+          {impl.deviations.map((d) => <li key={d}><InlineMarkdown>{d}</InlineMarkdown></li>)}
           {impl.followUps.map((f) => (
-            <li key={f} className="text-(--color-muted)">Still to do: {f}</li>
+            <li key={f} className="text-(--color-muted)">Still to do: <InlineMarkdown>{f}</InlineMarkdown></li>
           ))}
         </ul>
       )}
