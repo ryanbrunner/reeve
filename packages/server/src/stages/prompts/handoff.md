@@ -29,9 +29,11 @@ attention than an automated run gives it. They are at the keyboard now.
 This session is interactive, unlike the runs before it. When something is
 unclear or a decision is not yours to make, ask the person rather than guess.
 
-Start by reading what is listed above and looking at `git log {{baseRef}}..HEAD`
-to see what has been committed, then tell the person what you understand the
-state of the work to be before you change anything.
+Start by reading what is listed above and looking at
+`git log --first-parent {{baseRef}}..HEAD` to see what has been committed (a
+merge in that list brought the base branch in; its commits are not this
+card's), then tell the person what you understand the state of the work to be
+before you change anything.
 
 - Stay inside `{{worktreePath}}`. It is a throwaway worktree on its own branch.
 - Commit on `{{branch}}` as you go, one commit per coherent change. Reeve reads
