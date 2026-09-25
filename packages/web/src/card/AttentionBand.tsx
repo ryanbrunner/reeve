@@ -328,9 +328,9 @@ function Failed({ detail }: { detail: CardDetail }) {
 
 /**
  * Where a Done card's work went. Entering Done pushes the branch and opens a
- * pull request on its own, so this mostly reports: the pull request, the
- * attempt still under way, or why the last attempt failed — with a button to
- * try again once the cause is put right.
+ * pull request on its own, so this mostly reports: the pull request, whether
+ * it has merged, the attempt still under way, or why the last attempt failed —
+ * with a button to try again once the cause is put right.
  */
 function PullRequest({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -353,8 +353,8 @@ function PullRequest({ detail }: { detail: CardDetail }) {
 
   const base = worktree.baseBranch;
 
-  // From before pull requests replaced the merge. Nothing merges any more,
-  // but a card that did still says where it went.
+  // From before pull requests replaced the merge. Nothing squash-merges any
+  // more, but a card that did still says where it went.
   if (card.mergedSha) {
     return (
       <div className="min-w-0">
@@ -378,6 +378,26 @@ function PullRequest({ detail }: { detail: CardDetail }) {
   );
   // The same sentence the event holds, so a refusal is said once, not twice.
   const refused = open.error && open.error.message !== failure ? open.error.message : null;
+
+  // Merged on GitHub, which the server notices on its own. There is nothing
+  // left to push, so no button: the server would refuse it anyway.
+  if (card.prUrl && card.mergedAt != null) {
+    const into = detail.events.find((e) => e.kind === 'merged')?.meta?.['into'];
+    return (
+      <div className="min-w-0">
+        <div className="text-sm/5 font-medium text-(--color-text)">
+          Pull request{' '}
+          <a href={card.prUrl} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
+            #{card.prNumber}
+          </a>{' '}
+          merged into {typeof into === 'string' ? into : base}
+        </div>
+        <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+          Merged on GitHub. The worktree and branch here are left as they were.
+        </p>
+      </div>
+    );
+  }
 
   if (card.prUrl) {
     return (

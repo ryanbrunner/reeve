@@ -57,7 +57,7 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
                 {e.kind === 'reviewed' && e.body && <p className="text-sm/5 text-(--color-muted)">{e.body}</p>}
-                {e.kind === 'pr_opened' && <PullRequestLink event={e} />}
+                {(e.kind === 'pr_opened' || e.kind === 'merged') && <PullRequestLink event={e} />}
                 {e.kind === 'pr_failed' && e.body && (
                   <p className="font-mono text-[11px]/4 whitespace-pre-wrap text-red-300">{e.body}</p>
                 )}
@@ -169,7 +169,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'merged': {
       const sha = e.meta?.['sha'];
       const into = e.meta?.['into'];
-      return `merged the work into ${typeof into === 'string' ? into : 'the base branch'}` +
+      const number = e.meta?.['number'];
+      // A number means it merged as a pull request on GitHub, not a squash here.
+      return `merged ${typeof number === 'number' ? `pull request #${number}` : 'the work'}` +
+        ` into ${typeof into === 'string' ? into : 'the base branch'}` +
         (typeof sha === 'string' ? ` as ${sha.slice(0, 7)}` : '');
     }
     case 'pr_opened': {

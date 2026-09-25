@@ -60,6 +60,7 @@ export interface ApiCard {
    * cards from before pull requests replaced the merge have one.
    */
   mergedSha: string | null;
+  /** Set for those, and for a card whose pull request has merged on GitHub. */
   mergedAt: number | null;
   /** The pull request the branch was opened as, once Done has pushed it. */
   prUrl: string | null;
