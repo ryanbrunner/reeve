@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { RunKind, RunStatus, Stage, StopReason } from '@reeve/shared';
+import type { EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
@@ -127,6 +127,10 @@ export const card = sqliteTable(
     prNumber: integer('pr_number'),
     prOpenedAt: timestamp('pr_opened_at'),
     activeRunId: text('active_run_id'),
+    // This card's override for every stage run. Null falls through to the
+    // Settings default for the stage, then to the stage module's own value.
+    model: text('model'),
+    effort: text('effort').$type<EffortLevel>(),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
@@ -448,6 +452,12 @@ export const review = sqliteTable(
 export const settings = sqliteTable('settings', {
   id: integer('id').primaryKey(),
   maxConcurrentRuns: integer('max_concurrent_runs'),
+  /**
+   * The one exception to typed columns: a model and effort per runnable stage.
+   * This is a map keyed by stage, not a handful of knobs, and a stage added
+   * later should not need a migration. A stage missing from it is unset.
+   */
+  stageDefaults: text('stage_defaults', { mode: 'json' }).$type<Partial<StageRunDefaults>>(),
 });
 
 export type Repo = typeof repo.$inferSelect;

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { RUNNABLE_STAGES, type ApiSettings, type StageRunDefaults, type UpdateSettingsBody } from '@reeve/shared';
 import { config } from '../config.js';
 import type { Db } from './client.js';
 import {
@@ -306,7 +307,11 @@ function nextCardNumber(db: Db, repoId: string | null): number {
  * being filed. The number it vacates is not reused: `nextCardNumber` reads a
  * high-water mark, not a count.
  */
-export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title' | 'body' | 'repoId'>>) {
+export function updateCard(
+  db: Db,
+  id: string,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort'>>,
+) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && patch.repoId !== before.repoId;
   return db
@@ -393,18 +398,35 @@ export function updateRepo(db: Db, id: string, patch: Partial<typeof repo.$infer
   return db.update(repo).set(patch).where(eq(repo.id, id)).returning().get();
 }
 
-/** The stored row with every unset field filled from `config`. */
-export function getSettings(db: Db) {
+/**
+ * The stored row with every unset field filled from `config`. Stage defaults
+ * are filled out to every runnable stage, with nulls where nothing is set:
+ * those fall through at run time, not here.
+ */
+export function getSettings(db: Db): ApiSettings {
   const row = db.select().from(settings).where(eq(settings.id, 1)).get();
-  return { maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns };
+  const stored = row?.stageDefaults ?? {};
+  return {
+    maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
+    stageDefaults: Object.fromEntries(
+      RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
+    ) as StageRunDefaults,
+  };
 }
 
-export function updateSettings(db: Db, patch: Partial<Omit<typeof settings.$inferInsert, 'id'>>) {
+export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
+  const { stageDefaults, ...rest } = patch;
+  const values = {
+    ...rest,
+    // Merged into what is stored rather than written over it, so saving one
+    // stage's row leaves the other stages as they were.
+    ...(stageDefaults ? { stageDefaults: { ...getSettings(db).stageDefaults, ...stageDefaults } } : {}),
+  };
   db.insert(settings)
-    .values({ ...patch, id: 1 })
-    .onConflictDoUpdate({ target: settings.id, set: patch })
+    .values({ ...values, id: 1 })
+    .onConflictDoUpdate({ target: settings.id, set: values })
     .run();
   return getSettings(db);
 }

@@ -7,9 +7,11 @@ import {
   needsWorktree,
   type ApiRunSummary,
   type CardDetail,
+  type EffortLevel,
   type Stage,
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
+import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
@@ -27,6 +29,7 @@ export function Rail({ detail }: { detail: CardDetail }) {
       className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
     >
       <Repo detail={detail} />
+      <Model detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -112,6 +115,75 @@ function Repo({ detail }: { detail: CardDetail }) {
         </p>
       )}
       {assign.error && <p className="font-mono text-[10px]/4 text-red-300">{assign.error.message}</p>}
+    </section>
+  );
+}
+
+const SELECT =
+  'w-full rounded-sm border border-(--color-edge) bg-(--color-ink) px-1.5 py-1 font-mono text-[11px]/[18px] text-(--color-text) outline-none focus:border-sky-600 disabled:opacity-50';
+
+/**
+ * Which model this card's runs use, and how hard they think.
+ *
+ * One override for every stage, above the Settings default for each: a card
+ * that needs Opus needs it for the plan and the build alike. Suggest is left
+ * out — it is a cheap aside, not the card's work — and says so, since a person
+ * who has just picked Opus here would otherwise expect it everywhere.
+ */
+function Model({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const models = data?.models ?? [];
+  const { model, effort } = detail.card;
+  const set = useMutation({
+    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null }) => api.updateCard(detail.card.id, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  const levels = effortLevelsFor(models, model);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead>Model</SectionHead>
+      <div className="flex flex-col gap-1.5">
+        <select
+          aria-label="Model for this card's runs"
+          value={model ?? ''}
+          disabled={set.isPending}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            set.mutate({ model: next, effort: keepEffort(models, next, effort) });
+          }}
+          className={SELECT}
+        >
+          <option value="">Settings default</option>
+          {modelOptions(models, model).map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Effort for this card's runs"
+          value={effort ?? ''}
+          disabled={set.isPending || levels.length === 0}
+          onChange={(e) => set.mutate({ effort: (e.target.value || null) as EffortLevel | null })}
+          className={SELECT}
+        >
+          <option value="">{levels.length === 0 ? 'No effort on this model' : 'Settings default'}</option>
+          {levels.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="font-mono text-[10px]/4 text-(--color-muted)">
+        For Planning, In Progress and Testing. Suggest keeps its own.
+      </p>
+      {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
     </section>
   );
 }
@@ -310,6 +382,8 @@ function Commits({ detail }: { detail: CardDetail }) {
 }
 
 function Runs({ detail }: { detail: CardDetail }) {
+  const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const models = data?.models ?? [];
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   return (
@@ -329,8 +403,18 @@ function Runs({ detail }: { detail: CardDetail }) {
               className="grid grid-cols-[18px_minmax(0,1fr)_auto_auto] gap-2 font-mono text-[11px]/[18px]"
             >
               <span className="text-(--color-muted)">{runIndex(detail.runs, r.id)}</span>
-              <span className="truncate text-(--color-text)">
-                {STAGE_LABELS[r.stage]} · {r.status}
+              <span className="min-w-0">
+                <span className="block truncate text-(--color-text)">
+                  {STAGE_LABELS[r.stage]} · {r.status}
+                </span>
+                {/* What the run was actually sent, so two attempts that differ
+                    only in model can be told apart. Null is the CLI's default. */}
+                {(r.model || r.effort) && (
+                  <span className="block truncate text-(--color-muted)">
+                    {r.model ? (findModel(models, r.model)?.displayName ?? r.model) : 'default model'}
+                    {r.effort && ` · ${r.effort}`}
+                  </span>
+                )}
               </span>
               <span className="text-(--color-muted)">
                 {duration(r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null)}
