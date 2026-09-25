@@ -26,6 +26,8 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
 
 function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCard {
   return {
+    kind: 'task',
+    projectId: null,
     repoId: null,
     repoName: null,
     laneColor: null,
@@ -41,8 +43,11 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     prNumber: null,
     prOpenedAt: null,
     openingPr: false,
+    prConflicting: false,
+    resolvingConflicts: false,
     model: null,
     effort: null,
+    generateMockups: false,
     activity: 'idle',
     latestRun: null,
     archivedAt: null,
@@ -59,6 +64,8 @@ const inBeta = { repoId: beta.id, repoName: beta.name };
 
 const board: BoardResponse = {
   repos: [alpha, beta],
+  projects: [],
+  sicko: null,
   cards: [
     card({ id: 'aaaa1111-0000-4000-8000-000000000001', number: 12, ...inAlpha, stage: 'planning' }),
     card({ id: 'bbbb2222-0000-4000-8000-000000000002', number: 12, ...inBeta }),
@@ -129,6 +136,8 @@ describe('whereAmI', () => {
 
     const linked: BoardResponse = {
       repos: [alpha],
+      projects: [],
+      sicko: null,
       cards: [card({ id: 'dddd', number: 3, ...inAlpha, worktreePath: join(tmp, 'real', 'wt') })],
     };
     assert.equal(whereAmI(linked, join(tmp, 'link', 'wt', 'src')).card?.number, 3);

@@ -22,7 +22,7 @@ under `packages/server/src/stages/prompts/`, and that wins.
 
 ## Layout
 
-npm workspaces, three packages:
+npm workspaces, four packages:
 
 - `packages/shared` (`@reeve/shared`) — the zod contracts Claude answers in,
   and the API types both sides share. Imported as TypeScript source; there is
@@ -32,6 +32,9 @@ npm workspaces, three packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command. It boots the server,
+  and everything else it does goes through the running server's HTTP API,
+  never the database. `packages/cli/README.md` lists the commands.
 
 ## Commands
 
@@ -56,7 +59,8 @@ gitignored and created at runtime. The server binds to 127.0.0.1 only.
 
 ## Checking a change
 
-There is no test suite and no test command. `npm run typecheck` is the gate.
+`npm run typecheck` is the gate. The only tests are the CLI's card and cwd
+resolution, `npm test -w @reeve/cli`; the server and web app have none.
 
 Behaviour is checked by the throwaway scripts in `packages/server/src/spikes/`,
 each a standalone `tsx` file that builds an app, drives it and prints what it
@@ -100,9 +104,9 @@ needs.
   `{{name}}` and leaves an empty string for any variable not passed.
 - **Timers, `gh` calls, the SICKO sweep and model listing stay out of
   `createApp()`.** It checks contracts, migrates, reaps orphaned runs and
-  builds routes, and nothing more. The rest starts only when
-  `packages/server/src/index.ts` is the entry point, because the spikes build
-  an app and must not start any of it.
+  builds routes, and nothing more. The rest starts only in `startServer()`,
+  which `packages/server/src/main.ts` and `reeve` call, because the spikes
+  build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
 - **Tool permissions deny by default.** A stage's `allowedTools` is the
