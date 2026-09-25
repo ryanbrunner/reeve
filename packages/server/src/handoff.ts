@@ -85,6 +85,6 @@ export function writeHandoff(db: Db, card: Card, repo: Repo, worktreePath: strin
 }
 
 /** Single quotes, with any inside closed, escaped and reopened. Nothing expands. */
-function shellQuote(s: string): string {
+export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }

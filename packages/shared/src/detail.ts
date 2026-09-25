@@ -31,7 +31,8 @@ export type CardEventKind =
   | 'pr_failed'
   | 'archived'
   | 'restored'
-  | 'handed_off';
+  | 'handed_off'
+  | 'crit_reviewed';
 
 export interface ApiCardEvent {
   id: string;
@@ -254,6 +255,18 @@ export interface ApiWorktree {
 export interface HandoffResponse {
   path: string;
   command: string;
+}
+
+/**
+ * What `POST /cards/:id/crit` answers with: the shell run holding the review
+ * open, and where Crit is serving it. `url` is null when Crit had not said so
+ * by the time the request gave up waiting; it opens the browser itself anyway.
+ */
+export interface CritReviewResponse {
+  runId: string;
+  url: string | null;
+  /** A review was already open for this plan, and this is it. */
+  reused: boolean;
 }
 
 // --- The whole card ---------------------------------------------------------
