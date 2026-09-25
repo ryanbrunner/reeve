@@ -163,7 +163,7 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return `finished run ${runLabel(detail, e.runId)} in ${stage(e.stage)}`;
     case 'reviewed':
       if (e.meta?.['via'] === 'crit') {
-        return e.meta['decision'] === 'approved' ? 'approved the plan in Crit' : 'sent the plan back from Crit';
+        return e.meta?.['decision'] === 'approved' ? 'approved the plan in Crit' : 'sent the plan back from Crit';
       }
       return e.meta?.['decision'] === 'approved' ? 'approved the work' : 'sent the work back';
     case 'question_asked':

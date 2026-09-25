@@ -122,7 +122,7 @@ export async function startCritReview(
       const url = urlSeen ? null : /https?:\/\/[^\s)]+/.exec(line)?.[0];
       if (!url) return;
       urlSeen = true;
-      const port = Number(new URL(url).port);
+      const port = Number(/^https?:\/\/[^/]+:(\d+)/.exec(url)?.[1]);
       if (port) setRunStatus(db, runId, { port });
       announce(url);
     },
@@ -280,7 +280,8 @@ function formatNotes(comments: CritComment[]): string {
         : c.end_line && c.end_line !== c.start_line ? `Lines ${c.start_line}–${c.end_line} of ${PLAN_PATH}`
         : `Line ${c.start_line} of ${PLAN_PATH}`;
       const heading = c.anchor ? `**${where}, under “${c.anchor}”**` : `**${where}**`;
-      return [heading, c.quote?.trim() ? blockquote(c.quote) : null, c.body.trim()].filter(Boolean).join('\n');
+      const quote = c.quote?.trim();
+      return [heading, quote ? blockquote(quote) : null, c.body.trim()].filter(Boolean).join('\n');
     })
     .join('\n\n');
 }

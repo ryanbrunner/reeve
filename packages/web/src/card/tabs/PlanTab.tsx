@@ -134,8 +134,9 @@ function CritReview({ detail }: { detail: CardDetail }) {
     : null;
   // The URL Crit printed, while it is this review's; the port on the row, for
   // a modal opened since.
+  const opened = open.data;
   const href = !live ? null
-    : open.data?.runId === live.id && open.data.url ? open.data.url
+    : opened?.runId === live.id && opened.url ? opened.url
     : live.port ? `http://127.0.0.1:${live.port}`
     : null;
   const error = open.error ?? stop.error;
