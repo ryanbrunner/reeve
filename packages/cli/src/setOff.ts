@@ -60,7 +60,7 @@ export async function watchStart(card: ApiCard, before: Set<string>): Promise<Ap
       (r) => r.kind === 'claude' && r.task === null && r.stage === card.stage && !before.has(r.id),
     );
     if (run) {
-      note(`Started a ${stage} run on ${label}: ${run.id}`);
+      note(`Started ${label}'s ${stage} run: ${run.id}`);
       return refetch(card);
     }
     await sleep(POLL_MS);

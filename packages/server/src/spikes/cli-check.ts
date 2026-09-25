@@ -19,7 +19,7 @@ import { promisify } from 'node:util';
 import { serve } from '@hono/node-server';
 import type { ApiCard, ApiCriterion } from '@reeve/shared';
 import { config } from '../config.js';
-import { cardEventsFor, createRepo, criteriaFor, getCard, refsFor } from '../db/queries.js';
+import { cardEventsFor, createRepo, criteriaFor, getCard, insertRun, refsFor, setRunStatus } from '../db/queries.js';
 import { createApp } from '../index.js';
 
 const { app, db } = createApp();
@@ -184,6 +184,29 @@ const tried = await ok('card', 'move', giftRef, 'in-progress', '--json');
 assert.match(tried.stderr, /In Progress runs Claude: starting a run/);
 assert.match(tried.stderr, /No In Progress run has appeared yet/);
 assert.equal((JSON.parse(tried.stdout) as ApiCard).stage, 'in_progress');
+
+// A card whose last Planning run succeeded is waiting on its review, and
+// going back into Planning does not throw that attempt away.
+const reviewed = (await ok('card', 'add', 'Reviewed', '--repo', web.name, '--quiet')).stdout.trim();
+const pastRun = insertRun(db, {
+  id: crypto.randomUUID(), cardId: reviewed, kind: 'claude', stage: 'planning', status: 'running',
+  sessionId: crypto.randomUUID(), cwd: '/tmp', createdAt: new Date(), startedAt: new Date(),
+});
+setRunStatus(db, pastRun.id, { status: 'succeeded', stopReason: 'completed', finishedAt: new Date() });
+const held = await ok('card', 'move', reviewed, 'planning');
+assert.match(held.stderr, /No Planning run: its last run there is waiting on your review/);
+
+// The run appearing is what the watch reports. The server's own start fails
+// at the missing worktree, so the one it finds is written here, mid-watch,
+// as startClaudeRun would write it.
+const watching = ok('card', 'move', second.id, 'testing');
+await new Promise((done) => setTimeout(done, 1500));
+const started = insertRun(db, {
+  id: crypto.randomUUID(), cardId: second.id, kind: 'claude', stage: 'testing', status: 'queued',
+  sessionId: crypto.randomUUID(), cwd: '/tmp', createdAt: new Date(),
+});
+assert.match((await watching).stderr, new RegExp(`Started ${api.name}#\\d+'s Testing run: ${started.id}`));
+await ok('card', 'move', second.id, 'backlog');
 
 // Into a project's lane and out again, as the move goes.
 await ok('card', 'move', second.id, 'backlog', '--project', projectId.slice(0, 8));
