@@ -29,13 +29,25 @@ export interface TranscriptLine {
 /** Longest a line may be before the band would wrap. */
 const MAX = 120;
 
+/** The loose shape the fields read here are found in, whatever the message type. */
+export interface TranscriptMessage {
+  type?: string;
+  subtype?: string;
+  message?: { content?: unknown };
+}
+
 export function describeMessage(raw: string): TranscriptLine | null {
-  let msg: { type?: string; subtype?: string; message?: { content?: unknown } };
+  let msg: TranscriptMessage;
   try {
-    msg = JSON.parse(raw) as typeof msg;
+    msg = JSON.parse(raw) as TranscriptMessage;
   } catch {
     return null;
   }
+  return describeParsed(msg);
+}
+
+/** describeMessage for a message already in hand, as the server has it. */
+export function describeParsed(msg: TranscriptMessage): TranscriptLine | null {
   // Sent while Claude is still thinking, before the block itself lands. Says
   // so, rather than leaving the last tool call on screen as if it were current.
   if (msg.type === 'system' && msg.subtype === 'thinking_tokens') return { text: 'thinking', turn: false };
@@ -58,6 +70,28 @@ export function describeMessage(raw: string): TranscriptLine | null {
     }
   }
   return thinking ?? { text: null, turn: true };
+}
+
+/** What Claude was last doing and last thinking, as the band shows it. */
+export interface Thought {
+  activity: string | null;
+  thinking: string | null;
+}
+
+/**
+ * Folds one line into the last thought. The server stores the result and the
+ * modal shows it, so both go through here and cannot disagree about what a
+ * line replaces.
+ *
+ * A line only ever adds. An empty or redacted thinking block leaves the last
+ * summary standing, and `thinking_tokens` moves the activity without touching
+ * the summary — the reasoning it announces has not arrived yet.
+ */
+export function nextThought(prev: Thought, line: TranscriptLine): Thought {
+  return {
+    activity: line.text ?? prev.activity,
+    thinking: line.thinking ?? prev.thinking,
+  };
 }
 
 /** A tool's name as a thing someone is doing, not as an API surface. */
