@@ -29,7 +29,7 @@ attention than an automated run gives it. They are at the keyboard now.
 This session is interactive, unlike the runs before it. When something is
 unclear or a decision is not yours to make, ask the person rather than guess.
 
-Start by reading what is listed above and looking at `git log {{baseBranch}}..HEAD`
+Start by reading what is listed above and looking at `git log {{baseRef}}..HEAD`
 to see what has been committed, then tell the person what you understand the
 state of the work to be before you change anything.
 
