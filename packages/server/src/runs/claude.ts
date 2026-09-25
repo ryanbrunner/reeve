@@ -1,12 +1,13 @@
 import { query, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { StopReason } from '@reeve/shared';
-import { jsonSchemaFor } from '@reeve/shared';
+import type { EffortLevel, StopReason } from '@reeve/shared';
+import { isRunnable, jsonSchemaFor } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   criteriaFor,
+  getSettings,
   insertCardEvent,
   insertRun,
   setRunStatus,
@@ -15,6 +16,7 @@ import {
 import { artifact as artifactTable, type Card, type CardStage, type Project } from '../db/schema.js';
 import type { ClaudeTask, StageContext } from '../stages/types.js';
 import type { EventWriter } from './events.js';
+import { capabilitiesFor } from './models.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -112,9 +114,50 @@ export function stageContextFor(
   };
 }
 
+/**
+ * The model and effort a run asks for: the card's override, then the Settings
+ * default for the stage, then the stage module's own. Each is resolved on its
+ * own, so a card that pins only a model still takes its effort from below.
+ *
+ * Out-of-band work keeps the task's values untouched. Suggest is not the
+ * card's work, and a card pinned to Opus at max should not make it expensive.
+ */
+export function modelAndEffortFor(
+  db: Db,
+  card: Card,
+  stage: Pick<ClaudeTask, 'model' | 'effort' | 'outOfBand'>,
+  runStage: CardStage,
+): { model: string | null; effort: EffortLevel | null } {
+  if (stage.outOfBand) return { model: stage.model ?? null, effort: stage.effort ?? null };
+  const defaults = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage] : undefined;
+  return {
+    model: card.model ?? defaults?.model ?? stage.model ?? null,
+    effort: card.effort ?? defaults?.effort ?? stage.effort ?? null,
+  };
+}
+
+/**
+ * Trims what was asked for to what the model takes, so a setting it rejects
+ * never reaches it. Only a pinned model the CLI listed is checked: no model is
+ * the CLI's default, which takes everything the stages ask for, and a model the
+ * CLI did not list is sent as asked. A capability the CLI did not report is
+ * assumed — the same reading the pickers give it.
+ */
+async function fitToModel(
+  model: string | null,
+  effort: EffortLevel | null,
+): Promise<{ effort: EffortLevel | null; adaptiveThinking: boolean }> {
+  const caps = model ? await capabilitiesFor(model) : undefined;
+  if (!caps) return { effort, adaptiveThinking: true };
+  const takesEffort =
+    effort !== null && caps.supportsEffort !== false && (caps.supportedEffortLevels?.includes(effort) ?? true);
+  return { effort: takesEffort ? effort : null, adaptiveThinking: caps.supportsAdaptiveThinking !== false };
+}
+
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const { db, writer, card, project, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
+  const { model, effort } = modelAndEffortFor(db, card, stage, runStage);
 
   // Read before `run_started` is written: that event is where unread notes end,
   // so gathering after it would hand this run none of them.
@@ -137,8 +180,10 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     sessionId,
     parentRunId: parentRunId ?? null,
     forkedFromSessionId: resumeSessionId ?? null,
-    model: stage.model ?? null,
-    effort: stage.effort ?? null,
+    model,
+    // What was asked for. Corrected below if the model turns out not to take it,
+    // so the row always says what was actually sent.
+    effort,
     permissionMode: stage.permissionMode,
     maxBudgetUsd: stage.maxBudgetUsd,
     // Filled in once the prompt exists. A stage that has to prepare something
@@ -178,19 +223,22 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     allowedTools: stage.allowedTools,
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
-    ...(stage.model ? { model: stage.model } : {}),
-    ...(stage.effort ? { effort: stage.effort } : {}),
-    // The card modal shows what Claude is reasoning about. Left to default,
-    // adaptive thinking on this model omits the text and stores an empty block
-    // with only a signature. Explicitly 'adaptive' because no stage pins a model
-    // today; one that pins a model without adaptive thinking needs this revisited.
-    thinking: { type: 'adaptive', display: 'summarized' },
+    ...(model ? { model } : {}),
     outputFormat: { type: 'json_schema', schema: jsonSchemaFor(stage.schema) },
   };
 
   const done = (async () => {
     let result: Extract<SDKMessage, { type: 'result' }> | null = null;
     try {
+      const fitted = await fitToModel(model, effort);
+      if (fitted.effort !== effort) setRunStatus(db, runId, { effort: fitted.effort });
+      if (fitted.effort) options.effort = fitted.effort;
+      // The card modal shows what Claude is reasoning about. Left to default,
+      // adaptive thinking omits the text and stores an empty block with only a
+      // signature. A model without adaptive thinking is left to its own default
+      // rather than sent a mode it would refuse.
+      if (fitted.adaptiveThinking) options.thinking = { type: 'adaptive', display: 'summarized' };
+
       // Anything the prompt needs that does not exist yet. A stage without a
       // `prepare` contributes nothing and this is one await of undefined.
       const prepared = (await stage.prepare?.(db, writer, ctx, runId)) ?? {};
