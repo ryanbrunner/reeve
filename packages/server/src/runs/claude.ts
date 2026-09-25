@@ -15,6 +15,7 @@ import {
 } from '../db/queries.js';
 import { artifact as artifactTable, type Card, type CardStage, type Repo } from '../db/schema.js';
 import type { ClaudeTask, StageContext } from '../stages/types.js';
+import { recordRateLimit } from '../usage.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
 import { decideToolUse, denialRecorder } from './permissions.js';
@@ -284,6 +285,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
         if (message.type === 'result') result = message;
+        // Stored above like any other message; this only moves the board's readout.
+        if (message.type === 'rate_limit_event') recordRateLimit(message, Date.now());
 
         // The refusals nobody asked us about: a permission mode that forbids
         // tools outright, which is how Planning runs.

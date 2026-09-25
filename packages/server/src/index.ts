@@ -18,6 +18,7 @@ import { runRoutes } from './routes/runs.js';
 import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
 import { listModels } from './runs/models.js';
+import { seedUsage } from './usage.js';
 
 /**
  * Boot order matters. Contracts convert first so a schema JSON Schema can't
@@ -29,6 +30,7 @@ export function createApp() {
 
   const db = openDatabase(config.dbFile);
   runMigrations(db);
+  seedUsage(db);
 
   const orphans = reapOrphanedRuns(db, new Date());
   if (orphans.length > 0) {
