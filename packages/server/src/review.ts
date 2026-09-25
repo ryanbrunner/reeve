@@ -1,7 +1,7 @@
 import { nextStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import { cardsInStage, insertCardEvent, insertReview, moveCard } from './db/queries.js';
-import type { Card, Repo, Run } from './db/schema.js';
+import type { Card, CardEventActor, Repo, Run } from './db/schema.js';
 import { checkWorktree } from './git/worktree.js';
 import { maybeOpenPullRequest } from './pullRequest.js';
 import { startClaudeRun } from './runs/claude.js';
@@ -30,9 +30,13 @@ export function approveStage(
   card: Card,
   repo: Repo,
   lastRun: Run,
-  opts: { notes?: string | null; meta?: Record<string, unknown> } = {},
+  opts: { notes?: string | null; meta?: Record<string, unknown>; actor?: CardEventActor } = {},
 ): { fromStage: Stage; toStage: Stage; moved: boolean } {
   const notes = opts.notes ?? null;
+  // Almost always the person who pressed Approve. SICKO MODE approves as
+  // `claude`, so the card's history — and the count of approvals a human
+  // actually gave — stays true.
+  const actor = opts.actor ?? 'human';
   // Done is the end of the board; approving there is a verdict with nowhere
   // to go, so the card stays put rather than the request failing.
   const to = nextStage(card.stage as Stage) ?? card.stage;
@@ -42,14 +46,14 @@ export function approveStage(
     fromStage: card.stage, toStage: to,
   });
   insertCardEvent(db, {
-    cardId: card.id, actor: 'human', kind: 'reviewed', stage: card.stage,
+    cardId: card.id, actor, kind: 'reviewed', stage: card.stage,
     runId: lastRun.id, body: notes, meta: { ...opts.meta, decision: 'approved' },
   });
   if (to !== card.stage) {
     // Appended, not inserted: the human chose the column, not the slot.
     // moveCard writes the `moved` event, so the timeline reads as a verdict
     // followed by a move rather than one conflated entry.
-    const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
+    const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, actor);
     // The same automatic start, or pull request, that a drag there gets.
     if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, repo);
     else if (moved) maybeStartStage(db, writer, moved, repo);

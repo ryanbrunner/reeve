@@ -462,6 +462,16 @@ export const settings = sqliteTable('settings', {
   id: integer('id').primaryKey(),
   maxConcurrentRuns: integer('max_concurrent_runs'),
   /**
+   * When SICKO MODE was switched on, or null while it is off.
+   *
+   * A timestamp rather than a flag because every number the HUD shows is
+   * counted from it — merges, skipped reviews, self-answered questions, spend —
+   * and those are read off `card_event` and `run` rows on demand rather than
+   * kept in counters that a reload would reset and that could drift from what
+   * actually happened. One column is both the switch and the epoch.
+   */
+  sickoSince: timestamp('sicko_since'),
+  /**
    * The one exception to typed columns: a model and effort per runnable stage.
    * This is a map keyed by stage, not a handful of knobs, and a stage added
    * later should not need a migration. A stage missing from it is unset.

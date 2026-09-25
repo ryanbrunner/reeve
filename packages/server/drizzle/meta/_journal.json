@@ -99,6 +99,13 @@
       "when": 1790357133396,
       "tag": "0013_generate_mockups",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790357143396,
+      "tag": "0014_sicko_mode",
+      "breakpoints": true
     }
   ]
 }

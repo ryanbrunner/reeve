@@ -115,6 +115,24 @@ export async function pullRequestState(cwd: string, url: string): Promise<PullRe
 }
 
 /**
+ * Squash the card's pull request onto its base branch.
+ *
+ * `--squash` is passed so that `gh` never drops into its interactive picker,
+ * which on a server is a promise that never settles.
+ *
+ * Deliberately NOT `--admin`. SICKO MODE's business is Reeve's own
+ * human-in-the-loop gates, and those are Reeve's to waive; a repository's
+ * branch protection belongs to whoever set it up and is not. So a repo that
+ * requires a review still requires one, `gh` refuses, and the card records a
+ * `pr_failed` saying why rather than the rule being bypassed quietly.
+ *
+ * The branch is left alone: the card's worktree is still checked out on it.
+ */
+export async function mergePullRequest(cwd: string, url: string): Promise<void> {
+  await gh(cwd, ['pr', 'merge', url, '--squash']);
+}
+
+/**
  * Ready for review, not a draft. `--head` names the branch outright, so `gh`
  * neither guesses it from the checkout nor offers to push it.
  */

@@ -35,14 +35,24 @@ export function Column({
   laneId,
   cards,
   onOpen,
+  sicko = false,
+  hot = false,
 }: {
   stage: Stage;
   laneId: string | null | undefined;
   cards: ApiCard[];
   onOpen?: (id: string) => void;
+  /**
+   * The column as a well: its cards have lifted off it into the flying layer,
+   * so it keeps its header and its count and holds nothing. Not a droppable
+   * either, because nobody drags anything in SICKO MODE.
+   */
+  sicko?: boolean;
+  /** Something just landed here. Only SICKO MODE says so; a drag lights it itself. */
+  hot?: boolean;
 }) {
   const id = `${COLUMN_PREFIX}${stage}|${laneId ?? 'all'}`;
-  const { setNodeRef, isOver, over } = useDroppable({ id });
+  const { setNodeRef, isOver, over } = useDroppable({ id, disabled: sicko });
   // Over one of its cards is over the column too; that is where the card lands.
   const lit = isOver || cards.some((c) => c.id === over?.id);
   return (
@@ -50,23 +60,39 @@ export function Column({
       ref={setNodeRef}
       className={`flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
         lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
-      }`}
+      } ${sicko ? `sk-col${hot ? ' sk-hot' : ''}` : ''}`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
-        <h3 className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
+        <h3
+          className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase ${
+            sicko ? 'sk-col-t' : ''
+          }`}
+        >
           {STAGE_LABELS[stage]}
         </h3>
-        <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)/60">
+        <span
+          className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)/60 ${
+            sicko ? 'sk-cnt' : ''
+          }`}
+        >
           {cards.length}
         </span>
-        {isRunnable(stage) && <span title="Claude runs here" className="ml-auto text-xs text-sky-500">◆</span>}
+        {/* Claude runs in three columns on the calm board. In SICKO MODE it runs
+            in all of them, so every header gets the diamond. */}
+        {(sicko || isRunnable(stage)) && (
+          <span title="Claude runs here" className={`ml-auto text-xs text-sky-500 ${sicko ? 'sk-runs' : ''}`}>
+            ◆
+          </span>
+        )}
       </div>
       {/* Named after the column so columnCollisions can find its cards. */}
-      <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-2">
-          {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
-        </div>
-      </SortableContext>
+      {!sicko && (
+        <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col gap-2">
+            {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
+          </div>
+        </SortableContext>
+      )}
     </div>
   );
 }

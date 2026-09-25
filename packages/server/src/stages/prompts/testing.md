@@ -49,5 +49,10 @@ Fix what you can. A test that was already broken before this card is not yours
 to chase — say so in `summary` and leave it. Record anything you did fix in
 `fixes_applied`, and be honest in `passed`: it is true only if the suite ends
 green.
+
+Commit anything you fixed, before you finish, with a subject that says it came
+from verification. Uncommitted work is invisible to everything downstream: the
+card's pull request is its commits, and a dirty worktree refuses to be pushed at
+all. Leaving a fix in the working tree loses it.
 {{reviewNotes}}
 {{notes}}

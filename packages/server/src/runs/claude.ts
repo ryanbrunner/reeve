@@ -17,6 +17,7 @@ import { artifact as artifactTable, type Card, type CardStage, type Repo } from 
 import type { ClaudeTask, StageContext } from '../stages/types.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
+import { decideToolUse, denialRecorder } from './permissions.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -207,6 +208,10 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
 
   const abortController = new AbortController();
   let cancelled = false;
+  // Denials are written to the row as they happen rather than only at the end,
+  // so a killed run still says what it was refused — and so the card can show
+  // it while the run is still going.
+  const denials = denialRecorder();
 
   const options: Omit<Options, 'prompt'> = {
     cwd: worktreePath,
@@ -217,10 +222,22 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     ...(resumeSessionId ? { resume: resumeSessionId, forkSession: true } : {}),
     sessionId,
     permissionMode: stage.permissionMode,
-    // Nobody is watching to approve anything. Without this the run parks forever
-    // on the first tool call that isn't pre-approved.
-    permissionPrompts: 'none',
     allowedTools: stage.allowedTools,
+    // Nobody is watching to approve anything, and a run that parks on its first
+    // unmatched tool call parks forever — so something must answer immediately.
+    // This does, synchronously, and its answer is a better one than the SDK's
+    // own `permissionPrompts: 'none'`: see runs/permissions.ts for what that
+    // refusal cost us.
+    canUseTool: (toolName, input, { toolUseID }) => {
+      const decision = decideToolUse({ toolName, input, allowedTools: stage.allowedTools, worktreePath });
+      // Recorded where it is decided. A denial we make ourselves never reaches
+      // the stream as an event, so this is the only place it can be caught.
+      if (decision.behavior === 'deny') {
+        const refused = denials.refused(toolName, input, toolUseID);
+        if (refused) setRunStatus(db, runId, { permissionDenials: refused });
+      }
+      return Promise.resolve(decision);
+    },
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),
@@ -267,6 +284,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
         if (message.type === 'result') result = message;
+
+        // The refusals nobody asked us about: a permission mode that forbids
+        // tools outright, which is how Planning runs.
+        const refused = denials.observe(message);
+        if (refused) setRunStatus(db, runId, { permissionDenials: refused });
 
         // Kept on the row whether or not anyone is watching, so the modal opens
         // on what Claude is doing now. Written only on a change: thinking_tokens
@@ -363,6 +385,12 @@ function materialiseArtifacts(
   }
 }
 
+/** The result message's own denial list, when it has a non-empty one. */
+function denialsIn(r: { permission_denials?: unknown } | null): unknown[] | null {
+  const list = r?.permission_denials;
+  return Array.isArray(list) && list.length > 0 ? list : null;
+}
+
 function finish(
   db: Db,
   writer: EventWriter,
@@ -389,7 +417,10 @@ function finish(
     modelUsageJson: (r?.modelUsage as Record<string, unknown>) ?? null,
     resultText: r?.result ?? null,
     structuredOutput: r?.structured_output ?? null,
-    permissionDenials: (r?.permission_denials as unknown[]) ?? null,
+    // Overwritten only when the result carries them, since that list is the
+    // authoritative one. A run that ended without a result message keeps what
+    // the stream recorded; null here would erase it.
+    ...(denialsIn(r) ? { permissionDenials: denialsIn(r) } : {}),
     sdkStopReason: r?.stop_reason ?? null,
     sdkTerminalReason: r?.terminal_reason ?? null,
   });

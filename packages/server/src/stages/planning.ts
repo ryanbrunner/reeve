@@ -12,6 +12,7 @@ import {
   replaceQuestions,
 } from '../db/queries.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { GIT_READ } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /** Enough to show the states a change alters, few enough to stay in budget. */
@@ -33,7 +34,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
   schema: planningOutput,
   permissionMode: 'plan',
   // Read-only. No Write/Edit even scoped, because the server owns artifacts.
-  allowedTools: ['Read', 'Glob', 'Grep', 'Bash(git log *)', 'Bash(git diff *)', 'Bash(git status *)'],
+  allowedTools: ['Read', 'Glob', 'Grep', ...GIT_READ],
   // Up to three HTML documents is real output on top of the plan, and running
   // out of budget fails the run with no plan at all.
   maxBudgetUsd: 4,

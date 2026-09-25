@@ -2,6 +2,7 @@ import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -20,13 +21,9 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
   id: 'in_progress',
   schema: implementationOutput,
   permissionMode: 'acceptEdits',
-  allowedTools: [
-    'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit',
-    // Scoped so a run can build, test and commit its own work, but not reach
-    // for the network or rewrite history it did not create.
-    'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)',
-    'Bash(npm run *)', 'Bash(npm test *)', 'Bash(npx *)', 'Bash(node *)',
-  ],
+  // Scoped so a run can build, test and commit its own work, but not reach for
+  // the network or rewrite history it did not create.
+  allowedTools: ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', ...GIT_READ, ...GIT_COMMIT, ...NODE_TOOLING],
   maxBudgetUsd: 10,
   maxTurns: 200,
   effort: 'high',

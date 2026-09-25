@@ -3,7 +3,14 @@ import { config } from './config.js';
 import type { Db } from './db/client.js';
 import { archiveCard, cardsAwaitingMerge, insertCardEvent, mergedCardsDueForArchive } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
-import { createPullRequest, findPullRequest, pullRequestState, pushBranch, type PullRequestState } from './git/github.js';
+import {
+  createPullRequest,
+  findPullRequest,
+  mergePullRequest,
+  pullRequestState,
+  pushBranch,
+  type PullRequestState,
+} from './git/github.js';
 import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
 import { runRegistry } from './runs/registry.js';
 
@@ -186,6 +193,48 @@ export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined)
   openPullRequest(db, card, repo).catch((e) => {
     console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
   });
+}
+
+/** Cards with a merge under way, so two sweeps cannot both ask `gh` to land one. */
+const landing = new Set<string>();
+
+export type LandResult = { ok: true } | { ok: false; error: string; detail: string };
+
+/**
+ * Land the card's pull request on the default branch.
+ *
+ * Only SICKO MODE calls this. On the calm board a pull request is where Reeve
+ * stops on purpose: the point of opening one is that a person reads it, and
+ * merging it is their decision, taken on GitHub. SICKO MODE is the mode where
+ * that is not true, so this exists there and nowhere else.
+ *
+ * It refuses exactly what opening one refuses, and it does not reach past the
+ * repository's own rules: a branch that requires a review still requires one,
+ * `gh` says no, and the card records why. Success is not written here either —
+ * the existing merge sync is asked to look, so the card is marked from GitHub's
+ * answer and by the same code path as a pull request somebody merged by hand.
+ */
+export async function landPullRequest(db: Db, card: Card, repo: Repo): Promise<LandResult> {
+  if (card.mergedAt) return { ok: true };
+  if (!card.prUrl) return { ok: false, error: 'nothing to merge', detail: 'the card has no pull request' };
+  if (landing.has(card.id) || opening.has(card.id)) {
+    return { ok: false, error: 'busy', detail: `#${card.number}` };
+  }
+  landing.add(card.id);
+  try {
+    await mergePullRequest(repo.repoPath, card.prUrl);
+  } catch (e) {
+    const detail = reason(e);
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'claude', kind: 'pr_failed', stage: card.stage,
+      body: `could not merge: ${detail}`, meta: { url: card.prUrl },
+    });
+    return { ok: false, error: 'could not merge the pull request', detail };
+  } finally {
+    landing.delete(card.id);
+  }
+  await syncMergedPullRequests(db);
+  return { ok: true };
 }
 
 let syncing = false;
