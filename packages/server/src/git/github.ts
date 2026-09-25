@@ -65,6 +65,35 @@ export async function findPullRequest(worktreePath: string, branch: string): Pro
   return { url: pr.url, number: pr.number };
 }
 
+export interface PullRequestState {
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  mergedAt: Date | null;
+  /** The commit the pull request landed as on its base branch, once merged. */
+  mergeSha: string | null;
+  base: string;
+}
+
+/**
+ * Where a pull request Reeve opened has got to. Asked by URL rather than by
+ * branch: GitHub may delete the head branch on merge, and a URL names the
+ * pull request from any checkout, not just the card's own worktree.
+ */
+export async function pullRequestState(cwd: string, url: string): Promise<PullRequestState> {
+  const out = await gh(cwd, ['pr', 'view', url, '--json', 'state,mergedAt,mergeCommit,baseRefName']);
+  const pr = JSON.parse(out) as { state?: unknown; mergedAt?: unknown; mergeCommit?: { oid?: unknown } | null; baseRefName?: unknown };
+  if (pr.state !== 'OPEN' && pr.state !== 'CLOSED' && pr.state !== 'MERGED') {
+    throw new GitError('gh pr view gave no pull request state', out.trim());
+  }
+  const mergedAt = typeof pr.mergedAt === 'string' && pr.mergedAt ? new Date(pr.mergedAt) : null;
+  const sha = pr.mergeCommit?.oid;
+  return {
+    state: pr.state,
+    mergedAt: mergedAt && !Number.isNaN(mergedAt.getTime()) ? mergedAt : null,
+    mergeSha: typeof sha === 'string' ? sha : null,
+    base: typeof pr.baseRefName === 'string' ? pr.baseRefName : '',
+  };
+}
+
 /**
  * Ready for review, not a draft. `--head` names the branch outright, so `gh`
  * neither guesses it from the checkout nor offers to push it.

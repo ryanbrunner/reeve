@@ -1,8 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Db } from './db/client.js';
-import { insertCardEvent } from './db/queries.js';
+import { cardsAwaitingMerge, insertCardEvent } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
-import { createPullRequest, findPullRequest, pushBranch } from './git/github.js';
+import { createPullRequest, findPullRequest, pullRequestState, pushBranch, type PullRequestState } from './git/github.js';
 import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
 
 /**
@@ -36,6 +36,11 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
 export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<PullRequestResult> {
   if (card.stage !== 'done') {
     return { ok: false, status: 400, error: 'only a Done card gets a pull request', detail: card.stage };
+  }
+  // Its pull request is history, so a push would restore the branch GitHub
+  // deleted on merge and open a second one for work already landed.
+  if (card.mergedAt) {
+    return { ok: false, status: 409, error: 'already merged', detail: card.prUrl ?? `#${card.number}` };
   }
   const { branchName: branch, worktreePath, baseSha } = card;
   if (!branch || !worktreePath || !baseSha) {
@@ -124,12 +129,62 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
  * where the board's poll picks it up.
  *
  * A card that never had a worktree has nothing to push and is passed over in
- * silence — a Backlog idea dragged straight to Done is not a failure. And
- * nothing may escape: an unhandled rejection here would take the server down.
+ * silence — a Backlog idea dragged straight to Done is not a failure, and
+ * nor is a merged card dragged back there. And nothing may escape: an
+ * unhandled rejection here would take the server down.
  */
 export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined): void {
-  if (!repo || !card.branchName || !card.worktreePath || !card.baseSha) return;
+  if (!repo || card.mergedAt || !card.branchName || !card.worktreePath || !card.baseSha) return;
   openPullRequest(db, card, repo).catch((e) => {
     console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
   });
+}
+
+let syncing = false;
+
+/**
+ * Notice pull requests that were merged on GitHub, and mark their cards merged.
+ *
+ * Only `merged_at` is written. `merged_sha` means the card squash-landed and
+ * its worktree is gone, and the Changes tab reads it from the local repo —
+ * where GitHub's merge commit is not until someone fetches it. The sha goes on
+ * the `merged` event instead. The worktree and branch are left alone: the
+ * person may still be sitting in them.
+ *
+ * One card at a time, and one sync at a time, since each is a `gh` call and a
+ * slow one must not stack up behind the next tick. A card that cannot be asked
+ * about is skipped until the next sync rather than failing the rest.
+ */
+export async function syncMergedPullRequests(db: Db): Promise<void> {
+  if (syncing) return;
+  syncing = true;
+  try {
+    for (const { card, repo } of cardsAwaitingMerge(db)) {
+      // A push under way will write the card itself; the next sync can look.
+      if (!card.prUrl || opening.has(card.id)) continue;
+      let pr: PullRequestState;
+      try {
+        pr = await pullRequestState(repo.repoPath, card.prUrl);
+      } catch (e) {
+        console.error(`[reeve] could not check pull request for #${card.number}: ${reason(e)}`);
+        continue;
+      }
+      if (pr.state !== 'MERGED') continue;
+
+      const now = new Date();
+      // Only if the card still points at the pull request that was asked
+      // about: a push while `gh` answered may have opened a different one.
+      const updated = db.update(cardTable)
+        .set({ mergedAt: pr.mergedAt ?? now, updatedAt: now })
+        .where(and(eq(cardTable.id, card.id), eq(cardTable.prUrl, card.prUrl), isNull(cardTable.mergedAt)))
+        .run();
+      if (updated.changes === 0) continue;
+      insertCardEvent(db, {
+        cardId: card.id, actor: 'human', kind: 'merged', stage: card.stage,
+        meta: { url: card.prUrl, number: card.prNumber, sha: pr.mergeSha, into: pr.base || repo.defaultBranch },
+      });
+    }
+  } finally {
+    syncing = false;
+  }
 }
