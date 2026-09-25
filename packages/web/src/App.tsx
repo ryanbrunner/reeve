@@ -10,9 +10,17 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { PLACEHOLDER_TITLE, STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
+import {
+  PLACEHOLDER_TITLE,
+  STAGES,
+  type ApiCard,
+  type ApiRepo,
+  type BoardResponse,
+  type CreateCardBody,
+  type MoveCardBody,
+} from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
-import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
+import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/Column.js';
 import { Glyph } from './board/Glyph.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
@@ -28,7 +36,6 @@ import { api, cardsIn } from './lib/api.js';
 
 export function App() {
   const qc = useQueryClient();
-  const [swimlanes, setSwimlanes] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   // Which pane Settings opens on, or null while it is shut.
   const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
@@ -40,10 +47,9 @@ export function App() {
   const [openCard, openAndClose] = useOpenCard();
 
   const move = useMutation({
-    mutationFn: ({ id, stage, index }: { id: string; stage: Stage; index: number }) =>
-      api.moveCard(id, { stage, index }),
+    mutationFn: ({ id, ...body }: MoveCardBody & { id: string }) => api.moveCard(id, body),
     // Optimistic: the card must land under the cursor immediately, not after a round trip.
-    onMutate: async ({ id, stage, index }) => {
+    onMutate: async ({ id, stage, index, projectId }) => {
       await qc.cancelQueries({ queryKey: ['board'] });
       const prev = qc.getQueryData<BoardResponse>(['board']);
       if (prev) {
@@ -59,7 +65,9 @@ export function App() {
             : (before + after) / 2;
           qc.setQueryData<BoardResponse>(['board'], {
             ...prev,
-            cards: prev.cards.map((c) => (c.id === id ? { ...c, stage, position } : c)),
+            cards: prev.cards.map((c) =>
+              c.id === id ? { ...c, stage, position, ...(projectId !== undefined ? { projectId } : {}) } : c,
+            ),
           });
         }
       }
@@ -97,18 +105,18 @@ export function App() {
   }, [openCard, freshId]);
 
   /**
-   * Add makes the card and opens it, because criteria and context can only hang
-   * off a card that exists, and a card needs a title typed into it.
+   * The ghost card makes a card and opens it, because criteria and context can
+   * only hang off a card that exists, and a card needs a title typed into it.
+   * Add Project the same way, since a project's brief is what it is for.
    *
    * Ship it, in SICKO MODE, does not open anything: the title came with the
    * request and the card is already on its way, so putting a modal over the
    * board would hide the one thing worth watching.
    */
   const create = useMutation({
-    mutationFn: ({ repoId, title }: { repoId: string | null; title: string }) =>
-      api.createCard({ title, repoId, stage: 'backlog' }),
-    onSuccess: (card, { title }) => {
-      if (title === PLACEHOLDER_TITLE) {
+    mutationFn: (body: CreateCardBody) => api.createCard(body),
+    onSuccess: (card, { title, kind }) => {
+      if (title === PLACEHOLDER_TITLE || kind === 'project') {
         setFreshId(card.id);
         openAndClose.open(card.id);
       }
@@ -117,8 +125,33 @@ export function App() {
   });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const cards = data?.cards ?? [];
+  const repos = data?.repos ?? [];
+  const projects = data?.projects ?? [];
+  // A card whose project is no longer on the board — archived, most likely —
+  // is drawn under No project rather than in a lane that is not there.
+  const cards = useMemo(() => {
+    const live = new Set((data?.projects ?? []).map((p) => p.id));
+    return (data?.cards ?? []).map((c) => (c.projectId && !live.has(c.projectId) ? { ...c, projectId: null } : c));
+  }, [data]);
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+
+  // Filed under the lane's project and that project's repo, falling back to
+  // the first repo: an unfiled card is a dead one, since no repo means no
+  // worktree and no stage can run. The header's picker changes it after.
+  const addCard = (projectId: string | null) => {
+    const project = projects.find((p) => p.id === projectId);
+    create.mutate({
+      title: PLACEHOLDER_TITLE,
+      stage: 'backlog',
+      projectId,
+      repoId: project?.repoId ?? repos[0]?.id ?? null,
+    });
+  };
+  const addProject = () => create.mutate({ title: 'Untitled project', kind: 'project', repoId: repos[0]?.id ?? null });
+  // SICKO MODE's Ship it: named already, so it is not opened, and under no
+  // project, since the header has no lane to file it in.
+  const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
+    create.mutate({ title, repoId, stage: 'backlog' });
 
   // Which cards are on main, as one string so the identity only changes when
   // the set does. The ids and not the count, because two merges landing in one
@@ -150,16 +183,17 @@ export function App() {
     // Put back down in its own slot: nothing moved.
     if (!card || overId === id) return;
 
-    // Dropped on empty column space, or onto another card.
-    let stage: Stage;
+    // Dropped on empty column space, or onto another card. Either way the lane
+    // is the column's, whose id a card carries as its sortable container.
+    const column = parseColumnId(overId) ?? parseColumnId(String(over.data.current?.sortable?.containerId ?? ''));
+    if (!column) return;
+    const { stage } = column;
+    // Counted through the whole column, every lane at once: positions are
+    // shared across lanes, and that is what the server counts through too.
     let index: number;
     if (overId.startsWith(COLUMN_PREFIX)) {
-      stage = overId.slice(COLUMN_PREFIX.length).split('|')[0] as Stage;
       index = cardsIn(cards, stage).filter((c) => c.id !== id).length;
     } else {
-      const target = byId.get(overId);
-      if (!target) return;
-      stage = target.stage;
       // The slot is the target's index in the column as it stands, dragged card
       // included — the index `arrayMove` takes, and the one the server reads by
       // dropping the card out of the column before counting off to it. Filtering
@@ -168,15 +202,20 @@ export function App() {
       index = cardsIn(cards, stage).findIndex((c) => c.id === overId);
       if (index < 0) return;
     }
-    move.mutate({ id, stage, index });
+    // Sent only when the lane changed, so a card whose project was archived is
+    // not quietly cut loose from it by a reorder under No project.
+    const projectId = column.laneId !== card.projectId ? column.laneId : undefined;
+    move.mutate({ id, stage, index, projectId });
   }
 
   if (isLoading) return <Centered>Loading board…</Centered>;
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
 
-  const lanes = swimlanes
-    ? (data?.repos ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
-    : [{ id: undefined as unknown as string | null, name: '', color: null }];
+  // A lane per project, oldest first, then everything that belongs to none.
+  const lanes = [
+    ...projects.map((p) => ({ id: p.id as string | null, name: p.title, color: p.laneColor })),
+    { id: null, name: 'No project', color: null },
+  ];
 
   /*
    * In SICKO MODE the whole app is dressed differently, so the frame goes on
@@ -192,19 +231,27 @@ export function App() {
   const lanesInner = (
     <div className={`flex-1 overflow-auto p-4 ${sicko.sick ? 'pb-20' : ''}`}>
       {lanes.map((lane) => (
-        <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
-          {swimlanes && (
-            <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-              <span
-                className={`h-2 w-2 rounded-full ${sicko.sick ? 'sk-lane-dot' : ''}`}
-                style={{ background: lane.color ?? '#3f4754' }}
-              />
-              <span className={sicko.sick ? 'sk-lane-name' : ''}>{lane.name}</span>
-            </h2>
-          )}
+        <section key={lane.id ?? 'none'} className="mb-6 last:mb-0">
+          <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
+            <span
+              className={`h-2 w-2 rounded-full ${sicko.sick ? 'sk-lane-dot' : ''}`}
+              style={{ background: lane.color ?? '#3f4754' }}
+            />
+            {/* The lane is the project, and its header is the way into it. */}
+            {lane.id ?
+              <button
+                type="button"
+                onClick={() => openAndClose.open(lane.id!)}
+                title="Open the project"
+                className={`uppercase hover:text-(--color-text) ${sicko.sick ? 'sk-lane-name' : ''}`}
+              >
+                {lane.name}
+              </button>
+            : <span className={sicko.sick ? 'sk-lane-name' : ''}>{lane.name}</span>}
+          </h2>
           {sicko.sick ?
             <SickoLane
-              cards={lane.id === undefined ? cards : cards.filter((c) => c.repoId === lane.id)}
+              cards={cards.filter((c) => c.projectId === lane.id)}
               laneId={lane.id}
               justMerged={sicko.justMerged}
               onOpen={openAndClose.open}
@@ -217,6 +264,8 @@ export function App() {
                   laneId={lane.id}
                   cards={cardsIn(cards, stage, lane.id)}
                   onOpen={openAndClose.open}
+                  onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
+                  adding={create.isPending}
                 />
               ))}
             </div>
@@ -238,10 +287,9 @@ export function App() {
       >
         <div className="sk-stage-in flex min-h-0 flex-1 flex-col">
           <Header
-            swimlanes={swimlanes}
-            onToggle={() => setSwimlanes((s) => !s)}
-            repos={data?.repos ?? []}
-            onAdd={create.mutate}
+            repos={repos}
+            onAddProject={addProject}
+            onShip={shipIt}
             adding={create.isPending}
             addError={create.error}
             onOpenSettings={setSettingsOpen}
@@ -271,7 +319,18 @@ export function App() {
       </div>
       {sicko.sick && <SickoLightsOver flash={sicko.flash} />}
       {sicko.phase === 'arming' && <SickoArming />}
-      {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} editTitle={openCard === freshId} />}
+      {/* Keyed, so opening a task from its project's modal starts it afresh on
+          its own tabs rather than on whichever tab the project was showing. */}
+      {openCard && (
+        <CardModal
+          key={openCard}
+          cardId={openCard}
+          onClose={openAndClose.close}
+          onOpen={openAndClose.open}
+          editTitle={openCard === freshId}
+          sicko={sicko.sick}
+        />
+      )}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
       {archiveOpen && (
         <ArchiveModal
@@ -334,11 +393,11 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
-  swimlanes: boolean;
-  onToggle: () => void;
+function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
   repos: ApiRepo[];
-  onAdd: (v: { repoId: string | null; title: string }) => void;
+  onAddProject: () => void;
+  /** SICKO MODE's Ship it: a named card, made without opening it. */
+  onShip: (v: { repoId: string | null; title: string }) => void;
   adding: boolean;
   addError: Error | null;
   onOpenSettings: (pane: SettingsPane) => void;
@@ -346,10 +405,12 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
   cardCount: number;
   sicko: Sicko;
 }) {
+  // Only SICKO MODE's Ship it picks a repo here. On the calm board a card is
+  // added from the ghost in its lane and its repo picked in the card's header,
+  // but a shipped card is never opened, so this is its only chance.
   // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
-  // run. The picker sits next to Add rather than hiding the choice, so
-  // "the first one" is never a silent answer.
+  // run.
   // `null` is "hasn't said", `''` is "said no repo" — two different things,
   // and collapsing them makes No repo unpickable: the fallback below would
   // read the empty string as untouched and snap the select back to the first.
@@ -374,15 +435,15 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
         className="ml-auto flex shrink-0 items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!sick) return onAdd({ repoId: filedUnder || null, title: PLACEHOLDER_TITLE });
+          if (!sick) return onAddProject();
           const title = idea.trim();
           if (!title) return;
-          onAdd({ repoId: filedUnder || null, title });
+          onShip({ repoId: filedUnder || null, title });
           setIdea('');
         }}
       >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
-        {repos.length > 0 && (
+        {sick && repos.length > 0 && (
           <select
             value={filedUnder}
             onChange={(e) => setRepoId(e.target.value)}
@@ -410,8 +471,10 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
             />
           </>
         )}
-        {/* Held while the card is being made: a double-click would otherwise
-            make two, and open both. */}
+        {/* Held while the card or project is being made: a double-click would
+            otherwise make two, and open both. On the calm board this makes a
+            project; cards are added from the ghost at the foot of each Backlog
+            column, in the lane they belong to. */}
         <button
           type="submit"
           disabled={adding || (sick && idea.trim() === '')}
@@ -420,7 +483,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
           }`}
         >
           {/* A card added while this is on does not wait in Backlog for anyone. */}
-          {sick ? 'Ship it' : 'Add'}
+          {sick ? 'Ship it' : 'Add Project'}
         </button>
       </form>
       <button
@@ -445,15 +508,9 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       {/* What happened while you were not being asked. Said once, on the way
           out, and then gone. */}
       {sicko.toast && <span className="sk-toast" role="status">{sicko.toast}</span>}
-      {/* Beside the other view toggles, and quiet until it is hovered: the one
-          control here that changes what Reeve IS rather than what it shows. */}
+      {/* Quiet until it is hovered: the one control here that changes what
+          Reeve IS rather than what it shows. */}
       <SickoSwitch on={sick} onToggle={sicko.toggle} disabled={sicko.pending} />
-      <button
-        onClick={onToggle}
-        className={`shrink-0 rounded-md border px-3 py-1.5 text-sm whitespace-nowrap ${swimlanes ? 'border-sky-600 text-sky-300' : 'border-(--color-edge) text-(--color-muted)'}`}
-      >
-        Swim lanes
-      </button>
     </header>
   );
 }

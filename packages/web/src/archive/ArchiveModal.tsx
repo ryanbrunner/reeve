@@ -117,11 +117,13 @@ function ArchivedRow({ card, onOpen }: { card: ApiCard; onOpen: (id: string) => 
             {card.repoName}
           </span>
         )}
-        <span className="shrink-0 font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>
+        {card.kind === 'task' && (
+          <span className="shrink-0 font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>
+        )}
         <span className="min-w-0 truncate text-sm text-(--color-text)">{card.title}</span>
       </button>
       <span className="shrink-0 font-mono text-[10px]/4 text-(--color-muted)">
-        {STAGE_LABELS[card.stage]} · {when(card.archivedAt)}
+        {card.kind === 'project' ? 'Project' : STAGE_LABELS[card.stage]} · {when(card.archivedAt)}
       </span>
       {restore.error && (
         <span className="shrink-0 font-mono text-[10px]/4 text-red-300">{restore.error.message}</span>

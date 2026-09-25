@@ -1,8 +1,9 @@
 import { sql } from 'drizzle-orm';
-import type { EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
+  type AnySQLiteColumn,
   primaryKey,
   real,
   sqliteTable,
@@ -16,7 +17,7 @@ import {
  * where shared said `cancelled`.
  */
 export type CardStage = Stage;
-export type { RunKind, RunStatus, StopReason };
+export type { CardKind, RunKind, RunStatus, StopReason };
 
 export const REVIEW_DECISIONS = ['approved', 'rejected'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
@@ -95,6 +96,10 @@ export const card = sqliteTable(
   'card',
   {
     id: text('id').primaryKey(),
+    kind: text('kind').$type<CardKind>().notNull().default('task'),
+    // The project this card belongs to, if any. A project's own repo is its
+    // default: the one its split reads, and the one its tasks fall back to.
+    projectId: text('project_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
@@ -147,6 +152,7 @@ export const card = sqliteTable(
     index('card_board').on(t.stage, t.position),
     index('card_repo').on(t.repoId, t.stage, t.position),
     index('card_number').on(t.repoId, t.number),
+    index('card_project').on(t.projectId, t.stage, t.position),
   ],
 );
 

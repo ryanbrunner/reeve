@@ -193,6 +193,31 @@ export const criteriaOutput = z.object({
 });
 
 /**
+ * Not a stage either — the project's split: its brief, broken into cards. Each
+ * task names its repo because a project can span several, and the server
+ * matches that name rather than trusting Claude with an id.
+ */
+export const projectSplitOutput = z.object({
+  tasks: z
+    .array(
+      z.object({
+        title: z.string().describe('A short imperative title for the card, as it would read on the board.'),
+        body: z
+          .string()
+          .describe('The card’s brief, in Markdown: what this piece of work is for and anything a person picking it up needs to know.'),
+        repo: z
+          .string()
+          .nullable()
+          .describe('The name of the repo this task belongs in, exactly as listed. Null for the project’s default repo.'),
+        criteria: z
+          .array(z.string())
+          .describe('What must be true for this task to be done, each written as something a person could observe.'),
+      }),
+    )
+    .describe('The work in the brief as separate cards, in the order it would sensibly be done. Leave out any already listed.'),
+});
+
+/**
  * Not a stage either — the Done band's Resolve conflicts button. The server
  * starts the merge and checks it afterwards; this is Claude's account of what
  * it decided in between, which is all a person has to go on before the push
@@ -218,6 +243,7 @@ export const conflictResolutionOutput = z.object({
 });
 
 export type CriteriaOutput = z.infer<typeof criteriaOutput>;
+export type ProjectSplitOutput = z.infer<typeof projectSplitOutput>;
 export type ConflictResolutionOutput = z.infer<typeof conflictResolutionOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
 export type ImplementationOutput = z.infer<typeof implementationOutput>;
@@ -265,5 +291,6 @@ export function assertContractsConvertible(): void {
   }
   jsonSchemaFor(triageOutput);
   jsonSchemaFor(criteriaOutput);
+  jsonSchemaFor(projectSplitOutput);
   jsonSchemaFor(conflictResolutionOutput);
 }
