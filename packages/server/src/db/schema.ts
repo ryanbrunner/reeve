@@ -3,6 +3,7 @@ import type { EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReas
 import {
   index,
   integer,
+  type AnySQLiteColumn,
   primaryKey,
   real,
   sqliteTable,
@@ -41,6 +42,15 @@ export type AssetKind = (typeof ASSET_KINDS)[number];
 /** What a piece of context points at: a path in the repo, another card, a link. */
 export const CARD_REF_KINDS = ['file', 'card', 'url'] as const;
 export type CardRefKind = (typeof CARD_REF_KINDS)[number];
+
+/**
+ * A card is a piece of work, or a project: a brief that groups several of them.
+ * A project is a card so that it gets everything a card already has — a brief
+ * to edit, runs to cost and read back, a modal — rather than a second copy of
+ * each. It never sits in a column, and nothing runs a stage on it.
+ */
+export const CARD_KINDS = ['task', 'project'] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
 
 export const CARD_EVENT_KINDS = [
   'created',
@@ -91,6 +101,10 @@ export const card = sqliteTable(
   'card',
   {
     id: text('id').primaryKey(),
+    kind: text('kind').$type<CardKind>().notNull().default('task'),
+    // The project this card belongs to, if any. A project's own repo is its
+    // default: the one its split reads, and the one its tasks fall back to.
+    projectId: text('project_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
@@ -139,6 +153,7 @@ export const card = sqliteTable(
     index('card_board').on(t.stage, t.position),
     index('card_repo').on(t.repoId, t.stage, t.position),
     index('card_number').on(t.repoId, t.number),
+    index('card_project').on(t.projectId, t.stage, t.position),
   ],
 );
 
