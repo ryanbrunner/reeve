@@ -1,6 +1,6 @@
 import { planningOutput, type PlanningOutput } from '@reeve/shared';
 import { addCriterion, criteriaFor, replaceQuestions } from '../db/queries.js';
-import { renderNotes, renderPrompt } from './template.js';
+import { blockquote, renderNotes, renderPrompt } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -26,7 +26,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
 
   buildPrompt(ctx) {
     const reviewNotes = ctx.reviewNotes
-      ? renderPrompt('revision', { notes: ctx.reviewNotes })
+      ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) })
       : '';
     const answers = ctx.answers?.length
       ? renderPrompt('answers', {

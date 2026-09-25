@@ -13,6 +13,14 @@ export function renderPrompt(name: string, vars: Record<string, string>): string
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
 }
 
+/**
+ * Every line quoted, not just the first. A template's `> {{notes}}` quotes one
+ * line, and feedback from a review in Crit runs to many.
+ */
+export function blockquote(text: string): string {
+  return text.trim().split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n');
+}
+
 /** The notes block, or nothing at all when there are none. Every stage renders it. */
 export function renderNotes(notes: string[] | undefined): string {
   if (!notes?.length) return '';
