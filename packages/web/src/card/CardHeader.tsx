@@ -113,7 +113,7 @@ export function CardHeader({
             : card.kind === 'project' ? 'The repo the project is split from, and its tasks default to'
             : 'Move the card to another repo'
           }
-          className="cursor-pointer appearance-none rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4 outline-none focus-visible:ring-1 focus-visible:ring-sky-600 disabled:cursor-default"
+          className="field-sizing-content cursor-pointer appearance-none rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4 outline-none focus-visible:ring-1 focus-visible:ring-sky-600 disabled:cursor-default"
           style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
         >
           {/* A repo archived since is still the card's, so it stays pickable. */}
