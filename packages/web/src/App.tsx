@@ -71,7 +71,9 @@ export function App() {
     queryFn: api.board,
     staleTime: 0,
     refetchInterval: (q) =>
-      held ? false : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr) ? 1_500 : 5_000,
+      held ? false
+        : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts) ? 1_500
+        : 5_000,
   });
 
   // A new card, opened on arrival so the details go straight in. Cleared as

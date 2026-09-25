@@ -192,7 +192,33 @@ export const criteriaOutput = z.object({
     ),
 });
 
+/**
+ * Not a stage either — the Done band's Resolve conflicts button. The server
+ * starts the merge and checks it afterwards; this is Claude's account of what
+ * it decided in between, which is all a person has to go on before the push
+ * lands on the pull request.
+ */
+export const conflictResolutionOutput = z.object({
+  summary: z.string().describe('What the two sides were doing and how you reconciled them, in a few sentences.'),
+  files: z
+    .array(
+      z.object({
+        path: z.string().describe('Repo-relative path of a file that was conflicted.'),
+        resolution: z.string().describe('What you kept from each side and why, in one or two sentences.'),
+      }),
+    )
+    .describe('Every conflicted file, each once.'),
+  tests_passed: z
+    .boolean()
+    .nullable()
+    .describe('Whether the test command ended green after the merge. Null only if there was no test command to run.'),
+  concerns: z
+    .array(z.string())
+    .describe('Anything a reviewer should look at twice: a guess about intent, a test that still fails. Empty if none.'),
+});
+
 export type CriteriaOutput = z.infer<typeof criteriaOutput>;
+export type ConflictResolutionOutput = z.infer<typeof conflictResolutionOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
 export type ImplementationOutput = z.infer<typeof implementationOutput>;
 export type TestingOutput = z.infer<typeof testingOutput>;
@@ -239,4 +265,5 @@ export function assertContractsConvertible(): void {
   }
   jsonSchemaFor(triageOutput);
   jsonSchemaFor(criteriaOutput);
+  jsonSchemaFor(conflictResolutionOutput);
 }

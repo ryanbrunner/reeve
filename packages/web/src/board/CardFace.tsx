@@ -68,6 +68,12 @@ export function CardFace({
             PR{card.prNumber != null && ` #${card.prNumber}`}
           </a>
         )}
+        {/* GitHub's verdict, which the server only has for a Done card's open pull request. */}
+        {(card.prConflicting || card.resolvingConflicts) && (
+          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-amber-300">
+            {card.resolvingConflicts ? 'resolving…' : 'conflicts'}
+          </span>
+        )}
         {card.openingPr && !card.prUrl && (
           <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
             opening PR…

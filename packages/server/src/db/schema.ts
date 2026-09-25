@@ -63,6 +63,10 @@ export const CARD_EVENT_KINDS = [
   // finished after the plan had already moved on. One that reached a verdict
   // writes `reviewed` instead, the same as the buttons.
   'crit_reviewed',
+  // The Done band's Resolve conflicts: the base branch merged in and pushed to
+  // the pull request, or the reason the branch was put back as it was.
+  'conflicts_resolved',
+  'conflicts_failed',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

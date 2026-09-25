@@ -16,6 +16,47 @@ const opening = new Set<string>();
 
 export const isOpeningPr = (cardId: string) => opening.has(cardId);
 
+/**
+ * Cards whose branch is mid-merge while its conflicts are resolved. Kept here
+ * beside `opening` because each has to refuse the other: a push in the middle
+ * of a resolution would send GitHub half a merge. See resolveConflicts.ts.
+ */
+const resolving = new Set<string>();
+
+export const isResolvingConflicts = (cardId: string) => resolving.has(cardId);
+
+/** Taken synchronously, so two presses close together cannot both have it. */
+export function claimResolving(cardId: string): boolean {
+  if (resolving.has(cardId)) return false;
+  resolving.add(cardId);
+  return true;
+}
+
+export const releaseResolving = (cardId: string) => void resolving.delete(cardId);
+
+/**
+ * The pull request GitHub last called conflicting, by card. In memory like
+ * `opening`, because GitHub works it out again on every sync, and keyed to the
+ * URL so a card that has since opened a new pull request does not inherit the
+ * old one's verdict.
+ */
+const conflicting = new Map<string, string>();
+
+export const isPrConflicting = (card: Pick<Card, 'id' | 'prUrl'>) =>
+  card.prUrl !== null && conflicting.get(card.id) === card.prUrl;
+
+/** After a push, GitHub's last verdict is about a branch that no longer exists. */
+export const forgetConflict = (cardId: string) => void conflicting.delete(cardId);
+
+/**
+ * `UNKNOWN` changes nothing. GitHub says it for a while after every push, and
+ * reading it as "fine" would take the button away from a conflict still there.
+ */
+function noteMergeable(cardId: string, url: string, pr: PullRequestState): void {
+  if (pr.state === 'OPEN' && pr.mergeable === 'CONFLICTING') conflicting.set(cardId, url);
+  else if (pr.state !== 'OPEN' || pr.mergeable === 'MERGEABLE') conflicting.delete(cardId);
+}
+
 export type PullRequestResult =
   | { ok: true; url: string; number: number; reused: boolean }
   | { ok: false; status: 400 | 409 | 502; error: string; detail: string };
@@ -53,6 +94,11 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
   // looking for a pull request and creating one.
   if (opening.has(card.id)) {
     return { ok: false, status: 409, error: 'a pull request is already being opened', detail: `#${card.number}` };
+  }
+  // Not written as `pr_failed`: nothing failed, and the resolution pushes on
+  // its own once it is done.
+  if (resolving.has(card.id)) {
+    return { ok: false, status: 409, error: 'conflicts are being resolved', detail: 'the branch is mid-merge; it is pushed once the merge is done' };
   }
   opening.add(card.id);
 
@@ -153,6 +199,9 @@ let syncing = false;
  * the `merged` event instead. The worktree and branch are left alone: the
  * person may still be sitting in them.
  *
+ * The same answer says whether GitHub could merge an open one as it stands,
+ * which is what offers a Done card's conflicts for resolving.
+ *
  * One card at a time, and one sync at a time, since each is a `gh` call and a
  * slow one must not stack up behind the next tick. A card that cannot be asked
  * about is skipped until the next sync rather than failing the rest.
@@ -163,7 +212,7 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
   try {
     for (const { card, repo } of cardsAwaitingMerge(db)) {
       // A push under way will write the card itself; the next sync can look.
-      if (!card.prUrl || opening.has(card.id)) continue;
+      if (!card.prUrl || opening.has(card.id) || resolving.has(card.id)) continue;
       let pr: PullRequestState;
       try {
         pr = await pullRequestState(repo.repoPath, card.prUrl);
@@ -171,6 +220,9 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
         console.error(`[reeve] could not check pull request for #${card.number}: ${reason(e)}`);
         continue;
       }
+      // Asked again: a push that started while `gh` answered makes the answer
+      // about a branch that is about to change.
+      if (!opening.has(card.id) && !resolving.has(card.id)) noteMergeable(card.id, card.prUrl, pr);
       if (pr.state !== 'MERGED') continue;
 
       const now = new Date();

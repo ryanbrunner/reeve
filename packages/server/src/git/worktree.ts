@@ -292,6 +292,91 @@ export async function isDirty(worktreePath: string, opts: { ignore?: string[] } 
   return (await git(worktreePath, args)).trim().length > 0;
 }
 
+export async function headSha(worktreePath: string): Promise<string> {
+  return (await git(worktreePath, ['rev-parse', '--verify', 'HEAD'])).trim();
+}
+
+/**
+ * Asked of git rather than looked for on disk: in a worktree `.git` is a file,
+ * and MERGE_HEAD lives in the main repo's `worktrees/<name>/` instead.
+ */
+export async function mergeInProgress(worktreePath: string): Promise<boolean> {
+  try {
+    await git(worktreePath, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Paths git still holds as conflicted, NUL-separated so no filename can split one. */
+export async function unmergedPaths(worktreePath: string): Promise<string[]> {
+  const out = await git(worktreePath, ['diff', '--name-only', '-z', '--diff-filter=U']);
+  return [...new Set(out.split('\0').filter(Boolean))];
+}
+
+export type MergeStart = { clean: true } | { clean: false; conflicts: string[] };
+
+/**
+ * Merge `ref` into the worktree's branch, committing if it applies cleanly and
+ * stopping mid-merge if it does not. A merge refused for any other reason — an
+ * untracked file in the way, a hook — is backed out and thrown, since there is
+ * nothing to resolve and nothing should be left half-done.
+ */
+export async function startMerge(worktreePath: string, ref: string): Promise<MergeStart> {
+  try {
+    await git(worktreePath, ['merge', '--no-edit', ref]);
+    return { clean: true };
+  } catch (e) {
+    const conflicts = await unmergedPaths(worktreePath);
+    if (conflicts.length) return { clean: false, conflicts };
+    if (await mergeInProgress(worktreePath)) await abortMerge(worktreePath);
+    throw e;
+  }
+}
+
+export async function abortMerge(worktreePath: string): Promise<void> {
+  await git(worktreePath, ['merge', '--abort']);
+}
+
+/** Only for undoing what Reeve itself just did to a tree it found clean. */
+export async function resetTo(worktreePath: string, sha: string): Promise<void> {
+  await git(worktreePath, ['reset', '-q', '--hard', sha]);
+}
+
+/** git answers "no" by failing, so any failure reads as no. */
+export async function isAncestor(worktreePath: string, ancestor: string, descendant = 'HEAD'): Promise<boolean> {
+  try {
+    await git(worktreePath, ['merge-base', '--is-ancestor', ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Paths HEAD differs from `sha` in, NUL-separated like `unmergedPaths`. */
+export async function changedPaths(worktreePath: string, sha: string): Promise<string[]> {
+  return (await git(worktreePath, ['diff', '--name-only', '-z', sha, 'HEAD'])).split('\0').filter(Boolean);
+}
+
+/**
+ * Which of `paths` still carry a conflict marker as committed at HEAD. Only the
+ * two ends of a hunk count: a bare `=======` is a heading underline in half the
+ * Markdown there is. A path HEAD no longer has was resolved by deleting it.
+ */
+export async function conflictMarkersIn(worktreePath: string, paths: string[]): Promise<string[]> {
+  if (!paths.length) return [];
+  const present = (await git(worktreePath, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...paths]))
+    .split('\0')
+    .filter(Boolean);
+  const marked: string[] = [];
+  for (const path of present) {
+    const content = await git(worktreePath, ['show', `HEAD:${path}`]);
+    if (/^(<{7}|>{7})( |$)/m.test(content)) marked.push(path);
+  }
+  return marked;
+}
+
 /**
  * Capital D, always: git judges merged-ness by ancestry, and a squash leaves
  * none, so `-d` refuses every branch this is ever asked to delete.

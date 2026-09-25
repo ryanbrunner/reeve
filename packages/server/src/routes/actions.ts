@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { needsWorktree, type CritReviewResponse } from '@reeve/shared';
+import { needsWorktree, type CritReviewResponse, type ResolveConflictsResponse } from '@reeve/shared';
 import { cardActivity } from '../board.js';
 import { startCritReview } from '../crit.js';
 import type { Db } from '../db/client.js';
@@ -10,6 +10,7 @@ import { checkWorktree, isDirty, removeWorktree } from '../git/worktree.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { openPullRequest } from '../pullRequest.js';
+import { resolveConflicts } from '../resolveConflicts.js';
 import type { EventWriter } from '../runs/events.js';
 import { ensureDevServer } from '../runs/devServer.js';
 import { runRegistry } from '../runs/registry.js';
@@ -81,6 +82,24 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const result = await openPullRequest(db, card, repo);
     if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
     return c.json(result, result.reused ? 200 : 201);
+  });
+
+  /**
+   * Merge the base branch into a Done card's branch and push it to its pull
+   * request, with Claude resolving the conflicts in between. Answers once the
+   * run has started, or once the push is done if the base merged cleanly and
+   * no run was needed. See resolveConflicts.ts.
+   */
+  routes.post('/:id/resolve-conflicts', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
+    const repo = repoFor(card.repoId);
+    if (!repo) return c.json({ error: 'card has no repo', detail: 'a merge needs a repo' }, 400);
+    const result = await resolveConflicts(db, writer, card, repo);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    const body: ResolveConflictsResponse = { runId: result.runId, pushed: result.pushed };
+    return c.json(body, result.runId ? 201 : 200);
   });
 
   /** Start the repo's dev server for this card, on its own port. */
