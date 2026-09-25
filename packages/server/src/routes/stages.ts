@@ -10,7 +10,7 @@ import {
   insertCardEvent,
   insertReview,
   latestClaudeRunForStage,
-  listProjects,
+  listRepos,
   moveCard,
   reviewsForCard,
 } from '../db/queries.js';
@@ -35,16 +35,16 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     if (!card) return { error: 'not found' as const, status: 404 as const };
     // Off the board means nothing happens to it until it is restored.
     if (card.archivedAt) return { error: 'card is archived' as const, status: 409 as const };
-    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-    if (!project) return { error: 'card has no project' as const, status: 400 as const };
-    return { card, project };
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    if (!repo) return { error: 'card has no repo' as const, status: 400 as const };
+    return { card, repo };
   };
 
   /** Kick off the current stage's Claude run. Nothing starts a stage but this. */
   routes.post('/:id/run', async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
-    const { card, project } = loaded;
+    const { card, repo } = loaded;
 
     if (!isRunnable(card.stage as Stage)) {
       return c.json({ error: 'stage has no Claude work', detail: card.stage }, 400);
@@ -65,7 +65,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
       return c.json({ error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` }, 429);
     }
 
-    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') {
       return c.json(
         { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
@@ -74,7 +74,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     const handle = startClaudeRun({
-      db, writer, card, project, stage,
+      db, writer, card, repo, stage,
       worktreePath: health.path,
     });
     return c.json({ ok: true, runId: handle.runId, sessionId: handle.sessionId }, 201);
@@ -92,7 +92,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   routes.post('/:id/review', async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
-    const { card, project } = loaded;
+    const { card, repo } = loaded;
 
     const parsed = reviewSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
@@ -122,7 +122,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
         // followed by a move rather than one conflated entry.
         const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
         // The same automatic pull request a drag into Done gets.
-        if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, project);
+        if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, repo);
       }
       return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
     }
@@ -142,11 +142,11 @@ export function stageRoutes(db: Db, writer: EventWriter) {
 
     const stage = stageDefinition(card.stage as never);
     if (!stage) return c.json({ error: 'stage not implemented yet' }, 501);
-    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') return c.json({ error: 'card has no usable worktree' }, 409);
 
     const handle = startClaudeRun({
-      db, writer, card, project, stage,
+      db, writer, card, repo, stage,
       worktreePath: health.path,
       reviewNotes: notes,
       // Fork rather than continue: the rejected attempt stays readable and the

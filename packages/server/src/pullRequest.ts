@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from './db/client.js';
 import { insertCardEvent } from './db/queries.js';
-import { card as cardTable, type Card, type Project } from './db/schema.js';
+import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import { createPullRequest, findPullRequest, pushBranch } from './git/github.js';
 import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
 
@@ -22,7 +22,7 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
 
 /**
  * Push a Done card's branch to `origin` and open a pull request for it against
- * the project's default branch — or, if one is already open, leave it to pick
+ * the repo's default branch — or, if one is already open, leave it to pick
  * up the push. Nothing is merged and nothing is torn down: review comments may
  * yet want more commits, and they go in the same worktree.
  *
@@ -33,7 +33,7 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
  * the card as `pr_failed`, because the automatic attempt has nobody waiting on
  * a response to read it in.
  */
-export async function openPullRequest(db: Db, card: Card, project: Project): Promise<PullRequestResult> {
+export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<PullRequestResult> {
   if (card.stage !== 'done') {
     return { ok: false, status: 400, error: 'only a Done card gets a pull request', detail: card.stage };
   }
@@ -58,7 +58,7 @@ export async function openPullRequest(db: Db, card: Card, project: Project): Pro
   };
 
   try {
-    const health = await checkWorktree(project.repoPath, worktreePath);
+    const health = await checkWorktree(repo.repoPath, worktreePath);
     if (health.state !== 'ok') {
       return failed(409, 'worktree missing', health.state === 'missing' ? health.reason : worktreePath);
     }
@@ -77,7 +77,7 @@ export async function openPullRequest(db: Db, card: Card, project: Project): Pro
       return failed(502, 'push to origin failed', reason(e));
     }
 
-    const base = project.defaultBranch;
+    const base = repo.defaultBranch;
     let pr: { url: string; number: number };
     let reused: boolean;
     try {
@@ -127,9 +127,9 @@ export async function openPullRequest(db: Db, card: Card, project: Project): Pro
  * silence — a Backlog idea dragged straight to Done is not a failure. And
  * nothing may escape: an unhandled rejection here would take the server down.
  */
-export function maybeOpenPullRequest(db: Db, card: Card, project: Project | undefined): void {
-  if (!project || !card.branchName || !card.worktreePath || !card.baseSha) return;
-  openPullRequest(db, card, project).catch((e) => {
+export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined): void {
+  if (!repo || !card.branchName || !card.worktreePath || !card.baseSha) return;
+  openPullRequest(db, card, repo).catch((e) => {
     console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
   });
 }

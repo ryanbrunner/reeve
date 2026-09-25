@@ -12,7 +12,7 @@ import {
   setRunStatus,
   unreadNotesFor,
 } from '../db/queries.js';
-import { artifact as artifactTable, type Card, type CardStage, type Project } from '../db/schema.js';
+import { artifact as artifactTable, type Card, type CardStage, type Repo } from '../db/schema.js';
 import type { ClaudeTask, StageContext } from '../stages/types.js';
 import type { EventWriter } from './events.js';
 import { runRegistry } from './registry.js';
@@ -24,7 +24,7 @@ export interface ClaudeRunParams {
   db: Db;
   writer: EventWriter;
   card: Card;
-  project: Project;
+  repo: Repo;
   stage: ClaudeTask<never>;
   /**
    * Which column to record the run against. Defaults to the task's own id,
@@ -97,7 +97,7 @@ function stopReasonForSubtype(subtype: string): StopReason {
  */
 export function stageContextFor(
   db: Db,
-  base: Pick<StageContext, 'card' | 'project' | 'worktreePath' | 'reviewNotes' | 'answers'>,
+  base: Pick<StageContext, 'card' | 'repo' | 'worktreePath' | 'reviewNotes' | 'answers'>,
   excludeStage?: CardStage,
 ): StageContext {
   return {
@@ -113,13 +113,13 @@ export function stageContextFor(
 }
 
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
-  const { db, writer, card, project, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
+  const { db, writer, card, repo, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
 
   // Read before `run_started` is written: that event is where unread notes end,
   // so gathering after it would hand this run none of them.
   const ctx = stageContextFor(db, {
-    card, project, worktreePath,
+    card, repo, worktreePath,
     reviewNotes: reviewNotes ?? null,
     answers: answers ?? [],
   }, runStage);

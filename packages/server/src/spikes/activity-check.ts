@@ -4,12 +4,12 @@
  */
 import { createApp } from '../index.js';
 import { toBoardCard } from '../board.js';
-import { createCard, createProject, getCard, insertRun, setRunStatus } from '../db/queries.js';
+import { createCard, createRepo, getCard, insertRun, setRunStatus } from '../db/queries.js';
 import type { RunStatus } from '@reeve/shared';
 
 const { db } = createApp();
 
-const project = createProject(db, {
+const repo = createRepo(db, {
   name: `activity-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
@@ -32,7 +32,7 @@ function activityOf(opts: {
   /** A Suggest run in the same stage, newer than the stage's own. */
   suggest?: RunStatus;
 }) {
-  const c = createCard(db, { title: 'probe', projectId: project.id, stage: opts.stage ?? 'planning' });
+  const c = createCard(db, { title: 'probe', repoId: repo.id, stage: opts.stage ?? 'planning' });
   if (opts.status) {
     const r = insertRun(db, {
       id: crypto.randomUUID(), cardId: c.id, kind: opts.kind ?? 'claude',

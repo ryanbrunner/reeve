@@ -25,11 +25,11 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
 export function toBoardCard(
   db: Db,
   card: Card,
-  projectName: string | null,
+  repoName: string | null,
   laneColor: string | null,
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
-  return toApiCard(card, projectName, laneColor, run, activity, isOpeningPr(card.id));
+  return toApiCard(card, repoName,laneColor, run, activity, isOpeningPr(card.id));
 }
 
 /**

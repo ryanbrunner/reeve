@@ -29,7 +29,7 @@ export interface ShellRunHandle {
 }
 
 /**
- * Runs a project command (setup, test, or the dev server) and streams its
+ * Runs a repo's command (setup, test, or the dev server) and streams its
  * output into run_event, so shell output and Claude transcripts render through
  * one component and one SSE endpoint.
  */
