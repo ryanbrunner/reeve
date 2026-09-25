@@ -13,9 +13,17 @@ import {
 import { STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
+import { Glyph } from './board/Glyph.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
+import { SickoArming } from './sicko/Arming.js';
+import { SickoHud } from './sicko/Hud.js';
+import { SickoLane } from './sicko/Lane.js';
+import { SickoLightsBehind, SickoLightsOver } from './sicko/Lights.js';
+import { SickoSwitch } from './sicko/Switch.js';
+import { SickoTicker } from './sicko/Ticker.js';
+import { useSicko, type Sicko } from './sicko/useSicko.js';
 import { api, cardsIn } from './lib/api.js';
 
 export function App() {
@@ -72,8 +80,12 @@ export function App() {
     staleTime: 0,
     refetchInterval: (q) =>
       held ? false
-        : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts) ? 1_500
-        : 5_000,
+      // SICKO MODE moves cards on its own every couple of seconds, and a card
+      // that flew while the board was not looking would land without the
+      // flight. Kept brisk whatever the cards are doing.
+      : q.state.data?.sicko ? 1_000
+      : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts) ? 1_500
+      : 5_000,
   });
 
   // A new card, opened on arrival so the details go straight in. Cleared as
@@ -98,6 +110,14 @@ export function App() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const cards = data?.cards ?? [];
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+
+  // Which cards are on main, as one string so the identity only changes when
+  // the set does. The ids and not the count, because two merges landing in one
+  // poll should set off one flash, and the stamp has to know which cards to sit
+  // on.
+  const mergedKey = cards.filter((c) => c.mergedAt != null).map((c) => c.id).sort().join(',');
+  const mergedIds = useMemo(() => (mergedKey ? mergedKey.split(',') : []), [mergedKey]);
+  const sicko = useSicko(data?.sicko ?? null, mergedIds);
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);
@@ -149,51 +169,99 @@ export function App() {
     ? (data?.repos ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
     : [{ id: undefined as unknown as string | null, name: '', color: null }];
 
+  /*
+   * In SICKO MODE the whole app is dressed differently, so the frame goes on
+   * here rather than in a dozen places: the root carries `.sicko`, which is the
+   * only thing every rule in sicko.css hangs off, and the lights go in front of
+   * and behind the two shake wrappers.
+   *
+   * Those wrappers are also why the modals are siblings of the stage rather than
+   * inside it: `sk-jolt` puts a transform and a filter on `.sk-stage-in`, and a
+   * `position: fixed` modal inside a transformed ancestor stops being fixed to
+   * the window.
+   */
+  const lanesInner = (
+    <div className={`flex-1 overflow-auto p-4 ${sicko.sick ? 'pb-20' : ''}`}>
+      {lanes.map((lane) => (
+        <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
+          {swimlanes && (
+            <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
+              <span
+                className={`h-2 w-2 rounded-full ${sicko.sick ? 'sk-lane-dot' : ''}`}
+                style={{ background: lane.color ?? '#3f4754' }}
+              />
+              <span className={sicko.sick ? 'sk-lane-name' : ''}>{lane.name}</span>
+            </h2>
+          )}
+          {sicko.sick ?
+            <SickoLane
+              cards={lane.id === undefined ? cards : cards.filter((c) => c.repoId === lane.id)}
+              laneId={lane.id}
+              justMerged={sicko.justMerged}
+              onOpen={openAndClose.open}
+            />
+          : <div className="grid grid-cols-5 gap-3 min-w-[920px]">
+              {STAGES.map((stage) => (
+                <Column
+                  key={stage}
+                  stage={stage}
+                  laneId={lane.id}
+                  cards={cardsIn(cards, stage, lane.id)}
+                  onOpen={openAndClose.open}
+                />
+              ))}
+            </div>
+          }
+        </section>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="flex h-full flex-col">
-      <Header
-        swimlanes={swimlanes}
-        onToggle={() => setSwimlanes((s) => !s)}
-        repos={data?.repos ?? []}
-        onAdd={create.mutate}
-        adding={create.isPending}
-        addError={create.error}
-        onOpenSettings={setSettingsOpen}
-        onOpenArchive={() => setArchiveOpen(true)}
-        cardCount={cards.length}
-      />
-      <DndContext
-        sensors={sensors}
-        collisionDetection={columnCollisions}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragCancel={onDragCancel}
+    <div className={`relative flex h-full flex-col ${sicko.sick ? 'sicko' : ''}`}>
+      {sicko.sick && <SickoLightsBehind />}
+      {/* Two wrappers, one transform each: the outer jumps when a card lands on
+          main, the inner glitches on its own clock. */}
+      <div
+        className={`sk-stage relative z-10 flex min-h-0 flex-1 flex-col ${
+          sicko.live ? (sicko.shake ? 'sk-shake-a' : 'sk-shake-b') : ''
+        }`}
       >
-        <div className="flex-1 overflow-auto p-4">
-          {lanes.map((lane) => (
-            <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
-              {swimlanes && (
-                <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-                  <span className="h-2 w-2 rounded-full" style={{ background: lane.color ?? '#3f4754' }} />
-                  {lane.name}
-                </h2>
-              )}
-              <div className="grid grid-cols-5 gap-3 min-w-[920px]">
-                {STAGES.map((stage) => (
-                  <Column
-                    key={stage}
-                    stage={stage}
-                    laneId={lane.id}
-                    cards={cardsIn(cards, stage, lane.id)}
-                    onOpen={openAndClose.open}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="sk-stage-in flex min-h-0 flex-1 flex-col">
+          <Header
+            swimlanes={swimlanes}
+            onToggle={() => setSwimlanes((s) => !s)}
+            repos={data?.repos ?? []}
+            onAdd={create.mutate}
+            adding={create.isPending}
+            addError={create.error}
+            onOpenSettings={setSettingsOpen}
+            onOpenArchive={() => setArchiveOpen(true)}
+            cardCount={cards.length}
+            sicko={sicko}
+          />
+          {sicko.sick && <SickoTicker />}
+          {/* Nothing is draggable in SICKO MODE, so the drag machinery is left
+              out entirely rather than made inert around an overlay it would
+              fight with. */}
+          {sicko.sick ?
+            lanesInner
+          : <DndContext
+              sensors={sensors}
+              collisionDetection={columnCollisions}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onDragCancel={onDragCancel}
+            >
+              {lanesInner}
+              <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
+            </DndContext>
+          }
+          {sicko.state && <SickoHud state={sicko.state} pop={sicko.pop} />}
         </div>
-        <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
-      </DndContext>
+      </div>
+      {sicko.sick && <SickoLightsOver flash={sicko.flash} />}
+      {sicko.phase === 'arming' && <SickoArming />}
       {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} editTitle={openCard === freshId} />}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
       {archiveOpen && (
@@ -257,7 +325,7 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount }: {
+function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
   swimlanes: boolean;
   onToggle: () => void;
   repos: ApiRepo[];
@@ -267,6 +335,7 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
+  sicko: Sicko;
 }) {
   // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
@@ -278,11 +347,12 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
   const [repoId, setRepoId] = useState<string | null>(null);
   const chosen = repoId === '' || repos.some((p) => p.id === repoId);
   const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
+  const sick = sicko.sick;
   return (
-    <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
+    <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
-        <img src="/reeve-glyph.svg" alt="" className="h-5 w-auto" />
-        Reeve
+        <Glyph />
+        <span className={sick ? 'sk-wm' : ''}>Reeve</span>
       </h1>
       <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)">
         {cardCount} cards
@@ -294,7 +364,9 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
             value={filedUnder}
             onChange={(e) => setRepoId(e.target.value)}
             aria-label="Repo for the new card"
-            className="rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600"
+            className={`rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600 ${
+              sick ? 'sk-field' : ''
+            }`}
           >
             {repos.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -308,9 +380,12 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
           type="button"
           disabled={adding}
           onClick={() => onAdd(filedUnder || null)}
-          className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600 disabled:opacity-40"
+          className={`rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600 disabled:opacity-40 ${
+            sick ? 'sk-add' : ''
+          }`}
         >
-          Add
+          {/* A card added while this is on does not wait in Backlog for anyone. */}
+          {sick ? 'Ship it' : 'Add'}
         </button>
       </div>
       <button
@@ -332,6 +407,12 @@ function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSet
       >
         Archive
       </button>
+      {/* What happened while you were not being asked. Said once, on the way
+          out, and then gone. */}
+      {sicko.toast && <span className="sk-toast" role="status">{sicko.toast}</span>}
+      {/* Beside the other view toggles, and quiet until it is hovered: the one
+          control here that changes what Reeve IS rather than what it shows. */}
+      <SickoSwitch on={sick} onToggle={sicko.toggle} disabled={sicko.pending} />
       <button
         onClick={onToggle}
         className={`rounded-md border px-3 py-1.5 text-sm ${swimlanes ? 'border-sky-600 text-sky-300' : 'border-(--color-edge) text-(--color-muted)'}`}
