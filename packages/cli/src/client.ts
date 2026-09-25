@@ -3,11 +3,14 @@ import {
   type ApiCard,
   type ApiCommit,
   type ApiDiff,
+  type ApiSettings,
   type BoardResponse,
   type CardDetail,
   type CreateCardBody,
+  type ModelsResponse,
   type MoveCardBody,
   type ResolveConflictsResponse,
+  type UpdateSettingsBody,
 } from '@reeve/shared';
 import { CliError } from './output.js';
 
@@ -68,6 +71,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
+const patch = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 
 export const api = {
@@ -93,6 +99,11 @@ export const api = {
   stopServer: (id: string) => del<{ ok: true }>(`/api/cards/${id}/server`),
   diff: (id: string) => request<ApiDiff>(`/api/cards/${id}/diff`),
   commits: (id: string) => request<ApiCommit[]>(`/api/cards/${id}/commits`),
+
+  settings: () => request<ApiSettings>('/api/settings'),
+  updateSettings: (body: UpdateSettingsBody) => patch<ApiSettings>('/api/settings', body),
+  /** Slow only on the first call after the server boots, which asks the Claude CLI. */
+  models: () => request<ModelsResponse>('/api/models'),
 };
 
 /**

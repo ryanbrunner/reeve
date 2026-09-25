@@ -5,6 +5,7 @@ import { list } from './commands/list.js';
 import { move } from './commands/move.js';
 import { open } from './commands/open.js';
 import { serve } from './commands/serve.js';
+import { models, settings } from './commands/settings.js';
 import { show } from './commands/show.js';
 import { CliError, note, print, usageError } from './output.js';
 
@@ -37,15 +38,26 @@ const USAGE = `Usage: reeve [command] [options]
   reeve card commits [<card>]
       The card's commits, newest first.
 
+  reeve settings [--json]
+      Reeve's settings: the run cap, SICKO MODE, and each stage's model and effort.
+  reeve settings set <key> <value> [--json]
+  reeve settings unset <stage>.model|<stage>.effort [--json]
+      Change one. Keys: max-concurrent-runs, or <stage>.model or <stage>.effort
+      for planning, in-progress or testing. Unset goes back to the default.
+  reeve models [--json]
+      The models the Claude CLI offers, for <stage>.model.
+
 <card>   142, #142, <repo>#142, or a card id or prefix of one. Where it is
          optional, leaving it out means the card whose worktree you are in.
 <stage>  backlog, planning, in-progress, testing or done
 
---json, which the card actions all take, puts JSON alone on stdout; messages
+--json, which the card actions and settings all take, puts JSON alone on stdout; messages
 go to stderr.
 Commands other than serve talk to $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
 
-const COMMANDS: Record<string, (args: string[]) => Promise<void>> = { serve, list, add, move, show, open, card };
+const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
+  serve, list, add, move, show, open, card, settings, models,
+};
 
 async function main(argv: string[]): Promise<void> {
   const [first] = argv;
