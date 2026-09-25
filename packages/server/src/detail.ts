@@ -55,9 +55,11 @@ export async function cardDetail(
   // the history and its cost is counted, but it is no version of the plan.
   const claudeRuns = runs.filter((r) => r.kind === 'claude' && r.task === null);
   const current = latestClaudeRunForStage(db, card.id, card.stage);
+  const board = toBoardCard(db, card, projectName, laneColor);
+  const latest = runs.find((r) => r.id === board.latestRun?.id);
 
   return {
-    card: toBoardCard(db, card, projectName, laneColor),
+    card: board,
     project: project ? toApiProject(project) : null,
     criteria: criteriaFor(db, card.id).map(toApiCriterion),
     refs: refsFor(db, card.id).map(toApiCardRef),
@@ -66,6 +68,7 @@ export async function cardDetail(
     implementation: latestImplementation(claudeRuns),
     checks: latestChecks(db, card.id, claudeRuns),
     runs: runs.map(toApiRunSummary),
+    thought: latest ? { activity: latest.lastActivity, thinking: latest.lastThinking } : null,
     events: cardEventsFor(db, card.id).map(toApiCardEvent),
     stageHistory: stageHistory(db, card.id),
     worktree: await worktreeFacts(db, card, project, runs),
