@@ -61,9 +61,10 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                   <p className="text-sm/5 whitespace-pre-line text-(--color-muted)">{e.body}</p>
                 )}
                 {(e.kind === 'pr_opened' || e.kind === 'merged') && <PullRequestLink event={e} />}
-                {e.kind === 'pr_failed' && e.body && (
+                {(e.kind === 'pr_failed' || e.kind === 'conflicts_failed') && e.body && (
                   <p className="font-mono text-[11px]/4 whitespace-pre-wrap text-red-300">{e.body}</p>
                 )}
+                {e.kind === 'conflicts_resolved' && <Resolution event={e} />}
               </div>
             </li>
           ))}
@@ -106,6 +107,37 @@ function PullRequestLink({ event }: { event: ApiCardEvent }) {
   );
 }
 
+/**
+ * What Claude decided, file by file. The merge reached the pull request with
+ * nobody looking at it first, so this is where a person finds out what it was.
+ */
+function Resolution({ event }: { event: ApiCardEvent }) {
+  const meta = event.meta ?? {};
+  const files = Array.isArray(meta['files']) ? (meta['files'] as Array<{ path?: unknown; resolution?: unknown }>) : [];
+  const concerns = Array.isArray(meta['concerns']) ? meta['concerns'].filter((c) => typeof c === 'string') : [];
+  return (
+    <>
+      {event.body && <p className="text-sm/5 text-(--color-muted)">{event.body}</p>}
+      {meta['testsPassed'] === false && (
+        <p className="text-sm/5 text-amber-200">Pushed with the tests failing.</p>
+      )}
+      {files.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {files.map((f, i) => (
+            <li key={i} className="text-sm/5 text-(--color-muted)">
+              <code className="font-mono text-[11px]/4 text-(--color-text)">{String(f.path ?? '')}</code>{' '}
+              {String(f.resolution ?? '')}
+            </li>
+          ))}
+        </ul>
+      )}
+      {concerns.map((c, i) => (
+        <p key={i} className="text-sm/5 text-amber-200">{c}</p>
+      ))}
+    </>
+  );
+}
+
 function NoteComposer({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const [text, setText] = useState('');
@@ -145,7 +177,8 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   if (filter === 'runs') return e.kind === 'run_started' || e.kind === 'run_finished';
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
-    e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed'
+    e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed' ||
+    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed'
   );
 }
 
@@ -202,6 +235,17 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
         : outcome === 'not_applied' ? 'finished a review in Crit that was not applied'
         : 'could not finish a review in Crit';
     }
+    case 'conflicts_resolved': {
+      const base = typeof e.meta?.['base'] === 'string' ? e.meta['base'] : 'the base branch';
+      const number = e.meta?.['number'];
+      const pr = typeof number === 'number' ? `pull request #${number}` : 'the pull request';
+      // Clean means GitHub's verdict was stale and no run was needed.
+      return e.meta?.['clean']
+        ? `merged ${base} into the branch and pushed it to ${pr}`
+        : `resolved the conflicts with ${base} and pushed the merge to ${pr}`;
+    }
+    case 'conflicts_failed':
+      return 'could not resolve the conflicts';
   }
 }
 

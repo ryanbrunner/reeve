@@ -33,7 +33,9 @@ export type CardEventKind =
   | 'archived'
   | 'restored'
   | 'handed_off'
-  | 'crit_reviewed';
+  | 'crit_reviewed'
+  | 'conflicts_resolved'
+  | 'conflicts_failed';
 
 export interface ApiCardEvent {
   id: string;
