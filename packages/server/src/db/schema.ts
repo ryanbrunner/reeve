@@ -131,6 +131,10 @@ export const card = sqliteTable(
     // Settings default for the stage, then to the stage module's own value.
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
+    // Whether Planning draws its own mockups for the states this card changes.
+    // On by default, including for cards that predate the column: drawing them
+    // is what saves a person having to.
+    generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
