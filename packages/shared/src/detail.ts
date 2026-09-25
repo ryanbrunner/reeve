@@ -33,7 +33,9 @@ export type CardEventKind =
   | 'archived'
   | 'restored'
   | 'handed_off'
-  | 'crit_reviewed';
+  | 'crit_reviewed'
+  | 'conflicts_resolved'
+  | 'conflicts_failed';
 
 export interface ApiCardEvent {
   id: string;
@@ -148,7 +150,10 @@ export interface ApiAsset {
   src: string;
   width: number | null;
   height: number | null;
-  /** The run that captured it; null on a mockup, which a person attached. */
+  /**
+   * The run that captured it, or the planning run that drew a mockup. Null on
+   * a mockup a person attached.
+   */
   runId: string | null;
   createdAt: number;
 }
@@ -268,6 +273,16 @@ export interface CritReviewResponse {
   url: string | null;
   /** A review was already open for this plan, and this is it. */
   reused: boolean;
+}
+
+/**
+ * What `POST /cards/:id/resolve-conflicts` answers with. A run id means Claude
+ * is resolving and the push follows it; none means the base merged cleanly
+ * and `pushed` says it has already gone to the pull request.
+ */
+export interface ResolveConflictsResponse {
+  runId: string | null;
+  pushed: boolean;
 }
 
 // --- The whole card ---------------------------------------------------------

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b82eb3b4-dc67-41f4-8505-ea2c3c5349bc",
+  "id": "cf3a01e7-36d7-4352-92d9-061fbb5057cb",
   "prevId": "277f442b-9c40-4b9e-b442-6737701b4fbb",
   "tables": {
     "acceptance_criterion": {
@@ -367,21 +367,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'task'"
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "repo_id": {
           "name": "repo_id",
           "type": "text",
@@ -518,6 +503,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "generate_mockups": {
+          "name": "generate_mockups",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
         "archived_at": {
           "name": "archived_at",
           "type": "integer",
@@ -567,31 +560,9 @@
             "number"
           ],
           "isUnique": false
-        },
-        "card_project": {
-          "name": "card_project",
-          "columns": [
-            "project_id",
-            "stage",
-            "position"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {
-        "card_project_id_card_id_fk": {
-          "name": "card_project_id_card_id_fk",
-          "tableFrom": "card",
-          "tableTo": "card",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "card_repo_id_repo_id_fk": {
           "name": "card_repo_id_repo_id_fk",
           "tableFrom": "card",

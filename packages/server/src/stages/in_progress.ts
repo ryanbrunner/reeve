@@ -1,5 +1,8 @@
 import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
+import { absoluteAssetPath } from '../assets/store.js';
+import { assetsFor } from '../db/queries.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -18,24 +21,36 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
   id: 'in_progress',
   schema: implementationOutput,
   permissionMode: 'acceptEdits',
-  allowedTools: [
-    'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit',
-    // Scoped so a run can build, test and commit its own work, but not reach
-    // for the network or rewrite history it did not create.
-    'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)',
-    'Bash(npm run *)', 'Bash(npm test *)', 'Bash(npx *)', 'Bash(node *)',
-  ],
+  // Scoped so a run can build, test and commit its own work, but not reach for
+  // the network or rewrite history it did not create.
+  allowedTools: ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', ...GIT_READ, ...GIT_COMMIT, ...NODE_TOOLING],
   maxBudgetUsd: 10,
   maxTurns: 200,
   effort: 'high',
 
-  buildPrompt(ctx) {
+  /**
+   * The card's mockups, as files Claude can Read: the pictures Testing will
+   * hold the build up against, handed over before the build rather than after.
+   */
+  async prepare(db, _writer, ctx) {
+    const mockups = assetsFor(db, ctx.card.id).filter((a) => a.kind === 'mockup');
+    if (mockups.length === 0) return {};
+    const lines = mockups.map((m) => {
+      const where = m.url ? ` (${m.url} at ${m.viewport ?? '?'}px)` : '';
+      const drawn = m.runId ? ' — drawn by Claude while planning' : '';
+      return `- **${m.label}**${where}: \`${absoluteAssetPath(m.path)}\`${drawn}`;
+    });
+    return { mockups: renderPrompt('in_progress_mockups', { mockups: lines.join('\n') }) };
+  },
+
+  buildPrompt(ctx, prepared) {
     const plan = ctx.priorArtifacts?.find((a) => a.kind === 'plan')?.content;
     return renderPrompt('in_progress', {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       body: ctx.card.body.trim() || '_No further detail was given._',
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
+      mockups: prepared?.['mockups'] ?? '',
       testCommand: ctx.repo.testCommand
         ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
         : 'This repo defines no test command, so there is nothing to run.',

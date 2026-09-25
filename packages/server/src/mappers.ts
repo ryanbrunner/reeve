@@ -9,6 +9,7 @@ import type {
   ApiQuestion,
   ApiRepo,
   ApiRunSummary,
+  ApiToolDenial,
   CardActivity,
   CardKind,
   CardEventActor,
@@ -68,7 +69,28 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     startedAt: ms(r.startedAt),
     finishedAt: ms(r.finishedAt),
     errorMessage: r.errorMessage,
+    deniedToolUses: toApiToolDenials(r.permissionDenials),
   };
+}
+
+/**
+ * The SDK's `permission_denials`, as stored. Read defensively: it is the SDK's
+ * shape rather than ours, it has grown fields before, and a run whose denials
+ * cannot be parsed should still render.
+ */
+function toApiToolDenials(stored: unknown): ApiToolDenial[] {
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap((raw) => {
+    if (typeof raw !== 'object' || raw === null) return [];
+    const d = raw as { tool_name?: unknown; tool_input?: Record<string, unknown> };
+    const tool = typeof d.tool_name === 'string' ? d.tool_name : 'a tool';
+    // A command for Bash, a path for the file tools. Both answer the only
+    // question the human has here: which call was it?
+    const detail = ['command', 'file_path', 'path', 'url', 'pattern']
+      .map((k) => d.tool_input?.[k])
+      .find((v) => typeof v === 'string' && v.trim());
+    return [{ tool, detail: typeof detail === 'string' ? detail.replace(/\s+/g, ' ').trim() : null }];
+  });
 }
 
 /**
@@ -82,7 +104,7 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
-  openingPr: boolean,
+  github: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts'>,
 ): ApiCard {
   return {
     id: c.id,
@@ -103,9 +125,10 @@ export function toApiCard(
     prUrl: c.prUrl,
     prNumber: c.prNumber,
     prOpenedAt: ms(c.prOpenedAt),
-    openingPr,
+    ...github,
     model: c.model,
     effort: c.effort,
+    generateMockups: c.generateMockups,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     archivedAt: ms(c.archivedAt),

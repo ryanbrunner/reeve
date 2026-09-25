@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ApiAsset, CardDetail } from '@reeve/shared';
 import { when } from '../format.js';
+import { Lightbox } from '../Lightbox.js';
 import { Empty, SectionHead } from '../ui.js';
 
 type View = 'mockup' | 'build' | 'both';
@@ -19,7 +20,9 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
   const [view, setView] = useState<View>('both');
 
   const shot = shots.find((s) => s.id === selected) ?? shots[0] ?? null;
-  const mockup = shot ? (mockups.find((m) => m.label === shot.label) ?? null) : (mockups[0] ?? null);
+  // A person's mockup over one Claude drew, as Testing compares them.
+  const paired = shot ? mockups.filter((m) => m.label === shot.label) : [];
+  const mockup = shot ? (paired.find((m) => m.runId === null) ?? paired[0] ?? null) : (mockups[0] ?? null);
   const differences = detail.differences.filter(
     (d) => !shot || d.screenshotAssetId === shot.id || d.screenshotAssetId === null,
   );
@@ -27,8 +30,9 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
   if (shots.length === 0 && mockups.length === 0) {
     return (
       <Empty>
-        Nothing to show yet. Attach a mockup in the Plan tab, and Testing will photograph the same
-        page to sit beside it.
+        Nothing to show yet. Attach a mockup in the Plan tab, or leave Generate mockups ticked for
+        Claude to draw them while planning, and Testing will photograph the same page to sit beside
+        it.
       </Empty>
     );
   }
@@ -42,7 +46,7 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
         </Empty>
         <div className="grid grid-cols-2 gap-3">
           {mockups.map((m) => (
-            <Figure key={m.id} asset={m} kind="Mockup" caption={`${m.url ?? ''} · ${m.viewport ?? '?'}px`} />
+            <Figure key={m.id} asset={m} kind={mockupKind(m)} caption={`${m.url ?? ''} · ${m.viewport ?? '?'}px`} />
           ))}
         </div>
       </>
@@ -79,7 +83,7 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
 
         <div className={pair && view === 'both' ? 'grid grid-cols-2 gap-3' : ''}>
           {pair && view !== 'build' && (
-            <Figure asset={mockup} kind="Mockup" caption={`${mockup.url ?? ''} · ${mockup.viewport ?? '?'}px`} />
+            <Figure asset={mockup} kind={mockupKind(mockup)} caption={`${mockup.url ?? ''} · ${mockup.viewport ?? '?'}px`} />
           )}
           {(!pair || view !== 'mockup') && shot && (
             <Figure
@@ -141,22 +145,39 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
   );
 }
 
+/** Clipped to its top here, so a click opens the whole page. */
 function Figure({ asset, kind, caption }: { asset: ApiAsset; kind: string; caption: string }) {
+  const [open, setOpen] = useState(false);
+  // Stable, or every poll of the card would re-run the lightbox's effect.
+  const close = useCallback(() => setOpen(false), []);
   return (
     <figure className="m-0 flex flex-col gap-1.5">
       <figcaption className="flex justify-between gap-2 font-mono text-[10px]/4">
         <span className="font-medium tracking-[0.06em] text-(--color-text) uppercase">{kind}</span>
         <span className="truncate text-(--color-muted)">{caption}</span>
       </figcaption>
-      <div className="overflow-hidden rounded-md border border-(--color-edge)">
+      <button
+        type="button"
+        // Safari and Firefox leave a clicked button unfocused, and the lightbox
+        // hands focus back to whatever had it.
+        onClick={(e) => { e.currentTarget.focus(); setOpen(true); }}
+        aria-label={`View ${kind} full screen`}
+        className="block cursor-zoom-in overflow-hidden rounded-md border border-(--color-edge) hover:border-slate-600"
+      >
         <img
           src={asset.src}
           alt={`${kind}: ${asset.label}`}
           className="block max-h-[21rem] w-full bg-(--color-ink) object-cover object-top"
         />
-      </div>
+      </button>
+      {open && <Lightbox asset={asset} kind={kind} caption={caption} onClose={close} />}
     </figure>
   );
+}
+
+/** A mockup Planning drew carries its run; a person's carries none. */
+function mockupKind(mockup: ApiAsset): string {
+  return mockup.runId ? 'Mockup by Claude' : 'Mockup';
 }
 
 /** Runs are numbered as a person counts them: oldest is 1. */

@@ -8,7 +8,8 @@ import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { reapOrphanedRuns } from './db/queries.js';
-import { syncMergedPullRequests } from './pullRequest.js';
+import { archiveMergedCards, syncMergedPullRequests } from './pullRequest.js';
+import { sickoSweep } from './sicko/engine.js';
 import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
 import { assetRoutes } from './routes/assets.js';
@@ -63,7 +64,7 @@ export function createApp() {
 
 const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
 if (isEntry) {
-  const { app, db } = createApp();
+  const { app, db, writer } = createApp();
   // Out here rather than in createApp, which the spikes call and which should
   // not start a CLI each time. Warmed now so the first picker and the first
   // pinned run do not wait on it.
@@ -77,6 +78,30 @@ if (isEntry) {
   const syncMerges = () => {
     syncMergedPullRequests(db).catch((e) => console.error(`[reeve] merge sync failed: ${String(e)}`));
   };
+  // Beside the sync rather than inside it: a slow `gh` call skips the next
+  // sync, and archiving should not wait on it. Synchronous, so a throw here
+  // would escape the timer unless caught.
+  const archiveMerged = () => {
+    try {
+      archiveMergedCards(db);
+    } catch (e) {
+      console.error(`[reeve] archiving merged cards failed: ${String(e)}`);
+    }
+  };
   syncMerges();
-  setInterval(syncMerges, config.mergeSyncMs);
+  archiveMerged();
+  setInterval(() => {
+    syncMerges();
+    archiveMerged();
+  }, config.mergeSyncMs);
+
+  // The other half of SICKO MODE. Out here for the same reason: the sweep
+  // starts Claude runs and talks to GitHub, and a spike that builds an app
+  // should do neither. It reads the switch itself and does nothing while it is
+  // off, which is a cheap settings read every couple of seconds and the price
+  // of the switch being one row rather than a process that has to be restarted.
+  const sweep = () => {
+    sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
+  };
+  setInterval(sweep, config.sickoSweepMs);
 }

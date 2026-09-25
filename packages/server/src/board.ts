@@ -3,7 +3,7 @@ import type { Db } from './db/client.js';
 import { latestClaudeRunForStage } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
-import { isOpeningPr } from './pullRequest.js';
+import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { stageDefinition } from './stages/index.js';
 
 /**
@@ -29,7 +29,14 @@ export function toBoardCard(
   laneColor: string | null,
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
-  return toApiCard(card, repoName,laneColor, run, activity, isOpeningPr(card.id));
+  // Only Done offers a resolution. A card dragged back for another round keeps
+  // its pull request, and its conflicts wait until it returns.
+  const openInDone = card.stage === 'done' && card.prUrl !== null && card.mergedAt === null;
+  return toApiCard(card, repoName, laneColor, run, activity, {
+    openingPr: isOpeningPr(card.id),
+    prConflicting: openInDone && isPrConflicting(card),
+    resolvingConflicts: isResolvingConflicts(card.id),
+  });
 }
 
 /**

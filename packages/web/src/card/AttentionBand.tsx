@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, nextStage, type CardDetail } from '@reeve/shared';
+import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { Button, Code, SmallButton } from './ui.js';
 import { cost, duration, plural } from './format.js';
@@ -423,6 +423,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
         </div>
         {failure && !busy && <p className="text-sm/5 text-amber-200">The last push did not reach it: {failure}</p>}
         {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+        <Conflicts detail={detail} pushing={busy} />
       </div>
     );
   }
@@ -451,6 +452,90 @@ function PullRequest({ detail }: { detail: CardDetail }) {
       </div>
       {failure && !busy && <p className="text-sm/5 text-red-300">{failure}</p>}
       {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+    </div>
+  );
+}
+
+/**
+ * GitHub's verdict that the open pull request cannot merge, and the button that
+ * has it resolved: the server merges the base in, Claude settles the conflicts,
+ * and the server checks the merge and pushes it on its own.
+ *
+ * Busy is read off the card's runs and the server's lock, not the mutation
+ * alone, so closing the modal and opening it again still finds it working.
+ * Nobody reviews the merge before it is pushed, so the last failure and a push
+ * with failing tests both stay said here until something replaces them.
+ */
+function Conflicts({ detail, pushing }: { detail: CardDetail; pushing: boolean }) {
+  const qc = useQueryClient();
+  const { card, worktree } = detail;
+  // Returned rather than fired, so the button stays pending until the refetch
+  // has the run in it and `live` below takes over. See BriefTab's Suggest.
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ['card', card.id] }),
+      qc.invalidateQueries({ queryKey: ['board'] }),
+    ]);
+  const resolve = useMutation({ mutationFn: () => api.resolveConflicts(card.id), onSettled: refresh });
+  const last = detail.runs.find((r) => r.task === 'resolve_conflicts');
+  const live = last && !isTerminal(last.status) ? last : null;
+  const stop = useMutation({ mutationFn: () => api.stopRun(live!.id), onSettled: refresh });
+
+  const resolving = resolve.isPending || card.resolvingConflicts || live !== null;
+  // Events are newest first, so this is how the latest attempt ended.
+  const outcome = detail.events.find((e) => e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed');
+  // A failure that kept its merge is still worth saying once GitHub stops
+  // calling it conflicting; any other is about a conflict that has gone.
+  const failure =
+    outcome?.kind === 'conflicts_failed' && (card.prConflicting || outcome.meta?.['kept'] === true)
+      ? (outcome.body ?? 'reason unrecorded')
+      : null;
+  const untested = outcome?.kind === 'conflicts_resolved' && outcome.meta?.['testsPassed'] === false;
+  const refused = resolve.error && resolve.error.message !== failure ? resolve.error.message : null;
+  const base = worktree.baseBranch;
+  const branch = worktree.branch ?? 'the branch';
+
+  if (!resolving && !card.prConflicting && !failure && !untested && !refused) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {(resolving || card.prConflicting) && (
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 grow">
+            <div className="text-sm/5 font-medium text-(--color-text)">
+              {resolving ? `Resolving conflicts with ${base}` : `It has conflicts with ${base}`}
+            </div>
+            <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+              {live
+                ? `Claude is settling what merging ${base} into ${branch} left conflicted. The merge is checked and pushed to the pull request once it is done.`
+                : resolving
+                  ? `Merging ${base} into ${branch}, and pushing it once it is checked…`
+                  : !worktree.exists
+                    ? 'GitHub cannot merge the pull request as it stands, and the worktree is missing, so there is nothing to merge into.'
+                    : `GitHub cannot merge the pull request as it stands. Resolving merges ${base} into ${branch}, has Claude settle the conflicts, and pushes the merge to the pull request.`}
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            {live ? (
+              <SmallButton disabled={stop.isPending} onClick={() => stop.mutate()}>
+                {stop.isPending ? 'Stopping…' : 'Stop'}
+              </SmallButton>
+            ) : (
+              <Button tone="input" disabled={resolving || pushing || !worktree.exists} onClick={() => resolve.mutate()}>
+                {resolving ? 'Resolving…' : 'Resolve conflicts'}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {failure && !resolving && <p className="text-sm/5 text-red-300">The last resolution did not land: {failure}</p>}
+      {untested && !resolving && (
+        <p className="text-sm/5 text-amber-200">
+          The last resolution was pushed with its tests failing. Check the pull request before merging it.
+        </p>
+      )}
+      {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+      {stop.error && <p className="text-sm/5 text-red-300">{stop.error.message}</p>}
     </div>
   );
 }

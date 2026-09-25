@@ -29,6 +29,7 @@ import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
+import { sickoState } from '../sicko/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
@@ -50,6 +51,7 @@ const createCardSchema = z.object({
   stage: stageSchema.optional(),
   kind: z.enum(CARD_KINDS).optional(),
   projectId: z.string().nullable().optional(),
+  generateMockups: z.boolean().optional(),
 });
 
 const updateCardSchema = z.object({
@@ -58,6 +60,7 @@ const updateCardSchema = z.object({
   repoId: z.string().nullable().optional(),
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
+  generateMockups: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({
@@ -91,6 +94,7 @@ const repoSchema = z.object({
 /** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
 const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
+  sicko: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
     .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
@@ -153,6 +157,9 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       repos: listRepos(db).map(toApiRepo),
       projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor)),
+      // On the board response rather than its own endpoint: every number in it
+      // changes on the same beat as the cards, and the board is already polling.
+      sicko: sickoState(db),
     };
     return c.json(body);
   });
@@ -316,7 +323,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (projectId && !liveProject(db, projectId)) {
       return c.json({ error: 'no such project', detail: projectId }, 400);
     }
-    const moved = moveCard(db, id, parsed.data.stage, parsed.data.index, projectId);
+    const moved = moveCard(db, id, parsed.data.stage, parsed.data.index, 'human', projectId);
     if (!moved) return c.json({ error: 'not found' }, 404);
     // Started before the response is built, so the card it returns already
     // says a pull request is on its way. A reorder within a column is not

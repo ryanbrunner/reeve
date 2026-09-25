@@ -50,17 +50,28 @@ export function Column({
   onOpen,
   onAdd,
   adding = false,
+  sicko = false,
+  hot = false,
 }: {
   stage: Stage;
-  laneId: string | null;
+  /** The lane's project; null is No project. */
+  laneId: string | null | undefined;
   cards: ApiCard[];
   onOpen?: (id: string) => void;
   /** Offered as a ghost card at the foot of the column. Backlog is where new work goes, so only it has one. */
   onAdd?: () => void;
   adding?: boolean;
+  /**
+   * The column as a well: its cards have lifted off it into the flying layer,
+   * so it keeps its header and its count and holds nothing. Not a droppable
+   * either, because nobody drags anything in SICKO MODE.
+   */
+  sicko?: boolean;
+  /** Something just landed here. Only SICKO MODE says so; a drag lights it itself. */
+  hot?: boolean;
 }) {
-  const id = columnId(stage, laneId);
-  const { setNodeRef, isOver, over, active } = useDroppable({ id });
+  const id = columnId(stage, laneId ?? null);
+  const { setNodeRef, isOver, over, active } = useDroppable({ id, disabled: sicko });
   // Over one of its cards is over the column too; that is where the card lands.
   const lit = isOver || cards.some((c) => c.id === over?.id);
   return (
@@ -68,29 +79,46 @@ export function Column({
       ref={setNodeRef}
       className={`group flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
         lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
-      }`}
+      } ${sicko ? `sk-col${hot ? ' sk-hot' : ''}` : ''}`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
-        <h3 className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
+        <h3
+          className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase ${
+            sicko ? 'sk-col-t' : ''
+          }`}
+        >
           {STAGE_LABELS[stage]}
         </h3>
-        <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)/60">
+        <span
+          className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)/60 ${
+            sicko ? 'sk-cnt' : ''
+          }`}
+        >
           {cards.length}
         </span>
-        {isRunnable(stage) && <span title="Claude runs here" className="ml-auto text-xs text-sky-500">◆</span>}
+        {/* Claude runs in three columns on the calm board. In SICKO MODE it runs
+            in all of them, so every header gets the diamond. */}
+        {(sicko || isRunnable(stage)) && (
+          <span title="Claude runs here" className={`ml-auto text-xs text-sky-500 ${sicko ? 'sk-runs' : ''}`}>
+            ◆
+          </span>
+        )}
       </div>
       {/* Named after the column so columnCollisions can find its cards. */}
-      <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-2">
-          {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
-        </div>
-      </SortableContext>
+      {!sicko && (
+        <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col gap-2">
+            {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
+          </div>
+        </SortableContext>
+      )}
       {/* Outside the SortableContext, so columnCollisions never counts it as a
           card, and gone while anything is dragged: a drop here is a drop on
           the column. Faded in rather than mounted on hover, so it keeps its
           place in the tab order. Held while a card is being made, since a
-          double-click would otherwise make two and open both. */}
-      {onAdd && !active && (
+          double-click would otherwise make two and open both. Never in SICKO
+          MODE, whose well holds nothing and whose cards come from Ship it. */}
+      {onAdd && !active && !sicko && (
         <button
           type="button"
           onClick={onAdd}

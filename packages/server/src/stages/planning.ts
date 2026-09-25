@@ -1,7 +1,22 @@
 import { planningOutput, type PlanningOutput } from '@reeve/shared';
-import { addCriterion, criteriaFor, replaceQuestions } from '../db/queries.js';
+import { deleteAsset, relativeAssetPath, writeAsset } from '../assets/store.js';
+import { renderMockups } from '../capture/screenshot.js';
+import type { Db } from '../db/client.js';
+import {
+  addCriterion,
+  assetsFor,
+  criteriaFor,
+  getCard,
+  insertAsset,
+  replaceGeneratedMockups,
+  replaceQuestions,
+} from '../db/queries.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { GIT_READ } from './tools.js';
 import type { StageDefinition } from './types.js';
+
+/** Enough to show the states a change alters, few enough to stay in budget. */
+const MAX_MOCKUPS = 3;
 
 /**
  * The first stage, and deliberately the safest one to build the machinery
@@ -19,12 +34,29 @@ export const planningStage: StageDefinition<PlanningOutput> = {
   schema: planningOutput,
   permissionMode: 'plan',
   // Read-only. No Write/Edit even scoped, because the server owns artifacts.
-  allowedTools: ['Read', 'Glob', 'Grep', 'Bash(git log *)', 'Bash(git diff *)', 'Bash(git status *)'],
-  maxBudgetUsd: 3,
+  allowedTools: ['Read', 'Glob', 'Grep', ...GIT_READ],
+  // Up to three HTML documents is real output on top of the plan, and running
+  // out of budget fails the run with no plan at all.
+  maxBudgetUsd: 4,
   maxTurns: 60,
   effort: 'high',
 
-  buildPrompt(ctx) {
+  /**
+   * The mockup instructions, only for a card that asks for them — and with the
+   * labels a person has already drawn, so Claude does not draw them again.
+   */
+  async prepare(db, _writer, ctx) {
+    if (!ctx.card.generateMockups) return {};
+    const labels = attachedMockupLabels(db, ctx.card.id);
+    const attached = labels.size
+      ? `\nA person has already attached mockups for these, so do not draw them again: ${[...labels]
+          .map((l) => `"${l}"`)
+          .join(', ')}.\n`
+      : '';
+    return { mockups: renderPrompt('mockups', { attached }) };
+  },
+
+  buildPrompt(ctx, prepared) {
     const reviewNotes = ctx.reviewNotes
       ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) })
       : '';
@@ -39,12 +71,14 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       body: ctx.card.body.trim() || '_No further detail was given._',
       reviewNotes,
       answers,
+      mockups: prepared?.['mockups'] ?? '',
       notes: renderNotes(ctx.notes),
     });
   },
 
-  onComplete(_ctx, output) {
-    return [{ kind: 'plan', content: composePlan(output), path: '.reeve/plan.md' }];
+  onComplete(ctx, output) {
+    const mockups = ctx.card.generateMockups ? mockupsToDraw(output) : [];
+    return [{ kind: 'plan', content: composePlan(output, mockups), path: '.reeve/plan.md' }];
   },
 
   /**
@@ -61,6 +95,44 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       for (const text of output.acceptance_criteria) {
         addCriterion(db, ctx.card.id, text, 'claude');
       }
+    }
+  },
+
+  /**
+   * Draw the mockups and store them as the card's own, tagged with this run —
+   * which is what tells them apart from a person's, and what lets the next
+   * plan replace them.
+   *
+   * Rendered before anything is deleted, so a missing browser leaves the last
+   * plan's mockups in place rather than none. A plan that draws nothing still
+   * clears them: they showed a plan that has been superseded. The box has to
+   * have been ticked when the run started, since that is what asked for them,
+   * and still be ticked now, so clearing it mid-plan is heard.
+   */
+  async onPersistAsync(db, writer, ctx, output, runId) {
+    if (!ctx.card.generateMockups || !getCard(db, ctx.card.id)?.generateMockups) return;
+    const attached = attachedMockupLabels(db, ctx.card.id);
+    const wanted = mockupsToDraw(output).filter((m) => !attached.has(m.label));
+
+    const result = await renderMockups(wanted);
+    if (result.unavailable) {
+      writer.append(runId, 'error', { message: `No mockups: ${result.unavailable}` });
+      return;
+    }
+    for (const f of result.failures) {
+      writer.append(runId, 'error', { message: `Mockup "${f.label}" could not be drawn: ${f.reason}` });
+    }
+
+    for (const path of replaceGeneratedMockups(db, ctx.card.id, runId)) deleteAsset(path);
+    for (const mockup of result.captures) {
+      const id = crypto.randomUUID();
+      const rel = relativeAssetPath(ctx.card.id, id, 'image/png');
+      writeAsset(rel, mockup.bytes);
+      insertAsset(db, {
+        cardId: ctx.card.id, runId, kind: 'mockup',
+        label: mockup.label, url: mockup.path, viewport: mockup.viewport,
+        path: rel, contentType: 'image/png', width: mockup.width, height: mockup.height,
+      });
     }
   },
 
@@ -82,8 +154,11 @@ export const planningStage: StageDefinition<PlanningOutput> = {
  * This is the file In Progress reads, so it has to carry everything the modal
  * shows: a metadata block, the prose sections Claude chose, the numbered steps
  * with their files, and any question still hanging over them.
+ *
+ * `mockups` is passed separately because not every mockup in the output is
+ * drawn: a card with the box cleared has none, whatever Claude returned.
  */
-function composePlan(output: PlanningOutput): string {
+function composePlan(output: PlanningOutput, mockups: PlanningOutput['mockups']): string {
   const out: string[] = [
     `> ${output.summary}`,
     '>',
@@ -122,6 +197,12 @@ function composePlan(output: PlanningOutput): string {
     out.push('');
   }
 
+  if (mockups.length) {
+    out.push('## Mockups', '');
+    for (const m of mockups) out.push(`- ${m.label} — \`${m.path}\` at ${m.viewport}px`);
+    out.push('');
+  }
+
   if (output.acceptance_criteria.length) {
     out.push('## Acceptance criteria', '');
     for (const c of output.acceptance_criteria) out.push(`- [ ] ${c}`);
@@ -129,4 +210,17 @@ function composePlan(output: PlanningOutput): string {
   }
 
   return `${out.join('\n').trimEnd()}\n`;
+}
+
+/** The plan's mockups as they will be drawn: one per label, and no more than the cap. */
+function mockupsToDraw(output: PlanningOutput): PlanningOutput['mockups'] {
+  const seen = new Set<string>();
+  return output.mockups
+    .filter((m) => !seen.has(m.label) && seen.add(m.label))
+    .slice(0, MAX_MOCKUPS);
+}
+
+/** Labels of the mockups a person attached, which a drawn one never replaces. */
+function attachedMockupLabels(db: Db, cardId: string): Set<string> {
+  return new Set(assetsFor(db, cardId).filter((a) => a.kind === 'mockup' && a.runId === null).map((a) => a.label));
 }

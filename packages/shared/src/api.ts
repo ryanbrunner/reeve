@@ -23,6 +23,20 @@ export interface ApiRepo {
   maxBudgetUsd: number | null;
 }
 
+/**
+ * A tool call the run asked for and did not get.
+ *
+ * Worth a wire type of its own because a denial is the one run fact that
+ * explains an otherwise inexplicable result: a run that read the code instead
+ * of testing it, or reported success having executed nothing, usually asked for
+ * something first and was told no.
+ */
+export interface ApiToolDenial {
+  tool: string;
+  /** The command, or the path — whatever identifies which call it was. Null when the input said nothing useful. */
+  detail: string | null;
+}
+
 export interface ApiRunSummary {
   id: string;
   kind: RunKind;
@@ -42,6 +56,8 @@ export interface ApiRunSummary {
   startedAt: number | null;
   finishedAt: number | null;
   errorMessage: string | null;
+  /** Empty for almost every run. Not empty is a thing the human should see. */
+  deniedToolUses: ApiToolDenial[];
 }
 
 export interface ApiCard {
@@ -81,11 +97,24 @@ export interface ApiCard {
    */
   openingPr: boolean;
   /**
+   * GitHub last said the pull request cannot merge for conflicts with its base.
+   * Only ever set on a Done card with an open pull request, and only by
+   * GitHub's own verdict, so it can lag a push by one sync.
+   */
+  prConflicting: boolean;
+  /**
+   * Reeve is merging the base branch into this card's branch right now: from
+   * the fetch, through Claude's run, to the push. In memory like `openingPr`.
+   */
+  resolvingConflicts: boolean;
+  /**
    * This card's override for every stage run, above the Settings default for
    * the stage. Null falls through. Suggest ignores both.
    */
   model: string | null;
   effort: EffortLevel | null;
+  /** Whether Planning draws its own mockups of the states this card changes. */
+  generateMockups: boolean;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -121,13 +150,57 @@ export interface BoardResponse {
   projects: ApiProject[];
   /** Tasks only. A project is never one of these. */
   cards: ApiCard[];
+  /** Null while SICKO MODE is off, which is nearly always. */
+  sicko: SickoState | null;
 }
+
+/**
+ * SICKO MODE, as the board sees it: since when, and what has happened without
+ * anybody being asked.
+ *
+ * Rides on the board response rather than an endpoint of its own because the
+ * board already polls and every one of these numbers changes on the same beat
+ * as the cards do. All five are counted from `since`, off the card's own event
+ * log and its runs — nothing here is a counter that a reload could reset or
+ * that could disagree with a card's history.
+ */
+export interface SickoState {
+  /** When the switch was flipped. */
+  since: number;
+  /** Cards whose pull request landed on the default branch since then. */
+  merged: number;
+  /** Reviews a person reached a verdict on since then. The point is that it is zero. */
+  humanApprovals: number;
+  /** Reviews approved without one. */
+  reviewsSkipped: number;
+  /** Questions Claude was handed back to itself. */
+  questionsSelfAnswered: number;
+  /** What every run since then has cost, in dollars. */
+  spendUsd: number;
+  /** Cards Claude has moved a column on its own. */
+  moves: number;
+  /** The last handful of things it did, newest first, already in human words. */
+  log: string[];
+}
+
+/**
+ * The title a card is born with, before anyone has typed one.
+ *
+ * A card is made and opened rather than asked for a title first, because
+ * criteria and context can only hang off a card that exists — so for a moment
+ * every new card is called this. SICKO MODE has to be able to tell that moment
+ * apart from a card somebody meant, which is why the string is here rather than
+ * spelled out twice.
+ */
+export const PLACEHOLDER_TITLE = 'Untitled';
 
 export interface CreateCardBody {
   title: string;
   body?: string;
   repoId?: string | null;
   stage?: Stage;
+  /** Omitted is on. */
+  generateMockups?: boolean;
   /** Defaults to a task. */
   kind?: CardKind;
   /** The project a task is made under. A project cannot belong to another. */
@@ -167,6 +240,8 @@ export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
 export interface ApiSettings {
   /** Claude runs allowed at once, across every card and repo. */
   maxConcurrentRuns: number;
+  /** When SICKO MODE was switched on; null while it is off. */
+  sickoSince: number | null;
   /**
    * Every runnable stage is present, so the form can loop over them. A null in
    * one falls through to what the stage's own module asks for.
@@ -178,6 +253,12 @@ export interface ApiSettings {
 export interface UpdateSettingsBody {
   maxConcurrentRuns?: number;
   stageDefaults?: Partial<StageRunDefaults>;
+  /**
+   * The SICKO MODE switch. A boolean rather than the timestamp it sets, because
+   * "on" must not silently restart the clock — flipping it while it is already
+   * on would otherwise wipe every number the HUD is showing.
+   */
+  sicko?: boolean;
 }
 
 /**

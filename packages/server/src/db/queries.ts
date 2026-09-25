@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, sql } from 'drizzle-orm';
 import { RUNNABLE_STAGES, type ApiSettings, type StageRunDefaults, type UpdateSettingsBody } from '@reeve/shared';
 import { config } from '../config.js';
 import type { Db } from './client.js';
@@ -109,6 +109,32 @@ export function cardsAwaitingMerge(db: Db) {
     .from(card)
     .innerJoin(repo, eq(card.repoId, repo.id))
     .where(and(isTask, isNotNull(card.prUrl), isNull(card.mergedAt), isNull(card.archivedAt)))
+    .all();
+}
+
+/**
+ * Live cards merged at or before `cutoff`, for the sweep that takes them off
+ * the board. A card is only ever archived this way once: one that already has
+ * an automatic `archived` event was put back by a person, and stays.
+ */
+export function mergedCardsDueForArchive(db: Db, cutoff: Date): Card[] {
+  return db
+    .select()
+    .from(card)
+    .where(and(
+      isNull(card.archivedAt),
+      isNotNull(card.mergedAt),
+      lte(card.mergedAt, cutoff),
+      notExists(
+        db.select({ one: sql`1` })
+          .from(cardEvent)
+          .where(and(
+            eq(cardEvent.cardId, card.id),
+            eq(cardEvent.kind, 'archived'),
+            sql`json_extract(${cardEvent.meta}, '$.reason') = 'merged'`,
+          )),
+      ),
+    ))
     .all();
 }
 
@@ -286,7 +312,23 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
  * `index` counts through the whole column, not the lane: positions are shared
  * by every lane, which is what keeps a card's place when it changes project.
  */
-export function moveCard(db: Db, id: string, stage: CardStage, index: number, projectId?: string | null) {
+/**
+ * `actor` is all but always the human it defaults to — a drag, or an approval
+ * they gave. SICKO MODE is the exception, and it matters that the event says
+ * so: the board's own scoreboard counts human approvals, and an automatic move
+ * filed under `human` would make that number a lie.
+ *
+ * `projectId` is left alone when undefined, so only a drag into another lane
+ * changes it.
+ */
+export function moveCard(
+  db: Db,
+  id: string,
+  stage: CardStage,
+  index: number,
+  actor: CardEventActor = 'human',
+  projectId?: string | null,
+) {
   const before = getCard(db, id);
   const position = positionForSlot(db, stage, index, id);
   const updated = db
@@ -298,7 +340,7 @@ export function moveCard(db: Db, id: string, stage: CardStage, index: number, pr
   if (before && before.stage !== stage) {
     insertCardEvent(db, {
       cardId: id,
-      actor: 'human',
+      actor,
       kind: 'moved',
       stage: before.stage,
       fromStage: before.stage,
@@ -320,6 +362,7 @@ export function createCard(
     body?: string;
     repoId?: string | null;
     stage?: CardStage;
+    generateMockups?: boolean;
     kind?: CardKind;
     projectId?: string | null;
     actor?: CardEventActor;
@@ -342,6 +385,8 @@ export function createCard(
       repoId,
       stage,
       position: kind === 'project' ? 0 : last + POSITION_GAP,
+      // Left out when not given, so the column's default decides.
+      ...(values.generateMockups === undefined ? {} : { generateMockups: values.generateMockups }),
     })
     .returning()
     .get();
@@ -381,7 +426,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -400,8 +445,10 @@ export function updateCard(
 /**
  * Taking a card off the board is a soft delete: the row, its runs and its
  * worktree all stay put, and `archivedCards` is where it can be found again.
+ * `meta` goes on the `archived` event, to tell an automatic archive from a
+ * person's.
  */
-export function archiveCard(db: Db, id: string) {
+export function archiveCard(db: Db, id: string, meta?: Record<string, unknown>) {
   const now = new Date();
   const archived = db
     .update(card)
@@ -409,7 +456,7 @@ export function archiveCard(db: Db, id: string) {
     .where(and(eq(card.id, id), isNull(card.archivedAt)))
     .returning()
     .get();
-  if (archived) insertCardEvent(db, { cardId: id, actor: 'human', kind: 'archived', stage: archived.stage });
+  if (archived) insertCardEvent(db, { cardId: id, actor: 'human', kind: 'archived', stage: archived.stage, meta });
   return archived;
 }
 
@@ -483,6 +530,7 @@ export function getSettings(db: Db): ApiSettings {
   const stored = row?.stageDefaults ?? {};
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
+    sickoSince: row?.sickoSince?.getTime() ?? null,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,
@@ -492,13 +540,20 @@ export function getSettings(db: Db): ApiSettings {
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, ...rest } = patch;
+  const { stageDefaults, sicko, ...rest } = patch;
+  const current = getSettings(db);
   const values = {
     ...rest,
     // Merged into what is stored rather than written over it, so saving one
     // stage's row leaves the other stages as they were.
-    ...(stageDefaults ? { stageDefaults: { ...getSettings(db).stageDefaults, ...stageDefaults } } : {}),
+    ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
+    // On is only the moment it went on, so saying on twice does not reset the
+    // clock every number in the HUD is counted from.
+    ...(sicko === undefined ? {}
+      : sicko ? (current.sickoSince === null ? { sickoSince: new Date() } : {})
+      : { sickoSince: null }),
   };
+  if (Object.keys(values).length === 0) return current;
   db.insert(settings)
     .values({ ...values, id: 1 })
     .onConflictDoUpdate({ target: settings.id, set: values })
@@ -596,6 +651,48 @@ export function cardEventsFor(db: Db, cardId: string) {
     .where(eq(cardEvent.cardId, cardId))
     .orderBy(desc(cardEvent.createdAt), desc(sql`rowid`))
     .all();
+}
+
+/**
+ * Everything of consequence that has happened since SICKO MODE went on, newest
+ * first, with the card's title beside each entry.
+ *
+ * One query serves both the HUD's five numbers and its log lines, because they
+ * are the same facts read two ways: the counts are this list filtered, and the
+ * log is its head in prose. Nothing is tallied as it happens — the events are
+ * already the record, and a counter beside them would be a second one to get
+ * wrong.
+ */
+export function sickoLedger(db: Db, since: Date) {
+  return db
+    .select({
+      actor: cardEvent.actor,
+      kind: cardEvent.kind,
+      stage: cardEvent.stage,
+      toStage: cardEvent.toStage,
+      body: cardEvent.body,
+      meta: cardEvent.meta,
+      title: card.title,
+      number: card.number,
+      at: cardEvent.createdAt,
+    })
+    .from(cardEvent)
+    .innerJoin(card, eq(card.id, cardEvent.cardId))
+    .where(gt(cardEvent.createdAt, since))
+    // Qualified, unlike the single-table reads above: with the card joined in,
+    // a bare `rowid` is ambiguous and SQLite refuses the query outright.
+    .orderBy(desc(cardEvent.createdAt), desc(sql`"card_event"."rowid"`))
+    .all();
+}
+
+/** What every run started since a moment has cost. Runs still going have no cost yet. */
+export function spendSince(db: Db, since: Date): number {
+  const row = db
+    .select({ total: sql<number | null>`sum(${run.totalCostUsd})` })
+    .from(run)
+    .where(gt(run.createdAt, since))
+    .get();
+  return row?.total ?? 0;
 }
 
 /**
@@ -828,6 +925,22 @@ export function replaceScreenshots(db: Db, cardId: string, runId: string): strin
     .select()
     .from(asset)
     .where(and(eq(asset.cardId, cardId), eq(asset.kind, 'screenshot')))
+    .all()
+    .filter((a) => a.runId !== runId);
+  for (const a of stale) db.delete(asset).where(eq(asset.id, a.id)).run();
+  return stale.map((a) => a.path);
+}
+
+/**
+ * The mockups an earlier plan drew, replaced wholesale when a new plan draws
+ * its own. Generated ones are the mockups with a run; a person's have none and
+ * are never touched here.
+ */
+export function replaceGeneratedMockups(db: Db, cardId: string, runId: string): string[] {
+  const stale = db
+    .select()
+    .from(asset)
+    .where(and(eq(asset.cardId, cardId), eq(asset.kind, 'mockup'), isNotNull(asset.runId)))
     .all()
     .filter((a) => a.runId !== runId);
   for (const a of stale) db.delete(asset).where(eq(asset.id, a.id)).run();

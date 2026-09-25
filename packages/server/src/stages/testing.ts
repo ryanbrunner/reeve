@@ -12,6 +12,7 @@ import {
 } from '../db/queries.js';
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -29,12 +30,9 @@ export const testingStage: StageDefinition<TestingOutput> = {
   id: 'testing',
   schema: testingOutput,
   permissionMode: 'acceptEdits',
-  allowedTools: [
-    // Read is what lets it look at the screenshots, not only the code.
-    'Read', 'Glob', 'Grep', 'Edit', 'Write',
-    'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)',
-    'Bash(npm run *)', 'Bash(npm test *)', 'Bash(npx *)', 'Bash(node *)',
-  ],
+  // Read is what lets it look at the screenshots, not only the code. It commits
+  // its own fixes, so it holds GIT_COMMIT as In Progress does.
+  allowedTools: ['Read', 'Glob', 'Grep', 'Edit', 'Write', ...GIT_READ, ...GIT_COMMIT, ...NODE_TOOLING],
   maxBudgetUsd: 8,
   maxTurns: 150,
   effort: 'high',
@@ -45,7 +43,11 @@ export const testingStage: StageDefinition<TestingOutput> = {
    * and check the criteria, which is the larger half of its job.
    */
   async prepare(db, writer, ctx, runId) {
-    const mockups = assetsFor(db, ctx.card.id).filter((a) => a.kind === 'mockup');
+    // A person's mockups first, so on a label clash theirs sets the page and
+    // width, and theirs is the one the screenshot is compared with.
+    const mockups = assetsFor(db, ctx.card.id)
+      .filter((a) => a.kind === 'mockup')
+      .sort((a, b) => Number(a.runId !== null) - Number(b.runId !== null));
     const targets = captureTargetsFor(mockups, plannedCaptures(db, ctx.card.id));
     if (targets.length === 0) return { screenshots: 'No screenshots were requested for this card.' };
 
@@ -74,9 +76,10 @@ export const testingStage: StageDefinition<TestingOutput> = {
         path: rel, contentType: 'image/png', width: shot.width, height: shot.height,
       });
       const mockup = mockups.find((m) => m.label === shot.label);
+      const drawn = mockup?.runId ? ' (drawn by Claude while planning)' : '';
       lines.push(
         `- **${shot.label}** (${shot.path} at ${shot.viewport}px)\n  - build: \`${absoluteAssetPath(rel)}\`` +
-          (mockup ? `\n  - mockup: \`${absoluteAssetPath(mockup.path)}\`` : '\n  - no mockup to compare against'),
+          (mockup ? `\n  - mockup${drawn}: \`${absoluteAssetPath(mockup.path)}\`` : '\n  - no mockup to compare against'),
       );
     }
     for (const f of result.failures) lines.push(`- **${f.label}** could not be captured: ${f.reason}`);
@@ -122,8 +125,11 @@ export const testingStage: StageDefinition<TestingOutput> = {
     recordVerdicts(db, ctx.card.id, runId, output.criteria);
 
     const shots = assetsFor(db, ctx.card.id);
-    const byLabel = (kind: 'mockup' | 'screenshot', label: string) =>
-      shots.find((a) => a.kind === kind && a.label === label)?.id ?? null;
+    // A person's mockup over one Claude drew, as in `prepare`.
+    const byLabel = (kind: 'mockup' | 'screenshot', label: string) => {
+      const matches = shots.filter((a) => a.kind === kind && a.label === label);
+      return (matches.find((a) => a.runId === null) ?? matches[0])?.id ?? null;
+    };
     replaceDifferences(
       db,
       ctx.card.id,

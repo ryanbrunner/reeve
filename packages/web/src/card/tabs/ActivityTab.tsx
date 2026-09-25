@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, type ApiCardEvent, type CardDetail, type Stage } from '@reeve/shared';
+import { STAGE_LABELS, type ApiCardEvent, type ApiToolDenial, type CardDetail, type Stage } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { cost, duration, when } from '../format.js';
 import { Empty, SectionHead, SmallButton } from '../ui.js';
@@ -12,9 +12,10 @@ type Filter = 'all' | 'runs' | 'human';
  *
  * Deliberately not the run transcript — that is thousands of SDK messages in
  * Claude's vocabulary. This is the handful of moments that would appear in a
- * changelog, in the terms a person tells them: who did what, and when.
+ * changelog, in the terms a person tells them: who did what, and when. In
+ * SICKO MODE, only that it happened: no run's status, time or cost.
  */
-export function ActivityTab({ detail }: { detail: CardDetail }) {
+export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sicko?: boolean }) {
   const [filter, setFilter] = useState<Filter>('all');
   const events = detail.events.filter((e) => matches(e, filter));
 
@@ -52,7 +53,7 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                 <p className="text-sm/5 text-(--color-text)">
                   <span className="font-medium">{e.actor === 'human' ? 'You' : 'Claude'}</span> {sentence(e, detail)}
                 </p>
-                {e.kind === 'run_finished' && <RunFacts event={e} />}
+                {e.kind === 'run_finished' && !sicko && <RunFacts event={e} detail={detail} />}
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
@@ -61,9 +62,10 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                   <p className="text-sm/5 whitespace-pre-line text-(--color-muted)">{e.body}</p>
                 )}
                 {(e.kind === 'pr_opened' || e.kind === 'merged') && <PullRequestLink event={e} />}
-                {e.kind === 'pr_failed' && e.body && (
+                {(e.kind === 'pr_failed' || e.kind === 'conflicts_failed') && e.body && (
                   <p className="font-mono text-[11px]/4 whitespace-pre-wrap text-red-300">{e.body}</p>
                 )}
+                {e.kind === 'conflicts_resolved' && <Resolution event={e} />}
               </div>
             </li>
           ))}
@@ -75,11 +77,14 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
   );
 }
 
-function RunFacts({ event }: { event: ApiCardEvent }) {
+function RunFacts({ event, detail }: { event: ApiCardEvent; detail: CardDetail }) {
   const meta = event.meta ?? {};
   const status = String(meta['status'] ?? '');
   const ms = typeof meta['durationMs'] === 'number' ? meta['durationMs'] : null;
   const usd = typeof meta['costUsd'] === 'number' ? meta['costUsd'] : null;
+  // Read off the run rather than the event, so runs that finished before anyone
+  // thought to show this get the chip too — the denials were always recorded.
+  const denied = detail.runs.find((r) => r.id === event.runId)?.deniedToolUses ?? [];
   return (
     <div className="flex flex-wrap items-baseline gap-2 font-mono text-[11px]/4">
       <span
@@ -91,9 +96,25 @@ function RunFacts({ event }: { event: ApiCardEvent }) {
       </span>
       {ms !== null && <span className="text-(--color-muted)">{duration(ms)}</span>}
       {usd !== null && <span className="text-(--color-muted)">{cost(usd)}</span>}
+      {/* A succeeded run that was refused its tools still reads as success
+          everywhere else. This is the only place that says otherwise, so it
+          carries the commands themselves rather than just a count. */}
+      {denied.length > 0 && (
+        <span
+          className="rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-amber-300"
+          title={`Refused, so this run did not do them:\n${denied.map(asked).join('\n')}`}
+        >
+          {denied.length} denied
+        </span>
+      )}
       {event.body && <span className="text-red-300">{event.body}</span>}
     </div>
   );
+}
+
+/** One denied call, for the tooltip: the command if there was one, else the tool. */
+function asked(d: ApiToolDenial): string {
+  return d.detail ? `${d.tool}: ${d.detail}` : d.tool;
 }
 
 function PullRequestLink({ event }: { event: ApiCardEvent }) {
@@ -103,6 +124,37 @@ function PullRequestLink({ event }: { event: ApiCardEvent }) {
     <a href={url} target="_blank" rel="noreferrer" className="font-mono text-[11px]/4 text-sky-300 hover:underline">
       {url}
     </a>
+  );
+}
+
+/**
+ * What Claude decided, file by file. The merge reached the pull request with
+ * nobody looking at it first, so this is where a person finds out what it was.
+ */
+function Resolution({ event }: { event: ApiCardEvent }) {
+  const meta = event.meta ?? {};
+  const files = Array.isArray(meta['files']) ? (meta['files'] as Array<{ path?: unknown; resolution?: unknown }>) : [];
+  const concerns = Array.isArray(meta['concerns']) ? meta['concerns'].filter((c) => typeof c === 'string') : [];
+  return (
+    <>
+      {event.body && <p className="text-sm/5 text-(--color-muted)">{event.body}</p>}
+      {meta['testsPassed'] === false && (
+        <p className="text-sm/5 text-amber-200">Pushed with the tests failing.</p>
+      )}
+      {files.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {files.map((f, i) => (
+            <li key={i} className="text-sm/5 text-(--color-muted)">
+              <code className="font-mono text-[11px]/4 text-(--color-text)">{String(f.path ?? '')}</code>{' '}
+              {String(f.resolution ?? '')}
+            </li>
+          ))}
+        </ul>
+      )}
+      {concerns.map((c, i) => (
+        <p key={i} className="text-sm/5 text-amber-200">{c}</p>
+      ))}
+    </>
   );
 }
 
@@ -145,7 +197,8 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   if (filter === 'runs') return e.kind === 'run_started' || e.kind === 'run_finished';
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
-    e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed'
+    e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed' ||
+    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed'
   );
 }
 
@@ -191,7 +244,7 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'pr_failed':
       return 'could not open a pull request';
     case 'archived':
-      return 'archived the card';
+      return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged' : 'archived the card';
     case 'restored':
       return `restored the card to ${stage(e.stage)}`;
     case 'handed_off':
@@ -202,6 +255,17 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
         : outcome === 'not_applied' ? 'finished a review in Crit that was not applied'
         : 'could not finish a review in Crit';
     }
+    case 'conflicts_resolved': {
+      const base = typeof e.meta?.['base'] === 'string' ? e.meta['base'] : 'the base branch';
+      const number = e.meta?.['number'];
+      const pr = typeof number === 'number' ? `pull request #${number}` : 'the pull request';
+      // Clean means GitHub's verdict was stale and no run was needed.
+      return e.meta?.['clean']
+        ? `merged ${base} into the branch and pushed it to ${pr}`
+        : `resolved the conflicts with ${base} and pushed the merge to ${pr}`;
+    }
+    case 'conflicts_failed':
+      return 'could not resolve the conflicts';
   }
 }
 

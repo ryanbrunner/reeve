@@ -44,6 +44,18 @@ export async function pushBranch(worktreePath: string, branch: string): Promise<
 }
 
 /**
+ * `branch` as `origin` has it now, and the commit that is. The refspec is
+ * spelled out rather than left to the remote's configuration, so the
+ * remote-tracking ref is updated however `origin` was set up, and the sha
+ * answered is exactly the one fetched.
+ */
+export async function fetchBranch(worktreePath: string, branch: string): Promise<string> {
+  const ref = `refs/remotes/origin/${branch}`;
+  await git(worktreePath, ['fetch', 'origin', `+refs/heads/${branch}:${ref}`], { env: unprompted(), timeout: PUSH_TIMEOUT_MS });
+  return (await git(worktreePath, ['rev-parse', '--verify', `${ref}^{commit}`])).trim();
+}
+
+/**
  * The open pull request for `branch`, if there is one.
  *
  * Only "none found" means none. Every other failure — not logged in, a remote
@@ -71,6 +83,11 @@ export interface PullRequestState {
   /** The commit the pull request landed as on its base branch, once merged. */
   mergeSha: string | null;
   base: string;
+  /**
+   * Whether GitHub could merge it as it stands. `UNKNOWN` is not an answer: it
+   * is what GitHub says for a while after every push, until it has worked it out.
+   */
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
 }
 
 /**
@@ -79,8 +96,10 @@ export interface PullRequestState {
  * pull request from any checkout, not just the card's own worktree.
  */
 export async function pullRequestState(cwd: string, url: string): Promise<PullRequestState> {
-  const out = await gh(cwd, ['pr', 'view', url, '--json', 'state,mergedAt,mergeCommit,baseRefName']);
-  const pr = JSON.parse(out) as { state?: unknown; mergedAt?: unknown; mergeCommit?: { oid?: unknown } | null; baseRefName?: unknown };
+  const out = await gh(cwd, ['pr', 'view', url, '--json', 'state,mergedAt,mergeCommit,baseRefName,mergeable']);
+  const pr = JSON.parse(out) as {
+    state?: unknown; mergedAt?: unknown; mergeCommit?: { oid?: unknown } | null; baseRefName?: unknown; mergeable?: unknown;
+  };
   if (pr.state !== 'OPEN' && pr.state !== 'CLOSED' && pr.state !== 'MERGED') {
     throw new GitError('gh pr view gave no pull request state', out.trim());
   }
@@ -91,7 +110,26 @@ export async function pullRequestState(cwd: string, url: string): Promise<PullRe
     mergedAt: mergedAt && !Number.isNaN(mergedAt.getTime()) ? mergedAt : null,
     mergeSha: typeof sha === 'string' ? sha : null,
     base: typeof pr.baseRefName === 'string' ? pr.baseRefName : '',
+    mergeable: pr.mergeable === 'MERGEABLE' || pr.mergeable === 'CONFLICTING' ? pr.mergeable : 'UNKNOWN',
   };
+}
+
+/**
+ * Squash the card's pull request onto its base branch.
+ *
+ * `--squash` is passed so that `gh` never drops into its interactive picker,
+ * which on a server is a promise that never settles.
+ *
+ * Deliberately NOT `--admin`. SICKO MODE's business is Reeve's own
+ * human-in-the-loop gates, and those are Reeve's to waive; a repository's
+ * branch protection belongs to whoever set it up and is not. So a repo that
+ * requires a review still requires one, `gh` refuses, and the card records a
+ * `pr_failed` saying why rather than the rule being bypassed quietly.
+ *
+ * The branch is left alone: the card's worktree is still checked out on it.
+ */
+export async function mergePullRequest(cwd: string, url: string): Promise<void> {
+  await gh(cwd, ['pr', 'merge', url, '--squash']);
 }
 
 /**

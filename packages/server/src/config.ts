@@ -19,4 +19,11 @@ export const config = {
   maxConcurrentRuns: Number(process.env.REEVE_MAX_CONCURRENT ?? 3),
   /** How often GitHub is asked whether a card's open pull request has merged. */
   mergeSyncMs: Number(process.env.REEVE_MERGE_SYNC_MS ?? 60_000),
+  /** How long a merged card stays on the board before it is archived. Checked on the merge-sync tick. */
+  autoArchiveAfterMs: Number(process.env.REEVE_AUTO_ARCHIVE_MS ?? 600_000),
+  /**
+   * How often SICKO MODE looks at the board. Each pass moves any given card at
+   * most one step, so this is also the pace the board advances at.
+   */
+  sickoSweepMs: Number(process.env.REEVE_SICKO_SWEEP_MS ?? 2_000),
 } as const;
