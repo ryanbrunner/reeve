@@ -4,7 +4,6 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  closestCorners,
   useDroppable,
   useSensor,
   useSensors,
@@ -13,7 +12,7 @@ import {
 } from '@dnd-kit/core';
 import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
-import { COLUMN_PREFIX, Column } from './board/Column.js';
+import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
@@ -95,7 +94,8 @@ export function App() {
     const id = String(active.id);
     const overId = String(over.id);
     const card = byId.get(id);
-    if (!card) return;
+    // Put back down in its own slot: nothing moved.
+    if (!card || overId === id) return;
 
     // Dropped on empty column space, or onto another card.
     let stage: Stage;
@@ -110,7 +110,6 @@ export function App() {
       index = cardsIn(cards, stage).filter((c) => c.id !== id).findIndex((c) => c.id === overId);
       if (index < 0) index = 0;
     }
-    if (card.stage === stage && index < 0) return;
     move.mutate({ id, stage, index });
   }
 
@@ -132,7 +131,7 @@ export function App() {
         onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
       />
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={columnCollisions} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex-1 overflow-auto p-4">
           {lanes.map((lane) => (
             <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
