@@ -30,12 +30,12 @@ export function Lightbox({ asset, kind, caption, onClose }: {
       e.stopPropagation();
       onClose();
     };
+    // The card this opens over has already locked the page's scroll. Saving and
+    // restoring it here too would lock it again when Back closes the card first,
+    // and leave the board unable to scroll.
     window.addEventListener('keydown', onKey, true);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     return () => {
       window.removeEventListener('keydown', onKey, true);
-      document.body.style.overflow = overflow;
       restoreFocus.current?.focus?.();
     };
   }, [onClose]);
