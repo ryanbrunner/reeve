@@ -1,0 +1,19 @@
+{
+  "name": "@reeve/cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "reeve": "./bin/reeve.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@reeve/server": "*",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}

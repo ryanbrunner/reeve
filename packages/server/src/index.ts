@@ -19,6 +19,9 @@ import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
 import { listModels } from './runs/models.js';
 
+// For `reeve serve`, which checks the address it is about to take is free.
+export { config };
+
 /**
  * Boot order matters. Contracts convert first so a schema JSON Schema can't
  * express crashes startup rather than a run at 2am; the reaper runs before we
