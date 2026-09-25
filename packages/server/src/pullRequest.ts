@@ -1,9 +1,11 @@
 import { and, eq, isNull } from 'drizzle-orm';
+import { config } from './config.js';
 import type { Db } from './db/client.js';
-import { cardsAwaitingMerge, insertCardEvent } from './db/queries.js';
+import { archiveCard, cardsAwaitingMerge, insertCardEvent, mergedCardsDueForArchive } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import { createPullRequest, findPullRequest, pullRequestState, pushBranch, type PullRequestState } from './git/github.js';
 import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
+import { runRegistry } from './runs/registry.js';
 
 /**
  * Cards with a push under way. Two quick drags into Done, or a retry pressed
@@ -187,4 +189,25 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
   } finally {
     syncing = false;
   }
+}
+
+/**
+ * Take cards off the board once they have been merged for a while. The
+ * merge is the end of a card's life; the board is for what is still moving.
+ *
+ * A card with something still running is left for a later sweep, as the
+ * archive route would refuse it: a Claude run or a dev server carrying on out
+ * of sight. And a card is archived this way at most once, so one a person
+ * restores from the Archive stays where they put it.
+ */
+export function archiveMergedCards(db: Db, now = new Date()): Card[] {
+  const cutoff = new Date(now.getTime() - config.autoArchiveAfterMs);
+  const running = new Set(runRegistry.all().map((r) => r.cardId));
+  const archived: Card[] = [];
+  for (const card of mergedCardsDueForArchive(db, cutoff)) {
+    if (running.has(card.id)) continue;
+    const done = archiveCard(db, card.id, { reason: 'merged' });
+    if (done) archived.push(done);
+  }
+  return archived;
 }
