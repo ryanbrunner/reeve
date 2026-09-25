@@ -37,6 +37,11 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
   if (card.stage !== 'done') {
     return { ok: false, status: 400, error: 'only a Done card gets a pull request', detail: card.stage };
   }
+  // Its pull request is history, so a push would restore the branch GitHub
+  // deleted on merge and open a second one for work already landed.
+  if (card.mergedAt) {
+    return { ok: false, status: 409, error: 'already merged', detail: card.prUrl ?? `#${card.number}` };
+  }
   const { branchName: branch, worktreePath, baseSha } = card;
   if (!branch || !worktreePath || !baseSha) {
     return { ok: false, status: 400, error: 'nothing to push', detail: 'the card has no worktree' };
@@ -124,11 +129,12 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
  * where the board's poll picks it up.
  *
  * A card that never had a worktree has nothing to push and is passed over in
- * silence — a Backlog idea dragged straight to Done is not a failure. And
- * nothing may escape: an unhandled rejection here would take the server down.
+ * silence — a Backlog idea dragged straight to Done is not a failure, and
+ * nor is a merged card dragged back there. And nothing may escape: an
+ * unhandled rejection here would take the server down.
  */
 export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined): void {
-  if (!repo || !card.branchName || !card.worktreePath || !card.baseSha) return;
+  if (!repo || card.mergedAt || !card.branchName || !card.worktreePath || !card.baseSha) return;
   openPullRequest(db, card, repo).catch((e) => {
     console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
   });
