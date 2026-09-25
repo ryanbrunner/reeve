@@ -142,7 +142,7 @@ export function App() {
                   {lane.name}
                 </h2>
               )}
-              <div className="grid grid-cols-6 gap-3 min-w-[1100px]">
+              <div className="grid grid-cols-5 gap-3 min-w-[920px]">
                 {STAGES.map((stage) => (
                   <Column
                     key={stage}

@@ -4,7 +4,6 @@
  */
 export const STAGES = [
   'backlog',
-  'ready_for_planning',
   'planning',
   'in_progress',
   'testing',
@@ -15,7 +14,6 @@ export type Stage = (typeof STAGES)[number];
 
 export const STAGE_LABELS: Record<Stage, string> = {
   backlog: 'Backlog',
-  ready_for_planning: 'Ready for Planning',
   planning: 'Planning',
   in_progress: 'In Progress',
   testing: 'Testing',
@@ -24,7 +22,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
 
 /**
  * Stages that run Claude. The others are holding areas the human moves cards
- * through, which is why `backlog` and `ready_for_planning` have no runnable work.
+ * through, which is why `backlog` and `done` have no runnable work.
  */
 export const RUNNABLE_STAGES = ['planning', 'in_progress', 'testing'] as const;
 export type RunnableStage = (typeof RUNNABLE_STAGES)[number];
@@ -47,7 +45,7 @@ export function nextStage(stage: Stage): Stage | null {
   return STAGES[STAGES.indexOf(stage) + 1] ?? null;
 }
 
-/** A card needs a worktree from Planning onward; Backlog and Ready don't. */
+/** A card needs a worktree from Planning onward; Backlog doesn't. */
 export function needsWorktree(stage: Stage): boolean {
   return STAGES.indexOf(stage) >= STAGES.indexOf('planning');
 }
