@@ -266,6 +266,9 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('lock held while the run works', isResolvingConflicts(wt.id));
   check('card says it is resolving', toBoardCard(db, getCard(db, wt.id)!, null, null).resolvingConflicts);
   check('run live on its row', liveTaskRun(db, wt.id, 'resolve_conflicts') !== undefined);
+  // The run is out of band: while it works the card keeps its colour and has no current run.
+  check('card stays idle while the run works', toBoardCard(db, getCard(db, wt.id)!, null, null).activity === 'idle');
+  check('card has no current run while it works', toBoardCard(db, getCard(db, wt.id)!, null, null).latestRun === null);
 
   const pr = await openPullRequest(db, getCard(db, wt.id)!, repo);
   check('opening the PR refused mid-merge', !pr.ok && pr.status === 409);
