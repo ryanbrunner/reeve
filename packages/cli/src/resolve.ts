@@ -196,8 +196,10 @@ export function resolveTarget(board: BoardResponse, ref: string, here: Here): Ta
   try {
     const project = findProject(board, ref);
     return { id: project.id, kind: 'project', label: `project "${project.title}"`, card: null };
-  } catch {
-    throw taskError;
+  } catch (projectError) {
+    // What could not be a card at all was meant as a project, and why it
+    // matched none, or more than one, is the error worth reading.
+    throw (taskError as CliError).exitCode === 2 ? projectError : taskError;
   }
 }
 
