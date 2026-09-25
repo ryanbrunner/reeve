@@ -59,6 +59,14 @@ export interface ClaudeTask<Output = unknown> {
   model?: string;
   effort?: EffortLevel;
   /**
+   * Work done beside the card's stage rather than as it. The run is tagged with
+   * the task's id, so it stays in the card's history and cost but never becomes
+   * the card's current run: it does not tint the board, answer the review gate,
+   * or hold the card's run lock. Said explicitly rather than inferred from the
+   * id differing from the column, so a stage can never drop out by accident.
+   */
+  outOfBand?: boolean;
+  /**
    * Work the server does before the prompt is built, when the prompt needs
    * something that does not exist yet — Testing photographs the build here, so
    * `buildPrompt` can hand Claude the file paths of the pictures.

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a3d1e6b2-4f7c-4e19-9b35-2c8f0d7a61e4",
-  "prevId": "5f9ae3b4-7c12-46cb-990e-f2aaff635767",
+  "id": "e250f84e-c5c2-4157-a5fb-1511cf3a80b6",
+  "prevId": "f757a718-b879-4c12-94ae-a8147db01fea",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -456,6 +456,27 @@
         },
         "merged_at": {
           "name": "merged_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_url": {
+          "name": "pr_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_number": {
+          "name": "pr_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_opened_at": {
+          "name": "pr_opened_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -1300,6 +1321,13 @@
           "autoincrement": false,
           "default": "'queued'"
         },
+        "task": {
+          "name": "task",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "session_id": {
           "name": "session_id",
           "type": "text",
@@ -1606,6 +1634,30 @@
           "name": "run_event_run_id_seq_pk"
         }
       },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "settings": {
+      "name": "settings",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "max_concurrent_runs": {
+          "name": "max_concurrent_runs",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     }

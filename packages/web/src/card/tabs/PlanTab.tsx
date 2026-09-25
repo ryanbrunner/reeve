@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ApiAsset, CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { when } from '../format.js';
+import { InlineMarkdown, Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
 /**
@@ -30,10 +31,10 @@ export function PlanTab({ detail }: { detail: CardDetail }) {
           {plan.details.map((section) => (
             <section key={section.heading} className="flex flex-col gap-2">
               <SectionHead>{section.heading}</SectionHead>
-              <p className="text-sm/5 whitespace-pre-wrap text-(--color-text)">{section.body}</p>
+              <Markdown>{section.body}</Markdown>
             </section>
           ))}
-          {plan.details.length === 0 && <Empty>{plan.summary}</Empty>}
+          {plan.details.length === 0 && <Empty><InlineMarkdown>{plan.summary}</InlineMarkdown></Empty>}
         </div>
         <Designs detail={detail} />
       </div>
@@ -62,8 +63,10 @@ export function PlanTab({ detail }: { detail: CardDetail }) {
                   <span className="mt-px w-3 shrink-0 font-mono text-[11px]/5 text-(--color-muted)">{i + 1}</span>
                   <div className="flex min-w-0 grow flex-col gap-1">
                     <div className="text-sm/5 text-(--color-text)">
-                      <span className="font-medium">{step.title}</span>
-                      {step.detail && <span className="text-(--color-muted)"> — {step.detail}</span>}
+                      <span className="font-medium"><InlineMarkdown>{step.title}</InlineMarkdown></span>
+                      {step.detail && (
+                        <span className="text-(--color-muted)"> — <InlineMarkdown>{step.detail}</InlineMarkdown></span>
+                      )}
                     </div>
                     {step.files.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">

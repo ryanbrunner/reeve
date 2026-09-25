@@ -85,22 +85,44 @@ function stopReasonForSubtype(subtype: string): StopReason {
   }
 }
 
+/**
+ * What Claude is told about a card: its brief, its criteria, what earlier
+ * stages produced and what the human has said since. One function so that a
+ * stage run and a handoff to the CLI cannot drift into telling it different
+ * things.
+ *
+ * `excludeStage` drops that stage's own artifacts. A run leaves them out, since
+ * it is about to replace them; a handoff keeps them, since the person taking
+ * over wants the latest of everything.
+ */
+export function stageContextFor(
+  db: Db,
+  base: Pick<StageContext, 'card' | 'project' | 'worktreePath' | 'reviewNotes' | 'answers'>,
+  excludeStage?: CardStage,
+): StageContext {
+  return {
+    ...base,
+    // What earlier stages produced, newest first. In Progress reads the plan
+    // this way; Planning has nothing before it and ignores the list.
+    priorArtifacts: artifactsForCard(db, base.card.id)
+      .filter((a) => a.stage !== excludeStage && a.supersededBy === null)
+      .map((a) => ({ kind: a.kind, content: a.content })),
+    criteria: criteriaFor(db, base.card.id).map((c) => c.text),
+    notes: unreadNotesFor(db, base.card.id),
+  };
+}
+
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const { db, writer, card, project, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
 
-  const ctx: StageContext = {
+  // Read before `run_started` is written: that event is where unread notes end,
+  // so gathering after it would hand this run none of them.
+  const ctx = stageContextFor(db, {
     card, project, worktreePath,
     reviewNotes: reviewNotes ?? null,
     answers: answers ?? [],
-    // What earlier stages produced, newest first. In Progress reads the plan
-    // this way; Planning has nothing before it and ignores the list.
-    priorArtifacts: artifactsForCard(db, card.id)
-      .filter((a) => a.stage !== runStage && a.supersededBy === null)
-      .map((a) => ({ kind: a.kind, content: a.content })),
-    criteria: criteriaFor(db, card.id).map((c) => c.text),
-    notes: unreadNotesFor(db, card.id),
-  };
+  }, runStage);
   // Generated here and stored BEFORE the subprocess exists, so an orphaned run
   // is still resumable after a restart.
   const sessionId = crypto.randomUUID();
@@ -111,6 +133,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     kind: 'claude',
     stage: runStage,
     status: 'running',
+    task: stage.outOfBand ? stage.id : null,
     sessionId,
     parentRunId: parentRunId ?? null,
     forkedFromSessionId: resumeSessionId ?? null,
@@ -157,6 +180,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(stage.model ? { model: stage.model } : {}),
     ...(stage.effort ? { effort: stage.effort } : {}),
+    // The card modal shows what Claude is reasoning about. Left to default,
+    // adaptive thinking on this model omits the text and stores an empty block
+    // with only a signature. Explicitly 'adaptive' because no stage pins a model
+    // today; one that pins a model without adaptive thinking needs this revisited.
+    thinking: { type: 'adaptive', display: 'summarized' },
     outputFormat: { type: 'json_schema', schema: jsonSchemaFor(stage.schema) },
   };
 
@@ -174,6 +202,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         runId,
         cardId: card.id,
         kind: 'claude',
+        outOfBand: stage.outOfBand ?? false,
         stop: async () => {
           cancelled = true;
           setRunStatus(db, runId, { status: 'stopping' });

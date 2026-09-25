@@ -33,7 +33,11 @@ export const planningOutput = z.object({
     .array(
       z.object({
         heading: z.string().describe('A short title for this section, in Title Case.'),
-        body: z.string().describe('A paragraph or two of plain prose. No markdown headings.'),
+        body: z
+          .string()
+          .describe(
+            'A paragraph or two of prose, in Markdown: lists, `code` and emphasis render. No headings — `heading` is this section’s heading.',
+          ),
       }),
     )
     .describe(

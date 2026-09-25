@@ -78,17 +78,29 @@ const TONES: Record<ButtonTone, string> = {
   error: 'border-(--color-btn-error-border) bg-(--color-btn-error-fill) text-red-200 shadow-(--shadow-btn-error-glow)',
 };
 
+/**
+ * A button whose work is under way, in a running card's colours. Disabled but
+ * never dimmed: it is busy, not unavailable, and a greyed-out button reads as
+ * the second.
+ */
+const BUSY = 'btn-busy cursor-progress border-(--color-activity-running-border) bg-(--color-activity-running-fill) text-sky-200';
+
 /** The mono 11px button the rail and section headers use. */
 export function SmallButton({
   children,
   tone = 'plain',
+  busy = false,
   ...rest
-}: { children: ReactNode; tone?: ButtonTone } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+}: { children: ReactNode; tone?: ButtonTone; busy?: boolean } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
       {...rest}
-      className={`rounded-sm border px-2 py-[3px] font-mono text-[11px]/4 whitespace-nowrap disabled:opacity-40 ${TONES[tone]}`}
+      disabled={busy || rest.disabled}
+      aria-busy={busy || undefined}
+      className={`rounded-sm border px-2 py-[3px] font-mono text-[11px]/4 whitespace-nowrap ${
+        busy ? BUSY : `disabled:opacity-40 ${TONES[tone]}`
+      }`}
     >
       {children}
     </button>
