@@ -52,9 +52,11 @@ stay exactly as they are and this branch's migration moves after them.
   Read them with `git show :3:<path>` and write them back with the Write tool.
 - For a schema migration, `git rm` this branch's `.sql` file (and its snapshot,
   if the base did not take that path), merge the schema source itself, then
-  run the package's `db:generate` script (`npm run db:generate` in the package
-  that owns the drizzle config). It writes a fresh migration numbered after the
-  base's, from the merged schema.
+  run the `db:generate` script from the repository root, naming the package
+  that owns the drizzle config: `npm run db:generate --workspace <package>`.
+  It writes a fresh migration numbered after the base's, from the merged
+  schema. If it stops to ask whether a column was renamed, nobody is here to
+  answer: do not commit, and say so in `concerns`.
 - `db:generate` writes nothing for a data-only migration, so renumber that one
   by hand: `git mv` the `.sql` file to the next free number, add a journal
   entry with the next `idx` and that tag, and add a snapshot for it that copies
