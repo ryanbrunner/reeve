@@ -44,8 +44,9 @@ export const planningStage: StageDefinition<PlanningOutput> = {
   /**
    * The mockup instructions, only for a card that asks for them — and with the
    * labels a person has already drawn, so Claude does not draw them again.
+   * Return type spelled out for the same reason as in_progress.ts's `prepare`.
    */
-  async prepare(db, _writer, ctx) {
+  async prepare(db, _writer, ctx): Promise<Record<string, string>> {
     if (!ctx.card.generateMockups) return {};
     const labels = attachedMockupLabels(db, ctx.card.id);
     const attached = labels.size

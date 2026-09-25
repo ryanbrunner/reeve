@@ -31,8 +31,11 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
   /**
    * The card's mockups, as files Claude can Read: the pictures Testing will
    * hold the build up against, handed over before the build rather than after.
+   * The return type is spelled out because TypeScript 7 infers
+   * `{ mockups?: undefined } | { mockups: string }` from the two returns, which
+   * `Record<string, string>` rejects.
    */
-  async prepare(db, _writer, ctx) {
+  async prepare(db, _writer, ctx): Promise<Record<string, string>> {
     const mockups = assetsFor(db, ctx.card.id).filter((a) => a.kind === 'mockup');
     if (mockups.length === 0) return {};
     const lines = mockups.map((m) => {
