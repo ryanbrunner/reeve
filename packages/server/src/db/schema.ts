@@ -51,8 +51,8 @@ export const CARD_EVENT_KINDS = [
   'question_asked',
   'answered',
   'note',
-  // Nothing writes this any more; cards that squash-merged before pull
-  // requests replaced it still carry one.
+  // Written when the card's pull request is seen merged on GitHub. Cards that
+  // squash-merged before pull requests replaced that also carry one.
   'merged',
   'pr_opened',
   'pr_failed',
@@ -113,6 +113,7 @@ export const card = sqliteTable(
      * Only cards from before pull requests replaced the merge have one.
      */
     mergedSha: text('merged_sha'),
+    // Set for those, and for a card whose pull request GitHub has merged.
     mergedAt: timestamp('merged_at'),
     /**
      * The pull request this card's branch was opened as. Stored because asking

@@ -48,6 +48,20 @@ export function boardCards(db: Db) {
     .all();
 }
 
+/**
+ * Every live card with a pull request GitHub might yet merge, beside the repo
+ * to ask from. Not filtered on stage: a card dragged back out of Done for
+ * another round keeps its pull request, and it can be merged from there.
+ */
+export function cardsAwaitingMerge(db: Db) {
+  return db
+    .select({ card, repo })
+    .from(card)
+    .innerJoin(repo, eq(card.repoId, repo.id))
+    .where(and(isNotNull(card.prUrl), isNull(card.mergedAt), isNull(card.archivedAt)))
+    .all();
+}
+
 export function cardsInStage(db: Db, stage: CardStage): Card[] {
   return db
     .select()
