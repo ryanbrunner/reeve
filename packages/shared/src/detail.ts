@@ -272,6 +272,16 @@ export interface CritReviewResponse {
   reused: boolean;
 }
 
+/**
+ * What `POST /cards/:id/resolve-conflicts` answers with. A run id means Claude
+ * is resolving and the push follows it; none means the base merged cleanly
+ * and `pushed` says it has already gone to the pull request.
+ */
+export interface ResolveConflictsResponse {
+  runId: string | null;
+  pushed: boolean;
+}
+
 // --- The whole card ---------------------------------------------------------
 
 /**

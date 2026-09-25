@@ -18,6 +18,7 @@ import type {
   HandoffResponse,
   ModelsResponse,
   MoveCardBody,
+  ResolveConflictsResponse,
   Stage,
   UpdateRepoBody,
   UpdateSettingsBody,
@@ -130,6 +131,9 @@ export const api = {
    */
   openPr: (id: string) =>
     post(`/api/cards/${id}/pr`, {}).then(json<{ ok: true; url: string; number: number; reused: boolean }>),
+  /** Merges the base branch in; Claude resolves the conflicts, and the server pushes once it has checked them. */
+  resolveConflicts: (id: string) =>
+    post(`/api/cards/${id}/resolve-conflicts`, {}).then(json<ResolveConflictsResponse>),
   /** Writes `.reeve/handoff.md` into the worktree and answers with the command to paste. */
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
   /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */
