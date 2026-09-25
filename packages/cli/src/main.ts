@@ -7,6 +7,7 @@ import { open } from './commands/open.js';
 import { serve } from './commands/serve.js';
 import { models, settings } from './commands/settings.js';
 import { show } from './commands/show.js';
+import { sicko } from './commands/sicko.js';
 import { CliError, note, print, usageError } from './output.js';
 
 const USAGE = `Usage: reeve [command] [options]
@@ -46,6 +47,10 @@ const USAGE = `Usage: reeve [command] [options]
       for planning, in-progress or testing. Unset goes back to the default.
   reeve models [--json]
       The models the Claude CLI offers, for <stage>.model.
+  reeve sicko [on|off] [--json]
+      SICKO MODE's state, or switch it. On, Reeve approves reviews unread,
+      answers Claude's questions, starts Backlog and merges pull requests,
+      with nobody watching, until you switch it off.
 
 <card>   142, #142, <repo>#142, or a card id or prefix of one. Where it is
          optional, leaving it out means the card whose worktree you are in.
@@ -56,7 +61,7 @@ go to stderr.
 Commands other than serve talk to $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
 
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
-  serve, list, add, move, show, open, card, settings, models,
+  serve, list, add, move, show, open, card, settings, models, sicko,
 };
 
 async function main(argv: string[]): Promise<void> {
