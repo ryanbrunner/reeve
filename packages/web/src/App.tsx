@@ -94,7 +94,8 @@ export function App() {
     const id = String(active.id);
     const overId = String(over.id);
     const card = byId.get(id);
-    if (!card) return;
+    // Put back down in its own slot: nothing moved.
+    if (!card || overId === id) return;
 
     // Dropped on empty column space, or onto another card.
     let stage: Stage;
@@ -109,7 +110,6 @@ export function App() {
       index = cardsIn(cards, stage).filter((c) => c.id !== id).findIndex((c) => c.id === overId);
       if (index < 0) index = 0;
     }
-    if (card.stage === stage && index < 0) return;
     move.mutate({ id, stage, index });
   }
 
