@@ -5,6 +5,9 @@ import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { stageDefinition } from './stages/index.js';
+// A cycle, as startStage reads cardActivity from here. Harmless: neither side
+// calls the other while the modules are still loading.
+import { isStartingStage } from './startStage.js';
 
 /**
  * How a card is presented on the board: which column it sits in is the human's
@@ -36,6 +39,7 @@ export function toBoardCard(
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
     resolvingConflicts: isResolvingConflicts(card.id),
+    startingStage: isStartingStage(card.id),
   });
 }
 

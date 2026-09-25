@@ -18,6 +18,14 @@ import { stageDefinition } from './stages/index.js';
  */
 const starting = new Set<string>();
 
+/**
+ * Whether a start is under way for the card: its worktree is being made and
+ * its run has no row yet. For those seconds the card reads as idle, and
+ * `reeve card wait` has to be able to tell that from a card nothing is going
+ * to start.
+ */
+export const isStartingStage = (cardId: string) => starting.has(cardId);
+
 export type StartStageResult =
   | { ok: true; runId: string; sessionId: string }
   | { ok: false; status: 400 | 409 | 429 | 500 | 501; error: string; detail: string };
