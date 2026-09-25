@@ -231,8 +231,11 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
     },
   });
 
-  const steps = detail.plan?.steps.length ?? 0;
   const elapsed = live?.elapsedMs ?? (run?.startedAt ? Date.now() - run.startedAt : null);
+  // The stream only knows what happened since the modal opened; the stored
+  // thought covers everything before, including while nobody was looking.
+  const activity = live?.activity ?? detail.thought?.activity ?? null;
+  const thinking = live?.thinking ?? detail.thought?.thinking ?? null;
 
   return (
     // Top-aligned so a summary growing beneath the status line does not drag
@@ -241,10 +244,9 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
       <div className="min-w-0 grow">
         <div className="text-sm/5 font-medium text-(--color-text)">Claude running</div>
         <p className="mt-0.5 truncate text-sm/5 text-(--color-muted)">
-          {live?.turns ? `Turn ${live.turns}${steps ? ` of ${steps} steps` : ''}` : 'Starting up'}
-          {live?.activity ? ` · ${live.activity}` : ''}
+          {activity ? activity[0]!.toUpperCase() + activity.slice(1) : 'Starting up'}
         </p>
-        {live?.thinking && <ThinkingSummary text={live.thinking} />}
+        {thinking && <ThinkingSummary text={thinking} />}
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <span className="font-mono text-[11px]/4 text-(--color-muted)">

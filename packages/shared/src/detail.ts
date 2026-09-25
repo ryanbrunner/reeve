@@ -1,5 +1,6 @@
 import type { ApiCard, ApiRepo, ApiRunSummary } from './api.js';
 import type { Stage } from './stages.js';
+import type { Thought } from './transcript.js';
 
 /**
  * Wire types for the card detail modal.
@@ -292,6 +293,13 @@ export interface CardDetail {
   checks: ApiChecks | null;
   /** Newest first, every kind. The header's "4 runs · $0.184" is counted here. */
   runs: ApiRunSummary[];
+  /**
+   * What the card's latest run was last doing and thinking, as stored on its
+   * row. The live stream only carries what happens after the modal opens, so
+   * this is what the band shows until it does. Kept off ApiRunSummary because
+   * the board carries one of those per card and never shows a summary.
+   */
+  thought: Thought | null;
   /** Newest first: the activity tab reads top-down, and so does a person. */
   events: ApiCardEvent[];
   stageHistory: StageHistory;
