@@ -32,6 +32,11 @@ reeve add "Title" [--body TEXT | --body-file PATH|-] [--repo NAME] [--stage S]
 reeve move <card> <stage> [--index N]
 reeve show [<card>]
 reeve open [<card>]
+reeve card <action> [<card>]    # worktree, pr, resolve-conflicts, server, diff, commits
+reeve settings [set|unset ...]
+reeve models
+reeve repos [add|edit|show ...]
+reeve sicko [on|off]
 ```
 
 - **`reeve`** opens the board in the browser. If Reeve is not already running
@@ -55,11 +60,94 @@ Claude run there, exactly as a drag does, and moving one to Done opens its pull
 request. The CLI says so on stderr first. Reeve records these as your actions,
 whoever ran the command.
 
+### Card actions
+
+The buttons on a card's rail, for a caller who is not looking at it. Each
+takes a card, or acts on the one whose worktree you are in when given none.
+
+```sh
+reeve card worktree [<card>] [--remove]
+reeve card pr [<card>]
+reeve card resolve-conflicts [<card>]
+reeve card server [<card>] [--stop]
+reeve card diff [<card>] [--stat]
+reeve card commits [<card>]
+```
+
+- **`worktree`** prints the worktree's path and nothing else on stdout, so
+  `cd "$(reeve card worktree 12)"` works. A card from Planning on gets one made
+  if it has none, and the repo's setup command starts in it. `--remove` stops
+  its dev server, runs the repo's teardown command and deletes the directory,
+  uncommitted work included; the branch stays.
+- **`pr`** pushes a Done card's branch and opens its pull request, or pushes to
+  the one already open, and prints its URL. Entering Done does this once on
+  its own; this is the retry.
+- **`resolve-conflicts`** merges the base branch into a Done card's branch. A
+  clean merge is pushed at once; a conflicted one starts a Claude run that
+  resolves it and pushes when done.
+- **`server`** starts the repo's dev server in the card's worktree and prints
+  its URL, or the URL of the one already running. `--stop` stops it.
+- **`diff`** is what the card changed since its worktree was made, committed or
+  not, as a unified diff to read. It is rebuilt from what the Diff tab shows
+  and has no index lines, so for a patch to apply, run git in the worktree.
+  `--stat` is a line per file.
+- **`commits`** lists the card's commits, newest first.
+
+### Settings and repos
+
+```sh
+reeve settings
+reeve settings set max-concurrent-runs 4
+reeve settings set in-progress.model opus
+reeve settings set testing.effort high
+reeve settings unset in-progress.model
+reeve models
+
+reeve repos
+reeve repos show <repo>
+reeve repos add [<path>] [--name N] [--branch B] [--setup CMD] [--test CMD] ...
+reeve repos edit <repo> [--path P] [--test CMD] ...
+```
+
+- **`settings`** shows the run cap, SICKO MODE, and each stage's model and
+  effort, with the stage's own default where nothing is set. `unset` goes
+  back to that default.
+- **`models`** lists what the Claude CLI offers for `<stage>.model`. A model
+  it does not list is saved anyway, with a warning.
+- **`repos add`** registers the repo at a path, or the one you are in. A path
+  inside a repo registers the whole repo. The name defaults to the directory's,
+  the branch to the one it is on, the worktree root to `.reeve-worktrees`
+  beside it and the lane colour to one no other repo has. The other flags are
+  `--worktree-root`, `--server`, `--teardown`, `--finish`, `--color` and
+  `--budget` (dollars per card), the fields of the Settings form.
+- **`repos edit`** changes only the flags given. An empty value, as in
+  `--setup ''`, clears a command, the colour or the budget.
+
+### SICKO MODE
+
+```sh
+reeve sicko           # whether it is on, and what it has done
+reeve sicko on
+reeve sicko off
+```
+
+SICKO MODE takes Reeve's human gates off every card on the board: it approves
+reviews unread, answers Claude's questions for it, moves Backlog straight into
+In Progress, and opens and merges pull requests, with nobody watching, until it
+is switched off. It is not a key under `settings set`, and `reeve sicko on`
+does not ask whether you are sure; like the switch on the board, it is its own
+undo. It prints, on stderr, each guardrail it just took off and how many
+cards on the board each one is about to touch. Tool permissions, the
+concurrency cap and branch protection stay as they are.
+
 ## For other tools
 
-`list`, `add`, `move` and `show` take `--json`. stdout is then a single JSON
-document — the cards, the new or moved card, or the whole card detail — and
-anything said to a person goes to stderr.
+Every command except `reeve` itself and `open` takes `--json`. stdout is then a
+single JSON document — the cards, a card, its detail, diff or commits, the
+settings, a repo — and anything said to a person goes to stderr.
+
+Without `--json`, the card actions still put the one thing a script wants on
+stdout alone: `worktree` the path, `pr` and `server` the URL.
 
 Exit status is 0 on success, 1 when Reeve refused or could not be reached, and
 2 for a mistake in the command itself.
