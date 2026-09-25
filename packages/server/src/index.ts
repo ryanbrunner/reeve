@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { existsSync } from 'node:fs';
-import { relative } from 'node:path';
+import { join } from 'node:path';
 import { assertContractsConvertible } from '@reeve/shared';
 import { config } from './config.js';
 import { openDatabase } from './db/client.js';
@@ -53,23 +53,29 @@ export function createApp() {
 
   // In production the built frontend is served from the same origin and port.
   // In dev, Vite serves it and proxies /api here, so this is absent and skipped.
+  // Absolute, so `reeve serve` finds it from whatever directory it is run in.
+  // The fallback takes a `path` and no `root`: serveStatic joins the two, and
+  // an absolute path under an absolute root would name the directory twice.
   if (existsSync(config.webDist)) {
-    const rel = `./${relative(process.cwd(), config.webDist)}`;
-    app.use('/*', serveStatic({ root: rel }));
-    app.get('*', serveStatic({ path: `${rel}/index.html` }));
+    app.use('/*', serveStatic({ root: config.webDist }));
+    app.get('*', serveStatic({ path: join(config.webDist, 'index.html') }));
   }
 
   return { app, db, writer };
 }
 
-const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
-if (isEntry) {
+/**
+ * Everything a running server does beyond answering requests. Shared by
+ * `npm start` (this file as the entry point) and `reeve serve`, and kept out
+ * of createApp, which the spikes call and which must start none of it.
+ */
+export function startServer() {
   const { app, db, writer } = createApp();
   // Out here rather than in createApp, which the spikes call and which should
   // not start a CLI each time. Warmed now so the first picker and the first
   // pinned run do not wait on it.
   void listModels();
-  serve({ fetch: app.fetch, port: config.port, hostname: config.hostname }, (info) => {
+  const server = serve({ fetch: app.fetch, port: config.port, hostname: config.hostname }, (info) => {
     console.log(`[reeve] http://${config.hostname}:${info.port}`);
   });
 
@@ -104,4 +110,12 @@ if (isEntry) {
     sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
   };
   setInterval(sweep, config.sickoSweepMs);
+
+  return { app, db, writer, server };
 }
+
+// Compares basenames only, so any other entry point named index.ts that
+// imported this module would start a second server beside its own.
+// `reeve serve` is launched as bin/reeve.js, and calls startServer itself.
+const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
+if (isEntry) startServer();
