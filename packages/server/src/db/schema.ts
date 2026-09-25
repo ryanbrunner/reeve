@@ -320,6 +320,31 @@ export const cardRef = sqliteTable(
 );
 
 /**
+ * One task waiting on another: `cardId` depends on `dependsOnId`.
+ *
+ * Its own table rather than a `card_ref` of kind `card`. A ref is something
+ * worth reading before starting; a dependency changes what happens to the
+ * card, and has to be read both ways — what this card waits on, and what waits
+ * on it — which a ref's free-text `value` cannot be indexed for. Only tasks
+ * take part, and the links never form a cycle; the table cannot say either, so
+ * `../dependencies.ts` refuses them before a row is written.
+ */
+export const cardDependency = sqliteTable(
+  'card_dependency',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    dependsOnId: text('depends_on_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  // The key serves "what does this card wait on"; the index, the other way.
+  (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_depends_on').on(t.dependsOnId)],
+);
+
+/**
  * A question Claude could not answer for itself, and the human's answer.
  *
  * Stored as rows rather than left in the run's structured output because they
@@ -500,5 +525,6 @@ export type Question = typeof question.$inferSelect;
 export type Asset = typeof asset.$inferSelect;
 export type Difference = typeof difference.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
+export type CardDependency = typeof cardDependency.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;
