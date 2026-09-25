@@ -72,6 +72,9 @@ function Purpose({ detail }: { detail: CardDetail }) {
           value={draft}
           disabled={save.isPending}
           placeholder={PROMPT}
+          // The heading used to name this field. Nothing else does now, and a
+          // placeholder stops naming it the moment there is something in it.
+          aria-label="What this card is for"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           className={`${FIELD} resize-y placeholder:text-(--color-muted)`}
