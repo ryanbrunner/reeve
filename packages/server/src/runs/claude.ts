@@ -1,8 +1,8 @@
 import { query, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { EffortLevel, StopReason } from '@reeve/shared';
-import { isRunnable, jsonSchemaFor } from '@reeve/shared';
+import type { EffortLevel, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
+import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
@@ -13,7 +13,7 @@ import {
   setRunStatus,
   unreadNotesFor,
 } from '../db/queries.js';
-import { artifact as artifactTable, type Card, type CardStage, type Project } from '../db/schema.js';
+import { artifact as artifactTable, type Card, type CardStage, type Repo } from '../db/schema.js';
 import type { ClaudeTask, StageContext } from '../stages/types.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
@@ -26,7 +26,7 @@ export interface ClaudeRunParams {
   db: Db;
   writer: EventWriter;
   card: Card;
-  project: Project;
+  repo: Repo;
   stage: ClaudeTask<never>;
   /**
    * Which column to record the run against. Defaults to the task's own id,
@@ -99,7 +99,7 @@ function stopReasonForSubtype(subtype: string): StopReason {
  */
 export function stageContextFor(
   db: Db,
-  base: Pick<StageContext, 'card' | 'project' | 'worktreePath' | 'reviewNotes' | 'answers'>,
+  base: Pick<StageContext, 'card' | 'repo' | 'worktreePath' | 'reviewNotes' | 'answers'>,
   excludeStage?: CardStage,
 ): StageContext {
   return {
@@ -155,14 +155,14 @@ async function fitToModel(
 }
 
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
-  const { db, writer, card, project, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
+  const { db, writer, card, repo, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
   const { model, effort } = modelAndEffortFor(db, card, stage, runStage);
 
   // Read before `run_started` is written: that event is where unread notes end,
   // so gathering after it would hand this run none of them.
   const ctx = stageContextFor(db, {
-    card, project, worktreePath,
+    card, repo, worktreePath,
     reviewNotes: reviewNotes ?? null,
     answers: answers ?? [],
   }, runStage);
@@ -263,9 +263,21 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         },
       });
 
+      let thought: Thought = { activity: null, thinking: null };
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
         if (message.type === 'result') result = message;
+
+        // Kept on the row whether or not anyone is watching, so the modal opens
+        // on what Claude is doing now. Written only on a change: thinking_tokens
+        // arrives many times a turn saying the same thing, and this write is
+        // synchronous on the message path.
+        const line = describeParsed(message as TranscriptMessage);
+        if (line === null) continue;
+        const next = nextThought(thought, line);
+        if (next.activity === thought.activity && next.thinking === thought.thinking) continue;
+        thought = next;
+        setRunStatus(db, runId, { lastActivity: thought.activity, lastThinking: thought.thinking });
       }
     } catch (err) {
       const text = String(err);

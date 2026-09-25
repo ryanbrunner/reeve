@@ -2,14 +2,14 @@ import type { z } from 'zod';
 import type { EffortLevel, RunnableStage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import type { EventWriter } from '../runs/events.js';
-import type { Card, Project } from '../db/schema.js';
+import type { Card, Repo } from '../db/schema.js';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto';
 export type { EffortLevel };
 
 export interface StageContext {
   card: Card;
-  project: Project;
+  repo: Repo;
   worktreePath: string;
   /** Present when the human rejected the previous attempt with notes. */
   reviewNotes?: string | null;

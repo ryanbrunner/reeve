@@ -18,7 +18,7 @@ import {
   getRun,
   insertCardEvent,
   latestClaudeRunForStage,
-  listProjects,
+  listRepos,
   liveTaskRun,
   questionsForRun,
   refsFor,
@@ -71,8 +71,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.get('/:id/detail', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
-    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-    return c.json(await cardDetail(db, card, project?.name ?? null, project?.laneColor ?? null, project ?? null));
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    return c.json(await cardDetail(db, card, repo?.name ?? null, repo?.laneColor ?? null, repo ?? null));
   });
 
   routes.get('/:id/criteria', (c) => {
@@ -92,18 +92,18 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   /**
    * Ask Claude what done should mean. A real run, so it shows in the card's
    * history and its cost is counted — but not a stage, so it needs no worktree
-   * of its own and reads the project's checkout instead. It is read-only.
+   * of its own and reads the repo's checkout instead. It is read-only.
    */
   routes.post('/:id/criteria/suggest', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
-    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-    if (!project) return c.json({ error: 'card has no project', detail: 'suggesting needs a repo to read' }, 400);
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    if (!repo) return c.json({ error: 'card has no repo', detail: 'suggesting needs a repo to read' }, 400);
 
-    // Its own worktree if it has one, the project's checkout if not: a card in
+    // Its own worktree if it has one, the repo's checkout if not: a card in
     // Backlog has no worktree, and this is exactly the stage it is most useful.
-    const health = await checkWorktree(project.repoPath, card.worktreePath);
-    const cwd = health.state === 'ok' ? health.path : project.repoPath;
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
+    const cwd = health.state === 'ok' ? health.path : repo.repoPath;
 
     // One at a time. Checked after the last await, so nothing can start between
     // this and startClaudeRun writing its row.
@@ -112,7 +112,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     }
 
     const handle = startClaudeRun({
-      db, writer, card, project,
+      db, writer, card, repo,
       stage: suggestCriteriaTask as never,
       runStage: card.stage,
       worktreePath: cwd,
@@ -198,12 +198,12 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       c.json({ ok: true, answered: siblings.length, of: siblings.length, resumed: null, blocked: detail });
 
     if (card.archivedAt) return blocked('card is archived');
-    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-    if (!project) return blocked('card has no project');
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    if (!repo) return blocked('card has no repo');
     if (!isRunnable(card.stage as Stage)) return blocked('stage has no Claude work');
     const stage = stageDefinition(card.stage as never);
     if (!stage) return blocked('stage not implemented yet');
-    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') return blocked('card has no usable worktree');
 
     // Fork the run that ASKED, not simply the latest one: those are the same
@@ -212,7 +212,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const asked = existing.runId ? getRun(db, existing.runId) : null;
 
     const handle = startClaudeRun({
-      db, writer, card, project, stage,
+      db, writer, card, repo, stage,
       worktreePath: health.path,
       answers: siblings.map((q) => ({ question: q.text, answer: q.answer ?? '' })),
       resumeSessionId: asked?.sessionId ?? null,
@@ -247,23 +247,23 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.get('/:id/diff', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
-    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
     // Merged, the worktree and branch are gone, and what the card changed is
     // exactly the squash commit it landed as.
-    if (card.mergedSha && project) {
-      const raw = await diffOfCommit(project.repoPath, card.mergedSha).catch(() => null);
+    if (card.mergedSha && repo) {
+      const raw = await diffOfCommit(repo.repoPath, card.mergedSha).catch(() => null);
       const files = raw === null ? [] : parseDiff(raw);
       return c.json({
         base: `${card.mergedSha}^`,
-        baseBranch: project.defaultBranch,
+        baseBranch: repo.defaultBranch,
         files,
         additions: files.reduce((n, f) => n + f.additions, 0),
         deletions: files.reduce((n, f) => n + f.deletions, 0),
       } satisfies ApiDiff);
     }
-    if (!card.worktreePath || !card.baseSha || !project) {
+    if (!card.worktreePath || !card.baseSha || !repo) {
       // No worktree is a normal state for a card in Backlog, not an error.
-      return c.json({ base: '', baseBranch: project?.defaultBranch ?? '', files: [], additions: 0, deletions: 0 } satisfies ApiDiff);
+      return c.json({ base: '', baseBranch: repo?.defaultBranch ?? '', files: [], additions: 0, deletions: 0 } satisfies ApiDiff);
     }
     // A worktree removed from under the card is a state the rail already
     // reports, so it reads here as "nothing changed" rather than a 500 that
@@ -272,7 +272,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const files = raw === null ? [] : parseDiff(raw);
     const body: ApiDiff = {
       base: card.baseSha,
-      baseBranch: project.defaultBranch,
+      baseBranch: repo.defaultBranch,
       files,
       additions: files.reduce((n, f) => n + f.additions, 0),
       deletions: files.reduce((n, f) => n + f.deletions, 0),
@@ -342,8 +342,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     if (card.mergedSha) {
-      const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-      return c.json(project ? await commitAt(project.repoPath, card.mergedSha).catch(() => []) : []);
+      const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+      return c.json(repo ? await commitAt(repo.repoPath, card.mergedSha).catch(() => []) : []);
     }
     if (!card.worktreePath || !card.baseSha) return c.json([]);
     return c.json(await commitsSince(card.worktreePath, card.baseSha).catch(() => []));

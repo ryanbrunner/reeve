@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RUNNABLE_STAGES,
   STAGE_LABELS,
-  type ApiProject,
+  type ApiRepo,
   type ApiSettings,
-  type CreateProjectBody,
+  type CreateRepoBody,
   type EffortLevel,
   type RunnableStage,
   type StageRunDefault,
@@ -32,13 +32,13 @@ export type SettingsPane = { kind: 'runs' } | { kind: 'repo'; id: string | null 
  */
 export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onClose: () => void }) {
   const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
-  const projects = data?.projects ?? [];
+  const repos = data?.repos ?? [];
   const panel = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
 
   const [pane, setPane] = useState<SettingsPane>(initial);
   const selected = pane.kind === 'repo' ? pane.id : undefined;
-  const editing = projects.find((p) => p.id === selected) ?? null;
+  const editing = repos.find((p) => p.id === selected) ?? null;
 
   useEffect(() => {
     restoreFocus.current = document.activeElement as HTMLElement | null;
@@ -107,12 +107,12 @@ export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onC
             </div>
 
             <div className="mt-3">
-              <SectionHead count={projects.length}>Repos</SectionHead>
+              <SectionHead count={repos.length}>Repos</SectionHead>
             </div>
-            {projects.length === 0 ?
+            {repos.length === 0 ?
               <Empty>None yet</Empty>
             : <div className="-mx-1.5 flex flex-col">
-                {projects.map((p) => (
+                {repos.map((p) => (
                   <NavItem key={p.id} current={p.id === selected} onClick={() => setPane({ kind: 'repo', id: p.id })}>
                     <span
                       aria-hidden="true"
@@ -129,14 +129,14 @@ export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onC
             </SmallButton>
           </nav>
 
-          {/* The repo form is keyed so switching projects rebuilds it rather
+          {/* The repo form is keyed so switching repos rebuilds it rather
               than leaving one repo's half-typed path sitting in another's fields. */}
           {pane.kind === 'runs' ?
             <RunsPane />
-          : <ProjectForm
+          : <RepoForm
               key={editing?.id ?? 'new'}
-              project={editing}
-              takenColors={projects.filter((p) => p.id !== editing?.id).map((p) => p.laneColor)}
+              repo={editing}
+              takenColors={repos.filter((p) => p.id !== editing?.id).map((p) => p.laneColor)}
               onCreated={(p) => setPane({ kind: 'repo', id: p.id })}
             />
           }
@@ -310,37 +310,37 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
 const LANE_COLORS = ['#6b7db3', '#7fa38a', '#b3866b', '#8f7fb3', '#b36b81', '#6ba3b3'] as const;
 
 type FormState = {
-  [K in keyof CreateProjectBody]-?: string;
+  [K in keyof CreateRepoBody]-?: string;
 };
 
-function initialState(project: ApiProject | null, takenColors: (string | null)[]): FormState {
+function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): FormState {
   const free = LANE_COLORS.find((c) => !takenColors.includes(c)) ?? LANE_COLORS[0];
   return {
-    name: project?.name ?? '',
-    repoPath: project?.repoPath ?? '',
-    worktreeRoot: project?.worktreeRoot ?? '',
-    defaultBranch: project?.defaultBranch ?? '',
-    setupCommand: project?.setupCommand ?? '',
-    testCommand: project?.testCommand ?? '',
-    serverCommand: project?.serverCommand ?? '',
-    teardownCommand: project?.teardownCommand ?? '',
-    finishCommand: project?.finishCommand ?? '',
-    laneColor: project?.laneColor ?? free,
-    maxBudgetUsd: project?.maxBudgetUsd == null ? '' : String(project.maxBudgetUsd),
+    name: repo?.name ?? '',
+    repoPath: repo?.repoPath ?? '',
+    worktreeRoot: repo?.worktreeRoot ?? '',
+    defaultBranch: repo?.defaultBranch ?? '',
+    setupCommand: repo?.setupCommand ?? '',
+    testCommand: repo?.testCommand ?? '',
+    serverCommand: repo?.serverCommand ?? '',
+    teardownCommand: repo?.teardownCommand ?? '',
+    finishCommand: repo?.finishCommand ?? '',
+    laneColor: repo?.laneColor ?? free,
+    maxBudgetUsd: repo?.maxBudgetUsd == null ? '' : String(repo.maxBudgetUsd),
   };
 }
 
-function ProjectForm({
-  project,
+function RepoForm({
+  repo,
   takenColors,
   onCreated,
 }: {
-  project: ApiProject | null;
+  repo: ApiRepo | null;
   takenColors: (string | null)[];
-  onCreated: (p: ApiProject) => void;
+  onCreated: (p: ApiRepo) => void;
 }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<FormState>(() => initialState(project, takenColors));
+  const [form, setForm] = useState<FormState>(() => initialState(repo, takenColors));
   const [saved, setSaved] = useState(false);
   const set = (k: keyof FormState) => (v: string) => {
     setSaved(false);
@@ -365,14 +365,14 @@ function ProjectForm({
         ...(form.worktreeRoot.trim() ? { worktreeRoot: form.worktreeRoot.trim() } : {}),
         ...(form.defaultBranch.trim() ? { defaultBranch: form.defaultBranch.trim() } : {}),
       };
-      return project ? api.updateProject(project.id, body) : api.createProject(body);
+      return repo ? api.updateRepo(repo.id, body) : api.createRepo(body);
     },
     onSuccess: (p) => {
       setSaved(true);
-      // The board carries the project list, so the header picker, the rail
+      // The board carries the repo list, so the header picker, the rail
       // picker and the swim lanes all read this one invalidation.
       void qc.invalidateQueries({ queryKey: ['board'] });
-      if (!project) onCreated(p);
+      if (!repo) onCreated(p);
     },
   });
 
@@ -388,9 +388,9 @@ function ProjectForm({
       }}
     >
       <section className="flex flex-col gap-3">
-        <SectionHead>{project ? 'Identity' : 'New repo'}</SectionHead>
+        <SectionHead>{repo ? 'Identity' : 'New repo'}</SectionHead>
         <Field label="Name" hint="What the chips and swim lanes call it.">
-          <Text value={form.name} onChange={set('name')} placeholder="storefront" autoFocus={!project} />
+          <Text value={form.name} onChange={set('name')} placeholder="storefront" autoFocus={!repo} />
         </Field>
         <Field label="Lane colour">
           <div role="group" aria-label="Lane colour" className="flex flex-wrap gap-1.5">
@@ -453,7 +453,7 @@ function ProjectForm({
       <div className="flex items-center gap-3 border-t border-(--color-edge) pt-4">
         <Button tone="sky" type="submit" disabled={!ready || save.isPending}>
           {save.isPending ? 'Saving…'
-          : project ? 'Save changes'
+          : repo ? 'Save changes'
           : 'Add repo'}
         </Button>
         {saved && !save.isPending && (

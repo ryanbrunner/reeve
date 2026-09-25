@@ -50,8 +50,9 @@ export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActi
  * gate, which forks the session so the attempt stays readable — a bare second
  * run would throw that history away.
  *
- * This is the board's affordance rule, not server policy. `POST /:id/run` gates
- * on the stage, the run registry, the concurrency cap and worktree health, and
+ * This is the board's affordance rule, and the rule for which cards start on
+ * their own when they enter a column. It is not a gate on `POST /:id/run`,
+ * which checks the stage, the runs in flight and the concurrency cap, and
  * never looks at the last run's status.
  */
 const STARTABLE: readonly CardActivity[] = ['idle', 'error'];

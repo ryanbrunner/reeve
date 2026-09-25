@@ -51,20 +51,24 @@ export const CARD_EVENT_KINDS = [
   'question_asked',
   'answered',
   'note',
-  // Nothing writes this any more; cards that squash-merged before pull
-  // requests replaced it still carry one.
+  // Written when the card's pull request is seen merged on GitHub. Cards that
+  // squash-merged before pull requests replaced that also carry one.
   'merged',
   'pr_opened',
   'pr_failed',
   'archived',
   'restored',
   'handed_off',
+  // A review in Crit that ended without a verdict: stopped, failed, or
+  // finished after the plan had already moved on. One that reached a verdict
+  // writes `reviewed` instead, the same as the buttons.
+  'crit_reviewed',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
 const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' });
 
-export const project = sqliteTable('project', {
+export const repo = sqliteTable('repo', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   repoPath: text('repo_path').notNull(),
@@ -87,9 +91,9 @@ export const card = sqliteTable(
   'card',
   {
     id: text('id').primaryKey(),
-    projectId: text('project_id').references(() => project.id, { onDelete: 'restrict' }),
+    repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
-     * Per-project, monotonic, and the only human-sized name a card has: `#142`.
+     * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
      * The default exists solely so SQLite could add the column to existing rows
      * — the migration backfills them and `createCard` has assigned one ever
      * since, so a zero here means something inserted behind that function.
@@ -113,6 +117,7 @@ export const card = sqliteTable(
      * Only cards from before pull requests replaced the merge have one.
      */
     mergedSha: text('merged_sha'),
+    // Set for those, and for a card whose pull request GitHub has merged.
     mergedAt: timestamp('merged_at'),
     /**
      * The pull request this card's branch was opened as. Stored because asking
@@ -132,8 +137,8 @@ export const card = sqliteTable(
   },
   (t) => [
     index('card_board').on(t.stage, t.position),
-    index('card_project').on(t.projectId, t.stage, t.position),
-    index('card_number').on(t.projectId, t.number),
+    index('card_repo').on(t.repoId, t.stage, t.position),
+    index('card_number').on(t.repoId, t.number),
   ],
 );
 
@@ -174,6 +179,11 @@ export const run = sqliteTable(
     resultText: text('result_text'),
     structuredOutput: text('structured_output', { mode: 'json' }).$type<unknown>(),
     permissionDenials: text('permission_denials', { mode: 'json' }).$type<unknown[]>(),
+    // What Claude was last doing and thinking, kept current as messages arrive
+    // so the modal opens on it rather than on "Starting up". Read off the row
+    // because the last thinking block can sit thousands of events back.
+    lastActivity: text('last_activity'),
+    lastThinking: text('last_thinking'),
 
     // --- shell + server runs ---
     command: text('command'),
@@ -450,8 +460,8 @@ export const settings = sqliteTable('settings', {
   stageDefaults: text('stage_defaults', { mode: 'json' }).$type<Partial<StageRunDefaults>>(),
 });
 
-export type Project = typeof project.$inferSelect;
-export type NewProject = typeof project.$inferInsert;
+export type Repo = typeof repo.$inferSelect;
+export type NewRepo = typeof repo.$inferInsert;
 export type Card = typeof card.$inferSelect;
 export type NewCard = typeof card.$inferInsert;
 export type Run = typeof run.$inferSelect;

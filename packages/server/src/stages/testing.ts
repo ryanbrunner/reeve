@@ -11,7 +11,7 @@ import {
   replaceScreenshots,
 } from '../db/queries.js';
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
-import { renderNotes, renderPrompt } from './template.js';
+import { blockquote, renderNotes, renderPrompt } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -49,7 +49,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
     const targets = captureTargetsFor(mockups, plannedCaptures(db, ctx.card.id));
     if (targets.length === 0) return { screenshots: 'No screenshots were requested for this card.' };
 
-    const server = await ensureDevServer(db, writer, ctx.card, ctx.project);
+    const server = await ensureDevServer(db, writer, ctx.card, ctx.repo);
     if (server.state === 'unavailable') {
       return { screenshots: `No screenshots: the dev server could not be started (${server.reason}).` };
     }
@@ -99,10 +99,10 @@ export const testingStage: StageDefinition<TestingOutput> = {
       plan: ctx.priorArtifacts?.find((a) => a.kind === 'plan')?.content ?? '_No plan was recorded._',
       implementation: ctx.priorArtifacts?.find((a) => a.kind === 'summary')?.content ?? '_No notes were recorded._',
       screenshots: prepared?.['screenshots'] ?? 'No screenshots were taken.',
-      testCommand: ctx.project.testCommand
-        ? `Run \`${ctx.project.testCommand}\`.`
-        : 'This project defines no test command, so verify by reading and by the screenshots.',
-      reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: ctx.reviewNotes }) : '',
+      testCommand: ctx.repo.testCommand
+        ? `Run \`${ctx.repo.testCommand}\`.`
+        : 'This repo defines no test command, so verify by reading and by the screenshots.',
+      reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });
   },

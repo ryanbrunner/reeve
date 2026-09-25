@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3c9d0b6e-8f41-4a57-b2e3-7d15a6c4f982",
-  "prevId": "e250f84e-c5c2-4157-a5fb-1511cf3a80b6",
+  "id": "277f442b-9c40-4b9e-b442-6737701b4fbb",
+  "prevId": "29bbefcb-159e-4bf5-bf6f-4d6bb367aff7",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -484,6 +484,20 @@
         },
         "active_run_id": {
           "name": "active_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effort": {
+          "name": "effort",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1447,6 +1461,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "last_activity": {
+          "name": "last_activity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_thinking": {
+          "name": "last_thinking",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "command": {
           "name": "command",
           "type": "text",
@@ -1653,6 +1681,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "stage_defaults": {
+          "name": "stage_defaults",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -1666,12 +1701,8 @@
   "enums": {},
   "_meta": {
     "schemas": {},
-    "tables": {
-      "\"project\"": "\"repo\""
-    },
-    "columns": {
-      "\"card\".\"project_id\"": "\"card\".\"repo_id\""
-    }
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "indexes": {}

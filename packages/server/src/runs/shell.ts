@@ -20,6 +20,10 @@ export interface ShellRunOptions {
   port?: number;
   /** A server keeps running until stopped; a task is expected to exit. */
   longLived?: boolean;
+  /** Work beside the stage, found again by `liveTaskRun`. See the column on `run`. */
+  task?: string;
+  /** Each line as it is logged, for a caller waiting on something the command prints. */
+  onLine?: (kind: 'stdout' | 'stderr', line: string) => void;
 }
 
 export interface ShellRunHandle {
@@ -29,12 +33,13 @@ export interface ShellRunHandle {
 }
 
 /**
- * Runs a project command (setup, test, or the dev server) and streams its
- * output into run_event, so shell output and Claude transcripts render through
- * one component and one SSE endpoint.
+ * Runs a repo's command (setup, test, or the dev server) or a tool beside
+ * the stage (a review in Crit) and streams its output into run_event, so shell
+ * output and Claude transcripts render through one component and one SSE
+ * endpoint.
  */
 export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
-  const { db, writer, cardId, stage, command, cwd, env, port, longLived = false } = opts;
+  const { db, writer, cardId, stage, command, cwd, env, port, longLived = false, task, onLine } = opts;
 
   const run = insertRun(db, {
     id: crypto.randomUUID(),
@@ -42,6 +47,7 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
     kind: longLived ? 'server' : 'shell',
     stage,
     status: 'running',
+    task: task ?? null,
     command,
     cwd,
     port: port ?? null,
@@ -64,7 +70,10 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
 
   for (const [stream, kind] of [[child.stdout, 'stdout'], [child.stderr, 'stderr']] as const) {
     if (!stream) continue;
-    createInterface({ input: stream }).on('line', (line) => writer.append(runId, kind, { line }));
+    createInterface({ input: stream }).on('line', (line) => {
+      writer.append(runId, kind, { line });
+      onLine?.(kind, line);
+    });
   }
 
   let stopReason: StopReason = 'completed';

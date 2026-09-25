@@ -7,7 +7,7 @@
  * there before it exits.
  */
 import { createApp } from '../index.js';
-import { archiveCard, createCard, createProject, getCard, getSettings, updateCard, updateSettings } from '../db/queries.js';
+import { archiveCard, createCard, createRepo, getCard, getSettings, updateCard, updateSettings } from '../db/queries.js';
 import { modelAndEffortFor } from '../runs/claude.js';
 import { capabilitiesFor, listModels } from '../runs/models.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
@@ -38,13 +38,13 @@ for (const model of ['opus', 'sonnet', 'haiku']) {
   );
 }
 
-const project = createProject(db, {
+const repo = createRepo(db, {
   name: `model-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
 });
-const card = createCard(db, { title: 'probe', projectId: project.id, stage: 'planning' });
+const card = createCard(db, { title: 'probe', repoId: repo.id, stage: 'planning' });
 const before = getSettings(db).stageDefaults;
 
 const planning = STAGE_DEFINITIONS.planning!;

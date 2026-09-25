@@ -6,20 +6,20 @@
  * that the one line the modal shows can actually be found in a real SDK
  * message rather than in a shape someone imagined.
  */
-import { describeMessage } from '@reeve/shared';
+import { describeMessage, nextThought, type Thought } from '@reeve/shared';
 import { createApp } from '../index.js';
-import { createCard, createProject, insertRun } from '../db/queries.js';
+import { createCard, createRepo, insertRun } from '../db/queries.js';
 import { EventWriter } from '../runs/events.js';
 
 const { app, db } = createApp();
 const writer = new EventWriter(db);
 
-const project = createProject(db, {
+const repo = createRepo(db, {
   name: `live-${Date.now()}`, repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
 });
-const card = createCard(db, { title: 'live', projectId: project.id, stage: 'in_progress' });
+const card = createCard(db, { title: 'live', repoId: repo.id, stage: 'in_progress' });
 const run = insertRun(db, {
   id: crypto.randomUUID(), cardId: card.id, kind: 'claude', stage: 'in_progress',
   status: 'running', sessionId: crypto.randomUUID(), cwd: '/tmp/x',
@@ -88,8 +88,15 @@ const count = (body: string, needle: string) => body.split(needle).length - 1;
 // The modal's one line, parsed exactly as the browser parses it.
 const payloads = [...replayed.matchAll(/^data: (.+)$/gm)].map((m) => m[1]!);
 const described = payloads.map(describeMessage).filter((d) => d !== null);
-const turns = described.filter((d) => d.turn);
+const actions = described.filter((d) => d.text !== 'thinking');
 const reasoning = described.filter((d) => d.text === 'thinking');
+// What the server stores and the band shows: every line folded in order.
+const folded = described.reduce<Thought>(nextThought, { activity: null, thinking: null });
+const afterEmpty = nextThought({ activity: 'thinking', thinking: SUMMARY }, { text: 'thinking', thinking: null });
+const afterTokens = nextThought(
+  { activity: 'reading a file', thinking: SUMMARY },
+  describeMessage(JSON.stringify({ type: 'system', subtype: 'thinking_tokens' }))!,
+);
 
 const checks: Array<[string, boolean, string]> = [
   ['live-only skips the replay', count(live, '"tool_use"') <= 1 && !live.includes('Reading the cart code'), `${count(live, 'data:')} events`],
@@ -98,14 +105,21 @@ const checks: Array<[string, boolean, string]> = [
   // useLiveRun listens by these names; a renamed kind would go silently unheard.
   ['events are named after their kind', replayed.includes('event: assistant') && replayed.includes('event: system:thinking_tokens'), ''],
   ['live-only survives a reconnect', !reconnect.includes('Reading the cart code'), `${count(reconnect, 'data:')} events`],
-  ['tool calls and prose are turns', turns.length >= 3 && turns.every((d) => d.thinking === undefined), `${turns.length} turns`],
-  ['thinking is not a turn', reasoning.length === 3 && reasoning.every((d) => !d.turn), `${reasoning.length} thinking`],
+  ['tool calls and prose carry no summary', actions.length >= 3 && actions.every((d) => d.thinking === undefined), `${actions.length} actions`],
+  ['thinking reads as thinking', reasoning.length === 3, `${reasoning.length} thinking`],
   ['a summary comes through whole', described.some((d) => d.thinking === SUMMARY), ''],
   ['an empty block shows no summary', described.some((d) => d.text === 'thinking' && d.thinking === null), ''],
   ['thinking_tokens reads as thinking', reasoning.some((d) => d.thinking === undefined), ''],
   ['a search reads as one too', described.some((d) => d.text === 'searching the codebase'), ''],
   ['a tool call reads as an activity', described.some((d) => d.text === 'reading a file'), String(described.map((d) => d.text))],
   ['so does a sentence of prose', described.some((d) => d.text === 'Reading the cart code.'), ''],
+  ['an empty block keeps the last summary', afterEmpty.thinking === SUMMARY, ''],
+  ['thinking_tokens moves only the activity', afterTokens.activity === 'thinking' && afterTokens.thinking === SUMMARY, ''],
+  [
+    'the whole run folds to its last action and summary',
+    folded.activity === 'Writing the e2e tests for guest persistence.' && folded.thinking === SUMMARY,
+    JSON.stringify(folded.activity),
+  ],
 ];
 
 let failed = 0;

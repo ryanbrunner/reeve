@@ -22,7 +22,7 @@ import {
   questionsForRun,
   stageHistory,
 } from './db/queries.js';
-import type { Card, Project, Run } from './db/schema.js';
+import type { Card, Repo, Run } from './db/schema.js';
 import { behindBase, checkWorktree } from './git/worktree.js';
 import {
   toApiAsset,
@@ -30,8 +30,8 @@ import {
   toApiCardRef,
   toApiCriterion,
   toApiDifference,
-  toApiProject,
   toApiQuestion,
+  toApiRepo,
   toApiRunSummary,
 } from './mappers.js';
 
@@ -46,19 +46,21 @@ import {
 export async function cardDetail(
   db: Db,
   card: Card,
-  projectName: string | null,
+  repoName: string | null,
   laneColor: string | null,
-  project: Project | null,
+  repo: Repo | null,
 ): Promise<CardDetail> {
   const runs = runsForCard(db, card.id);
   // The stage's own attempts. A Suggest run stays in `runs` below, so it is in
   // the history and its cost is counted, but it is no version of the plan.
   const claudeRuns = runs.filter((r) => r.kind === 'claude' && r.task === null);
   const current = latestClaudeRunForStage(db, card.id, card.stage);
+  const board = toBoardCard(db, card, repoName, laneColor);
+  const latest = runs.find((r) => r.id === board.latestRun?.id);
 
   return {
-    card: toBoardCard(db, card, projectName, laneColor),
-    project: project ? toApiProject(project) : null,
+    card: board,
+    repo: repo ? toApiRepo(repo) : null,
     criteria: criteriaFor(db, card.id).map(toApiCriterion),
     refs: refsFor(db, card.id).map(toApiCardRef),
     questions: current ? questionsForRun(db, current.id).map(toApiQuestion) : [],
@@ -66,9 +68,10 @@ export async function cardDetail(
     implementation: latestImplementation(claudeRuns),
     checks: latestChecks(db, card.id, claudeRuns),
     runs: runs.map(toApiRunSummary),
+    thought: latest ? { activity: latest.lastActivity, thinking: latest.lastThinking } : null,
     events: cardEventsFor(db, card.id).map(toApiCardEvent),
     stageHistory: stageHistory(db, card.id),
-    worktree: await worktreeFacts(db, card, project, runs),
+    worktree: await worktreeFacts(db, card, repo, runs),
     assets: assetsFor(db, card.id).map(toApiAsset),
     differences: differencesFor(db, card.id).map(toApiDifference),
   };
@@ -169,12 +172,12 @@ function latestChecks(db: Db, cardId: string, runs: Run[]): ApiChecks | null {
 async function worktreeFacts(
   db: Db,
   card: Card,
-  project: Project | null,
+  repo: Repo | null,
   runs: Run[],
 ): Promise<ApiWorktree> {
-  const baseBranch = project?.defaultBranch ?? 'main';
-  const health = card.worktreePath && project
-    ? await checkWorktree(project.repoPath, card.worktreePath)
+  const baseBranch = repo?.defaultBranch ?? 'main';
+  const health = card.worktreePath && repo
+    ? await checkWorktree(repo.repoPath, card.worktreePath)
     : { state: 'none' as const };
   const exists = health.state === 'ok';
 

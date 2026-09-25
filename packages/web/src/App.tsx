@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage } from '@reeve/shared';
+import { STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
@@ -74,9 +74,23 @@ export function App() {
       held ? false : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr) ? 1_500 : 5_000,
   });
 
+  // A new card, opened on arrival so the details go straight in. Cleared as
+  // soon as that card is no longer the open one — however it closed, Back
+  // included — so reopening it later is an ordinary open, not a fresh one.
+  const [freshId, setFreshId] = useState<string | null>(null);
+  useEffect(() => {
+    if (freshId && openCard !== freshId) setFreshId(null);
+  }, [openCard, freshId]);
+
+  // Made with a placeholder title and opened, rather than asked for a title
+  // first: criteria and context can only hang off a card that exists.
   const create = useMutation({
-    mutationFn: api.createCard,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['board'] }),
+    mutationFn: (repoId: string | null) => api.createCard({ title: 'Untitled', repoId, stage: 'backlog' }),
+    onSuccess: (card) => {
+      setFreshId(card.id);
+      openAndClose.open(card.id);
+      return qc.invalidateQueries({ queryKey: ['board'] });
+    },
   });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -85,6 +99,14 @@ export function App() {
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);
+  }
+
+  // Escape cancels a drag rather than ending it, and dnd-kit reports that here
+  // and nowhere else. Without this the overlay card stayed stuck to the screen
+  // and `dragging` never cleared, which also pins `held` below — and with it the
+  // board's refetch — until a reload.
+  function onDragCancel() {
+    setDragging(null);
   }
 
   function onDragEnd(e: DragEndEvent) {
@@ -107,8 +129,13 @@ export function App() {
       const target = byId.get(overId);
       if (!target) return;
       stage = target.stage;
-      index = cardsIn(cards, stage).filter((c) => c.id !== id).findIndex((c) => c.id === overId);
-      if (index < 0) index = 0;
+      // The slot is the target's index in the column as it stands, dragged card
+      // included — the index `arrayMove` takes, and the one the server reads by
+      // dropping the card out of the column before counting off to it. Filtering
+      // the card out here first made a nudge one slot down a no-op: its own
+      // removal pulled the target up into the slot the card had just left.
+      index = cardsIn(cards, stage).findIndex((c) => c.id === overId);
+      if (index < 0) return;
     }
     move.mutate({ id, stage, index });
   }
@@ -117,7 +144,7 @@ export function App() {
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
 
   const lanes = swimlanes
-    ? (data?.projects ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
+    ? (data?.repos ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
     : [{ id: undefined as unknown as string | null, name: '', color: null }];
 
   return (
@@ -125,13 +152,21 @@ export function App() {
       <Header
         swimlanes={swimlanes}
         onToggle={() => setSwimlanes((s) => !s)}
-        projects={data?.projects ?? []}
-        onAdd={(title, projectId) => create.mutate({ title, projectId, stage: 'backlog' })}
+        repos={data?.repos ?? []}
+        onAdd={create.mutate}
+        adding={create.isPending}
+        addError={create.error}
         onOpenSettings={setSettingsOpen}
         onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
       />
-      <DndContext sensors={sensors} collisionDetection={columnCollisions} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={columnCollisions}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
         <div className="flex-1 overflow-auto p-4">
           {lanes.map((lane) => (
             <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
@@ -157,7 +192,7 @@ export function App() {
         </div>
         <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
       </DndContext>
-      {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} />}
+      {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} editTitle={openCard === freshId} />}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
       {archiveOpen && (
         <ArchiveModal
@@ -220,26 +255,27 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenArchive, cardCount }: {
+function Header({ swimlanes, onToggle, repos, onAdd, adding, addError, onOpenSettings, onOpenArchive, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
-  projects: ApiProject[];
-  onAdd: (title: string, projectId: string | null) => void;
+  repos: ApiRepo[];
+  onAdd: (repoId: string | null) => void;
+  adding: boolean;
+  addError: Error | null;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
 }) {
-  const [title, setTitle] = useState('');
-  // Filed under the first project unless told otherwise, because an unfiled
+  // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
-  // run. The picker sits next to the field rather than hiding the choice, so
+  // run. The picker sits next to Add rather than hiding the choice, so
   // "the first one" is never a silent answer.
-  // `null` is "hasn't said", `''` is "said no project" — two different things,
-  // and collapsing them makes No project unpickable: the fallback below would
+  // `null` is "hasn't said", `''` is "said no repo" — two different things,
+  // and collapsing them makes No repo unpickable: the fallback below would
   // read the empty string as untouched and snap the select back to the first.
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const chosen = projectId === '' || projects.some((p) => p.id === projectId);
-  const filedUnder = chosen ? projectId! : (projects[0]?.id ?? '');
+  const [repoId, setRepoId] = useState<string | null>(null);
+  const chosen = repoId === '' || repos.some((p) => p.id === repoId);
+  const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
   return (
     <header className="flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
@@ -249,42 +285,36 @@ function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenAr
       <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)">
         {cardCount} cards
       </span>
-      <form
-        className="ml-auto flex items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!title.trim()) return;
-          onAdd(title.trim(), filedUnder || null);
-          setTitle('');
-        }}
-      >
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="New idea → Backlog"
-          className="w-64 rounded-md border border-(--color-edge) bg-(--color-panel) px-3 py-1.5 text-sm outline-none placeholder:text-(--color-muted) focus:border-sky-600"
-        />
-        {projects.length > 0 && (
+      <div className="ml-auto flex items-center gap-2">
+        {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
+        {repos.length > 0 && (
           <select
             value={filedUnder}
-            onChange={(e) => setProjectId(e.target.value)}
-            aria-label="Project for the new card"
+            onChange={(e) => setRepoId(e.target.value)}
+            aria-label="Repo for the new card"
             className="rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600"
           >
-            {projects.map((p) => (
+            {repos.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
-            <option value="">No project</option>
+            <option value="">No repo</option>
           </select>
         )}
-        <button type="submit" className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600">
+        {/* Held while the card is being made: a double-click would otherwise
+            make two, and open both. */}
+        <button
+          type="button"
+          disabled={adding}
+          onClick={() => onAdd(filedUnder || null)}
+          className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600 disabled:opacity-40"
+        >
           Add
         </button>
-      </form>
+      </div>
       <button
-        onClick={() => onOpenSettings(projects.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
+        onClick={() => onOpenSettings(repos.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
         className={`rounded-md border px-3 py-1.5 text-sm ${
-          projects.length === 0 ?
+          repos.length === 0 ?
             'border-sky-600 text-sky-300'
           : 'border-(--color-edge) text-(--color-muted) hover:border-slate-600'
         }`}
@@ -292,7 +322,7 @@ function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenAr
         {/* Highlighted, and straight to the new-repo form, when there are none:
             an empty board with no repo is a board where nothing can ever run,
             and this is the way out. */}
-        {projects.length === 0 ? 'Add a repo' : 'Settings'}
+        {repos.length === 0 ? 'Add a repo' : 'Settings'}
       </button>
       <button
         onClick={onOpenArchive}

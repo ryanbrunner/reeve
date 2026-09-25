@@ -26,7 +26,12 @@ const GLOW: Record<CardActivity, string> = {
   error: 'card-glow card-glow-error modal-glow-error',
 };
 
-export function CardModal({ cardId, onClose }: { cardId: string; onClose: () => void }) {
+export function CardModal({ cardId, onClose, editTitle = false }: {
+  cardId: string;
+  onClose: () => void;
+  /** Open with the title selected for typing over: a card just made. */
+  editTitle?: boolean;
+}) {
   const { data, isLoading, error } = useCardDetail(cardId);
   const panel = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -40,6 +45,9 @@ export function CardModal({ cardId, onClose }: { cardId: string; onClose: () => 
   // more than it buys here.
   useEffect(() => {
     restoreFocus.current = document.activeElement as HTMLElement | null;
+    // A new card's header selects its title, and that survives this only
+    // because the header mounts later, once the card has loaded. Seeding the
+    // detail query so it rendered at once would let this take focus back.
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -82,7 +90,7 @@ export function CardModal({ cardId, onClose }: { cardId: string; onClose: () => 
         {error && <Middle>Could not load this card. {error.message}</Middle>}
         {data && (
           <>
-            <CardHeader detail={data} live={live} onClose={onClose} />
+            <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
             <div className="flex min-h-0 grow">
               <Tabs detail={data} />
               <Rail detail={data} />

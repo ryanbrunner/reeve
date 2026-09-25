@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeMessage, isTerminal, type CardDetail } from '@reeve/shared';
+import { describeMessage, isTerminal, nextThought, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
@@ -19,16 +19,18 @@ export function useCardDetail(cardId: string | null) {
     queryFn: () => api.detail(cardId!),
     enabled: cardId !== null,
     // Slow: the live parts arrive over SSE, and everything else changes only
-    // when this modal or the board does something that invalidates it. Two
-    // things are the exception, and neither is pushed: a Suggest is not the
+    // when this modal or the board does something that invalidates it. Three
+    // things are the exception, and none is pushed: a Suggest is not the
     // card's run, so nothing streams it, and on a Backlog card nothing else
-    // would ever notice it finish; and a pull request opened on entering Done
-    // comes back on its own schedule.
+    // would ever notice it finish; a pull request opened on entering Done
+    // comes back on its own schedule; and one merged on GitHub is only noticed
+    // by the server's own sync, which is slower still.
     refetchInterval: (q) => {
       const data = q.state.data;
       if (data?.card.openingPr) return 1_500;
       if (data?.runs.some((r) => r.task !== null && !isTerminal(r.status))) return 2_000;
-      return data?.card.activity === 'running' ? 5_000 : false;
+      if (data?.card.activity === 'running') return 5_000;
+      return data?.card.prUrl && data.card.mergedAt == null ? 15_000 : false;
     },
   });
   return query;
@@ -41,8 +43,6 @@ export interface LiveRun {
   activity: string | null;
   /** The latest summary of Claude's reasoning, whole. */
   thinking: string | null;
-  /** Turns completed so far, as the stream reports them. */
-  turns: number;
 }
 
 /**
@@ -71,23 +71,21 @@ export function useLiveRun(
     // From when the run actually began, not from when this modal opened. A run
     // that has been going half an hour reads "31m", not "0s" counting up.
     since.current = startedAt ?? Date.now();
-    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null, turns: 0 });
+    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null });
 
     // `since=live` asks for new events only. Without it the server replays the
     // whole transcript, which for a long run is thousands of messages to learn
-    // the one line this shows.
+    // the one line this shows. What came before is on the detail, as the
+    // thought the server stored; the band falls back to that until this has
+    // something of its own.
     const source = new EventSource(`/api/runs/${runId}/events?since=live`);
-    let turns = 0;
 
     const onEvent = (e: MessageEvent<string>) => {
       const line = describeMessage(e.data);
       if (line === null) return;
-      if (line.turn) turns++;
       setLive((prev) => ({
         elapsedMs: prev?.elapsedMs ?? Date.now() - since.current,
-        activity: line.text ?? prev?.activity ?? null,
-        thinking: line.thinking ?? prev?.thinking ?? null,
-        turns,
+        ...nextThought({ activity: prev?.activity ?? null, thinking: prev?.thinking ?? null }, line),
       }));
     };
     // The server names every event after its kind, and a named event never
