@@ -13,6 +13,7 @@ import type {
   CardDetail,
   CreateCardBody,
   CreateProjectBody,
+  CritReviewResponse,
   HandoffResponse,
   MoveCardBody,
   Stage,
@@ -129,6 +130,8 @@ export const api = {
     post(`/api/cards/${id}/pr`, {}).then(json<{ ok: true; url: string; number: number; reused: boolean }>),
   /** Writes `.reeve/handoff.md` into the worktree and answers with the command to paste. */
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
+  /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */
+  reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
 };
 
 export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>
