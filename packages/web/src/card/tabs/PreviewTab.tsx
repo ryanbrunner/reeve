@@ -158,7 +158,9 @@ function Figure({ asset, kind, caption }: { asset: ApiAsset; kind: string; capti
       </figcaption>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        // Safari and Firefox leave a clicked button unfocused, and the lightbox
+        // hands focus back to whatever had it.
+        onClick={(e) => { e.currentTarget.focus(); setOpen(true); }}
         aria-label={`View ${kind} full screen`}
         className="block cursor-zoom-in overflow-hidden rounded-md border border-(--color-edge) hover:border-slate-600"
       >

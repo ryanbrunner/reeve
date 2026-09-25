@@ -250,7 +250,9 @@ function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
       {/* Only the picture opens it: the ✕ below is a sibling, not inside. */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        // Safari and Firefox leave a clicked button unfocused, and the lightbox
+        // hands focus back to whatever had it.
+        onClick={(e) => { e.currentTarget.focus(); setOpen(true); }}
         aria-label={`View ${kind} full screen`}
         className="block cursor-zoom-in overflow-hidden rounded-md border border-(--color-edge) hover:border-slate-600"
       >
