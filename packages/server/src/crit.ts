@@ -82,7 +82,7 @@ export async function startCritReview(
     await exec('crit', ['--version'], { timeout: CRIT_TIMEOUT_MS });
   } catch (cause) {
     return (cause as { code?: unknown }).code === 'ENOENT'
-      ? { ok: false, error: 'crit is not installed', detail: 'or not on the server’s PATH', status: 400 }
+      ? { ok: false, error: 'crit is not installed', detail: 'there is no crit on the server’s PATH', status: 400 }
       : { ok: false, error: 'crit did not run', detail: failureOutput(cause, CRIT_TIMEOUT_MS), status: 400 };
   }
 
@@ -110,6 +110,7 @@ export async function startCritReview(
   const announced = new Promise<string | null>((resolve) => (announce = resolve));
   let runId = '';
   let urlSeen = false;
+  let critApproved: boolean | null = null;
 
   const handle = startShellRun({
     db, writer, cardId: card.id, stage: card.stage,
@@ -119,6 +120,8 @@ export async function startCritReview(
     // "Started crit daemon at http://…" or "Connected to …", on stderr. The
     // port goes on the row so a modal opened later can still link to it.
     onLine: (_kind, line) => {
+      const said = /^approved: (true|false)$/.exec(line.trim())?.[1];
+      if (said) critApproved = said === 'true';
       const url = urlSeen ? null : /https?:\/\/[^\s)]+/.exec(line)?.[0];
       if (!url) return;
       urlSeen = true;
@@ -130,7 +133,7 @@ export async function startCritReview(
   runId = handle.runId;
 
   void handle.done.then(
-    (result) => finishCritReview(db, writer, card.id, planRun.id, slug, worktreePath, result),
+    (result) => finishCritReview(db, writer, card.id, planRun.id, slug, worktreePath, { ...result, critApproved }),
     (err: unknown) => recordOutcome(db, card.id, planRun.id, 'failed', `Crit review ended badly: ${String(err)}`),
   );
 
@@ -175,7 +178,7 @@ async function finishCritReview(
   planRunId: string,
   slug: string,
   cwd: string,
-  result: { exitCode: number | null; stopReason: StopReason },
+  result: { exitCode: number | null; stopReason: StopReason; critApproved: boolean | null },
 ): Promise<void> {
   try {
     // Checked before the exit code: a `crit plan` stopped while it owns the
@@ -218,6 +221,14 @@ async function finishCritReview(
     }
 
     if (comments.length === 0) {
+      // Crit's own `approved:` line never makes the decision, but it can veto
+      // one: if Crit saw comments and none came back, the list was read from
+      // the wrong place, and approving would bury the reviewer's objections.
+      if (result.critApproved === false) {
+        recordOutcome(db, cardId, planRunId, 'failed',
+          'Crit reported unresolved comments, but none could be read back. Nothing was approved.');
+        return;
+      }
       approveStage(db, card, project, run, { meta: { via: 'crit' } });
       return;
     }
