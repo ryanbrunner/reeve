@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { isTerminal, type ApiAsset, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { when } from '../format.js';
+import { Lightbox } from '../Lightbox.js';
 import { InlineMarkdown, Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
@@ -240,9 +241,19 @@ function Designs({ detail }: { detail: CardDetail }) {
 }
 
 function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  // Stable, or every poll of the card would re-run the lightbox's effect.
+  const close = useCallback(() => setOpen(false), []);
+  const kind = asset.runId ? 'Mockup by Claude' : 'Mockup';
   return (
     <figure className="m-0 flex flex-col gap-1.5">
-      <div className="overflow-hidden rounded-md border border-(--color-edge)">
+      {/* Only the picture opens it: the ✕ below is a sibling, not inside. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`View ${kind} full screen`}
+        className="block cursor-zoom-in overflow-hidden rounded-md border border-(--color-edge) hover:border-slate-600"
+      >
         <img
           src={asset.src}
           alt={asset.label}
@@ -250,7 +261,10 @@ function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
           height={asset.width && asset.height ? Math.round((150 * asset.height) / asset.width) : 94}
           className="block w-[150px] bg-(--color-ink) object-cover"
         />
-      </div>
+      </button>
+      {open && (
+        <Lightbox asset={asset} kind={kind} caption={`${asset.url ?? ''} · ${asset.viewport ?? '?'}px`} onClose={close} />
+      )}
       <figcaption className="flex items-baseline justify-between gap-2 font-mono text-[10px]/4 text-(--color-muted)">
         <span className="truncate">{asset.label}</span>
         <span className="flex shrink-0 items-baseline gap-2">
