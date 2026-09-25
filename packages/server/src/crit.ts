@@ -181,7 +181,7 @@ async function finishCritReview(
     // Checked before the exit code: a `crit plan` stopped while it owns the
     // daemon shuts it down and exits 0.
     if (result.stopReason === 'cancelled_by_user') {
-      recordOutcome(db, cardId, planRunId, 'cancelled', 'Stopped the review in Crit before it was finished.');
+      recordOutcome(db, cardId, planRunId, 'cancelled', null);
       return;
     }
     if (result.stopReason !== 'completed' || result.exitCode !== 0) {
@@ -212,7 +212,7 @@ async function finishCritReview(
     const run = card && cardActivity(db, card).run;
     if (stale || !card || !project || !run) {
       recordOutcome(db, cardId, planRunId, 'not_applied',
-        `Finished the review in Crit, but it was not applied: ${stale ?? 'the plan is no longer there'}.`,
+        `Nothing was sent back or approved: ${stale ?? 'the plan is no longer there'}.`,
         { comments: comments.length });
       return;
     }
@@ -257,7 +257,7 @@ function recordOutcome(
   cardId: string,
   runId: string,
   outcome: 'cancelled' | 'failed' | 'not_applied',
-  body: string,
+  body: string | null,
   meta: Record<string, unknown> = {},
 ): void {
   try {
