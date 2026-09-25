@@ -22,7 +22,7 @@ under `packages/server/src/stages/prompts/`, and that wins.
 
 ## Layout
 
-npm workspaces, three packages:
+npm workspaces, four packages:
 
 - `packages/shared` (`@reeve/shared`) — the zod contracts Claude answers in,
   and the API types both sides share. Imported as TypeScript source; there is
@@ -32,6 +32,8 @@ npm workspaces, three packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command. A client of the running
+  server's HTTP API and never of its database; see `packages/cli/README.md`.
 
 ## Commands
 
@@ -46,6 +48,7 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `npm run seed` — one repo and four cards, into an empty database only. Its
   repo paths are hard-coded to one machine.
 - `npm run typecheck` — `tsc --noEmit` in every workspace.
+- `npm run cli -- <args>` — the `reeve` command, run from the repo root.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
