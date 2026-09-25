@@ -41,7 +41,8 @@ number in your own `open_questions` array, counting from 1.
 Each entry in `open_questions` carries `suggestions`: two to four concrete
 answers a person could choose without typing. Write each as the decision
 itself — "Keep them until the shopper removes them" — never as another
-question.
+question. The person is always offered a box to write their own answer, so do
+not add an "Other" suggestion.
 
 `acceptance_criteria` is what must be true for this card to be done. Write each
 as something a person could observe and check off, not as a task to perform.

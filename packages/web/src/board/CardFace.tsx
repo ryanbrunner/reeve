@@ -27,12 +27,12 @@ export function CardFace({
       {/* The title and footer are positioned so they read above the mark. */}
       <p className="relative text-sm leading-snug font-medium tracking-[-0.01em]">{card.title}</p>
       <div className="relative mt-2 flex flex-wrap items-center gap-1.5">
-        {card.projectName && (
+        {card.repoName && (
           <span
             className="rounded px-1.5 py-0.5 font-mono text-[10px]/4"
             style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
           >
-            {card.projectName}
+            {card.repoName}
           </span>
         )}
         {label && <span className="sr-only">{label}</span>}

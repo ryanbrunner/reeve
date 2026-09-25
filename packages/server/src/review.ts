@@ -1,12 +1,13 @@
 import { nextStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import { cardsInStage, insertCardEvent, insertReview, moveCard } from './db/queries.js';
-import type { Card, Project, Run } from './db/schema.js';
+import type { Card, Repo, Run } from './db/schema.js';
 import { checkWorktree } from './git/worktree.js';
 import { maybeOpenPullRequest } from './pullRequest.js';
 import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { stageDefinition } from './stages/index.js';
+import { maybeStartStage } from './startStage.js';
 
 /**
  * The two verdicts the human gate can reach, whoever reaches them.
@@ -20,12 +21,14 @@ import { stageDefinition } from './stages/index.js';
  * Approving says the stage's output is good, so it records the verdict AND
  * advances the card one column — a human deciding the work is done is the
  * whole point of the gate, and making them then drag the card is asking them
- * to say it twice.
+ * to say it twice. The card then starts its next stage as any card entering a
+ * column does.
  */
 export function approveStage(
   db: Db,
+  writer: EventWriter,
   card: Card,
-  project: Project,
+  repo: Repo,
   lastRun: Run,
   opts: { notes?: string | null; meta?: Record<string, unknown> } = {},
 ): { fromStage: Stage; toStage: Stage; moved: boolean } {
@@ -47,8 +50,9 @@ export function approveStage(
     // moveCard writes the `moved` event, so the timeline reads as a verdict
     // followed by a move rather than one conflated entry.
     const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
-    // The same automatic pull request a drag into Done gets.
-    if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, project);
+    // The same automatic start, or pull request, that a drag there gets.
+    if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+    else if (moved) maybeStartStage(db, writer, moved, repo);
   }
   return { fromStage: card.stage, toStage: to, moved: to !== card.stage };
 }
@@ -65,7 +69,7 @@ export async function sendBackForRevision(
   db: Db,
   writer: EventWriter,
   card: Card,
-  project: Project,
+  repo: Repo,
   lastRun: Run,
   notes: string,
   meta: Record<string, unknown> = {},
@@ -82,11 +86,11 @@ export async function sendBackForRevision(
 
   const stage = stageDefinition(card.stage as never);
   if (!stage) return { ok: false, error: 'stage not implemented yet', status: 501 };
-  const health = await checkWorktree(project.repoPath, card.worktreePath);
+  const health = await checkWorktree(repo.repoPath, card.worktreePath);
   if (health.state !== 'ok') return { ok: false, error: 'card has no usable worktree', status: 409 };
 
   const handle = startClaudeRun({
-    db, writer, card, project, stage,
+    db, writer, card, repo, stage,
     worktreePath: health.path,
     reviewNotes: notes,
     // Fork rather than continue: the rejected attempt stays readable and the

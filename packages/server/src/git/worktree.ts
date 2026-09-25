@@ -97,7 +97,7 @@ export interface RepoInspection {
   isRepo: boolean;
   /**
    * The repository root. A path inside a repo inspects as that repo, so
-   * pointing at `packages/web` files the project against the whole thing
+   * pointing at `packages/web` files the repo as the whole thing
    * rather than storing a path git would keep reinterpreting.
    */
   toplevel: string | null;
@@ -106,7 +106,7 @@ export interface RepoInspection {
 }
 
 /**
- * What a repo path really is, before a project is built on top of it.
+ * What a repo path really is, before anything is built on top of it.
  *
  * Every failure mode here — a typo'd path, a directory that was never a repo,
  * a branch that does not exist — otherwise surfaces hours later as a failed
@@ -141,7 +141,7 @@ export async function inspectRepo(input: string): Promise<RepoInspection> {
   return { path, exists: true, isRepo: true, toplevel, currentBranch: currentBranch === 'HEAD' ? null : currentBranch, branches };
 }
 
-/** Where a project's worktrees go when nobody says: beside the repo, out of it. */
+/** Where a repo's worktrees go when nobody says: beside the repo, out of it. */
 export function defaultWorktreeRoot(toplevel: string): string {
   return join(dirname(toplevel), '.reeve-worktrees');
 }

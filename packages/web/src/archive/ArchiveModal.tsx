@@ -109,12 +109,12 @@ function ArchivedRow({ card, onOpen }: { card: ApiCard; onOpen: (id: string) => 
         onClick={() => onOpen(card.id)}
         className="flex min-w-0 grow items-center gap-2 text-left"
       >
-        {card.projectName && (
+        {card.repoName && (
           <span
             className="shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4"
             style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
           >
-            {card.projectName}
+            {card.repoName}
           </span>
         )}
         <span className="shrink-0 font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>

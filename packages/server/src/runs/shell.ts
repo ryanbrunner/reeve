@@ -33,7 +33,7 @@ export interface ShellRunHandle {
 }
 
 /**
- * Runs a project command (setup, test, or the dev server) or a tool beside
+ * Runs a repo's command (setup, test, or the dev server) or a tool beside
  * the stage (a review in Crit) and streams its output into run_event, so shell
  * output and Claude transcripts render through one component and one SSE
  * endpoint.

@@ -6,18 +6,18 @@ import type {
   ApiCommit,
   ApiCriterion,
   ApiDiff,
-  ApiProject,
   ApiQuestion,
+  ApiRepo,
   ApiSettings,
   BoardResponse,
   CardDetail,
   CreateCardBody,
-  CreateProjectBody,
+  CreateRepoBody,
   CritReviewResponse,
   HandoffResponse,
   MoveCardBody,
   Stage,
-  UpdateProjectBody,
+  UpdateRepoBody,
   UpdateSettingsBody,
 } from '@reeve/shared';
 
@@ -26,7 +26,7 @@ async function json<T>(res: Response): Promise<T> {
     const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
     // `detail` is where the server puts the sentence worth reading — which
     // branch does not exist, which directory is not a repo. Dropping it left
-    // forms showing "invalid project" and nothing a person could act on.
+    // forms showing "invalid repo" and nothing a person could act on.
     const message = body.detail ? `${body.error}: ${body.detail}` : body.error;
     throw new Error(message ?? `HTTP ${res.status}`);
   }
@@ -48,9 +48,9 @@ export const api = {
   updateSettings: (body: UpdateSettingsBody) => patch('/api/settings', body).then(json<ApiSettings>),
 
   // --- repos ---
-  createProject: (body: CreateProjectBody) => post('/api/projects', body).then(json<ApiProject>),
-  updateProject: (id: string, body: UpdateProjectBody) =>
-    patch(`/api/projects/${id}`, body).then(json<ApiProject>),
+  createRepo: (body: CreateRepoBody) => post('/api/repos', body).then(json<ApiRepo>),
+  updateRepo: (id: string, body: UpdateRepoBody) =>
+    patch(`/api/repos/${id}`, body).then(json<ApiRepo>),
 
   createCard: (body: CreateCardBody) => post('/api/cards', body).then(json<ApiCard>),
   moveCard: (id: string, body: MoveCardBody) => post(`/api/cards/${id}/move`, body).then(json<ApiCard>),
@@ -59,22 +59,12 @@ export const api = {
   restoreCard: (id: string) => post(`/api/cards/${id}/restore`, {}).then(json<ApiCard>),
   archivedCards: () => fetch('/api/cards/archived').then(json<ApiCard[]>),
   /**
-   * Starting a stage is two calls, in this order: `/run` refuses a card whose
-   * worktree isn't there yet, and `/worktree` is idempotent — it answers
-   * `reused: true` for a healthy tree — so this is safe to press twice.
-   *
-   * The project's setup command (`npm install` and friends) is kicked off by
-   * `/worktree` as a background shell run and deliberately not awaited here:
-   * it is a different run kind, so it counts against neither the card's active
-   * run nor the concurrency cap.
+   * One call: `/run` makes the worktree itself when there isn't one, so a
+   * press of Run and a card starting on its own cannot both try to make it.
    */
-  startStage: async (id: string) => {
-    await post(`/api/cards/${id}/worktree`, {}).then(
-      json<{ ok: true; reused: boolean; path: string; setupRunId?: string | null }>,
-    );
-    return post(`/api/cards/${id}/run`, {}).then(json<{ ok: true; runId: string; sessionId: string }>);
-  },
-  updateCard: (id: string, body: { title?: string; body?: string; projectId?: string | null }) =>
+  startStage: (id: string) =>
+    post(`/api/cards/${id}/run`, {}).then(json<{ ok: true; runId: string; sessionId: string }>),
+  updateCard: (id: string, body: { title?: string; body?: string; repoId?: string | null }) =>
     patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
   // --- one card, in full ---
@@ -134,7 +124,7 @@ export const api = {
   reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
 };
 
-export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>
+export const cardsIn = (cards: ApiCard[], stage: Stage, repoId?: string | null): ApiCard[] =>
   cards
-    .filter((c) => c.stage === stage && (projectId === undefined || c.projectId === projectId))
+    .filter((c) => c.stage === stage && (repoId === undefined || c.repoId === repoId))
     .sort((a, b) => a.position - b.position);

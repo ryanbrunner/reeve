@@ -10,13 +10,13 @@ import {
   artifactsForCard,
   getCard,
   insertCardEvent,
-  listProjects,
+  listRepos,
   liveTaskRun,
   reviewsForCard,
   runsForCard,
   setRunStatus,
 } from './db/queries.js';
-import type { Card, Project, Run } from './db/schema.js';
+import type { Card, Repo, Run } from './db/schema.js';
 import { failureOutput } from './git/worktree.js';
 import { shellQuote } from './handoff.js';
 import { approveStage, sendBackForRevision } from './review.js';
@@ -210,10 +210,10 @@ async function finishCritReview(
     }
 
     const card = getCard(db, cardId);
-    const project = card?.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-    const stale = staleReason(db, card, project, planRunId);
+    const repo = card?.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    const stale = staleReason(db, card, repo, planRunId);
     const run = card && cardActivity(db, card).run;
-    if (stale || !card || !project || !run) {
+    if (stale || !card || !repo || !run) {
       recordOutcome(db, cardId, planRunId, 'not_applied',
         `Nothing was sent back or approved: ${stale ?? 'the plan is no longer there'}.`,
         { comments: comments.length });
@@ -229,11 +229,11 @@ async function finishCritReview(
           'Crit reported unresolved comments, but none could be read back. Nothing was approved.');
         return;
       }
-      approveStage(db, card, project, run, { meta: { via: 'crit' } });
+      approveStage(db, writer, card, repo, run, { meta: { via: 'crit' } });
       return;
     }
     const revision = await sendBackForRevision(
-      db, writer, card, project, run, formatNotes(comments), { via: 'crit', comments: comments.length },
+      db, writer, card, repo, run, formatNotes(comments), { via: 'crit', comments: comments.length },
     );
     if (!revision.ok) {
       recordOutcome(db, cardId, planRunId, 'failed', `Sent back from Crit, but the revision did not start: ${revision.error}.`);
@@ -248,10 +248,10 @@ async function finishCritReview(
  * still is. Clicking Mark reviewed or Leave feedback while Crit was open is
  * the usual cause; a late Finish must not move a card a second time.
  */
-function staleReason(db: Db, card: Card | undefined, project: Project | undefined, planRunId: string): string | null {
+function staleReason(db: Db, card: Card | undefined, repo: Repo | undefined, planRunId: string): string | null {
   if (!card) return 'the card is gone';
   if (card.archivedAt) return 'the card was archived';
-  if (!project) return 'the card has no project';
+  if (!repo) return 'the card has no repo';
   if (card.stage !== 'planning') return `the card is in ${STAGE_LABELS[card.stage]} now`;
   if (reviewsForCard(db, card.id).some((r) => r.runId === planRunId)) return 'the plan had already been reviewed';
   if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {

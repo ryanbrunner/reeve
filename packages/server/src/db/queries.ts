@@ -9,8 +9,8 @@ import {
   cardEvent,
   cardRef,
   difference,
-  project,
   question,
+  repo,
   review,
   run,
   runEvent,
@@ -33,18 +33,32 @@ import {
 
 const NON_TERMINAL: RunStatus[] = ['queued', 'running', 'stopping'];
 
-/** The board query: every live card with its project's lane colour. */
+/** The board query: every live card with its repo's lane colour. */
 export function boardCards(db: Db) {
   return db
     .select({
       card,
-      projectName: project.name,
-      laneColor: project.laneColor,
+      repoName: repo.name,
+      laneColor: repo.laneColor,
     })
     .from(card)
-    .leftJoin(project, eq(card.projectId, project.id))
+    .leftJoin(repo, eq(card.repoId, repo.id))
     .where(isNull(card.archivedAt))
     .orderBy(asc(card.stage), asc(card.position))
+    .all();
+}
+
+/**
+ * Every live card with a pull request GitHub might yet merge, beside the repo
+ * to ask from. Not filtered on stage: a card dragged back out of Done for
+ * another round keeps its pull request, and it can be merged from there.
+ */
+export function cardsAwaitingMerge(db: Db) {
+  return db
+    .select({ card, repo })
+    .from(card)
+    .innerJoin(repo, eq(card.repoId, repo.id))
+    .where(and(isNotNull(card.prUrl), isNull(card.mergedAt), isNull(card.archivedAt)))
     .all();
 }
 
@@ -159,6 +173,20 @@ export function liveTaskRun(db: Db, cardId: string, task: string) {
     .get();
 }
 
+/**
+ * A stage run still in flight for the card, in any column. The same reading as
+ * `liveTaskRun`, for the same reason, but for the one run a card may have at a
+ * time: a planning run carries on after the card is dragged to In Progress,
+ * and the stage it was for does not make it any less the card's run.
+ */
+export function liveStageRun(db: Db, cardId: string) {
+  return db
+    .select()
+    .from(run)
+    .where(and(eq(run.cardId, cardId), eq(run.kind, 'claude'), isNull(run.task), inArray(run.status, NON_TERMINAL)))
+    .get();
+}
+
 // ---------------------------------------------------------------------------
 // Board mutations
 // ---------------------------------------------------------------------------
@@ -227,19 +255,19 @@ export function moveCard(db: Db, id: string, stage: CardStage, index: number) {
   return updated;
 }
 
-export function createCard(db: Db, values: { title: string; body?: string; projectId?: string | null; stage?: CardStage }) {
+export function createCard(db: Db, values: { title: string; body?: string; repoId?: string | null; stage?: CardStage }) {
   const stage = values.stage ?? 'backlog';
   const siblings = cardsInStage(db, stage);
   const last = siblings[siblings.length - 1]?.position ?? 0;
-  const projectId = values.projectId ?? null;
+  const repoId = values.repoId ?? null;
   const created = db
     .insert(card)
     .values({
       id: crypto.randomUUID(),
-      number: nextCardNumber(db, projectId),
+      number: nextCardNumber(db, repoId),
       title: values.title,
       body: values.body ?? '',
-      projectId,
+      repoId,
       stage,
       position: last + POSITION_GAP,
     })
@@ -258,34 +286,34 @@ export function createCard(db: Db, values: { title: string; body?: string; proje
 }
 
 /**
- * Next free `#n` for a project. Counting live rows would reuse an archived
+ * Next free `#n` for a repo. Counting live rows would reuse an archived
  * card's number, so this reads the high-water mark instead: numbers are handed
  * out once and never again, which is what makes them worth quoting to a person.
  */
-function nextCardNumber(db: Db, projectId: string | null): number {
+function nextCardNumber(db: Db, repoId: string | null): number {
   const top = db
     .select({ max: sql<number | null>`max(${card.number})` })
     .from(card)
-    .where(projectId === null ? isNull(card.projectId) : eq(card.projectId, projectId))
+    .where(repoId === null ? isNull(card.repoId) : eq(card.repoId, repoId))
     .get();
   return (top?.max ?? 0) + 1;
 }
 
 /**
- * Moving a card to another project renumbers it into that project's sequence.
- * `#n` is per-project, so carrying the old number across would put two `#3`s in
- * one project — worse than a number that changed once while the card was still
+ * Moving a card to another repo renumbers it into that repo's sequence.
+ * `#n` is per-repo, so carrying the old number across would put two `#3`s in
+ * one repo — worse than a number that changed once while the card was still
  * being filed. The number it vacates is not reused: `nextCardNumber` reads a
  * high-water mark, not a count.
  */
-export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title' | 'body' | 'projectId'>>) {
-  const before = patch.projectId === undefined ? undefined : getCard(db, id);
-  const reassigned = before !== undefined && patch.projectId !== before.projectId;
+export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title' | 'body' | 'repoId'>>) {
+  const before = patch.repoId === undefined ? undefined : getCard(db, id);
+  const reassigned = before !== undefined && patch.repoId !== before.repoId;
   return db
     .update(card)
     .set({
       ...patch,
-      ...(reassigned ? { number: nextCardNumber(db, patch.projectId ?? null) } : {}),
+      ...(reassigned ? { number: nextCardNumber(db, patch.repoId ?? null) } : {}),
       updatedAt: new Date(),
     })
     .where(eq(card.id, id))
@@ -339,11 +367,11 @@ export function archivedCards(db: Db) {
   return db
     .select({
       card,
-      projectName: project.name,
-      laneColor: project.laneColor,
+      repoName: repo.name,
+      laneColor: repo.laneColor,
     })
     .from(card)
-    .leftJoin(project, eq(card.projectId, project.id))
+    .leftJoin(repo, eq(card.repoId, repo.id))
     .where(isNotNull(card.archivedAt))
     .orderBy(desc(card.archivedAt))
     .all();
@@ -353,16 +381,16 @@ export function getCard(db: Db, id: string) {
   return db.select().from(card).where(eq(card.id, id)).get();
 }
 
-export function listProjects(db: Db) {
-  return db.select().from(project).where(isNull(project.archivedAt)).orderBy(asc(project.name)).all();
+export function listRepos(db: Db) {
+  return db.select().from(repo).where(isNull(repo.archivedAt)).orderBy(asc(repo.name)).all();
 }
 
-export function createProject(db: Db, values: Omit<typeof project.$inferInsert, 'id' | 'createdAt'>) {
-  return db.insert(project).values({ ...values, id: crypto.randomUUID() }).returning().get();
+export function createRepo(db: Db, values: Omit<typeof repo.$inferInsert, 'id' | 'createdAt'>) {
+  return db.insert(repo).values({ ...values, id: crypto.randomUUID() }).returning().get();
 }
 
-export function updateProject(db: Db, id: string, patch: Partial<typeof project.$inferInsert>) {
-  return db.update(project).set(patch).where(eq(project.id, id)).returning().get();
+export function updateRepo(db: Db, id: string, patch: Partial<typeof repo.$inferInsert>) {
+  return db.update(repo).set(patch).where(eq(repo.id, id)).returning().get();
 }
 
 /** The stored row with every unset field filled from `config`. */

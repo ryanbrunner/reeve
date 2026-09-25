@@ -172,31 +172,43 @@ function NeedsInput({ detail }: { detail: CardDetail }) {
           You answered: <span className="text-(--color-text)">{current.answer}</span>
         </p>
       ) : (
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (typed.trim()) answer.mutate({ id: current.id, text: typed.trim() });
-          }}
-        >
-          <div className="flex shrink-0 gap-2">
-            {current.suggestions.map((s) => (
-              <Button key={s} disabled={answer.isPending} onClick={() => answer.mutate({ id: current.id, text: s })}>
-                {s}
-              </Button>
-            ))}
-          </div>
-          <input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder="Or write your own…"
-            aria-label={`Your answer to question ${current.position}`}
-            className="min-w-0 grow rounded-md border border-(--color-edge) bg-(--color-panel) px-3 py-1.5 text-sm/5 outline-none placeholder:text-(--color-muted) focus:border-sky-600"
-          />
-          <Button type="submit" tone="input" disabled={!typed.trim() || answer.isPending}>
-            Answer
-          </Button>
-        </form>
+        // One option to a line, so a long one wraps rather than pushing the
+        // rest off the band, and Other last as the way out of all of them.
+        // Picking an option answers at once, as before.
+        <div className="flex flex-col items-start gap-1.5">
+          {current.suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              disabled={answer.isPending}
+              onClick={() => answer.mutate({ id: current.id, text: s })}
+              className="max-w-full rounded-md border border-(--color-edge) px-3 py-[5px] text-left text-sm/5 font-medium text-(--color-text) hover:border-slate-600 disabled:opacity-40"
+            >
+              {s}
+            </button>
+          ))}
+          <form
+            className="flex w-full items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (typed.trim()) answer.mutate({ id: current.id, text: typed.trim() });
+            }}
+          >
+            <label htmlFor={`answer-${current.id}`} className="shrink-0 text-sm/5 font-medium text-(--color-muted)">
+              Other
+            </label>
+            <input
+              id={`answer-${current.id}`}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="Write your own answer…"
+              className="min-w-0 grow rounded-md border border-(--color-edge) bg-(--color-panel) px-3 py-1.5 text-sm/5 outline-none placeholder:text-(--color-muted) focus:border-sky-600"
+            />
+            <Button type="submit" tone="input" disabled={!typed.trim() || answer.isPending}>
+              Answer
+            </Button>
+          </form>
+        </div>
       )}
       {answer.error && <p className="text-sm/5 text-red-300">{answer.error.message}</p>}
       {answer.data?.blocked && (
@@ -316,9 +328,9 @@ function Failed({ detail }: { detail: CardDetail }) {
 
 /**
  * Where a Done card's work went. Entering Done pushes the branch and opens a
- * pull request on its own, so this mostly reports: the pull request, the
- * attempt still under way, or why the last attempt failed — with a button to
- * try again once the cause is put right.
+ * pull request on its own, so this mostly reports: the pull request, whether
+ * it has merged, the attempt still under way, or why the last attempt failed —
+ * with a button to try again once the cause is put right.
  */
 function PullRequest({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -341,8 +353,8 @@ function PullRequest({ detail }: { detail: CardDetail }) {
 
   const base = worktree.baseBranch;
 
-  // From before pull requests replaced the merge. Nothing merges any more,
-  // but a card that did still says where it went.
+  // From before pull requests replaced the merge. Nothing squash-merges any
+  // more, but a card that did still says where it went.
   if (card.mergedSha) {
     return (
       <div className="min-w-0">
@@ -366,6 +378,26 @@ function PullRequest({ detail }: { detail: CardDetail }) {
   );
   // The same sentence the event holds, so a refusal is said once, not twice.
   const refused = open.error && open.error.message !== failure ? open.error.message : null;
+
+  // Merged on GitHub, which the server notices on its own. There is nothing
+  // left to push, so no button: the server would refuse it anyway.
+  if (card.prUrl && card.mergedAt != null) {
+    const into = detail.events.find((e) => e.kind === 'merged')?.meta?.['into'];
+    return (
+      <div className="min-w-0">
+        <div className="text-sm/5 font-medium text-(--color-text)">
+          Pull request{' '}
+          <a href={card.prUrl} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
+            #{card.prNumber}
+          </a>{' '}
+          merged into {typeof into === 'string' ? into : base}
+        </div>
+        <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+          Merged on GitHub. The worktree and branch here are left as they were.
+        </p>
+      </div>
+    );
+  }
 
   if (card.prUrl) {
     return (

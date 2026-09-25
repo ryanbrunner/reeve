@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { reapOrphanedRuns } from './db/queries.js';
+import { syncMergedPullRequests } from './pullRequest.js';
 import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
 import { assetRoutes } from './routes/assets.js';
@@ -40,7 +41,7 @@ export function createApp() {
   const writer = new EventWriter(db);
 
   const app = new Hono();
-  app.route('/api', apiRoutes(db));
+  app.route('/api', apiRoutes(db, writer));
   app.route('/api/runs', runRoutes(db));
   app.route('/api/cards', actionRoutes(db, writer));
   app.route('/api/cards', stageRoutes(db, writer));
@@ -61,8 +62,16 @@ export function createApp() {
 
 const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
 if (isEntry) {
-  const { app } = createApp();
+  const { app, db } = createApp();
   serve({ fetch: app.fetch, port: config.port, hostname: config.hostname }, (info) => {
     console.log(`[reeve] http://${config.hostname}:${info.port}`);
   });
+
+  // Here rather than in createApp, so the spikes that build an app do not
+  // shell out to GitHub. Nothing may escape: a rejection would end the server.
+  const syncMerges = () => {
+    syncMergedPullRequests(db).catch((e) => console.error(`[reeve] merge sync failed: ${String(e)}`));
+  };
+  syncMerges();
+  setInterval(syncMerges, config.mergeSyncMs);
 }

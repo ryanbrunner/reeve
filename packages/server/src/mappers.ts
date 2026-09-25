@@ -5,8 +5,8 @@ import type {
   ApiAsset,
   ApiCriterion,
   ApiDifference,
-  ApiProject,
   ApiQuestion,
+  ApiRepo,
   ApiRunSummary,
   CardActivity,
   CardEventActor,
@@ -26,14 +26,14 @@ import type {
   CardEvent,
   CardRef,
   Difference,
-  Project,
   Question,
+  Repo,
   Run,
 } from './db/schema.js';
 
 const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
-export function toApiProject(p: Project): ApiProject {
+export function toApiRepo(p: Repo): ApiRepo {
   return {
     id: p.id,
     name: p.name,
@@ -73,7 +73,7 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
  */
 export function toApiCard(
   c: Card,
-  projectName: string | null,
+  repoName: string | null,
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
@@ -82,8 +82,8 @@ export function toApiCard(
   return {
     id: c.id,
     number: c.number,
-    projectId: c.projectId,
-    projectName,
+    repoId: c.repoId,
+    repoName,
     laneColor,
     title: c.title,
     body: c.body,

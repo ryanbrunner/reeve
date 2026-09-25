@@ -1,13 +1,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { isRunnable, type Stage } from '@reeve/shared';
+import type { Stage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   getCard,
-  getSettings,
   latestClaudeRunForStage,
-  listProjects,
+  listRepos,
   reviewsForCard,
 } from '../db/queries.js';
 import { checkWorktree } from '../git/worktree.js';
@@ -15,8 +14,8 @@ import { toApiRunSummary } from '../mappers.js';
 import { approveStage, sendBackForRevision } from '../review.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
-import { runRegistry } from '../runs/registry.js';
 import { stageDefinition } from '../stages/index.js';
+import { maybeStartStage, startStage } from '../startStage.js';
 
 const reviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
@@ -31,49 +30,22 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     if (!card) return { error: 'not found' as const, status: 404 as const };
     // Off the board means nothing happens to it until it is restored.
     if (card.archivedAt) return { error: 'card is archived' as const, status: 409 as const };
-    const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
-    if (!project) return { error: 'card has no project' as const, status: 400 as const };
-    return { card, project };
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    if (!repo) return { error: 'card has no repo' as const, status: 400 as const };
+    return { card, repo };
   };
 
-  /** Kick off the current stage's Claude run. Nothing starts a stage but this. */
+  /**
+   * Kick off the current stage's Claude run, making the worktree first if there
+   * isn't one. A card entering a runnable column starts on its own; this is
+   * the Run button, for a card that didn't, or whose run failed.
+   */
   routes.post('/:id/run', async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
-    const { card, project } = loaded;
-
-    if (!isRunnable(card.stage as Stage)) {
-      return c.json({ error: 'stage has no Claude work', detail: card.stage }, 400);
-    }
-    const stage = stageDefinition(card.stage as never);
-    if (!stage) return c.json({ error: 'stage not implemented yet', detail: card.stage }, 501);
-
-    // A Suggest running beside the stage does not hold the card: it only reads,
-    // and waiting on it to plan would make the button the thing that blocks.
-    if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
-      return c.json({ error: 'a run is already active for this card' }, 409);
-    }
-    // Approving four cards at once shouldn't launch four sessions and burn
-    // through budget in parallel. Read per request so a change in Settings
-    // applies to the next run; lowering it stops nothing already going.
-    const { maxConcurrentRuns } = getSettings(db);
-    if (runRegistry.countByKind('claude') >= maxConcurrentRuns) {
-      return c.json({ error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` }, 429);
-    }
-
-    const health = await checkWorktree(project.repoPath, card.worktreePath);
-    if (health.state !== 'ok') {
-      return c.json(
-        { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
-        409,
-      );
-    }
-
-    const handle = startClaudeRun({
-      db, writer, card, project, stage,
-      worktreePath: health.path,
-    });
-    return c.json({ ok: true, runId: handle.runId, sessionId: handle.sessionId }, 201);
+    const result = await startStage(db, writer, loaded.card, loaded.repo);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json(result, 201);
   });
 
   /**
@@ -85,7 +57,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
   routes.post('/:id/review', async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
-    const { card, project } = loaded;
+    const { card, repo } = loaded;
 
     const parsed = reviewSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
@@ -97,13 +69,13 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
-      return c.json({ ok: true, ...approveStage(db, card, project, lastRun, { notes }) });
+      return c.json({ ok: true, ...approveStage(db, writer, card, repo, lastRun, { notes }) });
     }
 
     if (!notes?.trim()) {
       return c.json({ error: 'rejection needs notes', detail: 'the notes become the next run prompt' }, 400);
     }
-    const revision = await sendBackForRevision(db, writer, card, project, lastRun, notes);
+    const revision = await sendBackForRevision(db, writer, card, repo, lastRun, notes);
     if (!revision.ok) return c.json({ error: revision.error }, revision.status);
     return c.json(
       { ok: true, stage: card.stage, revisionRunId: revision.revisionRunId, forkedFrom: revision.forkedFrom },

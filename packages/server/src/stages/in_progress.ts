@@ -36,9 +36,9 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       title: ctx.card.title,
       body: ctx.card.body.trim() || '_No further detail was given._',
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
-      testCommand: ctx.project.testCommand
-        ? `Run \`${ctx.project.testCommand}\` before you finish, and get it green.`
-        : 'This project defines no test command, so there is nothing to run.',
+      testCommand: ctx.repo.testCommand
+        ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
+        : 'This repo defines no test command, so there is nothing to run.',
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });

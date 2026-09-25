@@ -1,4 +1,4 @@
-import type { ApiCard, ApiProject, ApiRunSummary } from './api.js';
+import type { ApiCard, ApiRepo, ApiRunSummary } from './api.js';
 import type { Stage } from './stages.js';
 
 /**
@@ -282,7 +282,7 @@ export interface CritReviewResponse {
  */
 export interface CardDetail {
   card: ApiCard;
-  project: ApiProject | null;
+  repo: ApiRepo | null;
   criteria: ApiCriterion[];
   refs: ApiCardRef[];
   /** The questions the card's current run asked. Empty when it asked none. */
