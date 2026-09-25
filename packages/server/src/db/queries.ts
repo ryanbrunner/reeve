@@ -7,6 +7,7 @@ import {
   artifact,
   asset,
   card,
+  cardDependency,
   cardEvent,
   cardRef,
   difference,
@@ -809,6 +810,27 @@ export function addRef(db: Db, cardId: string, kind: CardRefKind, value: string,
 
 export function deleteRef(db: Db, id: string) {
   return db.delete(cardRef).where(eq(cardRef.id, id)).returning().get();
+}
+
+// ---------------------------------------------------------------------------
+// What a card waits on
+// ---------------------------------------------------------------------------
+
+/**
+ * Every link on the board, archived cards' included. Read whole rather than
+ * per card because the only question asked of it so far is whether a new link
+ * closes a cycle, and that can run through any card, not just one project's.
+ */
+export function allDependencies(db: Db) {
+  return db.select().from(cardDependency).all();
+}
+
+/**
+ * Says nothing about cycles; the caller checks. A link that is already there
+ * is left as it was, so adding it again is not an error.
+ */
+export function addDependency(db: Db, cardId: string, dependsOnId: string) {
+  db.insert(cardDependency).values({ cardId, dependsOnId }).onConflictDoNothing().run();
 }
 
 // ---------------------------------------------------------------------------
