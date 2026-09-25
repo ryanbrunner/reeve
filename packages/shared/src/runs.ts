@@ -12,6 +12,13 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+/**
+ * How hard Claude is asked to think, lowest first. The SDK's own vocabulary;
+ * which of these a given model accepts is its `supportedEffortLevels`.
+ */
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 const TERMINAL: readonly RunStatus[] = ['succeeded', 'failed', 'cancelled', 'interrupted'];
 
 export function isTerminal(status: RunStatus): boolean {

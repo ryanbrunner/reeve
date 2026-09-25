@@ -1,6 +1,6 @@
-import type { Stage } from './stages.js';
+import type { RunnableStage, Stage } from './stages.js';
 import type { CardActivity } from './activity.js';
-import type { RunKind, RunStatus, StopReason } from './runs.js';
+import type { EffortLevel, RunKind, RunStatus, StopReason } from './runs.js';
 
 /**
  * Wire types. Deliberately plain interfaces rather than Drizzle's inferred row
@@ -33,6 +33,9 @@ export interface ApiRunSummary {
    * `suggest_criteria` — which never counts as the card's current run.
    */
   task: string | null;
+  /** What the run was actually sent, after overrides and the model's own limits. Null is the CLI's default. */
+  model: string | null;
+  effort: EffortLevel | null;
   stopReason: StopReason | null;
   totalCostUsd: number | null;
   port: number | null;
@@ -71,6 +74,12 @@ export interface ApiCard {
    * card looking busy forever.
    */
   openingPr: boolean;
+  /**
+   * This card's override for every stage run, above the Settings default for
+   * the stage. Null falls through. Suggest ignores both.
+   */
+  model: string | null;
+  effort: EffortLevel | null;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -119,13 +128,54 @@ export interface CreateProjectBody {
 
 export type UpdateProjectBody = Partial<CreateProjectBody>;
 
-/** Reeve's own settings, as opposed to a project's. Every field is resolved: never null. */
-export interface ApiSettings {
-  /** Claude runs allowed at once, across every card and project. */
-  maxConcurrentRuns: number;
+/** A model and effort for one stage's runs. Null means "not set here": the next layer down decides. */
+export interface StageRunDefault {
+  model: string | null;
+  effort: EffortLevel | null;
 }
 
-export type UpdateSettingsBody = Partial<ApiSettings>;
+export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
+
+/** Reeve's own settings, as opposed to a project's. */
+export interface ApiSettings {
+  /** Claude runs allowed at once, across every card and project. Resolved: never null. */
+  maxConcurrentRuns: number;
+  /**
+   * Every runnable stage is present, so the form can loop over them. A null in
+   * one falls through to what the stage's own module asks for.
+   */
+  stageDefaults: StageRunDefaults;
+}
+
+/** A stage left out of `stageDefaults` is left as it was, so saving one row cannot wipe the others. */
+export interface UpdateSettingsBody {
+  maxConcurrentRuns?: number;
+  stageDefaults?: Partial<StageRunDefaults>;
+}
+
+/**
+ * One model the Claude CLI offers, as its `supportedModels()` reports it.
+ * The capability flags are optional there and here: absent means the CLI did
+ * not say, and is treated as "yes" so an unannotated model is not crippled.
+ */
+export interface ApiModel {
+  /** What to send as `model`: an alias like `opus`, or a full id. */
+  value: string;
+  /** The full id the alias currently points at, when it is one. */
+  resolvedModel: string | null;
+  displayName: string;
+  description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: EffortLevel[];
+  supportsAdaptiveThinking?: boolean;
+}
+
+export interface ModelsResponse {
+  /** Empty when the CLI could not be asked — offline, or not logged in. */
+  models: ApiModel[];
+  /** What each stage asks for when nothing overrides it: the bottom layer, from the stage modules. */
+  builtIn: StageRunDefaults;
+}
 
 /** Drag-and-drop target: the column, and the slot within it. */
 export interface MoveCardBody {
