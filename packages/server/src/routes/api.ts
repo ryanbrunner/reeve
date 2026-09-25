@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { EFFORT_LEVELS, RUNNABLE_STAGES, STAGES } from '@reeve/shared';
+import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES } from '@reeve/shared';
 import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { toBoardCard } from '../board.js';
 import type { Db } from '../db/client.js';
@@ -8,11 +8,13 @@ import {
   archiveCard,
   archivedCards,
   boardCards,
+  boardProjects,
   createCard,
   createRepo,
   getCard,
   getSettings,
   listRepos,
+  liveProject,
   moveCard,
   restoreCard,
   runsForCard,
@@ -20,7 +22,7 @@ import {
   updateRepo,
   updateSettings,
 } from '../db/queries.js';
-import { toApiRepo, toApiRunSummary } from '../mappers.js';
+import { toApiProject, toApiRepo, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
@@ -44,6 +46,8 @@ const createCardSchema = z.object({
   body: z.string().optional(),
   repoId: z.string().nullable().optional(),
   stage: stageSchema.optional(),
+  kind: z.enum(CARD_KINDS).optional(),
+  projectId: z.string().nullable().optional(),
 });
 
 const updateCardSchema = z.object({
@@ -57,6 +61,7 @@ const updateCardSchema = z.object({
 const moveCardSchema = z.object({
   stage: stageSchema,
   index: z.number().int().min(0),
+  projectId: z.string().nullable().optional(),
 });
 
 /**
@@ -144,6 +149,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const rows = boardCards(db);
     const body: BoardResponse = {
       repos: listRepos(db).map(toApiRepo),
+      projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor)),
     };
     return c.json(body);
@@ -234,6 +240,16 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (parsed.data.repoId && !listRepos(db).some((p) => p.id === parsed.data.repoId)) {
       return c.json({ error: 'no such repo', detail: parsed.data.repoId }, 400);
     }
+    const { kind, projectId } = parsed.data;
+    if (kind === 'project' && projectId) {
+      return c.json({ error: 'projects do not nest', detail: 'a project cannot belong to another project' }, 400);
+    }
+    if (kind === 'project' && parsed.data.stage && parsed.data.stage !== 'backlog') {
+      return c.json({ error: 'a project has no stage', detail: parsed.data.stage }, 400);
+    }
+    if (projectId && !liveProject(db, projectId)) {
+      return c.json({ error: 'no such project', detail: projectId }, 400);
+    }
     const created = createCard(db, parsed.data);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     // Made straight into a column Claude works in is entering it, the same as a drag.
@@ -279,7 +295,13 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const id = c.req.param('id');
     const before = getCard(db, id);
     if (!before) return c.json({ error: 'not found' }, 404);
-    const moved = moveCard(db, id, parsed.data.stage, parsed.data.index);
+    // A project is a lane, not something in one.
+    if (before.kind === 'project') return c.json({ error: 'a project cannot be moved', detail: before.title }, 400);
+    const { projectId } = parsed.data;
+    if (projectId && !liveProject(db, projectId)) {
+      return c.json({ error: 'no such project', detail: projectId }, 400);
+    }
+    const moved = moveCard(db, id, parsed.data.stage, parsed.data.index, projectId);
     if (!moved) return c.json({ error: 'not found' }, 404);
     // Started before the response is built, so the card it returns already
     // says a pull request is on its way. A reorder within a column is not
