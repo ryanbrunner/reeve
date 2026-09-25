@@ -89,6 +89,29 @@ export const planningOutput = z.object({
     .describe(
       'States worth a screenshot when this is tested. Only states reachable by URL alone — the capturer navigates and shoots, it does not click through journeys. Empty if this change is not visual.',
     ),
+  /**
+   * Defaulted so a plan stored before mockups existed still parses: the Plan
+   * tab and Testing both read old runs' output back through this schema.
+   * Capped at three in the description and on the server, not with `.max()`,
+   * which would fail the whole plan over a fourth drawing.
+   */
+  mockups: z
+    .array(
+      z.object({
+        label: z.string().describe('What this mockup shows, e.g. "Cart with saved items". Testing pairs it with a screenshot by this exact label.'),
+        path: z.string().describe('The app path this state lives at, e.g. "/cart". Testing photographs it there.'),
+        viewport: z.number().int().describe('Viewport width in CSS pixels the mockup is drawn for, e.g. 1280 or 390.'),
+        html: z
+          .string()
+          .describe(
+            'A complete, self-contained HTML document drawing this state. Inline <style> only: no <script>, no external stylesheets, fonts or images.',
+          ),
+      }),
+    )
+    .default([])
+    .describe(
+      'Mockups of what the finished work should look like, at most 3, one per state whose look this change alters. Each already counts as a capture, so do not repeat it in `captures`. Empty unless you were asked to draw mockups.',
+    ),
   files_to_touch: z
     .array(z.string())
     .describe('Repo-relative paths you expect to create or modify.'),
