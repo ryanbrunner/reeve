@@ -9,29 +9,36 @@
  *
  * The diamond is deliberate. It is the same mark the board puts in a column
  * header to mean "Claude runs here", and in SICKO MODE that is every column.
+ *
+ * Also a card's own switch, in its Brief, which is why the words can be
+ * handed in: the header's are about the whole board.
  */
-export function SickoSwitch({ on, onToggle, disabled }: {
+export function SickoSwitch({ on, onToggle, disabled, title, label = 'Sicko mode', className = '' }: {
   on: boolean;
   onToggle: () => void;
   disabled?: boolean;
+  title?: string;
+  label?: string;
+  className?: string;
 }) {
   return (
     <button
       type="button"
-      className={`sk-sw${on ? ' sk-on' : ''}`}
+      className={`sk-sw${on ? ' sk-on' : ''} ${className}`}
       aria-pressed={on}
       disabled={disabled}
       onClick={onToggle}
       title={
-        on ?
+        title ??
+        (on ?
           'Put the human back in the loop'
-        : 'Turn off every guardrail. Claude moves, merges and ships without you'
+        : 'Turn off every guardrail. Claude moves, merges and ships without you')
       }
     >
       <span className="sk-sw-track" aria-hidden="true">
         <span className="sk-sw-knob" />
       </span>
-      <span className="sk-sw-label">Sicko mode</span>
+      <span className="sk-sw-label">{label}</span>
     </button>
   );
 }

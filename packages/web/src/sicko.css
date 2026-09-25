@@ -149,6 +149,7 @@
 
 .sk-sw:hover { border-color: var(--sk-edge-hover); color: var(--color-text); }
 .sk-sw:focus-visible { outline: none; border-color: var(--sk-edge-focus); }
+.sk-sw:disabled { cursor: default; }
 
 .sk-sw-track {
   position: relative;

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isTerminal, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
+import { SickoSwitch } from '../../sicko/Switch.js';
 import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
@@ -108,6 +109,7 @@ function Purpose({ detail }: { detail: CardDetail }) {
       )}
       {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
       <GenerateMockups detail={detail} />
+      <CardSicko detail={detail} />
     </section>
   );
 }
@@ -145,6 +147,54 @@ function GenerateMockups({ detail }: { detail: CardDetail }) {
       </label>
       <span className="font-mono text-[10px]/4 text-(--color-muted)">
         Claude draws the screens this changes while planning, for Testing to compare the build against
+      </span>
+      {set.error && <p className="text-sm/5 text-red-300">{set.error.message}</p>}
+    </div>
+  );
+}
+
+/**
+ * SICKO MODE for this card alone. The header's switch, worn by one card: the
+ * same control, so it reads as the same promise, and the only rainbow the calm
+ * board lets through besides the header.
+ *
+ * Shown on and left alone while the board's own switch is on, because then
+ * this card goes whatever it says here.
+ */
+function CardSicko({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const set = useMutation({
+    mutationFn: (sicko: boolean) => api.updateCard(detail.card.id, { sicko }),
+    // Returned rather than fired, as in GenerateMockups above.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['board'] });
+      return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    },
+  });
+  const everyone = board?.sicko != null;
+  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.sicko);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <SickoSwitch
+        on={on}
+        onToggle={() => set.mutate(!on)}
+        disabled={everyone || set.isPending}
+        className="self-start"
+        title={
+          everyone ? 'Every card goes while the board is in SICKO MODE'
+          : on ?
+            'Put the human back in the loop for this card'
+          : 'Claude approves, answers and merges this card to main, with nobody reviewing it'
+        }
+      />
+      <span className="font-mono text-[10px]/4 text-(--color-muted)">
+        {everyone ?
+          'The whole board is in SICKO MODE already'
+        : detail.card.repoId === null ?
+          'Nothing happens until the card has a repo to run in'
+        : 'Only this card moves on its own, all the way to a merged pull request'}
       </span>
       {set.error && <p className="text-sm/5 text-red-300">{set.error.message}</p>}
     </div>
