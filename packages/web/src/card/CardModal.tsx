@@ -94,7 +94,7 @@ export function CardModal({ cardId, onClose, editTitle = false, sicko = false }:
           <>
             <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
             <div className="flex min-h-0 grow">
-              <Tabs detail={data} />
+              <Tabs detail={data} sicko={sicko} />
               {/* The whole rail goes rather than parts of it: every control and
                   fact on it is a lever or a look under the hood. */}
               {!sicko && <Rail detail={data} />}

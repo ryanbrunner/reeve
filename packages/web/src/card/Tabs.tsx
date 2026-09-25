@@ -17,25 +17,29 @@ type TabId = 'brief' | 'plan' | 'changes' | 'diff' | 'preview' | 'activity';
  * Each tab's count is the one number that says whether it is worth opening —
  * how many criteria, which plan version, how many files changed — and is
  * absent rather than zero when there is nothing there yet.
+ *
+ * In SICKO MODE there are four: what was asked, what was planned, what it looks
+ * like and that things happened. What actually changed is not yours to see.
  */
-export function Tabs({ detail }: { detail: CardDetail }) {
+export function Tabs({ detail, sicko = false }: { detail: CardDetail; sicko?: boolean }) {
   // Open on whatever this card is currently about. A card in Testing wants its
   // preview; one in Backlog has only a brief.
-  const [tab, setTab] = useState<TabId>(() => defaultTab(detail));
+  const [chosen, setTab] = useState<TabId>(() => defaultTab(detail, sicko));
 
   // Shells out to git, but fetched for any card that has a worktree rather than
   // only while the Diff tab is open: the tab's own count comes out of it, and a
   // count that only becomes true after you click is worse than no count. A
   // merged card has no worktree left, but the server reads its diff back off
-  // the squash commit.
+  // the squash commit. Not at all in SICKO MODE, where there is no tab to show
+  // it in.
   const diff = useQuery({
     queryKey: ['diff', detail.card.id],
     queryFn: () => api.diff(detail.card.id),
-    enabled: Boolean(detail.worktree.path || detail.card.mergedSha),
+    enabled: Boolean(detail.worktree.path || detail.card.mergedSha) && !sicko,
   });
 
   const shots = detail.assets.filter((a) => a.kind === 'screenshot');
-  const tabs: Array<{ id: TabId; label: string; count?: string | number }> = [
+  const all: Array<{ id: TabId; label: string; count?: string | number }> = [
     { id: 'brief', label: 'Brief', count: detail.criteria.length || undefined },
     { id: 'plan', label: 'Plan', count: detail.plan ? `v${detail.plan.version}` : undefined },
     { id: 'changes', label: 'Changes' },
@@ -50,6 +54,10 @@ export function Tabs({ detail }: { detail: CardDetail }) {
     { id: 'preview', label: 'Preview', count: shots.length || undefined },
     { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
   ];
+  const tabs = sicko ? all.filter((t) => t.id !== 'changes' && t.id !== 'diff') : all;
+  // Derived rather than reset, so a card left open on Diff when SICKO MODE
+  // comes on shows something real, and goes back to Diff when it goes off.
+  const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, sicko);
 
   return (
     <div className="flex min-w-0 grow flex-col">
@@ -90,15 +98,18 @@ export function Tabs({ detail }: { detail: CardDetail }) {
   );
 }
 
-function defaultTab(detail: CardDetail): TabId {
+function defaultTab(detail: CardDetail, sicko: boolean): TabId {
   if (detail.card.activity === 'needs_input') return 'plan';
+  const shots = detail.assets.some((a) => a.kind === 'screenshot');
   // Claude's notes once it has written them; until then — a card still running
-  // — the diff is the only account of the work there is.
-  const work: TabId = detail.implementation ? 'changes' : 'diff';
+  // — the diff is the only account of the work there is. In SICKO MODE neither
+  // is on offer, so the work is whatever it looks like, or failing that, what
+  // was asked for.
+  const work: TabId = sicko ? (shots ? 'preview' : 'brief') : detail.implementation ? 'changes' : 'diff';
   switch (detail.card.stage) {
     case 'planning': return 'plan';
     case 'in_progress': return work;
-    case 'testing': return detail.assets.some((a) => a.kind === 'screenshot') ? 'preview' : work;
+    case 'testing': return shots ? 'preview' : work;
     case 'done': return work;
     default: return 'brief';
   }
