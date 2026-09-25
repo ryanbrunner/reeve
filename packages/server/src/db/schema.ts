@@ -320,6 +320,32 @@ export const cardRef = sqliteTable(
 );
 
 /**
+ * One card waiting on another: `cardId` cannot sensibly start until
+ * `dependsOnId` is done.
+ *
+ * Not a `card_ref` of kind `card`, which is context worth reading and says
+ * nothing about order. A row per edge rather than a JSON list on the card, so
+ * the other direction — who is waiting on this one — is an indexed lookup
+ * instead of a scan of every card's list.
+ */
+export const cardDependency = sqliteTable(
+  'card_dependency',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    dependsOnId: text('depends_on_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.cardId, t.dependsOnId] }),
+    index('card_dependency_on').on(t.dependsOnId),
+  ],
+);
+
+/**
  * A question Claude could not answer for itself, and the human's answer.
  *
  * Stored as rows rather than left in the run's structured output because they
@@ -500,5 +526,6 @@ export type Question = typeof question.$inferSelect;
 export type Asset = typeof asset.$inferSelect;
 export type Difference = typeof difference.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
+export type CardDependency = typeof cardDependency.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;
