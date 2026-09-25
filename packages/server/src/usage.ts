@@ -5,7 +5,7 @@ import type { Db } from './db/client.js';
 import { runEvent } from './db/schema.js';
 
 /** What `classify` in runs/claude.ts files these under. Renaming it there would hide every stored reading from the seed. */
-const RATE_LIMIT_KIND = 'unknown:rate_limit_event';
+export const RATE_LIMIT_KIND ='unknown:rate_limit_event';
 
 /** Where the server's own warning starts when a reading does not say. It has always said 0.9 so far. */
 const DEFAULT_THRESHOLD = 0.9;
