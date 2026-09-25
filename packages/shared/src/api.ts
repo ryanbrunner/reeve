@@ -8,6 +8,9 @@ import type { EffortLevel, RunKind, RunStatus, StopReason } from './runs.js';
  * never pulls in the ORM. Timestamps are epoch milliseconds.
  */
 
+/** Where the server listens when `REEVE_PORT` does not say, and so where the CLI looks for it. */
+export const DEFAULT_PORT = 4317;
+
 export interface ApiRepo {
   id: string;
   name: string;
