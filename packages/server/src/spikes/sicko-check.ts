@@ -119,9 +119,13 @@ const soloWaiting = createCard(db, { title: 'solo waiting', repoId: repo.id, sta
 succeeded(soloWaiting.id, 'planning');
 const bystanderWaiting = createCard(db, { title: 'bystander waiting', repoId: repo.id, stage: 'planning' });
 succeeded(bystanderWaiting.id, 'planning');
+// Flagged the moment after Add, before anything is typed into it.
+const soloUnnamed = createCard(db, { title: PLACEHOLDER_TITLE, repoId: repo.id, stage: 'backlog' });
 updateCard(db, solo.id, { sicko: true });
 updateCard(db, soloWaiting.id, { sicko: true });
+updateCard(db, soloUnnamed.id, { sicko: true });
 await sickoSweep(db, writer);
+const soloUnnamedStage = getCard(db, soloUnnamed.id)!.stage;
 const soloStage = getCard(db, solo.id)!.stage;
 const soloMovedBy = actorsOf(solo.id, 'moved');
 const bystanderStage = getCard(db, bystander.id)!.stage;
@@ -165,6 +169,7 @@ ok('a flagged backlog card moves itself into planning', soloStage, 'planning');
 ok('and the move is recorded as Claude', soloMovedBy, ['claude']);
 ok('the unflagged backlog card beside it stays put', bystanderStage, 'backlog');
 ok('and so does the one parked earlier', parkedStage, 'backlog');
+ok('a flagged card nobody has named yet is left where it is', soloUnnamedStage, 'backlog');
 ok('a flagged plan waiting for review is approved without being read', soloReviews, [
   { actor: 'claude', body: 'Approved by SICKO MODE. Nobody read this.' },
 ]);
