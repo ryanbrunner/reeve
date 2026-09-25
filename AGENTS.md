@@ -55,8 +55,8 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   only inside the repo, and only once `npm install` has linked it.
   `--port`, `--db`, `--assets` and `--max-concurrent` set `REEVE_PORT`,
   `REEVE_DB`, `REEVE_ASSETS` and `REEVE_MAX_CONCURRENT`; relative paths are
-  taken from where the command is run. It refuses to start if a Reeve server
-  already answers on the port.
+  taken from where the command is run. It refuses to start if the port is taken,
+  by another Reeve server or anything else, before it touches the database.
 - `npx reeve status` — asks `/healthz` and exits 0 if a server answers, 1 if
   not. `reeve <command> --help` lists a command's options.
 

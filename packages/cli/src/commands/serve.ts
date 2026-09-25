@@ -1,3 +1,4 @@
+import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { connect, health } from '../client.js';
@@ -54,10 +55,27 @@ Options:
       console.error(`reeve: Reeve is already running at ${url}`);
       return 1;
     }
+    // Something else holding the port would otherwise surface as an uncaught
+    // EADDRINUSE from serve(), after createApp had already migrated the
+    // database and reaped its runs. Found in verification, where port 4400
+    // was taken by an unrelated server.
+    if (!(await portFree(config.port, config.hostname))) {
+      console.error(`reeve: port ${config.port} on ${config.hostname} is in use by something other than Reeve`);
+      return 1;
+    }
 
     startServer();
   },
 };
+
+/** Takes the port and lets it go at once. Any failure but EADDRINUSE is thrown as it is. */
+function portFree(port: number, host: string): Promise<boolean> {
+  return new Promise((answer, fail) => {
+    const probe = createServer();
+    probe.once('error', (e: NodeJS.ErrnoException) => (e.code === 'EADDRINUSE' ? answer(false) : fail(e)));
+    probe.listen(port, host, () => probe.close(() => answer(true)));
+  });
+}
 
 function setEnv(name: string, value: string | undefined) {
   if (value !== undefined) process.env[name] = value;
