@@ -50,6 +50,20 @@ export function boardCards(db: Db) {
 }
 
 /**
+ * The live cards in SICKO MODE on their own, in `boardCards`' shape. What the
+ * sweep reads while the board's switch is off, which is nearly always, so it
+ * costs one small select every couple of seconds rather than the whole board.
+ */
+export function sickoCards(db: Db) {
+  return db
+    .select({ card })
+    .from(card)
+    .where(and(eq(card.sicko, true), isNull(card.archivedAt)))
+    .orderBy(asc(card.stage), asc(card.position))
+    .all();
+}
+
+/**
  * Every live card with a pull request GitHub might yet merge, beside the repo
  * to ask from. Not filtered on stage: a card dragged back out of Done for
  * another round keeps its pull request, and it can be merged from there.
