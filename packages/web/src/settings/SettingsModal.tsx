@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ApiProject, ApiSettings, CreateProjectBody } from '@reeve/shared';
+import {
+  RUNNABLE_STAGES,
+  STAGE_LABELS,
+  type ApiProject,
+  type ApiSettings,
+  type CreateProjectBody,
+  type EffortLevel,
+  type RunnableStage,
+  type StageRunDefault,
+  type StageRunDefaults,
+} from '@reeve/shared';
 import { api } from '../lib/api.js';
+import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { Button, Empty, SectionHead, SmallButton } from '../card/ui.js';
 
 /**
@@ -181,10 +192,19 @@ function RunsPane() {
 function RunsForm({ settings }: { settings: ApiSettings }) {
   const qc = useQueryClient();
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
+  const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
   const [saved, setSaved] = useState(false);
+  // Asked of the CLI once per server process, so there is nothing to refetch.
+  const { data: catalogue } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const models = catalogue?.models ?? [];
+
+  const setStage = (stage: RunnableStage, next: Partial<StageRunDefault>) => {
+    setSaved(false);
+    setStageDefaults((d) => ({ ...d, [stage]: { ...d[stage], ...next } }));
+  };
 
   const save = useMutation({
-    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns) }),
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -218,6 +238,46 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
             mono
           />
         </Field>
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Models</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What each stage runs with, unless a card picks its own. Suggest always runs on its own settings.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const row = stageDefaults[stage];
+          const builtIn = catalogue?.builtIn[stage];
+          const builtInModel = builtIn?.model ?? null;
+          const builtInName = builtInModel && (findModel(models, builtInModel)?.displayName ?? builtInModel);
+          const levels = effortLevelsFor(models, row.model ?? builtInModel);
+          return (
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,160px)] items-center gap-2">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              <Select
+                label={`${STAGE_LABELS[stage]} model`}
+                value={row.model}
+                empty={builtInName ? `Stage default (${builtInName})` : 'Stage default'}
+                options={modelOptions(models, row.model)}
+                onChange={(model) =>
+                  setStage(stage, { model, effort: keepEffort(models, model ?? builtInModel, row.effort) })
+                }
+              />
+              <Select
+                label={`${STAGE_LABELS[stage]} effort`}
+                value={row.effort}
+                empty={
+                  levels.length === 0 ? 'No effort on this model'
+                  : builtIn?.effort ? `Stage default (${builtIn.effort})`
+                  : 'Stage default'
+                }
+                options={levels.map((l) => ({ value: l, label: l }))}
+                disabled={levels.length === 0}
+                onChange={(effort) => setStage(stage, { effort: effort as EffortLevel | null })}
+              />
+            </div>
+          );
+        })}
       </section>
 
       <div className="flex items-center gap-3 border-t border-(--color-edge) pt-4">
@@ -424,6 +484,40 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {children}
       {hint && <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">{hint}</span>}
     </label>
+  );
+}
+
+/** A dropdown whose blank choice means "not set here" and reads as null. */
+function Select({
+  label,
+  value,
+  empty,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  empty: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  onChange: (v: string | null) => void;
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value ?? ''}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value || null)}
+      className="w-full rounded-md border border-(--color-edge) bg-(--color-ink) px-2 py-1.5 font-mono text-[11px]/[18px] outline-none focus:border-sky-600 disabled:opacity-50"
+    >
+      <option value="">{empty}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

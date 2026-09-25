@@ -13,7 +13,9 @@ import type {
   CardDetail,
   CreateCardBody,
   CreateProjectBody,
+  EffortLevel,
   HandoffResponse,
+  ModelsResponse,
   MoveCardBody,
   Stage,
   UpdateProjectBody,
@@ -45,6 +47,8 @@ export const api = {
 
   settings: () => fetch('/api/settings').then(json<ApiSettings>),
   updateSettings: (body: UpdateSettingsBody) => patch('/api/settings', body).then(json<ApiSettings>),
+  /** What the Claude CLI offers. Empty when it could not be asked; the pickers then offer defaults only. */
+  models: () => fetch('/api/models').then(json<ModelsResponse>),
 
   // --- repos ---
   createProject: (body: CreateProjectBody) => post('/api/projects', body).then(json<ApiProject>),
@@ -73,8 +77,16 @@ export const api = {
     );
     return post(`/api/cards/${id}/run`, {}).then(json<{ ok: true; runId: string; sessionId: string }>);
   },
-  updateCard: (id: string, body: { title?: string; body?: string; projectId?: string | null }) =>
-    patch(`/api/cards/${id}`, body).then(json<ApiCard>),
+  updateCard: (
+    id: string,
+    body: {
+      title?: string;
+      body?: string;
+      projectId?: string | null;
+      model?: string | null;
+      effort?: EffortLevel | null;
+    },
+  ) => patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
   // --- one card, in full ---
   detail: (id: string) => fetch(`/api/cards/${id}/detail`).then(json<CardDetail>),
