@@ -15,6 +15,7 @@ import { detailRoutes } from './routes/detail.js';
 import { runRoutes } from './routes/runs.js';
 import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
+import { listModels } from './runs/models.js';
 
 /**
  * Boot order matters. Contracts convert first so a schema JSON Schema can't
@@ -62,6 +63,10 @@ export function createApp() {
 const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
 if (isEntry) {
   const { app } = createApp();
+  // Out here rather than in createApp, which the spikes call and which should
+  // not start a CLI each time. Warmed now so the first picker and the first
+  // pinned run do not wait on it.
+  void listModels();
   serve({ fetch: app.fetch, port: config.port, hostname: config.hostname }, (info) => {
     console.log(`[reeve] http://${config.hostname}:${info.port}`);
   });

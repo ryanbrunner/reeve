@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { STAGES } from '@reeve/shared';
-import type { ApiSettings, BoardResponse } from '@reeve/shared';
+import { EFFORT_LEVELS, RUNNABLE_STAGES, STAGES } from '@reeve/shared';
+import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { toBoardCard } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
@@ -22,10 +22,20 @@ import {
 } from '../db/queries.js';
 import { toApiProject, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
+import { STAGE_DEFINITIONS } from '../stages/index.js';
 
 const stageSchema = z.enum(STAGES);
+
+/**
+ * Any non-empty string, not one of the listed models: an alias or id stored
+ * while the CLI listed it should keep working on a day it cannot be asked.
+ * The pickers are what keep a person to the list.
+ */
+const modelSchema = z.string().min(1).nullable();
+const effortSchema = z.enum(EFFORT_LEVELS).nullable();
 
 const createCardSchema = z.object({
   title: z.string().min(1, 'title is required'),
@@ -38,6 +48,8 @@ const updateCardSchema = z.object({
   title: z.string().min(1).optional(),
   body: z.string().optional(),
   projectId: z.string().nullable().optional(),
+  model: modelSchema.optional(),
+  effort: effortSchema.optional(),
 });
 
 const moveCardSchema = z.object({
@@ -70,7 +82,21 @@ const projectSchema = z.object({
 /** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
 const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
+  // Partial: a stage left out is left as it is.
+  stageDefaults: z
+    .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
+    .optional(),
 });
+
+/** Each stage's model and effort as its own module sets them, beneath Settings and the card. */
+function builtInStageDefaults(): StageRunDefaults {
+  return Object.fromEntries(
+    RUNNABLE_STAGES.map((s) => [
+      s,
+      { model: STAGE_DEFINITIONS[s]?.model ?? null, effort: STAGE_DEFINITIONS[s]?.effort ?? null },
+    ]),
+  ) as StageRunDefaults;
+}
 
 /**
  * What a project has to be before it is stored: a real directory, a real
@@ -132,6 +158,13 @@ export function apiRoutes(db: Db) {
     const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
     const body: ApiSettings = updateSettings(db, parsed.data);
+    return c.json(body);
+  });
+
+  // Asked of the CLI once per process, so only the first call after boot can
+  // be slow. An empty list is an answer: the pickers offer defaults only.
+  api.get('/models', async (c) => {
+    const body: ModelsResponse = { models: await listModels(), builtIn: builtInStageDefaults() };
     return c.json(body);
   });
 
