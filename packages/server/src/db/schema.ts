@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
@@ -17,7 +17,7 @@ import {
  * where shared said `cancelled`.
  */
 export type CardStage = Stage;
-export type { RunKind, RunStatus, StopReason };
+export type { CardKind, RunKind, RunStatus, StopReason };
 
 export const REVIEW_DECISIONS = ['approved', 'rejected'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
@@ -42,15 +42,6 @@ export type AssetKind = (typeof ASSET_KINDS)[number];
 /** What a piece of context points at: a path in the repo, another card, a link. */
 export const CARD_REF_KINDS = ['file', 'card', 'url'] as const;
 export type CardRefKind = (typeof CARD_REF_KINDS)[number];
-
-/**
- * A card is a piece of work, or a project: a brief that groups several of them.
- * A project is a card so that it gets everything a card already has — a brief
- * to edit, runs to cost and read back, a modal — rather than a second copy of
- * each. It never sits in a column, and nothing runs a stage on it.
- */
-export const CARD_KINDS = ['task', 'project'] as const;
-export type CardKind = (typeof CARD_KINDS)[number];
 
 export const CARD_EVENT_KINDS = [
   'created',

@@ -1,4 +1,4 @@
-import type { RunnableStage, Stage } from './stages.js';
+import type { CardKind, RunnableStage, Stage } from './stages.js';
 import type { CardActivity } from './activity.js';
 import type { EffortLevel, RunKind, RunStatus, StopReason } from './runs.js';
 
@@ -46,8 +46,13 @@ export interface ApiRunSummary {
 
 export interface ApiCard {
   id: string;
-  /** Per-repo and stable: the `#142` a person can say out loud. */
+  /** A project is never on the board as a card: it is a lane, and it opens from there. */
+  kind: CardKind;
+  /** The project this card belongs to. Null is the No project lane. */
+  projectId: string | null;
+  /** Per-repo and stable: the `#142` a person can say out loud. Zero for a project, which has none. */
   number: number;
+  /** For a project, its default repo: the one its split reads and its tasks fall back to. */
   repoId: string | null;
   repoName: string | null;
   laneColor: string | null;
@@ -96,8 +101,25 @@ export interface ApiCard {
   updatedAt: number;
 }
 
+/**
+ * A project as the board draws it: a lane. Its brief and its runs are on the
+ * card behind it, which opens in the modal like any other.
+ */
+export interface ApiProject {
+  id: string;
+  title: string;
+  /** The project's default repo, and where its lane colour comes from. */
+  repoId: string | null;
+  laneColor: string | null;
+  /** Live tasks under it. */
+  taskCount: number;
+}
+
 export interface BoardResponse {
   repos: ApiRepo[];
+  /** Oldest first, which is the order the lanes run in. */
+  projects: ApiProject[];
+  /** Tasks only. A project is never one of these. */
   cards: ApiCard[];
 }
 
@@ -106,6 +128,10 @@ export interface CreateCardBody {
   body?: string;
   repoId?: string | null;
   stage?: Stage;
+  /** Defaults to a task. */
+  kind?: CardKind;
+  /** The project a task is made under. A project cannot belong to another. */
+  projectId?: string | null;
 }
 
 /**
@@ -178,10 +204,15 @@ export interface ModelsResponse {
   builtIn: StageRunDefaults;
 }
 
-/** Drag-and-drop target: the column, and the slot within it. */
+/**
+ * Drag-and-drop target: the column, and the slot within it. `projectId` is the
+ * lane it was dropped in, when that is a different one: null is No project,
+ * and absent leaves the card where it was.
+ */
 export interface MoveCardBody {
   stage: Stage;
   index: number;
+  projectId?: string | null;
 }
 
 export interface ApiError {
