@@ -77,6 +77,17 @@ export function App() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['board'] }),
   });
 
+  // A refused drag snaps back, and on its own that looks like a drop that
+  // missed. The server's reason — most often the cards this one is waiting on
+  // — is said in the header long enough to read, then goes: it is about one
+  // drag, not about the board.
+  const { error: moveError, reset: resetMove } = move;
+  useEffect(() => {
+    if (!moveError) return;
+    const t = setTimeout(resetMove, 8_000);
+    return () => clearTimeout(t);
+  }, [moveError, resetMove]);
+
   // A card's activity changes on its own as a run progresses, and nothing pushes
   // that to the board — the SSE stream is per-run, not board-wide — so it polls:
   // briskly while Claude is working, lazily when the board is quiet. Paused
@@ -208,6 +219,11 @@ export function App() {
     move.mutate({ id, stage, index, projectId });
   }
 
+  // Named, because the card has already snapped back to where it was and the
+  // sentence has to say which one it means.
+  const refused = moveError ? byId.get(move.variables?.id ?? '') : undefined;
+  const refusal = moveError ? `Could not move “${refused?.title ?? 'the card'}” — ${moveError.message}` : null;
+
   if (isLoading) return <Centered>Loading board…</Centered>;
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
 
@@ -292,6 +308,7 @@ export function App() {
             onShip={shipIt}
             adding={create.isPending}
             addError={create.error}
+            moveError={refusal}
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
             cardCount={cards.length}
@@ -393,13 +410,15 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
+function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
   repos: ApiRepo[];
   onAddProject: () => void;
   /** SICKO MODE's Ship it: a named card, made without opening it. */
   onShip: (v: { repoId: string | null; title: string }) => void;
   adding: boolean;
   addError: Error | null;
+  /** Why the last drag was refused, while it is still worth saying. */
+  moveError: string | null;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
@@ -428,6 +447,13 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
       <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
         {cardCount} cards
       </span>
+      {/* Beside the count rather than by Add, which is about something else;
+          and allowed to shrink, since the blocking cards can be a long list. */}
+      {moveError && (
+        <p role="alert" className="min-w-0 truncate font-mono text-[10px]/4 text-red-300" title={moveError}>
+          {moveError}
+        </p>
+      )}
       {/* In SICKO MODE the idea is typed here rather than into a modal: the card
           it makes is named, so the sweep can take it immediately, and nothing
           covers the board while it goes. */}
