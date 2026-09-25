@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { imageSize } from '../assets/store.js';
 
 /**
@@ -117,15 +117,17 @@ async function photograph<T extends CaptureTarget>(
   const failures: CaptureFailure[] = [];
   try {
     for (const target of targets) {
-      // A context per target: the viewport is per-context, and a fresh one also
-      // means no state leaks from the previous page into this picture.
-      const context = await browser.newContext({
-        viewport: { width: target.viewport, height: VIEWPORT_HEIGHT },
-        deviceScaleFactor: 1,
-        reducedMotion: 'reduce',
-        ...contextOptions,
-      });
+      let context: BrowserContext | undefined;
       try {
+        // A context per target: the viewport is per-context, and a fresh one also
+        // means no state leaks from the previous page into this picture. Inside
+        // the try, because a width the browser refuses fails this target only.
+        context = await browser.newContext({
+          viewport: { width: target.viewport, height: VIEWPORT_HEIGHT },
+          deviceScaleFactor: 1,
+          reducedMotion: 'reduce',
+          ...contextOptions,
+        });
         const page = await context.newPage();
         await load(page, target);
         const bytes = await page.screenshot({ fullPage: true, type: 'png' });
@@ -143,7 +145,7 @@ async function photograph<T extends CaptureTarget>(
       } catch (cause) {
         failures.push({ label: target.label, reason: firstLine(cause) });
       } finally {
-        await context.close().catch(() => {});
+        await context?.close().catch(() => {});
       }
     }
   } finally {
