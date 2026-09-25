@@ -37,6 +37,8 @@ export function Column({
   onOpen,
   sicko = false,
   hot = false,
+  skipped = false,
+  children,
 }: {
   stage: Stage;
   laneId: string | null | undefined;
@@ -50,6 +52,10 @@ export function Column({
   sicko?: boolean;
   /** Something just landed here. Only SICKO MODE says so; a drag lights it itself. */
   hot?: boolean;
+  /** SICKO MODE goes straight past this column: struck out, and closed. */
+  skipped?: boolean;
+  /** Drawn inside the well. Only a SICKO well has room for anything but cards. */
+  children?: React.ReactNode;
 }) {
   const id = `${COLUMN_PREFIX}${stage}|${laneId ?? 'all'}`;
   const { setNodeRef, isOver, over } = useDroppable({ id, disabled: sicko });
@@ -60,12 +66,12 @@ export function Column({
       ref={setNodeRef}
       className={`flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
         lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
-      } ${sicko ? `sk-col${hot ? ' sk-hot' : ''}` : ''}`}
+      } ${sicko ? `sk-col${hot ? ' sk-hot' : ''}${skipped ? ' sk-col-closed' : ''}` : ''}`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
         <h3
           className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase ${
-            sicko ? 'sk-col-t' : ''
+            sicko ? `sk-col-t${skipped ? ' sk-col-skip' : ''}` : ''
           }`}
         >
           {STAGE_LABELS[stage]}
@@ -78,13 +84,18 @@ export function Column({
           {cards.length}
         </span>
         {/* Claude runs in three columns on the calm board. In SICKO MODE it runs
-            in all of them, so every header gets the diamond. */}
-        {(sicko || isRunnable(stage)) && (
-          <span title="Claude runs here" className={`ml-auto text-xs text-sky-500 ${sicko ? 'sk-runs' : ''}`}>
-            ◆
-          </span>
+            in every one it has not skipped, so those headers get the diamond. */}
+        {sicko && skipped ? (
+          <span className="sk-skip ml-auto">Skipped</span>
+        ) : (
+          (sicko || isRunnable(stage)) && (
+            <span title="Claude runs here" className={`ml-auto text-xs text-sky-500 ${sicko ? 'sk-runs' : ''}`}>
+              ◆
+            </span>
+          )
         )}
       </div>
+      {sicko && children}
       {/* Named after the column so columnCollisions can find its cards. */}
       {!sicko && (
         <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>

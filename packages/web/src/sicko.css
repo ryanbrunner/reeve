@@ -263,8 +263,10 @@
   animation: sk-rainbowtext 1.4s linear infinite, sk-dspin 1.2s linear infinite;
 }
 
-/* The things that are gone, said by striking them out. */
-.sk-tk-gone .sk-tk-t {
+/* The things that are gone, said by striking them out. Planning's header is
+   one of them. */
+.sk-tk-gone .sk-tk-t,
+.sk-col-t.sk-col-skip {
   color: var(--color-muted);
   text-decoration: line-through;
   text-decoration-color: #ff2d95;
@@ -316,6 +318,119 @@
 .sk-runs {
   display: inline-block;
   animation: sk-dspin 0.9s linear infinite, sk-rainbowtext 1.2s linear infinite;
+}
+
+/* ------------------------------------------------------- closed column --- */
+
+/* Planning, which the sweep flies straight over: taped off, with a sign on it.
+   Clipped, so the tape stops at the column's own edges. */
+.sk-col.sk-col-closed {
+  position: relative;
+  overflow: hidden;
+  border-color: #ffe60059;
+  background:
+    repeating-linear-gradient(-45deg, #ffe60012 0 14px, #0000 14px 28px),
+    #0a0c12b3;
+}
+
+.sk-col-t.sk-col-skip { text-shadow: none; }
+
+.sk-skip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #0b0b10;
+  background: var(--sk-r3);
+  border-radius: 0.125rem;
+  padding: 0 6px;
+}
+
+/* Two strips of it, crossed, each crawling the other way. The words are there
+   twice so the crawl can wrap by half, like the ticker's. */
+.sk-tape {
+  position: absolute;
+  left: -30%;
+  width: 160%;
+  top: 38%;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: var(--sk-r3);
+  border-block: 2px solid #0b0b10;
+  box-shadow: 0 4px 14px #0009;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #0b0b10;
+  white-space: nowrap;
+}
+
+.sk-tape-a { transform: rotate(-16deg); }
+.sk-tape-b { transform: rotate(12deg); margin-top: 18px; }
+
+.sk-tape-run {
+  flex: none;
+  animation: sk-marquee 14s linear infinite;
+}
+
+.sk-tape-b .sk-tape-run { animation-direction: reverse; animation-duration: 18s; }
+
+/* At the bottom of the well, where nothing lands on it. Hung from a point
+   above itself, so it sways rather than spins. */
+.sk-sign {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  width: min(208px, calc(100% - 28px));
+  margin: 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px 9px;
+  text-align: center;
+  background: #0b0b12f2;
+  border: 2px solid var(--sk-r1);
+  border-radius: 0.375rem;
+  box-shadow: 0 0 18px -4px #ff2d95, inset 0 0 10px -4px #ff2d95;
+  transform-origin: 50% -40px;
+  --sk-a: -4deg;
+  --sk-b: 2deg;
+  animation: sk-swing 2.6s ease-in-out infinite alternate;
+}
+
+.sk-sign-t {
+  font-size: 15px;
+  line-height: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: -1px 0 #ff2d95, 1px 0 #00d1ff;
+}
+
+.sk-sign-s {
+  font-size: 11px;
+  line-height: 15px;
+  font-style: italic;
+  color: var(--color-muted);
+}
+
+.sk-sign-e {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  color: var(--sk-r3);
 }
 
 /* ----------------------------------------------------------------- cards --- */
@@ -931,7 +1046,7 @@
   .sk-sw.sk-on, .sk-sw.sk-on .sk-sw-knob, .sk-sw.sk-on .sk-sw-track, .sk-sw.sk-on .sk-sw-label,
   .sk-sw:hover .sk-sw-label, .sk-stat-n, .sk-pop-a, .sk-pop-b, .sicko .sk-add,
   .sicko .sk-hdr::after, .sk-hud, .sk-hud::before, .sk-stamp, .sk-arm-title, .sk-g-2, .sk-g-3,
-  .sk-v, .sicko .sk-lane-dot {
+  .sk-v, .sicko .sk-lane-dot, .sk-tape-run, .sk-sign {
     animation: none !important;
   }
 
