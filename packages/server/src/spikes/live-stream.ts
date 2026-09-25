@@ -8,18 +8,18 @@
  */
 import { describeMessage, nextThought, type Thought } from '@reeve/shared';
 import { createApp } from '../index.js';
-import { createCard, createProject, insertRun } from '../db/queries.js';
+import { createCard, createRepo, insertRun } from '../db/queries.js';
 import { EventWriter } from '../runs/events.js';
 
 const { app, db } = createApp();
 const writer = new EventWriter(db);
 
-const project = createProject(db, {
+const repo = createRepo(db, {
   name: `live-${Date.now()}`, repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
 });
-const card = createCard(db, { title: 'live', projectId: project.id, stage: 'in_progress' });
+const card = createCard(db, { title: 'live', repoId: repo.id, stage: 'in_progress' });
 const run = insertRun(db, {
   id: crypto.randomUUID(), cardId: card.id, kind: 'claude', stage: 'in_progress',
   status: 'running', sessionId: crypto.randomUUID(), cwd: '/tmp/x',

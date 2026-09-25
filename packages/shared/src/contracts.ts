@@ -68,7 +68,7 @@ export const planningOutput = z.object({
         suggestions: z
           .array(z.string())
           .describe(
-            'Two to four concrete answers a human could pick without typing. Phrase each as the decision itself ("Keep them until removed"), never as another question.',
+            'Two to four concrete answers a human could pick without typing. Phrase each as the decision itself ("Keep them until removed"), never as another question. A free-text "Other" is always offered, so never include one.',
           ),
       }),
     )

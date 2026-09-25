@@ -17,4 +17,6 @@ export const config = {
    * Only the default: the Settings screen stores its own, which wins.
    */
   maxConcurrentRuns: Number(process.env.REEVE_MAX_CONCURRENT ?? 3),
+  /** How often GitHub is asked whether a card's open pull request has merged. */
+  mergeSyncMs: Number(process.env.REEVE_MERGE_SYNC_MS ?? 60_000),
 } as const;

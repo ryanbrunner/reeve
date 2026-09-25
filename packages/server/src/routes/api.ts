@@ -9,35 +9,37 @@ import {
   archivedCards,
   boardCards,
   createCard,
-  createProject,
+  createRepo,
   getCard,
   getSettings,
-  listProjects,
+  listRepos,
   moveCard,
   restoreCard,
   runsForCard,
   updateCard,
-  updateProject,
+  updateRepo,
   updateSettings,
 } from '../db/queries.js';
-import { toApiProject, toApiRunSummary } from '../mappers.js';
+import { toApiRepo, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import type { EventWriter } from '../runs/events.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
+import { maybeStartStage } from '../startStage.js';
 
 const stageSchema = z.enum(STAGES);
 
 const createCardSchema = z.object({
   title: z.string().min(1, 'title is required'),
   body: z.string().optional(),
-  projectId: z.string().nullable().optional(),
+  repoId: z.string().nullable().optional(),
   stage: stageSchema.optional(),
 });
 
 const updateCardSchema = z.object({
   title: z.string().min(1).optional(),
   body: z.string().optional(),
-  projectId: z.string().nullable().optional(),
+  repoId: z.string().nullable().optional(),
 });
 
 const moveCardSchema = z.object({
@@ -46,13 +48,13 @@ const moveCardSchema = z.object({
 });
 
 /**
- * Note the absence of `.default()`. `projectSchema.partial()` used to carry
+ * Note the absence of `.default()`. `repoSchema.partial()` used to carry
  * `defaultBranch: z.string().default('main')` into PATCH, where zod applied
- * the default to the ABSENT key — so renaming a project silently moved it from
+ * the default to the ABSENT key — so renaming a repo silently moved it from
  * `develop` back to `main`. Defaults belong at the create call below, where
  * the repository can be asked what the answer should be, and nowhere else.
  */
-const projectSchema = z.object({
+const repoSchema = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1),
   /** Optional: derived from the repo when blank. */
@@ -73,7 +75,7 @@ const settingsSchema = z.object({
 });
 
 /**
- * What a project has to be before it is stored: a real directory, a real
+ * What a repo has to be before it is stored: a real directory, a real
  * repository, and a branch that resolves inside it. Every one of these
  * otherwise surfaces as a failed worktree on the first run, long after the
  * typo, with an error about git rather than about the field that was wrong.
@@ -101,22 +103,22 @@ async function checkRepo(
 }
 
 /**
- * `name` is unique across every project including archived ones, which
- * `listProjects` cannot see — so this reads the constraint rather than
+ * `name` is unique across every repo including archived ones, which
+ * `listRepos` cannot see — so this reads the constraint rather than
  * pre-checking a list that is missing rows.
  */
 function isDuplicateName(e: unknown): boolean {
-  return e instanceof Error && /UNIQUE constraint failed: project\.name/.test(e.message);
+  return e instanceof Error && /UNIQUE constraint failed: repo\.name/.test(e.message);
 }
 
-export function apiRoutes(db: Db) {
+export function apiRoutes(db: Db, writer: EventWriter) {
   const api = new Hono();
 
   api.get('/board', (c) => {
     const rows = boardCards(db);
     const body: BoardResponse = {
-      projects: listProjects(db).map(toApiProject),
-      cards: rows.map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor)),
+      repos: listRepos(db).map(toApiRepo),
+      cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor)),
     };
     return c.json(body);
   });
@@ -135,11 +137,11 @@ export function apiRoutes(db: Db) {
     return c.json(body);
   });
 
-  api.get('/projects', (c) => c.json(listProjects(db).map(toApiProject)));
+  api.get('/repos', (c) => c.json(listRepos(db).map(toApiRepo)));
 
-  api.post('/projects', async (c) => {
-    const parsed = projectSchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'invalid project', detail: parsed.error.message }, 400);
+  api.post('/repos', async (c) => {
+    const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
 
     const checked = await checkRepo(parsed.data.repoPath, parsed.data.defaultBranch);
     if ('error' in checked) return c.json({ error: 'unusable repository', detail: checked.error }, 400);
@@ -154,19 +156,19 @@ export function apiRoutes(db: Db) {
         parsed.data.worktreeRoot ? expandPath(parsed.data.worktreeRoot) : defaultWorktreeRoot(checked.toplevel),
     };
     try {
-      return c.json(toApiProject(createProject(db, values)), 201);
+      return c.json(toApiRepo(createRepo(db, values)), 201);
     } catch (e) {
       if (isDuplicateName(e)) {
-        return c.json({ error: 'name taken', detail: `another project is already called '${values.name}'` }, 409);
+        return c.json({ error: 'name taken', detail: `another repo is already called '${values.name}'` }, 409);
       }
       throw e;
     }
   });
 
-  api.patch('/projects/:id', async (c) => {
-    const parsed = projectSchema.partial().safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'invalid project', detail: parsed.error.message }, 400);
-    const existing = listProjects(db).find((p) => p.id === c.req.param('id'));
+  api.patch('/repos/:id', async (c) => {
+    const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
+    const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
     if (!existing) return c.json({ error: 'not found' }, 404);
 
     const values = { ...parsed.data };
@@ -183,11 +185,11 @@ export function apiRoutes(db: Db) {
     if (values.worktreeRoot !== undefined) values.worktreeRoot = expandPath(values.worktreeRoot);
 
     try {
-      const updated = updateProject(db, c.req.param('id'), values);
-      return updated ? c.json(toApiProject(updated)) : c.json({ error: 'not found' }, 404);
+      const updated = updateRepo(db, c.req.param('id'), values);
+      return updated ? c.json(toApiRepo(updated)) : c.json({ error: 'not found' }, 404);
     } catch (e) {
       if (isDuplicateName(e)) {
-        return c.json({ error: 'name taken', detail: `another project is already called '${values.name}'` }, 409);
+        return c.json({ error: 'name taken', detail: `another repo is already called '${values.name}'` }, 409);
       }
       throw e;
     }
@@ -196,12 +198,14 @@ export function apiRoutes(db: Db) {
   api.post('/cards', async (c) => {
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
-    if (parsed.data.projectId && !listProjects(db).some((p) => p.id === parsed.data.projectId)) {
-      return c.json({ error: 'no such project', detail: parsed.data.projectId }, 400);
+    if (parsed.data.repoId && !listRepos(db).some((p) => p.id === parsed.data.repoId)) {
+      return c.json({ error: 'no such repo', detail: parsed.data.repoId }, 400);
     }
     const created = createCard(db, parsed.data);
-    const project = created.projectId ? listProjects(db).find((p) => p.id === created.projectId) : undefined;
-    return c.json(toBoardCard(db, created, project?.name ?? null, project?.laneColor ?? null), 201);
+    const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
+    // Made straight into a column Claude works in is entering it, the same as a drag.
+    maybeStartStage(db, writer, created, repo);
+    return c.json(toBoardCard(db, created, repo?.name ?? null, repo?.laneColor ?? null), 201);
   });
 
   api.patch('/cards/:id', async (c) => {
@@ -211,29 +215,29 @@ export function apiRoutes(db: Db) {
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
 
-    const { projectId } = parsed.data;
-    if (projectId !== undefined && projectId !== existing.projectId) {
+    const { repoId } = parsed.data;
+    if (repoId !== undefined && repoId !== existing.repoId) {
       // The branch and the directory on disk belong to the repo the card was in
       // when they were made. Repointing the card leaves them behind in a repo
       // nothing looks at any more, and every later call — diff, server, run —
-      // would resolve the new project's `repoPath` against the old tree.
+      // would resolve the new repo's `repoPath` against the old tree.
       if (existing.worktreePath) {
         return c.json(
-          { error: 'card has a worktree', detail: 'remove the worktree before moving the card to another project' },
+          { error: 'card has a worktree', detail: 'remove the worktree before moving the card to another repo' },
           400,
         );
       }
       // Without this the foreign key raises, which is a 500 for what is a
       // caller's mistake.
-      if (projectId !== null && !listProjects(db).some((p) => p.id === projectId)) {
-        return c.json({ error: 'no such project', detail: projectId }, 400);
+      if (repoId !== null && !listRepos(db).some((p) => p.id === repoId)) {
+        return c.json({ error: 'no such repo', detail: repoId }, 400);
       }
     }
 
     const updated = updateCard(db, id, parsed.data);
     if (!updated) return c.json({ error: 'not found' }, 404);
-    const project = updated.projectId ? listProjects(db).find((p) => p.id === updated.projectId) : undefined;
-    return c.json(toBoardCard(db, updated, project?.name ?? null, project?.laneColor ?? null));
+    const repo = updated.repoId ? listRepos(db).find((p) => p.id === updated.repoId) : undefined;
+    return c.json(toBoardCard(db, updated, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
   api.post('/cards/:id/move', async (c) => {
@@ -245,15 +249,18 @@ export function apiRoutes(db: Db) {
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index);
     if (!moved) return c.json({ error: 'not found' }, 404);
     // Started before the response is built, so the card it returns already
-    // says a pull request is on its way.
-    if (before.stage !== 'done' && moved.stage === 'done') {
-      maybeOpenPullRequest(db, moved, listProjects(db).find((p) => p.id === moved.projectId));
+    // says a pull request is on its way. A reorder within a column is not
+    // entering it, and starts nothing.
+    if (before.stage !== moved.stage) {
+      const repo = listRepos(db).find((p) => p.id === moved.repoId);
+      if (moved.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+      else maybeStartStage(db, writer, moved, repo);
     }
     return c.json(toBoardCard(db, moved, null, null));
   });
 
   api.get('/cards/archived', (c) =>
-    c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor))),
+    c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor))),
   );
 
   api.post('/cards/:id/archive', (c) => {
@@ -275,8 +282,8 @@ export function apiRoutes(db: Db) {
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
     const restored = existing.archivedAt ? (restoreCard(db, id) ?? existing) : existing;
-    const project = restored.projectId ? listProjects(db).find((p) => p.id === restored.projectId) : undefined;
-    return c.json(toBoardCard(db, restored, project?.name ?? null, project?.laneColor ?? null));
+    const repo = restored.repoId ? listRepos(db).find((p) => p.id === restored.repoId) : undefined;
+    return c.json(toBoardCard(db, restored, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
   api.get('/cards/:id/runs', (c) => c.json(runsForCard(db, c.req.param('id')).map(toApiRunSummary)));

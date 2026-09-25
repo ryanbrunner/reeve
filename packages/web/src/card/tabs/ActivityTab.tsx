@@ -56,8 +56,11 @@ export function ActivityTab({ detail }: { detail: CardDetail }) {
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
-                {e.kind === 'reviewed' && e.body && <p className="text-sm/5 text-(--color-muted)">{e.body}</p>}
-                {e.kind === 'pr_opened' && <PullRequestLink event={e} />}
+                {/* Line breaks kept: feedback from Crit is one paragraph per comment. */}
+                {(e.kind === 'reviewed' || e.kind === 'crit_reviewed') && e.body && (
+                  <p className="text-sm/5 whitespace-pre-line text-(--color-muted)">{e.body}</p>
+                )}
+                {(e.kind === 'pr_opened' || e.kind === 'merged') && <PullRequestLink event={e} />}
                 {e.kind === 'pr_failed' && e.body && (
                   <p className="font-mono text-[11px]/4 whitespace-pre-wrap text-red-300">{e.body}</p>
                 )}
@@ -142,7 +145,7 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   if (filter === 'runs') return e.kind === 'run_started' || e.kind === 'run_finished';
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
-    e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed'
+    e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed'
   );
 }
 
@@ -159,6 +162,9 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'run_finished':
       return `finished run ${runLabel(detail, e.runId)} in ${stage(e.stage)}`;
     case 'reviewed':
+      if (e.meta?.['via'] === 'crit') {
+        return e.meta?.['decision'] === 'approved' ? 'approved the plan in Crit' : 'sent the plan back from Crit';
+      }
       return e.meta?.['decision'] === 'approved' ? 'approved the work' : 'sent the work back';
     case 'question_asked':
       return 'asked';
@@ -169,7 +175,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'merged': {
       const sha = e.meta?.['sha'];
       const into = e.meta?.['into'];
-      return `merged the work into ${typeof into === 'string' ? into : 'the base branch'}` +
+      const number = e.meta?.['number'];
+      // A number means it merged as a pull request on GitHub, not a squash here.
+      return `merged ${typeof number === 'number' ? `pull request #${number}` : 'the work'}` +
+        ` into ${typeof into === 'string' ? into : 'the base branch'}` +
         (typeof sha === 'string' ? ` as ${sha.slice(0, 7)}` : '');
     }
     case 'pr_opened': {
@@ -187,6 +196,12 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return `restored the card to ${stage(e.stage)}`;
     case 'handed_off':
       return `handed off to Claude Code in ${stage(e.stage)}`;
+    case 'crit_reviewed': {
+      const outcome = e.meta?.['outcome'];
+      return outcome === 'cancelled' ? 'stopped a review in Crit'
+        : outcome === 'not_applied' ? 'finished a review in Crit that was not applied'
+        : 'could not finish a review in Crit';
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import type { ApiCard, ApiProject, ApiRunSummary } from './api.js';
+import type { ApiCard, ApiRepo, ApiRunSummary } from './api.js';
 import type { Stage } from './stages.js';
 import type { Thought } from './transcript.js';
 
@@ -32,7 +32,8 @@ export type CardEventKind =
   | 'pr_failed'
   | 'archived'
   | 'restored'
-  | 'handed_off';
+  | 'handed_off'
+  | 'crit_reviewed';
 
 export interface ApiCardEvent {
   id: string;
@@ -257,6 +258,18 @@ export interface HandoffResponse {
   command: string;
 }
 
+/**
+ * What `POST /cards/:id/crit` answers with: the shell run holding the review
+ * open, and where Crit is serving it. `url` is null when Crit had not said so
+ * by the time the request gave up waiting; it opens the browser itself anyway.
+ */
+export interface CritReviewResponse {
+  runId: string;
+  url: string | null;
+  /** A review was already open for this plan, and this is it. */
+  reused: boolean;
+}
+
 // --- The whole card ---------------------------------------------------------
 
 /**
@@ -270,7 +283,7 @@ export interface HandoffResponse {
  */
 export interface CardDetail {
   card: ApiCard;
-  project: ApiProject | null;
+  repo: ApiRepo | null;
   criteria: ApiCriterion[];
   refs: ApiCardRef[];
   /** The questions the card's current run asked. Empty when it asked none. */

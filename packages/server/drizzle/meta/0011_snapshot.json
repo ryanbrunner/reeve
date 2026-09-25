@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3c9d0b6e-8f41-4a57-b2e3-7d15a6c4f982",
-  "prevId": "e250f84e-c5c2-4157-a5fb-1511cf3a80b6",
+  "id": "29bbefcb-159e-4bf5-bf6f-4d6bb367aff7",
+  "prevId": "3c9d0b6e-8f41-4a57-b2e3-7d15a6c4f982",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -1447,6 +1447,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "last_activity": {
+          "name": "last_activity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_thinking": {
+          "name": "last_thinking",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "command": {
           "name": "command",
           "type": "text",
@@ -1666,12 +1680,8 @@
   "enums": {},
   "_meta": {
     "schemas": {},
-    "tables": {
-      "\"project\"": "\"repo\""
-    },
-    "columns": {
-      "\"card\".\"project_id\"": "\"card\".\"repo_id\""
-    }
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "indexes": {}
