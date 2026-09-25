@@ -39,7 +39,12 @@ export function UsageMeter({ usage }: { usage: UsageState | null }) {
   return (
     <span
       className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted) ${PILL[usage.level]}`}
-      title={shown.map(({ long, w }) => `${long} limit resets ${resetTime(w.resetsAt)}`).join(' · ')}
+      title={shown
+        .map(({ long, w }) =>
+          // A window past its reset is shown at 0%; a reset time in the past would contradict it.
+          w.resetsAt > Date.now() ? `${long} limit resets ${resetTime(w.resetsAt)}` : `${long} limit has reset`,
+        )
+        .join(' · ')}
     >
       {shown.map(({ key, short, w }, i) => (
         <span key={key}>
