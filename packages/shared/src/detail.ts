@@ -28,7 +28,9 @@ export type CardEventKind =
   | 'note'
   | 'merged'
   | 'pr_opened'
-  | 'pr_failed';
+  | 'pr_failed'
+  | 'archived'
+  | 'restored';
 
 export interface ApiCardEvent {
   id: string;

@@ -6,6 +6,7 @@ import { toBoardCard } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
+  archivedCards,
   boardCards,
   createCard,
   createProject,
@@ -13,6 +14,7 @@ import {
   getSettings,
   listProjects,
   moveCard,
+  restoreCard,
   runsForCard,
   updateCard,
   updateProject,
@@ -20,6 +22,7 @@ import {
 } from '../db/queries.js';
 import { toApiProject, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
 
 const stageSchema = z.enum(STAGES);
@@ -249,9 +252,31 @@ export function apiRoutes(db: Db) {
     return c.json(toBoardCard(db, moved, null, null));
   });
 
+  api.get('/cards/archived', (c) =>
+    c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor))),
+  );
+
   api.post('/cards/:id/archive', (c) => {
-    const archived = archiveCard(db, c.req.param('id'));
-    return archived ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+    if (existing.archivedAt) return c.json({ ok: true });
+    // Anything still running would carry on out of sight: a Claude run spending
+    // budget, or a dev server holding its port, on a card nobody can see.
+    if (runRegistry.all().some((r) => r.cardId === id)) {
+      return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
+    }
+    archiveCard(db, id);
+    return c.json({ ok: true });
+  });
+
+  api.post('/cards/:id/restore', (c) => {
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+    const restored = existing.archivedAt ? (restoreCard(db, id) ?? existing) : existing;
+    const project = restored.projectId ? listProjects(db).find((p) => p.id === restored.projectId) : undefined;
+    return c.json(toBoardCard(db, restored, project?.name ?? null, project?.laneColor ?? null));
   });
 
   api.get('/cards/:id/runs', (c) => c.json(runsForCard(db, c.req.param('id')).map(toApiRunSummary)));

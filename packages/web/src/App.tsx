@@ -14,6 +14,7 @@ import {
 import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column } from './board/Column.js';
+import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
 import { api, cardsIn } from './lib/api.js';
@@ -21,6 +22,7 @@ import { api, cardsIn } from './lib/api.js';
 export function App() {
   const qc = useQueryClient();
   const [swimlanes, setSwimlanes] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   // Which pane Settings opens on, or null while it is shut.
   const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
   // Stable, because the modal's focus effect depends on it and the board
@@ -127,6 +129,7 @@ export function App() {
         projects={data?.projects ?? []}
         onAdd={(title, projectId) => create.mutate({ title, projectId, stage: 'backlog' })}
         onOpenSettings={setSettingsOpen}
+        onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
       />
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -157,6 +160,15 @@ export function App() {
       </DndContext>
       {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} />}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
+      {archiveOpen && (
+        <ArchiveModal
+          onClose={() => setArchiveOpen(false)}
+          onOpen={(id) => {
+            setArchiveOpen(false);
+            openAndClose.open(id);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -209,12 +221,13 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, cardCount }: {
+function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenArchive, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
   projects: ApiProject[];
   onAdd: (title: string, projectId: string | null) => void;
   onOpenSettings: (pane: SettingsPane) => void;
+  onOpenArchive: () => void;
   cardCount: number;
 }) {
   const [title, setTitle] = useState('');
@@ -281,6 +294,12 @@ function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, cardCoun
             an empty board with no repo is a board where nothing can ever run,
             and this is the way out. */}
         {projects.length === 0 ? 'Add a repo' : 'Settings'}
+      </button>
+      <button
+        onClick={onOpenArchive}
+        className="rounded-md border border-(--color-edge) px-3 py-1.5 text-sm text-(--color-muted) hover:border-slate-600"
+      >
+        Archive
       </button>
       <button
         onClick={onToggle}

@@ -99,6 +99,7 @@ export function toApiCard(
     openingPr,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
+    archivedAt: ms(c.archivedAt),
     createdAt: ms(c.createdAt) ?? 0,
     updatedAt: ms(c.updatedAt) ?? 0,
   };

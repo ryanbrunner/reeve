@@ -52,7 +52,10 @@ export const api = {
 
   createCard: (body: CreateCardBody) => post('/api/cards', body).then(json<ApiCard>),
   moveCard: (id: string, body: MoveCardBody) => post(`/api/cards/${id}/move`, body).then(json<ApiCard>),
+  /** Soft: the card leaves the board, and everything it owns stays where it is. */
   archiveCard: (id: string) => post(`/api/cards/${id}/archive`, {}).then(json<{ ok: true }>),
+  restoreCard: (id: string) => post(`/api/cards/${id}/restore`, {}).then(json<ApiCard>),
+  archivedCards: () => fetch('/api/cards/archived').then(json<ApiCard[]>),
   /**
    * Starting a stage is two calls, in this order: `/run` refuses a card whose
    * worktree isn't there yet, and `/worktree` is idempotent — it answers

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { config } from '../config.js';
 import type { Db } from './client.js';
 import {
@@ -293,8 +293,60 @@ export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title'
     .get();
 }
 
+/**
+ * Taking a card off the board is a soft delete: the row, its runs and its
+ * worktree all stay put, and `archivedCards` is where it can be found again.
+ */
 export function archiveCard(db: Db, id: string) {
-  return db.update(card).set({ archivedAt: new Date() }).where(eq(card.id, id)).returning().get();
+  const now = new Date();
+  const archived = db
+    .update(card)
+    .set({ archivedAt: now, updatedAt: now })
+    .where(and(eq(card.id, id), isNull(card.archivedAt)))
+    .returning()
+    .get();
+  if (archived) insertCardEvent(db, { cardId: id, actor: 'human', kind: 'archived', stage: archived.stage });
+  return archived;
+}
+
+/**
+ * Back onto the board at the foot of the column it left. Not at its old
+ * position: the column may have been renormalised while it was away, and a
+ * card reappearing wedged between two others is harder to spot than one at
+ * the bottom.
+ */
+export function restoreCard(db: Db, id: string) {
+  const before = getCard(db, id);
+  if (!before?.archivedAt) return undefined;
+  const stage = before.stage as CardStage;
+  const restored = db
+    .update(card)
+    .set({
+      archivedAt: null,
+      position: positionForSlot(db, stage, cardsInStage(db, stage).length, id),
+      updatedAt: new Date(),
+    })
+    .where(eq(card.id, id))
+    .returning()
+    .get();
+  insertCardEvent(db, { cardId: id, actor: 'human', kind: 'restored', stage });
+  renormaliseIfNeeded(db, stage);
+  return restored;
+}
+
+/** The archive: every card taken off the board, most recently first. */
+export function archivedCards(db: Db) {
+  return db
+    .select({
+      card,
+      projectName: project.name,
+      laneColor: project.laneColor,
+    })
+    .from(card)
+    .leftJoin(project, eq(card.projectId, project.id))
+    .where(isNotNull(card.archivedAt))
+    .orderBy(desc(card.archivedAt))
+    .all();
 }
 
 export function getCard(db: Db, id: string) {

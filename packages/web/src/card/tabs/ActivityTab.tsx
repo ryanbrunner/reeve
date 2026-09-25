@@ -181,6 +181,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     }
     case 'pr_failed':
       return 'could not open a pull request';
+    case 'archived':
+      return 'archived the card';
+    case 'restored':
+      return `restored the card to ${stage(e.stage)}`;
   }
 }
 
