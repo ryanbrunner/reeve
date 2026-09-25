@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
-import { needsWorktree } from '@reeve/shared';
+import { needsWorktree, type CritReviewResponse } from '@reeve/shared';
+import { cardActivity } from '../board.js';
+import { startCritReview } from '../crit.js';
 import type { Db } from '../db/client.js';
 import { getCard, insertCardEvent, latestClaudeRunForStage, listProjects } from '../db/queries.js';
 import { card as cardTable, type Card, type Project } from '../db/schema.js';
@@ -168,6 +170,46 @@ export function actionRoutes(db: Db, writer: EventWriter) {
       meta: { path: handoff.path },
     });
     return c.json(handoff, 201);
+  });
+
+  /**
+   * Open the card's plan for review in Crit. Finishing there sends the plan
+   * back with the comments as notes, or approves it when there are none.
+   *
+   * Only a plan waiting for review, the same state the review buttons appear
+   * in: a plan still being written, or one whose questions are unanswered, is
+   * not ready to be judged. A second click answers with the review already
+   * open rather than starting another.
+   */
+  routes.post('/:id/crit', async (c) => {
+    const cardId = c.req.param('id');
+    const card = getCard(db, cardId);
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
+    const project = projectFor(card.projectId);
+    if (!project) return c.json({ error: 'card has no project', detail: 'a plan review needs a repo' }, 400);
+    if (card.stage !== 'planning') {
+      return c.json({ error: 'only a plan can be reviewed in Crit', detail: card.stage }, 400);
+    }
+    const { activity, run } = cardActivity(db, card);
+    if (!run || activity !== 'needs_review') {
+      return c.json({ error: 'the plan is not waiting for review', detail: activity }, 409);
+    }
+    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand)) {
+      return c.json({ error: 'a run is already active for this card' }, 409);
+    }
+    const health = await checkWorktree(project.repoPath, card.worktreePath);
+    if (health.state !== 'ok') {
+      return c.json(
+        { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
+        409,
+      );
+    }
+
+    const review = await startCritReview(db, writer, card, health.path, run);
+    if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
+    const body: CritReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
+    return c.json(body, review.reused ? 200 : 201);
   });
 
   /** Run the project's test command against the worktree. */
