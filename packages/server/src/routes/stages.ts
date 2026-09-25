@@ -19,7 +19,7 @@ import { maybeOpenPullRequest } from '../pullRequest.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
-import { startStage } from '../startStage.js';
+import { maybeStartStage, startStage } from '../startStage.js';
 
 const reviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
@@ -56,7 +56,8 @@ export function stageRoutes(db: Db, writer: EventWriter) {
    * The human gate. Approving says the stage's output is good, so it records the
    * verdict AND advances the card one column — a human deciding the work is done
    * is the whole point of the gate, and making them then drag the card is asking
-   * them to say it twice. A run finishing on its own still moves nothing.
+   * them to say it twice. A run finishing on its own still moves nothing. The
+   * card then starts its next stage as any card entering a column does.
    *
    * Rejecting moves nothing either: it forks the session so the prior attempt
    * stays intact and readable, and the notes become the revision prompt.
@@ -93,8 +94,9 @@ export function stageRoutes(db: Db, writer: EventWriter) {
         // moveCard writes the `moved` event, so the timeline reads as a verdict
         // followed by a move rather than one conflated entry.
         const moved = moveCard(db, card.id, to, cardsInStage(db, to).length);
-        // The same automatic pull request a drag into Done gets.
+        // The same automatic start, or pull request, that a drag there gets.
         if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+        else if (moved) maybeStartStage(db, writer, moved, repo);
       }
       return c.json({ ok: true, fromStage: card.stage, toStage: to, moved: to !== card.stage });
     }

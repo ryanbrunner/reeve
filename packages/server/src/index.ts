@@ -40,7 +40,7 @@ export function createApp() {
   const writer = new EventWriter(db);
 
   const app = new Hono();
-  app.route('/api', apiRoutes(db));
+  app.route('/api', apiRoutes(db, writer));
   app.route('/api/runs', runRoutes(db));
   app.route('/api/cards', actionRoutes(db, writer));
   app.route('/api/cards', stageRoutes(db, writer));
