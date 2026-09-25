@@ -22,7 +22,7 @@ under `packages/server/src/stages/prompts/`, and that wins.
 
 ## Layout
 
-npm workspaces, three packages:
+npm workspaces, four packages:
 
 - `packages/shared` (`@reeve/shared`) — the zod contracts Claude answers in,
   and the API types both sides share. Imported as TypeScript source; there is
@@ -32,6 +32,10 @@ npm workspaces, three packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command. A client of the running
+  server's HTTP API and nothing else: it never opens the database, because
+  runs live in the server's memory and a second process opening the database
+  reaps them. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
 
 ## Commands
 
@@ -47,6 +51,9 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   repo paths are hard-coded to one machine.
 - `npm run typecheck` — `tsc --noEmit` in every workspace.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
+- `npm run -s reeve -- <args>` — the CLI, against a server that is already
+  running; see The CLI below. `npm link -w @reeve/cli` puts `reeve` on your
+  PATH instead.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
@@ -75,7 +82,51 @@ SICKO MODE. Either can seed a scratch database, and a server started with the
 same `REEVE_DB` then shows it; the header of `seed-sicko-board.ts` has the
 command. The header of `seed-card-detail.ts` names `data/reeve.db`, but a
 scratch database works the same way, since the script creates the repo it
-needs.
+needs. The same seeded board is how to check `reeve card wait`: its cards give
+every outcome but a timeout without a single run.
+
+## The CLI
+
+`reeve --help` lists every command. What they are for is driving a card through
+the board from a script or an agent:
+
+    reeve card run <card>                  start the card's stage; prints the run id
+    reeve run follow <run>                 its transcript, until it ends
+    reeve card wait <card>                 block until the card needs a person
+    reeve card questions <card>            what Claude asked
+    reeve card answer <card> <n> <answer…> the last answer resumes the run
+    reeve card approve <card> [--notes]    pass the gate: the card moves one column
+    reeve card reject <card> --notes …     send it back; the notes are the next prompt
+    reeve run stop <run>
+
+A card is its id, the start of its id (a worktree's directory name), `142`,
+`#142` or `<repo>#142`. `--json` puts JSON alone on stdout, and `run follow
+--json` one event per line. It finds the server at `REEVE_URL`, else
+`http://127.0.0.1:$REEVE_PORT`.
+
+**The exit codes are the contract** (`packages/cli/src/exit.ts`), and are never
+renumbered. `wait` exits with the first that applies; `run follow` uses the
+same numbers for how its run ended.
+
+| Code | `card wait`                                                                       | `run follow`      |
+| ---- | --------------------------------------------------------------------------------- | ----------------- |
+| 0    | the run finished and awaits review                                                | the run succeeded |
+| 1    | error: Reeve unreachable, no such card, the server refused                        | the same          |
+| 2    | the command line was wrong                                                        | the same          |
+| 3    | Claude asked questions                                                            | —                 |
+| 4    | the stage's run failed or was interrupted                                         | the run did       |
+| 5    | idle: nothing running or waiting — Backlog, Done, stopped, or a start was refused | the run was stopped |
+| 6    | `--timeout` ran out with the card still running                                   | —                 |
+
+`wait` on a card that already needs a person returns at once. A card that has
+just been approved into a runnable column reads idle while its worktree is
+made; `wait` keeps waiting through that, because the card says so
+(`startingStage`), rather than returning 5.
+
+Approving is a human gate, and the CLI passes it only when a person or their
+script calls `reeve card approve`. Nothing in the CLI approves, answers or
+advances a card on its own; that is SICKO MODE's job, and only when it is
+switched on.
 
 ## Rules the code depends on
 
