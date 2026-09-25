@@ -231,6 +231,21 @@ export interface CreateRepoBody {
 
 export type UpdateRepoBody = Partial<CreateRepoBody>;
 
+/**
+ * Lane colours, as a fixed set rather than a colour input.
+ *
+ * These are the board's swim lane dots and the chips on every card face, so
+ * they have to sit on a dark panel without shouting — a free picker produces a
+ * neon lane on the first try. Muted, evenly spaced, and picked for you. Here
+ * rather than in the web app because `reeve repos add` picks one too.
+ */
+export const LANE_COLORS = ['#6b7db3', '#7fa38a', '#b3866b', '#8f7fb3', '#b36b81', '#6ba3b3'] as const;
+
+/** The first colour no repo has yet, or the first of them all once every one is taken. */
+export function freeLaneColor(taken: readonly (string | null)[]): string {
+  return LANE_COLORS.find((c) => !taken.includes(c)) ?? LANE_COLORS[0];
+}
+
 /** A model and effort for one stage's runs. Null means "not set here": the next layer down decides. */
 export interface StageRunDefault {
   model: string | null;
