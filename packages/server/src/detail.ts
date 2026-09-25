@@ -51,7 +51,9 @@ export async function cardDetail(
   project: Project | null,
 ): Promise<CardDetail> {
   const runs = runsForCard(db, card.id);
-  const claudeRuns = runs.filter((r) => r.kind === 'claude');
+  // The stage's own attempts. A Suggest run stays in `runs` below, so it is in
+  // the history and its cost is counted, but it is no version of the plan.
+  const claudeRuns = runs.filter((r) => r.kind === 'claude' && r.task === null);
   const current = latestClaudeRunForStage(db, card.id, card.stage);
 
   return {

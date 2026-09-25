@@ -133,6 +133,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     kind: 'claude',
     stage: runStage,
     status: 'running',
+    task: stage.outOfBand ? stage.id : null,
     sessionId,
     parentRunId: parentRunId ?? null,
     forkedFromSessionId: resumeSessionId ?? null,
@@ -196,6 +197,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         runId,
         cardId: card.id,
         kind: 'claude',
+        outOfBand: stage.outOfBand ?? false,
         stop: async () => {
           cancelled = true;
           setRunStatus(db, runId, { status: 'stopping' });

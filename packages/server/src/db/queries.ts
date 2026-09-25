@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { config } from '../config.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -13,6 +14,7 @@ import {
   review,
   run,
   runEvent,
+  settings,
   type AcceptanceCriterion,
   type AssetKind,
   type Card,
@@ -129,14 +131,31 @@ export function reapOrphanedRuns(db: Db, now: Date) {
  * filter by kind used to exist beside this, and starting a dev server after
  * the last Claude run made it answer with the server: the card was suddenly
  * unreviewable because the newest run for the stage was a `vite` process.
+ * An out-of-band task — Suggest — is excluded for the same reason.
  */
 export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage) {
   return db
     .select()
     .from(run)
-    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude')))
+    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task)))
     .orderBy(desc(run.createdAt))
     .limit(1)
+    .get();
+}
+
+/**
+ * A task of this kind still in flight for the card, if there is one.
+ *
+ * Read off the rows rather than the registry, which only hears about a run once
+ * its body has started: two requests close together would both find it empty.
+ * The boot reaper settles anything a restart left behind, so a stale row here
+ * cannot lock the task out for good.
+ */
+export function liveTaskRun(db: Db, cardId: string, task: string) {
+  return db
+    .select()
+    .from(run)
+    .where(and(eq(run.cardId, cardId), eq(run.task, task), inArray(run.status, NON_TERMINAL)))
     .get();
 }
 
@@ -274,8 +293,60 @@ export function updateCard(db: Db, id: string, patch: Partial<Pick<Card, 'title'
     .get();
 }
 
+/**
+ * Taking a card off the board is a soft delete: the row, its runs and its
+ * worktree all stay put, and `archivedCards` is where it can be found again.
+ */
 export function archiveCard(db: Db, id: string) {
-  return db.update(card).set({ archivedAt: new Date() }).where(eq(card.id, id)).returning().get();
+  const now = new Date();
+  const archived = db
+    .update(card)
+    .set({ archivedAt: now, updatedAt: now })
+    .where(and(eq(card.id, id), isNull(card.archivedAt)))
+    .returning()
+    .get();
+  if (archived) insertCardEvent(db, { cardId: id, actor: 'human', kind: 'archived', stage: archived.stage });
+  return archived;
+}
+
+/**
+ * Back onto the board at the foot of the column it left. Not at its old
+ * position: the column may have been renormalised while it was away, and a
+ * card reappearing wedged between two others is harder to spot than one at
+ * the bottom.
+ */
+export function restoreCard(db: Db, id: string) {
+  const before = getCard(db, id);
+  if (!before?.archivedAt) return undefined;
+  const stage = before.stage as CardStage;
+  const restored = db
+    .update(card)
+    .set({
+      archivedAt: null,
+      position: positionForSlot(db, stage, cardsInStage(db, stage).length, id),
+      updatedAt: new Date(),
+    })
+    .where(eq(card.id, id))
+    .returning()
+    .get();
+  insertCardEvent(db, { cardId: id, actor: 'human', kind: 'restored', stage });
+  renormaliseIfNeeded(db, stage);
+  return restored;
+}
+
+/** The archive: every card taken off the board, most recently first. */
+export function archivedCards(db: Db) {
+  return db
+    .select({
+      card,
+      projectName: project.name,
+      laneColor: project.laneColor,
+    })
+    .from(card)
+    .leftJoin(project, eq(card.projectId, project.id))
+    .where(isNotNull(card.archivedAt))
+    .orderBy(desc(card.archivedAt))
+    .all();
 }
 
 export function getCard(db: Db, id: string) {
@@ -292,6 +363,22 @@ export function createProject(db: Db, values: Omit<typeof project.$inferInsert, 
 
 export function updateProject(db: Db, id: string, patch: Partial<typeof project.$inferInsert>) {
   return db.update(project).set(patch).where(eq(project.id, id)).returning().get();
+}
+
+/** The stored row with every unset field filled from `config`. */
+export function getSettings(db: Db) {
+  const row = db.select().from(settings).where(eq(settings.id, 1)).get();
+  return { maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns };
+}
+
+export function updateSettings(db: Db, patch: Partial<Omit<typeof settings.$inferInsert, 'id'>>) {
+  // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
+  if (Object.keys(patch).length === 0) return getSettings(db);
+  db.insert(settings)
+    .values({ ...patch, id: 1 })
+    .onConflictDoUpdate({ target: settings.id, set: patch })
+    .run();
+  return getSettings(db);
 }
 
 export function runsForCard(db: Db, cardId: string) {
@@ -660,11 +747,15 @@ export function replaceDifferences(
  * "Unread" is defined by when the previous run began rather than by a flag,
  * because that is what the human means: a note written while Claude was
  * working, or after it stopped, is for the next attempt. Nothing needs marking
- * off, and a note can never be consumed twice or silently lost.
+ * off, and a note can never be consumed twice or silently lost. A Suggest
+ * starting is not the previous run: it never reads the notes, so it must not
+ * mark them read either.
  */
 export function unreadNotesFor(db: Db, cardId: string): string[] {
   const events = cardEventsFor(db, cardId);
-  const lastStart = events.find((e) => e.kind === 'run_started')?.createdAt?.getTime() ?? 0;
+  const tasks = new Set(runsForCard(db, cardId).filter((r) => r.task !== null).map((r) => r.id));
+  const lastStart =
+    events.find((e) => e.kind === 'run_started' && !(e.runId && tasks.has(e.runId)))?.createdAt?.getTime() ?? 0;
   return events
     .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart)
     .map((e) => e.body)
