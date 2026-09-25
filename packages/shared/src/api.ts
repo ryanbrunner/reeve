@@ -23,6 +23,20 @@ export interface ApiRepo {
   maxBudgetUsd: number | null;
 }
 
+/**
+ * A tool call the run asked for and did not get.
+ *
+ * Worth a wire type of its own because a denial is the one run fact that
+ * explains an otherwise inexplicable result: a run that read the code instead
+ * of testing it, or reported success having executed nothing, usually asked for
+ * something first and was told no.
+ */
+export interface ApiToolDenial {
+  tool: string;
+  /** The command, or the path — whatever identifies which call it was. Null when the input said nothing useful. */
+  detail: string | null;
+}
+
 export interface ApiRunSummary {
   id: string;
   kind: RunKind;
@@ -42,6 +56,8 @@ export interface ApiRunSummary {
   startedAt: number | null;
   finishedAt: number | null;
   errorMessage: string | null;
+  /** Empty for almost every run. Not empty is a thing the human should see. */
+  deniedToolUses: ApiToolDenial[];
 }
 
 export interface ApiCard {

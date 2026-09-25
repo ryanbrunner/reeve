@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { realOrSelf } from '../git/worktree.js';
 
 /**
@@ -123,4 +123,102 @@ function toolDenial(toolName: string, allowedTools: string[]): string {
 function short(command: string): string {
   const oneLine = command.replace(/\s+/g, ' ').trim();
   return oneLine.length > 120 ? `${oneLine.slice(0, 117)}…` : oneLine;
+}
+
+// ---------------------------------------------------------------------------
+// Keeping the record
+// ---------------------------------------------------------------------------
+
+/**
+ * One refused call, in the shape `result.permission_denials` uses.
+ *
+ * Kept deliberately compatible: a row's denials come from the result message
+ * where there is one and from here where there is not, and nothing downstream
+ * should be able to tell which.
+ */
+export interface ToolDenialRecord {
+  tool_name: string;
+  tool_use_id: string;
+  tool_input: Record<string, string>;
+}
+
+/**
+ * The denials a run accumulates as it goes.
+ *
+ * `result.permission_denials` is the authoritative record and the one to prefer
+ * — but it arrives with the result message, and a run that is interrupted or
+ * aborted never gets one. Those are precisely the runs worth asking what was
+ * refused.
+ *
+ * Two ways in, because there are two kinds of refusal. `refused` is ours, made
+ * in `decideToolUse`; `observe` catches the ones decided before anyone asked us
+ * — a permission mode that forbids tools outright, which is how Planning works.
+ * They do not overlap in practice, and are deduplicated by tool_use_id in case
+ * a release makes them.
+ */
+export interface DenialRecorder {
+  /** A denial this host just made. Returns the list when it grew, else null. */
+  refused(toolName: string, input: Record<string, unknown>, toolUseId: string): ToolDenialRecord[] | null;
+  /** A denial the CLI made without asking. Same return. */
+  observe(message: SDKMessage): ToolDenialRecord[] | null;
+}
+
+export function denialRecorder(): DenialRecorder {
+  // Only the latest turn's calls, for `observe`: the denial event names the tool
+  // and the id but carries no input, and it lands while the message that asked
+  // is still executing, so it is always this map the id is in. Holding every
+  // call of a 200-turn run to caption a denial that may never come is not a
+  // trade worth making.
+  let asked = new Map<string, ToolDenialRecord>();
+  const denied: ToolDenialRecord[] = [];
+  const seen = new Set<string>();
+
+  const add = (record: ToolDenialRecord): ToolDenialRecord[] | null => {
+    if (record.tool_use_id && seen.has(record.tool_use_id)) return null;
+    if (record.tool_use_id) seen.add(record.tool_use_id);
+    denied.push(record);
+    return [...denied];
+  };
+
+  return {
+    refused(toolName, input, toolUseId) {
+      return add({ tool_name: toolName, tool_use_id: toolUseId, tool_input: identifying(input) });
+    },
+    observe(message) {
+      if (message.type === 'assistant') {
+        asked = asksIn(message);
+        return null;
+      }
+      const m = message as { type?: string; subtype?: string; tool_name?: string; tool_use_id?: string };
+      if (m.type !== 'system' || m.subtype !== 'permission_denied') return null;
+      const id = m.tool_use_id ?? '';
+      return add(asked.get(id) ?? { tool_name: m.tool_name ?? 'a tool', tool_use_id: id, tool_input: {} });
+    },
+  };
+}
+
+/** The tool calls in one assistant message, by id. */
+function asksIn(message: SDKMessage): Map<string, ToolDenialRecord> {
+  const asked = new Map<string, ToolDenialRecord>();
+  const content = (message as { message?: { content?: unknown } }).message?.content;
+  if (!Array.isArray(content)) return asked;
+  for (const block of content as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }>) {
+    if (block.type !== 'tool_use' || !block.id || !block.name) continue;
+    asked.set(block.id, { tool_name: block.name, tool_use_id: block.id, tool_input: identifying(block.input ?? {}) });
+  }
+  return asked;
+}
+
+/**
+ * Which call it was, and nothing more. Only the fields that identify one, and
+ * only the head of them: a `Write` input is a whole file, and this is stored on
+ * the run row and sent to the browser.
+ */
+function identifying(input: Record<string, unknown>): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const key of ['command', 'file_path', 'path', 'url', 'pattern']) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) kept[key] = value.slice(0, 200);
+  }
+  return kept;
 }

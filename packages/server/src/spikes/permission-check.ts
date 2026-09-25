@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decideToolUse } from '../runs/permissions.js';
+import { decideToolUse, denialRecorder, type ToolDenialRecord } from '../runs/permissions.js';
 import { GIT_READ } from '../stages/tools.js';
 
 const note = (l: string, v: unknown) => console.log(`${l.padEnd(34)}: ${v}`);
@@ -80,6 +80,10 @@ let asked = 0;
 const commands: string[] = [];
 const results: string[] = [];
 let denials: unknown[] = [];
+// What an interrupted run would have on its row: the result message never
+// arrives for one, so the record has to be built as the denials happen.
+const recorder = denialRecorder();
+let recorded: ToolDenialRecord[] = [];
 for await (const m of query({
   prompt: once(
     `Do exactly this, one Bash call each, in order, and do not stop early:\n` +
@@ -93,13 +97,16 @@ for await (const m of query({
     allowedTools,
     maxBudgetUsd: 0.5,
     maxTurns: 12,
-    canUseTool: (toolName, input) => {
+    canUseTool: (toolName, input, { toolUseID }) => {
       asked++;
-      return Promise.resolve(decideToolUse({ toolName, input, allowedTools, worktreePath: wt }));
+      const decision = decideToolUse({ toolName, input, allowedTools, worktreePath: wt });
+      if (decision.behavior === 'deny') recorded = recorder.refused(toolName, input, toolUseID) ?? recorded;
+      return Promise.resolve(decision);
     },
   },
 })) {
   const msg = m as SDKMessage & { message?: { content?: unknown }; permission_denials?: unknown[] };
+  recorded = recorder.observe(m) ?? recorded;
   if (m.type === 'assistant' && Array.isArray(msg.message?.content)) {
     for (const b of msg.message.content as Array<{ type?: string; name?: string; input?: { command?: string } }>) {
       if (b.type === 'tool_use' && b.name === 'Bash' && b.input?.command) commands.push(b.input.command);
@@ -121,6 +128,11 @@ note('permission_denials', JSON.stringify(denials).slice(0, 300));
 check('canUseTool was consulted', asked > 0, 'if this fails, runs park instead of being denied');
 check('the rewritten command ran', results.some((r) => r.includes('dirty.txt')));
 check('the refused one was refused', results.some((r) => r.includes('Denied')));
-check('denials are on the result', denials.length > 0, 'the authoritative record of what was refused');
+check('denials are on the result', denials.length > 0, 'this is what the Activity tab counts');
+check(
+  'and on the row without one, in the same shape',
+  recorded.length === denials.length && recorded[0]?.tool_input['command'] === 'gh pr view 1',
+  JSON.stringify(recorded),
+);
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);

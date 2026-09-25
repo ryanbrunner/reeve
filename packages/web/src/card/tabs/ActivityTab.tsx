@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, type ApiCardEvent, type CardDetail, type Stage } from '@reeve/shared';
+import { STAGE_LABELS, type ApiCardEvent, type ApiToolDenial, type CardDetail, type Stage } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { cost, duration, when } from '../format.js';
 import { Empty, SectionHead, SmallButton } from '../ui.js';
@@ -53,7 +53,7 @@ export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sic
                 <p className="text-sm/5 text-(--color-text)">
                   <span className="font-medium">{e.actor === 'human' ? 'You' : 'Claude'}</span> {sentence(e, detail)}
                 </p>
-                {e.kind === 'run_finished' && !sicko && <RunFacts event={e} />}
+                {e.kind === 'run_finished' && !sicko && <RunFacts event={e} detail={detail} />}
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
@@ -77,11 +77,14 @@ export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sic
   );
 }
 
-function RunFacts({ event }: { event: ApiCardEvent }) {
+function RunFacts({ event, detail }: { event: ApiCardEvent; detail: CardDetail }) {
   const meta = event.meta ?? {};
   const status = String(meta['status'] ?? '');
   const ms = typeof meta['durationMs'] === 'number' ? meta['durationMs'] : null;
   const usd = typeof meta['costUsd'] === 'number' ? meta['costUsd'] : null;
+  // Read off the run rather than the event, so runs that finished before anyone
+  // thought to show this get the chip too — the denials were always recorded.
+  const denied = detail.runs.find((r) => r.id === event.runId)?.deniedToolUses ?? [];
   return (
     <div className="flex flex-wrap items-baseline gap-2 font-mono text-[11px]/4">
       <span
@@ -93,9 +96,25 @@ function RunFacts({ event }: { event: ApiCardEvent }) {
       </span>
       {ms !== null && <span className="text-(--color-muted)">{duration(ms)}</span>}
       {usd !== null && <span className="text-(--color-muted)">{cost(usd)}</span>}
+      {/* A succeeded run that was refused its tools still reads as success
+          everywhere else. This is the only place that says otherwise, so it
+          carries the commands themselves rather than just a count. */}
+      {denied.length > 0 && (
+        <span
+          className="rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-amber-300"
+          title={`Refused, so this run did not do them:\n${denied.map(asked).join('\n')}`}
+        >
+          {denied.length} denied
+        </span>
+      )}
       {event.body && <span className="text-red-300">{event.body}</span>}
     </div>
   );
+}
+
+/** One denied call, for the tooltip: the command if there was one, else the tool. */
+function asked(d: ApiToolDenial): string {
+  return d.detail ? `${d.tool}: ${d.detail}` : d.tool;
 }
 
 function PullRequestLink({ event }: { event: ApiCardEvent }) {
