@@ -3,13 +3,16 @@ import {
   type ApiCard,
   type ApiCommit,
   type ApiDiff,
+  type ApiRepo,
   type ApiSettings,
   type BoardResponse,
   type CardDetail,
   type CreateCardBody,
+  type CreateRepoBody,
   type ModelsResponse,
   type MoveCardBody,
   type ResolveConflictsResponse,
+  type UpdateRepoBody,
   type UpdateSettingsBody,
 } from '@reeve/shared';
 import { CliError } from './output.js';
@@ -99,6 +102,9 @@ export const api = {
   stopServer: (id: string) => del<{ ok: true }>(`/api/cards/${id}/server`),
   diff: (id: string) => request<ApiDiff>(`/api/cards/${id}/diff`),
   commits: (id: string) => request<ApiCommit[]>(`/api/cards/${id}/commits`),
+
+  createRepo: (body: CreateRepoBody) => post<ApiRepo>('/api/repos', body),
+  updateRepo: (id: string, body: UpdateRepoBody) => patch<ApiRepo>(`/api/repos/${id}`, body),
 
   settings: () => request<ApiSettings>('/api/settings'),
   updateSettings: (body: UpdateSettingsBody) => patch<ApiSettings>('/api/settings', body),

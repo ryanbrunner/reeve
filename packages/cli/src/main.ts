@@ -4,6 +4,7 @@ import { card } from './commands/card.js';
 import { list } from './commands/list.js';
 import { move } from './commands/move.js';
 import { open } from './commands/open.js';
+import { repos } from './commands/repos.js';
 import { serve } from './commands/serve.js';
 import { models, settings } from './commands/settings.js';
 import { show } from './commands/show.js';
@@ -47,6 +48,17 @@ const USAGE = `Usage: reeve [command] [options]
       for planning, in-progress or testing. Unset goes back to the default.
   reeve models [--json]
       The models the Claude CLI offers, for <stage>.model.
+  reeve repos [--json]
+  reeve repos show <repo> [--json]
+      The repos Reeve works in, or one of them in full.
+  reeve repos add [<path>] [--name N] [--branch B] [--worktree-root DIR]
+                  [--setup CMD] [--test CMD] [--server CMD] [--teardown CMD]
+                  [--finish CMD] [--color HEX] [--budget USD] [--json]
+      Register the repo at <path>, or the one you are in. Name defaults to
+      the directory's; branch to the one it is on.
+  reeve repos edit <repo> [--path P] [any flag add takes] [--json]
+      Change a repo. An empty value, as in --setup '', clears a command.
+
   reeve sicko [on|off] [--json]
       SICKO MODE's state, or switch it. On, Reeve approves reviews unread,
       answers Claude's questions, starts Backlog and merges pull requests,
@@ -56,12 +68,12 @@ const USAGE = `Usage: reeve [command] [options]
          optional, leaving it out means the card whose worktree you are in.
 <stage>  backlog, planning, in-progress, testing or done
 
---json, which the card actions and settings all take, puts JSON alone on stdout; messages
-go to stderr.
+--json puts JSON alone on stdout; messages go to stderr. Every command but
+serve and open takes it.
 Commands other than serve talk to $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
 
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
-  serve, list, add, move, show, open, card, settings, models, sicko,
+  serve, list, add, move, show, open, card, settings, models, repos, sicko,
 };
 
 async function main(argv: string[]): Promise<void> {
