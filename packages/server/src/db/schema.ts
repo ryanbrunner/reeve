@@ -170,6 +170,11 @@ export const run = sqliteTable(
     resultText: text('result_text'),
     structuredOutput: text('structured_output', { mode: 'json' }).$type<unknown>(),
     permissionDenials: text('permission_denials', { mode: 'json' }).$type<unknown[]>(),
+    // What Claude was last doing and thinking, kept current as messages arrive
+    // so the modal opens on it rather than on "Starting up". Read off the row
+    // because the last thinking block can sit thousands of events back.
+    lastActivity: text('last_activity'),
+    lastThinking: text('last_thinking'),
 
     // --- shell + server runs ---
     command: text('command'),

@@ -71,6 +71,13 @@
       "when": 1790332695649,
       "tag": "0009_fold_ready_into_backlog",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790341492000,
+      "tag": "0010_run_thought",
+      "breakpoints": true
     }
   ]
 }
