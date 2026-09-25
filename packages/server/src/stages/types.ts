@@ -87,6 +87,14 @@ export interface ClaudeTask<Output = unknown> {
    */
   onPersist?(db: Db, ctx: StageContext, output: Output, runId: string): void;
   /**
+   * The slow half of `onPersist`, for work that has to wait on something —
+   * Planning renders its mockups here. Awaited after `onPersist` and before
+   * the run is marked succeeded, so nothing reads a finished run whose files
+   * are still coming. A throw is written to the run's events and the run
+   * succeeds anyway: the output it is persisting is already valid.
+   */
+  onPersistAsync?(db: Db, writer: EventWriter, ctx: StageContext, output: Output, runId: string): Promise<void>;
+  /**
    * Does this output leave a question for the human rather than finished work?
    * Drives the yellow card face. Omitted means "never asks" — a succeeded run
    * then reads as ready for review.

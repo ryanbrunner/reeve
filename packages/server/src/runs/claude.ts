@@ -319,6 +319,12 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // Files first, then rows, then the run is marked done — so nothing can read
     // a succeeded run whose plan or questions have not landed yet.
     stage.onPersist?.(db, ctx, parsed.data, runId);
+    try {
+      await stage.onPersistAsync?.(db, writer, ctx, parsed.data, runId);
+    } catch (err) {
+      // Before `finish`, which closes the writer.
+      writer.append(runId, 'error', { message: `after the run: ${String(err)}` });
+    }
     finish(db, writer, runId, 'succeeded', 'completed', null, result);
   })();
 
