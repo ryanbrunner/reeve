@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
@@ -16,10 +17,13 @@ export function CardHeader({
   detail,
   live,
   onClose,
+  editTitle = false,
 }: {
   detail: CardDetail;
   live: LiveRun | null;
   onClose: () => void;
+  /** Arrive with the title selected, so typing replaces it. For a card just made. */
+  editTitle?: boolean;
 }) {
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
@@ -65,6 +69,26 @@ export function CardHeader({
       },
     });
   };
+
+  // Selected rather than just focused: a bare caret would leave "Untitled" in
+  // front of whatever was typed. Once per header, not per heading — the heading
+  // remounts on every saved rename, and taking focus back then would pull it out
+  // of the brief just as someone moved on to it. This only holds because the
+  // header mounts after the card has loaded, and so after the modal has focused
+  // its panel; were it there on the first render, the panel would win.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const selected = useRef(false);
+  useEffect(() => {
+    const el = heading.current;
+    if (!editTitle || selected.current || !el) return;
+    selected.current = true;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, [editTitle]);
 
   return (
     <header className="relative shrink-0 border-b border-(--color-edge) px-5 pt-3.5 pb-4">
@@ -121,6 +145,7 @@ export function CardHeader({
           not the text the browser was left holding. */}
       <h2
         key={card.title}
+        ref={heading}
         id="card-title"
         contentEditable="plaintext-only"
         suppressContentEditableWarning
