@@ -221,6 +221,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // on the first tool call that isn't pre-approved.
     permissionPrompts: 'none',
     allowedTools: stage.allowedTools,
+    ...(stage.directories ? { additionalDirectories: stage.directories(db) } : {}),
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),
