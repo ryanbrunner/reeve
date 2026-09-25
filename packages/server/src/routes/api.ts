@@ -20,7 +20,7 @@ import {
   updateRepo,
   updateSettings,
 } from '../db/queries.js';
-import { toApiProject, toApiRunSummary } from '../mappers.js';
+import { toApiRepo, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
@@ -30,14 +30,14 @@ const stageSchema = z.enum(STAGES);
 const createCardSchema = z.object({
   title: z.string().min(1, 'title is required'),
   body: z.string().optional(),
-  projectId: z.string().nullable().optional(),
+  repoId: z.string().nullable().optional(),
   stage: stageSchema.optional(),
 });
 
 const updateCardSchema = z.object({
   title: z.string().min(1).optional(),
   body: z.string().optional(),
-  projectId: z.string().nullable().optional(),
+  repoId: z.string().nullable().optional(),
 });
 
 const moveCardSchema = z.object({
@@ -115,7 +115,7 @@ export function apiRoutes(db: Db) {
   api.get('/board', (c) => {
     const rows = boardCards(db);
     const body: BoardResponse = {
-      projects: listRepos(db).map(toApiProject),
+      repos: listRepos(db).map(toApiRepo),
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor)),
     };
     return c.json(body);
@@ -135,9 +135,9 @@ export function apiRoutes(db: Db) {
     return c.json(body);
   });
 
-  api.get('/projects', (c) => c.json(listRepos(db).map(toApiProject)));
+  api.get('/repos', (c) => c.json(listRepos(db).map(toApiRepo)));
 
-  api.post('/projects', async (c) => {
+  api.post('/repos', async (c) => {
     const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
 
@@ -154,7 +154,7 @@ export function apiRoutes(db: Db) {
         parsed.data.worktreeRoot ? expandPath(parsed.data.worktreeRoot) : defaultWorktreeRoot(checked.toplevel),
     };
     try {
-      return c.json(toApiProject(createRepo(db, values)), 201);
+      return c.json(toApiRepo(createRepo(db, values)), 201);
     } catch (e) {
       if (isDuplicateName(e)) {
         return c.json({ error: 'name taken', detail: `another repo is already called '${values.name}'` }, 409);
@@ -163,7 +163,7 @@ export function apiRoutes(db: Db) {
     }
   });
 
-  api.patch('/projects/:id', async (c) => {
+  api.patch('/repos/:id', async (c) => {
     const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
     const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
@@ -184,7 +184,7 @@ export function apiRoutes(db: Db) {
 
     try {
       const updated = updateRepo(db, c.req.param('id'), values);
-      return updated ? c.json(toApiProject(updated)) : c.json({ error: 'not found' }, 404);
+      return updated ? c.json(toApiRepo(updated)) : c.json({ error: 'not found' }, 404);
     } catch (e) {
       if (isDuplicateName(e)) {
         return c.json({ error: 'name taken', detail: `another repo is already called '${values.name}'` }, 409);
@@ -196,11 +196,10 @@ export function apiRoutes(db: Db) {
   api.post('/cards', async (c) => {
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
-    const { projectId: repoId, ...rest } = parsed.data;
-    if (repoId && !listRepos(db).some((p) => p.id === repoId)) {
-      return c.json({ error: 'no such repo', detail: repoId }, 400);
+    if (parsed.data.repoId && !listRepos(db).some((p) => p.id === parsed.data.repoId)) {
+      return c.json({ error: 'no such repo', detail: parsed.data.repoId }, 400);
     }
-    const created = createCard(db, { ...rest, repoId });
+    const created = createCard(db, parsed.data);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     return c.json(toBoardCard(db, created, repo?.name ?? null, repo?.laneColor ?? null), 201);
   });
@@ -212,7 +211,7 @@ export function apiRoutes(db: Db) {
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
 
-    const { projectId: repoId, ...rest } = parsed.data;
+    const { repoId } = parsed.data;
     if (repoId !== undefined && repoId !== existing.repoId) {
       // The branch and the directory on disk belong to the repo the card was in
       // when they were made. Repointing the card leaves them behind in a repo
@@ -231,7 +230,7 @@ export function apiRoutes(db: Db) {
       }
     }
 
-    const updated = updateCard(db, id, { ...rest, repoId });
+    const updated = updateCard(db, id, parsed.data);
     if (!updated) return c.json({ error: 'not found' }, 404);
     const repo = updated.repoId ? listRepos(db).find((p) => p.id === updated.repoId) : undefined;
     return c.json(toBoardCard(db, updated, repo?.name ?? null, repo?.laneColor ?? null));

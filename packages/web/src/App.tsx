@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage } from '@reeve/shared';
+import { STAGES, type ApiCard, type ApiRepo, type BoardResponse, type Stage } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions } from './board/Column.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
@@ -130,7 +130,7 @@ export function App() {
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
 
   const lanes = swimlanes
-    ? (data?.projects ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
+    ? (data?.repos ?? []).map((p) => ({ id: p.id as string | null, name: p.name, color: p.laneColor }))
     : [{ id: undefined as unknown as string | null, name: '', color: null }];
 
   return (
@@ -138,8 +138,8 @@ export function App() {
       <Header
         swimlanes={swimlanes}
         onToggle={() => setSwimlanes((s) => !s)}
-        projects={data?.projects ?? []}
-        onAdd={(title, projectId) => create.mutate({ title, projectId, stage: 'backlog' })}
+        projects={data?.repos ?? []}
+        onAdd={(title, projectId) => create.mutate({ title, repoId: projectId, stage: 'backlog' })}
         onOpenSettings={setSettingsOpen}
         onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
@@ -242,7 +242,7 @@ function useOpenCard() {
 function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, onOpenArchive, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
-  projects: ApiProject[];
+  projects: ApiRepo[];
   onAdd: (title: string, projectId: string | null) => void;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;

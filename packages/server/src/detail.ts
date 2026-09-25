@@ -30,8 +30,8 @@ import {
   toApiCardRef,
   toApiCriterion,
   toApiDifference,
-  toApiProject,
   toApiQuestion,
+  toApiRepo,
   toApiRunSummary,
 } from './mappers.js';
 
@@ -58,7 +58,7 @@ export async function cardDetail(
 
   return {
     card: toBoardCard(db, card, repoName, laneColor),
-    project: repo ? toApiProject(repo) : null,
+    repo: repo ? toApiRepo(repo) : null,
     criteria: criteriaFor(db, card.id).map(toApiCriterion),
     refs: refsFor(db, card.id).map(toApiCardRef),
     questions: current ? questionsForRun(db, current.id).map(toApiQuestion) : [],

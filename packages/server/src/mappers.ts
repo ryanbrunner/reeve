@@ -5,8 +5,8 @@ import type {
   ApiAsset,
   ApiCriterion,
   ApiDifference,
-  ApiProject,
   ApiQuestion,
+  ApiRepo,
   ApiRunSummary,
   CardActivity,
   CardEventActor,
@@ -33,7 +33,7 @@ import type {
 
 const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
-export function toApiProject(p: Repo): ApiProject {
+export function toApiRepo(p: Repo): ApiRepo {
   return {
     id: p.id,
     name: p.name,
@@ -82,8 +82,8 @@ export function toApiCard(
   return {
     id: c.id,
     number: c.number,
-    projectId: c.repoId,
-    projectName: repoName,
+    repoId: c.repoId,
+    repoName,
     laneColor,
     title: c.title,
     body: c.body,

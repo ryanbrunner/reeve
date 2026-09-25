@@ -54,9 +54,9 @@ function Project({ detail }: { detail: CardDetail }) {
   // second request — and an observer rather than a `getQueryData` peek, so the
   // list still fills in for a card opened by link before the board has landed.
   const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
-  const projects = data?.projects ?? [];
+  const projects = data?.repos ?? [];
   const assign = useMutation({
-    mutationFn: (projectId: string) => api.updateCard(detail.card.id, { projectId }),
+    mutationFn: (projectId: string) => api.updateCard(detail.card.id, { repoId: projectId }),
     onSuccess: () => {
       // The chip in the header comes from the card, the swim lane from the
       // board. Both move on this one click.
@@ -76,7 +76,7 @@ function Project({ detail }: { detail: CardDetail }) {
         <Empty>No projects yet</Empty>
       : <div role="group" aria-label="File the card under a project" className="-mx-1.5 flex flex-col">
           {projects.map((p) => {
-            const here = p.id === detail.card.projectId;
+            const here = p.id === detail.card.repoId;
             return (
               <button
                 key={p.id}
@@ -101,7 +101,7 @@ function Project({ detail }: { detail: CardDetail }) {
           })}
         </div>
       }
-      {!detail.card.projectId && !settled && projects.length > 0 && (
+      {!detail.card.repoId && !settled && projects.length > 0 && (
         <p className="font-mono text-[10px]/4 text-(--color-muted)">
           Unfiled — pick a repo before starting a stage.
         </p>
