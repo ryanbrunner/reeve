@@ -22,7 +22,7 @@ under `packages/server/src/stages/prompts/`, and that wins.
 
 ## Layout
 
-npm workspaces, three packages:
+npm workspaces, four packages:
 
 - `packages/shared` (`@reeve/shared`) — the zod contracts Claude answers in,
   and the API types both sides share. Imported as TypeScript source; there is
@@ -32,6 +32,10 @@ npm workspaces, three packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command, TypeScript run through
+  `tsx` by the shim in `bin/reeve.js`. `serve` is the only command that
+  imports the server; every other one talks to a running server over HTTP
+  through `src/client.ts`, which is also where the server's URL is decided.
 
 ## Commands
 
@@ -47,12 +51,27 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   repo paths are hard-coded to one machine.
 - `npm run typecheck` — `tsc --noEmit` in every workspace.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
+- `npx reeve serve` — the same server as `npm start`. `npx` finds the bin
+  only inside the repo, and only once `npm install` has linked it.
+  `--port`, `--db`, `--assets` and `--max-concurrent` set `REEVE_PORT`,
+  `REEVE_DB`, `REEVE_ASSETS` and `REEVE_MAX_CONCURRENT`; relative paths are
+  taken from where the command is run. It refuses to start if a Reeve server
+  already answers on the port.
+- `npx reeve status` — asks `/healthz` and exits 0 if a server answers, 1 if
+  not. `reeve <command> --help` lists a command's options.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
 `REEVE_AUTO_ARCHIVE_MS`, `REEVE_SICKO_SWEEP_MS`. By default the database is
 `data/reeve.db` and mockups and screenshots go in `data/assets/`; `data/` is
 gitignored and created at runtime. The server binds to 127.0.0.1 only.
+Its default paths, and the built web app's, are resolved from the repo root
+rather than the working directory, so the server behaves the same wherever it
+is started.
+
+The CLI's commands other than `serve` find the server at `--url`, then
+`REEVE_URL`, then `http://127.0.0.1:4317`. A server started on another port
+needs one of the first two.
 
 ## Checking a change
 
@@ -100,9 +119,10 @@ needs.
   `{{name}}` and leaves an empty string for any variable not passed.
 - **Timers, `gh` calls, the SICKO sweep and model listing stay out of
   `createApp()`.** It checks contracts, migrates, reaps orphaned runs and
-  builds routes, and nothing more. The rest starts only when
-  `packages/server/src/index.ts` is the entry point, because the spikes build
-  an app and must not start any of it.
+  builds routes, and nothing more. The rest is in `startServer()` beside it,
+  which runs only when `packages/server/src/index.ts` is the entry point or
+  `reeve serve` calls it, because the spikes build an app and must not start
+  any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
 - **Tool permissions deny by default.** A stage's `allowedTools` is the
