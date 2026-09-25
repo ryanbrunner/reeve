@@ -44,7 +44,9 @@ async function request<T>(path: string): Promise<T> {
   try {
     res = await fetch(`${url}${path}`);
   } catch (e) {
-    if (isRefused(e)) throw new CliError(`Reeve isn't running at ${url} — start it with \`npm start\``);
+    // `reeve serve` is the launcher the sibling serve card adds; the CLI names
+    // it rather than `npm start`, which only works from inside Reeve's checkout.
+    if (isRefused(e)) throw new CliError(`Reeve isn't running at ${url} — start it with \`reeve serve\``);
     throw new CliError(`could not reach Reeve at ${url}: ${describe(e)}`);
   }
   if (!res.ok) {
@@ -53,7 +55,14 @@ async function request<T>(path: string): Promise<T> {
     const message = body.detail ? `${body.error}: ${body.detail}` : body.error;
     throw new CliError(message ?? `HTTP ${res.status} from ${path}`);
   }
-  return res.json() as Promise<T>;
+  // Something else on the port, such as Vite's dev server or a Reeve from
+  // another checkout, can answer 200 with HTML. That is worth a sentence, not
+  // a SyntaxError's stack.
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new CliError(`${url}${path} did not answer with JSON — is that Reeve's server?`);
+  }
 }
 
 /**
