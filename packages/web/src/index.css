@@ -171,6 +171,22 @@ body { background: var(--color-ink); color: var(--color-text); }
     filter: drop-shadow(0 0 2px var(--color-activity-error-mark)) drop-shadow(0 0 8px var(--color-activity-error-mark));
   }
 
+  /*
+   * A dependency chain, traced from the hovered or focused card. Outlines
+   * rather than borders or shadows, because those are the activity glow's and
+   * a card must keep saying what state it is in while it is lit. Solid is what
+   * the focused card waits on, dashed is what waits on it.
+   */
+  .card-link-up,
+  .card-link-down {
+    outline: 1.5px solid var(--color-dep-ring);
+    outline-offset: 2px;
+  }
+
+  .card-link-down { outline-style: dashed; }
+
+  .card-link-dim { opacity: 0.35; }
+
   /* The only thing on a card that animates: a light travelling along the
      bottom edge while Claude works. A running card carries this instead of a
      mark. */

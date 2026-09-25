@@ -1,6 +1,19 @@
 import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
 import { NeededByGlyph, WaitsGlyph } from './Glyph.js';
+import { useLinks, type LinkRole } from './links.js';
+
+/**
+ * How a card looks while another's chain is traced: what the focused card
+ * waits on ringed solid, what waits on it ringed dashed, and everything else
+ * stepped back. The focused card itself is left alone; the cursor is on it.
+ */
+const LINK_STYLE: Record<LinkRole, string> = {
+  focus: '',
+  upstream: 'card-link-up',
+  downstream: 'card-link-down',
+  unlinked: 'card-link-dim',
+};
 import { RunButton } from './RunButton.js';
 
 export function CardFace({
@@ -27,15 +40,21 @@ export function CardFace({
   // there is no calm state for "this is on main now", because on the calm board
   // a person put it there and knows.
   const skin = sicko && card.mergedAt != null ? 'sk-merged' : ACTIVITY_STYLE[card.activity];
+  const links = useLinks();
+  // The copy under the cursor mid-drag is not on the board, so it neither
+  // traces a chain nor takes part in one.
+  const role = dragging ? null : links.role(card.id);
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.
       // dnd-kit's sensor has a 4px activation distance, so a press that never
       // moved still arrives here as a click and a real drag never does.
       onClick={onOpen ? () => onOpen(card.id) : undefined}
-      className={`relative cursor-grab rounded-md border p-2.5 ${skin} ${
+      onMouseEnter={dragging ? undefined : () => links.enter(card.id)}
+      onMouseLeave={dragging ? undefined : () => links.leave(card.id)}
+      className={`relative cursor-grab rounded-md border p-2.5 transition-opacity duration-150 ${skin} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
-      } ${sicko ? 'sk-card' : ''}`}
+      } ${sicko ? 'sk-card' : ''} ${role ? LINK_STYLE[role] : ''}`}
     >
       {ACTIVITY_MARKS[card.activity]}
       {/* The title and footer are positioned so they read above the mark. */}
