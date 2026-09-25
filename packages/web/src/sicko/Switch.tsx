@@ -8,7 +8,8 @@
  * is a thing that was protecting you.
  *
  * The diamond is deliberate. It is the same mark the board puts in a column
- * header to mean "Claude runs here", and in SICKO MODE that is every column.
+ * header to mean "Claude runs here", and in SICKO MODE that is every column
+ * but Planning, which it skips.
  */
 export function SickoSwitch({ on, onToggle, disabled }: {
   on: boolean;
