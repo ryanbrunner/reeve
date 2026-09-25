@@ -3,9 +3,11 @@ import type { ApiCard } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
- * The only thing on the board that starts Claude. It sits on the card rather
- * than in the column header because a stage runs per card, and it is absent
- * once a run has succeeded: from there the review gate takes over. On an error
+ * Starts Claude on a card that did not start on its own when it entered the
+ * column — the cap was full, or a run from the column it left was still
+ * going — or whose run failed. It sits on the card rather than in the column
+ * header because a stage runs per card, and it is absent once a run has
+ * succeeded: from there the review gate takes over. On an error
  * card it takes that card's red, because a button on a tinted card belongs to
  * it; everywhere else it stays sky, because sky is Claude.
  */
