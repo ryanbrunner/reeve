@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `sicko_since` integer;

@@ -441,6 +441,7 @@ export function getSettings(db: Db): ApiSettings {
   const stored = row?.stageDefaults ?? {};
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
+    sickoSince: row?.sickoSince?.getTime() ?? null,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,
@@ -450,13 +451,20 @@ export function getSettings(db: Db): ApiSettings {
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, ...rest } = patch;
+  const { stageDefaults, sicko, ...rest } = patch;
+  const current = getSettings(db);
   const values = {
     ...rest,
     // Merged into what is stored rather than written over it, so saving one
     // stage's row leaves the other stages as they were.
-    ...(stageDefaults ? { stageDefaults: { ...getSettings(db).stageDefaults, ...stageDefaults } } : {}),
+    ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
+    // On is only the moment it went on, so saying on twice does not reset the
+    // clock every number in the HUD is counted from.
+    ...(sicko === undefined ? {}
+      : sicko ? (current.sickoSince === null ? { sickoSince: new Date() } : {})
+      : { sickoSince: null }),
   };
+  if (Object.keys(values).length === 0) return current;
   db.insert(settings)
     .values({ ...values, id: 1 })
     .onConflictDoUpdate({ target: settings.id, set: values })
@@ -554,6 +562,48 @@ export function cardEventsFor(db: Db, cardId: string) {
     .where(eq(cardEvent.cardId, cardId))
     .orderBy(desc(cardEvent.createdAt), desc(sql`rowid`))
     .all();
+}
+
+/**
+ * Everything of consequence that has happened since SICKO MODE went on, newest
+ * first, with the card's title beside each entry.
+ *
+ * One query serves both the HUD's five numbers and its log lines, because they
+ * are the same facts read two ways: the counts are this list filtered, and the
+ * log is its head in prose. Nothing is tallied as it happens — the events are
+ * already the record, and a counter beside them would be a second one to get
+ * wrong.
+ */
+export function sickoLedger(db: Db, since: Date) {
+  return db
+    .select({
+      actor: cardEvent.actor,
+      kind: cardEvent.kind,
+      stage: cardEvent.stage,
+      toStage: cardEvent.toStage,
+      body: cardEvent.body,
+      meta: cardEvent.meta,
+      title: card.title,
+      number: card.number,
+      at: cardEvent.createdAt,
+    })
+    .from(cardEvent)
+    .innerJoin(card, eq(card.id, cardEvent.cardId))
+    .where(gt(cardEvent.createdAt, since))
+    // Qualified, unlike the single-table reads above: with the card joined in,
+    // a bare `rowid` is ambiguous and SQLite refuses the query outright.
+    .orderBy(desc(cardEvent.createdAt), desc(sql`"card_event"."rowid"`))
+    .all();
+}
+
+/** What every run started since a moment has cost. Runs still going have no cost yet. */
+export function spendSince(db: Db, since: Date): number {
+  const row = db
+    .select({ total: sql<number | null>`sum(${run.totalCostUsd})` })
+    .from(run)
+    .where(gt(run.createdAt, since))
+    .get();
+  return row?.total ?? 0;
 }
 
 /**
