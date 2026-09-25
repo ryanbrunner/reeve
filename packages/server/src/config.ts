@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { DEFAULT_PORT } from '@reeve/shared';
 
 const root = resolve(import.meta.dirname, '../../..');
 
@@ -9,7 +10,7 @@ export const config = {
   assetsDir: process.env.REEVE_ASSETS ?? resolve(root, 'data/assets'),
   migrationsFolder: resolve(root, 'packages/server/drizzle'),
   webDist: resolve(root, 'packages/web/dist'),
-  port: Number(process.env.REEVE_PORT ?? 4317),
+  port: Number(process.env.REEVE_PORT ?? DEFAULT_PORT),
   /** Loopback only: there is no auth and this runs arbitrary code in your repos. */
   hostname: '127.0.0.1',
   /**
