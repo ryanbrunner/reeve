@@ -92,7 +92,7 @@ export function Tabs({ detail, sicko = false }: { detail: CardDetail; sicko?: bo
         {tab === 'changes' && <ChangesTab detail={detail} />}
         {tab === 'diff' && <DiffTab detail={detail} diff={diff.data ?? null} loading={diff.isLoading} />}
         {tab === 'preview' && <PreviewTab detail={detail} />}
-        {tab === 'activity' && <ActivityTab detail={detail} />}
+        {tab === 'activity' && <ActivityTab detail={detail} sicko={sicko} />}
       </div>
     </div>
   );
