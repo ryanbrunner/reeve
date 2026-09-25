@@ -56,6 +56,7 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     kind: r.kind as RunKind,
     stage: r.stage as Stage,
     status: r.status as RunStatus,
+    task: r.task,
     stopReason: (r.stopReason ?? null) as StopReason | null,
     totalCostUsd: r.totalCostUsd,
     port: r.port,
@@ -76,6 +77,7 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
+  openingPr: boolean,
 ): ApiCard {
   return {
     id: c.id,
@@ -89,6 +91,12 @@ export function toApiCard(
     position: c.position,
     branchName: c.branchName,
     worktreePath: c.worktreePath,
+    mergedSha: c.mergedSha,
+    mergedAt: ms(c.mergedAt),
+    prUrl: c.prUrl,
+    prNumber: c.prNumber,
+    prOpenedAt: ms(c.prOpenedAt),
+    openingPr,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     createdAt: ms(c.createdAt) ?? 0,

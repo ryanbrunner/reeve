@@ -131,14 +131,31 @@ export function reapOrphanedRuns(db: Db, now: Date) {
  * filter by kind used to exist beside this, and starting a dev server after
  * the last Claude run made it answer with the server: the card was suddenly
  * unreviewable because the newest run for the stage was a `vite` process.
+ * An out-of-band task — Suggest — is excluded for the same reason.
  */
 export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage) {
   return db
     .select()
     .from(run)
-    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude')))
+    .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task)))
     .orderBy(desc(run.createdAt))
     .limit(1)
+    .get();
+}
+
+/**
+ * A task of this kind still in flight for the card, if there is one.
+ *
+ * Read off the rows rather than the registry, which only hears about a run once
+ * its body has started: two requests close together would both find it empty.
+ * The boot reaper settles anything a restart left behind, so a stale row here
+ * cannot lock the task out for good.
+ */
+export function liveTaskRun(db: Db, cardId: string, task: string) {
+  return db
+    .select()
+    .from(run)
+    .where(and(eq(run.cardId, cardId), eq(run.task, task), inArray(run.status, NON_TERMINAL)))
     .get();
 }
 
@@ -662,11 +679,15 @@ export function replaceDifferences(
  * "Unread" is defined by when the previous run began rather than by a flag,
  * because that is what the human means: a note written while Claude was
  * working, or after it stopped, is for the next attempt. Nothing needs marking
- * off, and a note can never be consumed twice or silently lost.
+ * off, and a note can never be consumed twice or silently lost. A Suggest
+ * starting is not the previous run: it never reads the notes, so it must not
+ * mark them read either.
  */
 export function unreadNotesFor(db: Db, cardId: string): string[] {
   const events = cardEventsFor(db, cardId);
-  const lastStart = events.find((e) => e.kind === 'run_started')?.createdAt?.getTime() ?? 0;
+  const tasks = new Set(runsForCard(db, cardId).filter((r) => r.task !== null).map((r) => r.id));
+  const lastStart =
+    events.find((e) => e.kind === 'run_started' && !(e.runId && tasks.has(e.runId)))?.createdAt?.getTime() ?? 0;
   return events
     .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart)
     .map((e) => e.body)

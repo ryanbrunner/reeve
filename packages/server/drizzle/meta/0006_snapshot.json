@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a3d1e6b2-4f7c-4e19-9b35-2c8f0d7a61e4",
-  "prevId": "5f9ae3b4-7c12-46cb-990e-f2aaff635767",
+  "id": "c7e2b94f-1a58-4d3e-8f60-9b4d2e7a15c3",
+  "prevId": "a3d1e6b2-4f7c-4e19-9b35-2c8f0d7a61e4",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -456,6 +456,27 @@
         },
         "merged_at": {
           "name": "merged_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_url": {
+          "name": "pr_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_number": {
+          "name": "pr_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_opened_at": {
+          "name": "pr_opened_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

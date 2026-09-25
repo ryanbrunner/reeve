@@ -28,6 +28,11 @@ export interface ApiRunSummary {
   kind: RunKind;
   stage: Stage;
   status: RunStatus;
+  /**
+   * Null for the stage's own attempt. Set for work done beside it — Suggest is
+   * `suggest_criteria` — which never counts as the card's current run.
+   */
+  task: string | null;
   stopReason: StopReason | null;
   totalCostUsd: number | null;
   port: number | null;
@@ -49,6 +54,23 @@ export interface ApiCard {
   position: number;
   branchName: string | null;
   worktreePath: string | null;
+  /**
+   * The squash commit on the default branch, once merged. Stored, unlike
+   * everything else here: the branch that could have told us is gone. Only
+   * cards from before pull requests replaced the merge have one.
+   */
+  mergedSha: string | null;
+  mergedAt: number | null;
+  /** The pull request the branch was opened as, once Done has pushed it. */
+  prUrl: string | null;
+  prNumber: number | null;
+  prOpenedAt: number | null;
+  /**
+   * A push to GitHub is under way for this card right now. Read off the
+   * server's memory rather than stored, so a restart mid-push cannot leave a
+   * card looking busy forever.
+   */
+  openingPr: boolean;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**

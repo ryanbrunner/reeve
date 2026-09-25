@@ -19,11 +19,12 @@ import {
   insertCardEvent,
   latestClaudeRunForStage,
   listProjects,
+  liveTaskRun,
   questionsForRun,
   refsFor,
   updateCriterion,
 } from '../db/queries.js';
-import { checkWorktree, commitsSince, diffSince } from '../git/worktree.js';
+import { checkWorktree, commitAt, commitsSince, diffOfCommit, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
 import { cardDetail } from '../detail.js';
 import { toApiAsset, toApiCardEvent, toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
@@ -103,6 +104,12 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     // Backlog has no worktree, and this is exactly the stage it is most useful.
     const health = await checkWorktree(project.repoPath, card.worktreePath);
     const cwd = health.state === 'ok' ? health.path : project.repoPath;
+
+    // One at a time. Checked after the last await, so nothing can start between
+    // this and startClaudeRun writing its row.
+    if (liveTaskRun(db, card.id, suggestCriteriaTask.id)) {
+      return c.json({ error: 'already suggesting for this card' }, 409);
+    }
 
     const handle = startClaudeRun({
       db, writer, card, project,
@@ -240,6 +247,19 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+    // Merged, the worktree and branch are gone, and what the card changed is
+    // exactly the squash commit it landed as.
+    if (card.mergedSha && project) {
+      const raw = await diffOfCommit(project.repoPath, card.mergedSha).catch(() => null);
+      const files = raw === null ? [] : parseDiff(raw);
+      return c.json({
+        base: `${card.mergedSha}^`,
+        baseBranch: project.defaultBranch,
+        files,
+        additions: files.reduce((n, f) => n + f.additions, 0),
+        deletions: files.reduce((n, f) => n + f.deletions, 0),
+      } satisfies ApiDiff);
+    }
     if (!card.worktreePath || !card.baseSha || !project) {
       // No worktree is a normal state for a card in Backlog, not an error.
       return c.json({ base: '', baseBranch: project?.defaultBranch ?? '', files: [], additions: 0, deletions: 0 } satisfies ApiDiff);
@@ -320,6 +340,10 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.get('/:id/commits', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.mergedSha) {
+      const project = card.projectId ? listProjects(db).find((p) => p.id === card.projectId) : undefined;
+      return c.json(project ? await commitAt(project.repoPath, card.mergedSha).catch(() => []) : []);
+    }
     if (!card.worktreePath || !card.baseSha) return c.json([]);
     return c.json(await commitsSince(card.worktreePath, card.baseSha).catch(() => []));
   });

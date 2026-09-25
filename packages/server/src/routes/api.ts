@@ -20,6 +20,7 @@ import {
 } from '../db/queries.js';
 import { toApiProject, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import { maybeOpenPullRequest } from '../pullRequest.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -236,9 +237,16 @@ export function apiRoutes(db: Db) {
     const parsed = moveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid move', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
-    if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
+    const before = getCard(db, id);
+    if (!before) return c.json({ error: 'not found' }, 404);
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index);
-    return moved ? c.json(toBoardCard(db, moved, null, null)) : c.json({ error: 'not found' }, 404);
+    if (!moved) return c.json({ error: 'not found' }, 404);
+    // Started before the response is built, so the card it returns already
+    // says a pull request is on its way.
+    if (before.stage !== 'done' && moved.stage === 'done') {
+      maybeOpenPullRequest(db, moved, listProjects(db).find((p) => p.id === moved.projectId));
+    }
+    return c.json(toBoardCard(db, moved, null, null));
   });
 
   api.post('/cards/:id/archive', (c) => {

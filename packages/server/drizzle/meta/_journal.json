@@ -40,8 +40,29 @@
     {
       "idx": 5,
       "version": "6",
-      "when": 1790268040000,
-      "tag": "0005_quiet_settings",
+      "when": 1790251510000,
+      "tag": "0005_merged_card",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790251520000,
+      "tag": "0006_pull_request",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790332040995,
+      "tag": "0007_suggest_task",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790332146999,
+      "tag": "0008_quiet_settings",
       "breakpoints": true
     }
   ]

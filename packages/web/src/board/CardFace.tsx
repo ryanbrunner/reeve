@@ -48,6 +48,31 @@ export function CardFace({
             ${run.totalCostUsd.toFixed(3)}
           </span>
         )}
+        {card.mergedAt != null && (
+          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-emerald-300">
+            merged
+          </span>
+        )}
+        {card.prUrl && (
+          <a
+            href={card.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            // The whole card is the drag handle, so the press has to stop here
+            // or the pointer sensor treats a click as the start of a drag.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            title={card.prUrl}
+            className="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-sky-300 hover:bg-sky-500/25"
+          >
+            PR{card.prNumber != null && ` #${card.prNumber}`}
+          </a>
+        )}
+        {card.openingPr && !card.prUrl && (
+          <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
+            opening PR…
+          </span>
+        )}
         {!dragging && canStartRun(card) && <RunButton card={card} />}
       </div>
       {card.activity === 'running' && (
