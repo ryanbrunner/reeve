@@ -19,11 +19,14 @@ export function useCardDetail(cardId: string | null) {
     queryFn: () => api.detail(cardId!),
     enabled: cardId !== null,
     // Slow: the live parts arrive over SSE, and everything else changes only
-    // when this modal or the board does something that invalidates it. A
-    // Suggest is the exception — it is not the card's run, so nothing streams
-    // it, and on a Backlog card nothing else would ever notice it finish.
+    // when this modal or the board does something that invalidates it. Two
+    // things are the exception, and neither is pushed: a Suggest is not the
+    // card's run, so nothing streams it, and on a Backlog card nothing else
+    // would ever notice it finish; and a pull request opened on entering Done
+    // comes back on its own schedule.
     refetchInterval: (q) => {
       const data = q.state.data;
+      if (data?.card.openingPr) return 1_500;
       if (data?.runs.some((r) => r.task !== null && !isTerminal(r.status))) return 2_000;
       return data?.card.activity === 'running' ? 5_000 : false;
     },

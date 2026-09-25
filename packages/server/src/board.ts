@@ -3,6 +3,7 @@ import type { Db } from './db/client.js';
 import { latestClaudeRunForStage } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
+import { isOpeningPr } from './pullRequest.js';
 import { stageDefinition } from './stages/index.js';
 
 /**
@@ -28,7 +29,7 @@ export function toBoardCard(
   laneColor: string | null,
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
-  return toApiCard(card, projectName, laneColor, run, activity);
+  return toApiCard(card, projectName, laneColor, run, activity, isOpeningPr(card.id));
 }
 
 /**

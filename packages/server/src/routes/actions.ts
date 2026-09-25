@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import { needsWorktree } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import { getCard, listProjects } from '../db/queries.js';
-import { card as cardTable } from '../db/schema.js';
+import { card as cardTable, type Card, type Project } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkWorktree, createWorktree, isDirty, removeWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
+import { openPullRequest } from '../pullRequest.js';
 import type { EventWriter } from '../runs/events.js';
 import { ensureDevServer } from '../runs/devServer.js';
 import { runRegistry } from '../runs/registry.js';
@@ -16,6 +17,27 @@ export function actionRoutes(db: Db, writer: EventWriter) {
 
   const projectFor = (projectId: string | null) =>
     projectId ? listProjects(db).find((p) => p.id === projectId) : undefined;
+
+  /** Teardown, then remove. Ordered so a failed teardown never strands the tree. */
+  const teardownWorktree = async (card: Card, project: Project, path: string) => {
+    for (const run of runRegistry.all().filter((r) => r.cardId === card.id && r.kind === 'server')) {
+      await run.stop('cancelled_by_user');
+    }
+    if (project.teardownCommand) {
+      const handle = startShellRun({
+        db, writer, cardId: card.id, stage: card.stage,
+        command: project.teardownCommand, cwd: path,
+      });
+      await handle.done;
+    }
+    const force = await isDirty(path).catch(() => true);
+    await removeWorktree(project.repoPath, path, force);
+    db.update(cardTable)
+      .set({ worktreePath: null, updatedAt: new Date() })
+      .where(eq(cardTable.id, card.id))
+      .run();
+    return force;
+  };
 
   /** Create the worktree and, if the project defines one, run its setup command. */
   routes.post('/:id/worktree', async (c) => {
@@ -54,31 +76,28 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     return c.json({ ok: true, reused: false, path: created.path, branch: created.branch, setupRunId }, 201);
   });
 
-  /** Teardown, then remove. Ordered so a failed teardown never strands the tree. */
   routes.delete('/:id/worktree', async (c) => {
-    const cardId = c.req.param('id');
-    const card = getCard(db, cardId);
+    const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     const project = projectFor(card.projectId);
     if (!project || !card.worktreePath) return c.json({ error: 'no worktree to remove' }, 400);
+    const forced = await teardownWorktree(card, project, card.worktreePath);
+    return c.json({ ok: true, forced });
+  });
 
-    for (const run of runRegistry.all().filter((r) => r.cardId === cardId && r.kind === 'server')) {
-      await run.stop('cancelled_by_user');
-    }
-    if (project.teardownCommand) {
-      const handle = startShellRun({
-        db, writer, cardId, stage: card.stage,
-        command: project.teardownCommand, cwd: card.worktreePath,
-      });
-      await handle.done;
-    }
-    const force = await isDirty(card.worktreePath).catch(() => true);
-    await removeWorktree(project.repoPath, card.worktreePath, force);
-    db.update(cardTable)
-      .set({ worktreePath: null, updatedAt: new Date() })
-      .where(eq(cardTable.id, cardId))
-      .run();
-    return c.json({ ok: true, forced: force });
+  /**
+   * Open the pull request by hand. Entering Done already tries once on its
+   * own; this is for after that failed and the cause — a dirty tree, a missing
+   * login — has been put right.
+   */
+  routes.post('/:id/pr', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const project = projectFor(card.projectId);
+    if (!project) return c.json({ error: 'card has no project', detail: 'a pull request needs a repo' }, 400);
+    const result = await openPullRequest(db, card, project);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json(result, result.reused ? 200 : 201);
   });
 
   /** Start the project's dev server for this card, on its own port. */

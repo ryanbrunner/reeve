@@ -65,7 +65,7 @@ export function App() {
     queryFn: api.board,
     staleTime: 0,
     refetchInterval: (q) =>
-      held ? false : q.state.data?.cards.some((c) => c.activity === 'running') ? 1_500 : 5_000,
+      held ? false : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr) ? 1_500 : 5_000,
   });
 
   const create = useMutation({
