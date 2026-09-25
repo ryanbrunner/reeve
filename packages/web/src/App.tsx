@@ -87,6 +87,14 @@ export function App() {
     setDragging(byId.get(String(e.active.id)) ?? null);
   }
 
+  // Escape cancels a drag rather than ending it, and dnd-kit reports that here
+  // and nowhere else. Without this the overlay card stayed stuck to the screen
+  // and `dragging` never cleared, which also pins `held` below — and with it the
+  // board's refetch — until a reload.
+  function onDragCancel() {
+    setDragging(null);
+  }
+
   function onDragEnd(e: DragEndEvent) {
     setDragging(null);
     const { active, over } = e;
@@ -136,7 +144,13 @@ export function App() {
         onOpenArchive={() => setArchiveOpen(true)}
         cardCount={cards.length}
       />
-      <DndContext sensors={sensors} collisionDetection={columnCollisions} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={columnCollisions}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
         <div className="flex-1 overflow-auto p-4">
           {lanes.map((lane) => (
             <section key={lane.id ?? 'all'} className="mb-6 last:mb-0">
