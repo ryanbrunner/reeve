@@ -96,7 +96,9 @@ function Purpose({ detail }: { detail: CardDetail }) {
           title="Click to write"
           onClick={edit}
           onKeyDown={open}
-          className={`${FIELD} min-h-[6.5rem] cursor-text text-(--color-muted) hover:border-slate-600`}
+          // 6.625rem is the textarea's four rows, padding and border, so the
+          // box does not change height the moment it becomes one.
+          className={`${FIELD} min-h-[6.625rem] cursor-text text-(--color-muted) hover:border-slate-600`}
         >
           {PROMPT}
         </div>
