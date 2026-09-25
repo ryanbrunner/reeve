@@ -15,13 +15,18 @@ import { STAGES, type ApiCard, type ApiProject, type BoardResponse, type Stage }
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column } from './board/Column.js';
 import { CardModal } from './card/CardModal.js';
-import { ProjectsModal } from './projects/ProjectsModal.js';
+import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
 import { api, cardsIn } from './lib/api.js';
 
 export function App() {
   const qc = useQueryClient();
   const [swimlanes, setSwimlanes] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(false);
+  // Which pane Settings opens on, or null while it is shut.
+  const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
+  // Stable, because the modal's focus effect depends on it and the board
+  // re-renders this component on every poll: a fresh arrow each time would
+  // re-run that effect and yank focus out of whichever field was being typed in.
+  const closeSettings = useCallback(() => setSettingsOpen(null), []);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
   const [openCard, openAndClose] = useOpenCard();
 
@@ -121,7 +126,7 @@ export function App() {
         onToggle={() => setSwimlanes((s) => !s)}
         projects={data?.projects ?? []}
         onAdd={(title, projectId) => create.mutate({ title, projectId, stage: 'backlog' })}
-        onManageProjects={() => setProjectsOpen(true)}
+        onOpenSettings={setSettingsOpen}
         cardCount={cards.length}
       />
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -151,7 +156,7 @@ export function App() {
         <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
       </DndContext>
       {openCard && <CardModal cardId={openCard} onClose={openAndClose.close} />}
-      {projectsOpen && <ProjectsModal onClose={() => setProjectsOpen(false)} />}
+      {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
     </div>
   );
 }
@@ -204,12 +209,12 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ swimlanes, onToggle, projects, onAdd, onManageProjects, cardCount }: {
+function Header({ swimlanes, onToggle, projects, onAdd, onOpenSettings, cardCount }: {
   swimlanes: boolean;
   onToggle: () => void;
   projects: ApiProject[];
   onAdd: (title: string, projectId: string | null) => void;
-  onManageProjects: () => void;
+  onOpenSettings: (pane: SettingsPane) => void;
   cardCount: number;
 }) {
   const [title, setTitle] = useState('');
@@ -265,16 +270,17 @@ function Header({ swimlanes, onToggle, projects, onAdd, onManageProjects, cardCo
         </button>
       </form>
       <button
-        onClick={onManageProjects}
+        onClick={() => onOpenSettings(projects.length === 0 ? { kind: 'repo', id: null } : { kind: 'runs' })}
         className={`rounded-md border px-3 py-1.5 text-sm ${
           projects.length === 0 ?
             'border-sky-600 text-sky-300'
           : 'border-(--color-edge) text-(--color-muted) hover:border-slate-600'
         }`}
       >
-        {/* Highlighted when there are none, because an empty board with no repo
-            is a board where nothing can ever run, and this is the way out. */}
-        {projects.length === 0 ? 'Add a repo' : 'Projects'}
+        {/* Highlighted, and straight to the new-repo form, when there are none:
+            an empty board with no repo is a board where nothing can ever run,
+            and this is the way out. */}
+        {projects.length === 0 ? 'Add a repo' : 'Settings'}
       </button>
       <button
         onClick={onToggle}

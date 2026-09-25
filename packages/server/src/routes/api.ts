@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { STAGES } from '@reeve/shared';
-import type { BoardResponse } from '@reeve/shared';
+import type { ApiSettings, BoardResponse } from '@reeve/shared';
 import { toBoardCard } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
@@ -10,11 +10,13 @@ import {
   createCard,
   createProject,
   getCard,
+  getSettings,
   listProjects,
   moveCard,
   runsForCard,
   updateCard,
   updateProject,
+  updateSettings,
 } from '../db/queries.js';
 import { toApiProject, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
@@ -60,6 +62,11 @@ const projectSchema = z.object({
   finishCommand: z.string().nullable().optional(),
   laneColor: z.string().nullable().optional(),
   maxBudgetUsd: z.number().nullable().optional(),
+});
+
+/** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
+const settingsSchema = z.object({
+  maxConcurrentRuns: z.number().int().min(1).optional(),
 });
 
 /**
@@ -108,6 +115,20 @@ export function apiRoutes(db: Db) {
       projects: listProjects(db).map(toApiProject),
       cards: rows.map((r) => toBoardCard(db, r.card, r.projectName, r.laneColor)),
     };
+    return c.json(body);
+  });
+
+  // Not on `/board`, which the board polls every few seconds for something
+  // that changes when a person opens Settings and nothing else.
+  api.get('/settings', (c) => {
+    const body: ApiSettings = getSettings(db);
+    return c.json(body);
+  });
+
+  api.patch('/settings', async (c) => {
+    const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
+    const body: ApiSettings = updateSettings(db, parsed.data);
     return c.json(body);
   });
 

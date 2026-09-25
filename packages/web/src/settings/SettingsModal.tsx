@@ -1,26 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ApiProject, CreateProjectBody } from '@reeve/shared';
+import type { ApiProject, ApiSettings, CreateProjectBody } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { Button, Empty, SectionHead, SmallButton } from '../card/ui.js';
 
 /**
- * The repos Reeve is allowed to work in.
- *
- * A project is mostly a directory and the four commands to run inside it, so
- * this is a list and a form and nothing cleverer. The validation that matters
- * lives on the server — it is the only side that can stat a path or ask git
- * what branches exist — and this shows whatever it says.
+ * What is open on the right: Reeve's own run settings, the new-repo form, or
+ * one repo by id.
  */
-export function ProjectsModal({ onClose }: { onClose: () => void }) {
+export type SettingsPane = { kind: 'runs' } | { kind: 'repo'; id: string | null };
+
+/**
+ * Everything that is configured rather than worked on: how Reeve runs, and the
+ * repos it is allowed to work in.
+ *
+ * A list down the side and a form beside it, and nothing cleverer. The
+ * validation that matters lives on the server — it is the only side that can
+ * stat a path or ask git what branches exist — and this shows whatever it says.
+ */
+export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onClose: () => void }) {
   const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
   const projects = data?.projects ?? [];
   const panel = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
 
-  // `null` is the new-project form; a string is the project being edited.
-  const [selected, setSelected] = useState<string | null>(null);
+  const [pane, setPane] = useState<SettingsPane>(initial);
+  const selected = pane.kind === 'repo' ? pane.id : undefined;
   const editing = projects.find((p) => p.id === selected) ?? null;
 
   useEffect(() => {
@@ -55,22 +61,19 @@ export function ProjectsModal({ onClose }: { onClose: () => void }) {
         ref={panel}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="projects-title"
+        aria-labelledby="settings-title"
         tabIndex={-1}
         className="relative flex h-[min(720px,100%)] w-[min(980px,100%)] flex-col overflow-hidden rounded-lg border border-(--color-edge) bg-(--color-panel) outline-none"
       >
         <header className="flex shrink-0 items-center gap-3 border-b border-(--color-edge) px-5 py-3.5">
-          <h2 id="projects-title" className="text-[18px]/[26px] font-medium tracking-[-0.01em]">
-            Projects
+          <h2 id="settings-title" className="text-[18px]/[26px] font-medium tracking-[-0.01em]">
+            Settings
           </h2>
-          <span className="font-mono text-[11px]/4 tracking-[0.06em] text-(--color-muted) uppercase">
-            {projects.length} {projects.length === 1 ? 'repo' : 'repos'}
-          </span>
           <div className="grow" />
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close projects"
+            aria-label="Close settings"
             className="flex items-center gap-1.5 rounded-sm border border-(--color-edge) py-[3px] pr-1 pl-2 font-mono text-[11px]/4 text-(--color-text) hover:border-slate-600"
           >
             Close
@@ -82,52 +85,158 @@ export function ProjectsModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex min-h-0 grow">
           <nav
-            aria-label="Projects"
+            aria-label="Settings"
             className="flex w-[240px] shrink-0 flex-col gap-2 overflow-y-auto border-r border-(--color-edge) p-4"
           >
-            <SectionHead>Repos</SectionHead>
+            <SectionHead>Reeve</SectionHead>
+            <div className="-mx-1.5 flex flex-col">
+              <NavItem current={pane.kind === 'runs'} onClick={() => setPane({ kind: 'runs' })}>
+                <span className="min-w-0 truncate">Runs</span>
+              </NavItem>
+            </div>
+
+            <div className="mt-3">
+              <SectionHead count={projects.length}>Repos</SectionHead>
+            </div>
             {projects.length === 0 ?
               <Empty>None yet</Empty>
             : <div className="-mx-1.5 flex flex-col">
                 {projects.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    aria-current={p.id === selected ? 'true' : undefined}
-                    onClick={() => setSelected(p.id)}
-                    className={`flex w-full items-center gap-2 rounded-sm border px-1.5 py-1 text-left font-mono text-[11px]/[18px] ${
-                      p.id === selected ?
-                        'border-(--color-edge) bg-white/4 text-(--color-text)'
-                      : 'border-transparent text-(--color-muted) hover:border-(--color-edge) hover:bg-white/4'
-                    }`}
-                  >
+                  <NavItem key={p.id} current={p.id === selected} onClick={() => setPane({ kind: 'repo', id: p.id })}>
                     <span
                       aria-hidden="true"
                       className="h-2 w-2 shrink-0 rounded-full"
                       style={{ background: p.laneColor ?? '#3f4754' }}
                     />
                     <span className="min-w-0 truncate">{p.name}</span>
-                  </button>
+                  </NavItem>
                 ))}
               </div>
             }
-            <SmallButton tone={selected === null ? 'sky' : 'plain'} onClick={() => setSelected(null)}>
+            <SmallButton tone={selected === null ? 'sky' : 'plain'} onClick={() => setPane({ kind: 'repo', id: null })}>
               + Add a repo
             </SmallButton>
           </nav>
 
-          {/* Keyed so switching projects rebuilds the form rather than leaving
-              one repo's half-typed path sitting in another's fields. */}
-          <ProjectForm
-            key={editing?.id ?? 'new'}
-            project={editing}
-            takenColors={projects.filter((p) => p.id !== editing?.id).map((p) => p.laneColor)}
-            onCreated={(p) => setSelected(p.id)}
-          />
+          {/* The repo form is keyed so switching projects rebuilds it rather
+              than leaving one repo's half-typed path sitting in another's fields. */}
+          {pane.kind === 'runs' ?
+            <RunsPane />
+          : <ProjectForm
+              key={editing?.id ?? 'new'}
+              project={editing}
+              takenColors={projects.filter((p) => p.id !== editing?.id).map((p) => p.laneColor)}
+              onCreated={(p) => setPane({ kind: 'repo', id: p.id })}
+            />
+          }
         </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+function NavItem({ current, onClick, children }: { current: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-current={current ? 'true' : undefined}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-sm border px-1.5 py-1 text-left font-mono text-[11px]/[18px] ${
+        current ?
+          'border-(--color-edge) bg-white/4 text-(--color-text)'
+        : 'border-transparent text-(--color-muted) hover:border-(--color-edge) hover:bg-white/4'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Reeve's own settings. Its own query rather than a field on the board, which
+ * polls every few seconds for something that only changes here.
+ */
+function RunsPane() {
+  const { data, error } = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  if (error) {
+    return (
+      <div className="grow p-5">
+        <Empty>Could not load settings: {error.message}</Empty>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="grow p-5">
+        <Empty>Loading…</Empty>
+      </div>
+    );
+  }
+  // Mounted only once the settings are here, so the field starts from the
+  // stored value rather than from blank and then jumping.
+  return <RunsForm settings={data} />;
+}
+
+function RunsForm({ settings }: { settings: ApiSettings }) {
+  const qc = useQueryClient();
+  const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
+  const [saved, setSaved] = useState(false);
+
+  const save = useMutation({
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns) }),
+    onSuccess: (s) => {
+      setSaved(true);
+      qc.setQueryData(['settings'], s);
+    },
+  });
+
+  const limit = Number(maxConcurrentRuns);
+  const valid = Number.isInteger(limit) && limit >= 1;
+
+  return (
+    <form
+      className="flex min-w-0 grow flex-col gap-5 overflow-y-auto p-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid && !save.isPending) save.mutate();
+      }}
+    >
+      <section className="flex flex-col gap-3">
+        <SectionHead>Runs</SectionHead>
+        <Field
+          label="Concurrent runs"
+          hint="Claude sessions allowed at once, across every card and repo. Lowering it stops nothing already running; it holds new runs back until enough have finished."
+        >
+          <Text
+            value={maxConcurrentRuns}
+            onChange={(v) => {
+              setSaved(false);
+              setMaxConcurrentRuns(v);
+            }}
+            placeholder="3"
+            mono
+          />
+        </Field>
+      </section>
+
+      <div className="flex items-center gap-3 border-t border-(--color-edge) pt-4">
+        <Button tone="sky" type="submit" disabled={!valid || save.isPending}>
+          {save.isPending ? 'Saving…' : 'Save changes'}
+        </Button>
+        {saved && !save.isPending && (
+          <span className="font-mono text-[11px]/4 text-(--color-muted)">Saved</span>
+        )}
+        {!valid && (
+          <span className="font-mono text-[11px]/4 text-red-300">Concurrent runs must be a whole number, 1 or more.</span>
+        )}
+      </div>
+      {save.error && (
+        <p className="rounded-sm border border-(--color-btn-error-border) bg-(--color-btn-error-fill) p-2 font-mono text-[11px]/[18px] text-red-200">
+          {save.error.message}
+        </p>
+      )}
+    </form>
   );
 }
 

@@ -117,6 +117,14 @@ export interface CreateProjectBody {
 
 export type UpdateProjectBody = Partial<CreateProjectBody>;
 
+/** Reeve's own settings, as opposed to a project's. Every field is resolved: never null. */
+export interface ApiSettings {
+  /** Claude runs allowed at once, across every card and project. */
+  maxConcurrentRuns: number;
+}
+
+export type UpdateSettingsBody = Partial<ApiSettings>;
+
 /** Drag-and-drop target: the column, and the slot within it. */
 export interface MoveCardBody {
   stage: Stage;
