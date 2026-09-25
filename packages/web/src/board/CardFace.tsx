@@ -1,5 +1,6 @@
-import { canStartRun, type ApiCard } from '@reeve/shared';
+import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
+import { NeededByGlyph, WaitsGlyph } from './Glyph.js';
 import { RunButton } from './RunButton.js';
 
 export function CardFace({
@@ -56,6 +57,7 @@ export function CardFace({
             </span>
           )
         }
+        <Dependencies card={card} sicko={sicko} />
         {label && <span className="sr-only">{label}</span>}
         {/* Only an idle card shows a status chip, and only to surface the run
             status the glow cannot say — a cancelled run. */}
@@ -109,6 +111,65 @@ export function CardFace({
       )}
       {stamped && <span className="sk-stamp" aria-hidden="true">Merged</span>}
     </article>
+  );
+}
+
+/** How many waiting cards the blocked chip names before it says how many more. */
+const NAMED = 3;
+
+/**
+ * What this card waits on, and how many wait on it.
+ *
+ * Only an unfinished dependency makes the card blocked, and only those are
+ * named on the chip; the tooltip lists every one with where it stands. A card
+ * whose dependencies have all finished keeps a quiet chip rather than losing
+ * it, because "this waited on #12" is still true and still why it is here —
+ * it just no longer reads as a warning.
+ *
+ * The other direction is lighter on purpose: being needed is not a problem,
+ * so it is a glyph and a count, with the names in the tooltip.
+ *
+ * SICKO MODE's card has one footer line and no room to spare, so there it is
+ * the blocked chip alone, numbers only.
+ */
+function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
+  const open = card.dependsOn.filter((d) => !d.done);
+  // `#142` is per repo, so one from another repo says which.
+  const ref = (d: ApiCardLink) => `${d.repoName && d.repoName !== card.repoName ? d.repoName : ''}#${d.number}`;
+  const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${d.done ? ' (done)' : ''}`).join('\n');
+  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]/4 whitespace-nowrap';
+  return (
+    <>
+      {open.length > 0 ?
+        <span
+          title={`Waits on\n${list}`}
+          className={`${chip} bg-(--color-dep-fill) text-(--color-dep) ${sicko ? 'sk-dep' : ''}`}
+        >
+          <WaitsGlyph />
+          <span className="sr-only">Blocked:</span>
+          {!sicko && 'waits on'} {open.slice(0, NAMED).map(ref).join(' ')}
+          {open.length > NAMED && ` +${open.length - NAMED}`}
+        </span>
+      : !sicko && card.dependsOn.length > 0 && (
+          <span title={`Waited on, all done\n${list}`} className={`${chip} bg-slate-500/15 text-(--color-muted)`}>
+            <WaitsGlyph open />
+            <span className="sr-only">Dependencies done:</span>
+            {card.dependsOn.slice(0, NAMED).map(ref).join(' ')}
+            {card.dependsOn.length > NAMED && ` +${card.dependsOn.length - NAMED}`}
+          </span>
+        )
+      }
+      {!sicko && card.dependents.length > 0 && (
+        <span
+          title={`${card.dependents.length} ${card.dependents.length === 1 ? 'card waits' : 'cards wait'} on this`}
+          className="inline-flex items-center gap-1 font-mono text-[10px]/4 text-(--color-muted)"
+        >
+          <NeededByGlyph />
+          <span className="sr-only">Needed by</span>
+          {card.dependents.length}
+        </span>
+      )}
+    </>
   );
 }
 

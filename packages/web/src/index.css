@@ -45,6 +45,13 @@
   --color-btn-error-hover-border: #f87171;
   --color-btn-error-hover-fill: #fb2c3633;
 
+  /* Dependencies. Violet because every other hue a card can wear already says
+     something: sky is running, emerald review, amber input, red error. A
+     blocked card is none of those, and must not be mistaken for one. */
+  --color-dep: #c4b5fd;
+  --color-dep-fill: #8b5cf626;
+  --color-dep-ring: #a78bfa;
+
   --shadow-card-glow-running: inset 0 0 18px 0 #00a6f459, inset 0 0 4px 0 #00a6f466, 0 0 18px -8px #00a6f48c;
   --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;

@@ -511,6 +511,14 @@
 
 .sicko .sk-cost { color: var(--sk-r3); }
 
+/* The blocked chip, bordered like the chip beside it so the two read as a pair
+   on the one footer line a SICKO card has. */
+.sk-dep {
+  border: 1px solid var(--color-dep-ring);
+  padding: 1px 6px;
+  letter-spacing: 0.04em;
+}
+
 /* The sixth card state, and the only one that exists solely in here: landed on
    main. Built like the four calm glows so it sits in the same family. */
 .sk-merged {
