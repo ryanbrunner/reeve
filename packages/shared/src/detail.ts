@@ -148,7 +148,10 @@ export interface ApiAsset {
   src: string;
   width: number | null;
   height: number | null;
-  /** The run that captured it; null on a mockup, which a person attached. */
+  /**
+   * The run that captured it, or the planning run that drew a mockup. Null on
+   * a mockup a person attached.
+   */
   runId: string | null;
   createdAt: number;
 }
