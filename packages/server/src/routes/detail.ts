@@ -20,9 +20,11 @@ import {
   liveTaskRun,
   questionsForRun,
   refsFor,
+  removeDependency,
   updateCriterion,
 } from '../db/queries.js';
 import { recordAnswer } from '../answers.js';
+import { linkDependency } from '../dependencies.js';
 import { checkWorktree, commitAt, commitsSince, diffOfCommit, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
 import { cardDetail } from '../detail.js';
@@ -59,6 +61,7 @@ const refSchema = z.object({
   value: z.string().min(1),
   label: z.string().nullable().optional(),
 });
+const dependencySchema = z.object({ dependsOnId: z.string().min(1) });
 const answerSchema = z.object({ answer: z.string().min(1, 'an answer needs words') });
 const noteSchema = z.object({ body: z.string().min(1, 'a note needs words') });
 
@@ -188,6 +191,22 @@ export function detailRoutes(db: Db, writer: EventWriter) {
 
   routes.delete('/:id/refs/:refId', (c) => {
     const gone = deleteRef(db, c.req.param('refId'));
+    return gone ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+  });
+
+  /** Make this card depend on another. What is refused, and why, is in ../dependencies.ts. */
+  routes.post('/:id/dependencies', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const parsed = dependencySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid dependency', detail: parsed.error.message }, 400);
+    const result = linkDependency(db, card, parsed.data.dependsOnId);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json({ ok: true }, 201);
+  });
+
+  routes.delete('/:id/dependencies/:dependsOnId', (c) => {
+    const gone = removeDependency(db, c.req.param('id'), c.req.param('dependsOnId'));
     return gone ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
   });
 

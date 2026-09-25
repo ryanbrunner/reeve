@@ -11,6 +11,7 @@ import {
   boardProjects,
   createCard,
   createRepo,
+  dependencyLinks,
   getCard,
   getSettings,
   listRepos,
@@ -153,10 +154,11 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.get('/board', (c) => {
     const rows = boardCards(db);
+    const links = dependencyLinks(db);
     const body: BoardResponse = {
       repos: listRepos(db).map(toApiRepo),
       projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
-      cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor)),
+      cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)),
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
       sicko: sickoState(db),
@@ -336,9 +338,10 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, moved, null, null));
   });
 
-  api.get('/cards/archived', (c) =>
-    c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor))),
-  );
+  api.get('/cards/archived', (c) => {
+    const links = dependencyLinks(db);
+    return c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)));
+  });
 
   api.post('/cards/:id/archive', (c) => {
     const id = c.req.param('id');

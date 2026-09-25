@@ -115,6 +115,14 @@ export interface ApiCard {
   effort: EffortLevel | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
+  /**
+   * The tasks this one depends on, by id, oldest link first. Archived ones
+   * included, so an id here need not be on the board. Always empty for a
+   * project: only tasks take part.
+   */
+  dependsOn: string[];
+  /** The tasks that depend on this one: the same links, read the other way. */
+  dependents: string[];
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -294,6 +302,11 @@ export interface MoveCardBody {
   stage: Stage;
   index: number;
   projectId?: string | null;
+}
+
+/** Make the card this is sent for depend on another task. */
+export interface AddDependencyBody {
+  dependsOnId: string;
 }
 
 export interface ApiError {
