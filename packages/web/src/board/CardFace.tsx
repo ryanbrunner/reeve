@@ -1,6 +1,6 @@
 import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { tok, tokenTitle } from '../card/format.js';
-import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
+import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE } from './activity.js';
 import { NeededByGlyph, SuggestedGlyph, WaitsGlyph } from './Glyph.js';
 import { useLinks, type LinkRole } from './links.js';
 
@@ -41,10 +41,15 @@ export function CardFace({
 }) {
   const run = card.latestRun;
   const label = ACTIVITY_LABELS[card.activity];
-  // A merged card gets a skin of its own, which exists only in VIBES MODE:
-  // there is no calm state for "this is on main now", because on the calm board
-  // a person put it there and knows.
-  const skin = vibes && card.mergedAt != null ? 'sk-merged' : ACTIVITY_STYLE[card.activity];
+  // A merged card is finished, and on the calm board it says so in green. VIBES
+  // MODE has a louder skin of its own for landing on main, and no mark: its
+  // marks spin, and nothing there colours this one.
+  const merged = isMerged(card);
+  const skin =
+    vibes && card.mergedAt != null ? 'sk-merged'
+    : merged ? MERGED_STYLE
+    : ACTIVITY_STYLE[card.activity];
+  const mark = merged ? (vibes ? null : MERGED_MARK) : ACTIVITY_MARKS[card.activity];
   const links = useLinks();
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.
@@ -64,7 +69,7 @@ export function CardFace({
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
       } ${vibes ? 'sk-card' : ''} ${solo ? 'sk-solo-ring' : ''} ${role ? LINK_STYLE[role] : ''}`}
     >
-      {ACTIVITY_MARKS[card.activity]}
+      {mark}
       {/* The title and footer are positioned so they read above the mark. */}
       <p className={`relative text-sm leading-snug font-medium tracking-[-0.01em] ${vibes ? 'sk-card-title' : ''}`}>
         {card.title}

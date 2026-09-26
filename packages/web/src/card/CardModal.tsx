@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { CardActivity } from '@reeve/shared';
-import { ACTIVITY_LABELS, ACTIVITY_MARKS } from '../board/activity.js';
+import { ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE } from '../board/activity.js';
 import { CardHeader } from './CardHeader.js';
 import { Rail } from './Rail.js';
 import { Tabs } from './Tabs.js';
@@ -25,6 +25,8 @@ const GLOW: Record<CardActivity, string> = {
   needs_input: 'card-glow card-glow-input modal-glow-input',
   error: 'card-glow card-glow-error modal-glow-error',
 };
+
+const MERGED_GLOW = `${MERGED_STYLE} modal-glow-merged`;
 
 export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = false }: {
   cardId: string;
@@ -82,6 +84,9 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
   // at this size too: it is the same card. Not in the board's VIBES MODE, which
   // dresses every card the same and so has nothing to single this one out for.
   const solo = !vibes && data?.card.vibes === true && data.card.mergedAt == null;
+  // Finished, in the same green and circled check the board card wears. Not in
+  // VIBES MODE, whose card wears its own pink for this and no mark.
+  const merged = !vibes && data != null && isMerged(data.card);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
@@ -92,7 +97,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
         aria-modal="true"
         aria-labelledby="card-title"
         tabIndex={-1}
-        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
+        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
       >
         {isLoading && <Middle>Loading card…</Middle>}
         {error && <Middle>Could not load this card. {error.message}</Middle>}
@@ -113,11 +118,11 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
                 <span />
               </span>
             )}
-            <span className="sr-only">{ACTIVITY_LABELS[activity]}</span>
+            <span className="sr-only">{merged ? MERGED_LABEL : ACTIVITY_LABELS[activity]}</span>
           </>
         )}
         {/* Decorative, and behind the header rather than the whole panel. */}
-        {data && ACTIVITY_MARKS[activity]}
+        {data && (merged ? MERGED_MARK : ACTIVITY_MARKS[activity])}
       </div>
     </div>,
     document.body,
