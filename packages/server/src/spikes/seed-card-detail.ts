@@ -281,7 +281,9 @@ const IMPL = {
   // truth agree here the way they would in a real run.
   files_changed: ['src/checkout-summary.ts', 'src/cart/billableLines.ts', 'src/cart/SavedList.tsx'],
   deviations_from_plan: ['Totals come from billableLines() rather than a filter at each call site, so checkout cannot miss it.'],
-  follow_ups: ['e2e tests for guest persistence'],
+  suggested_tasks: [
+    { title: 'Cover guest saved items with an e2e test', body: 'Only the signed-in path has one. Guests keep theirs in localStorage, which no test reaches.' },
+  ],
 };
 
 // Sized so the board shows each shape the formatter has: "840", "1.4 k", and

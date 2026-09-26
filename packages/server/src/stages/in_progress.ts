@@ -85,9 +85,11 @@ function composeNotes(output: ImplementationOutput): string {
     for (const d of output.deviations_from_plan) out.push(`- ${d}`);
     out.push('');
   }
-  if (output.follow_ups.length) {
-    out.push('## Left undone', '');
-    for (const f of output.follow_ups) out.push(`- ${f}`);
+  // Testing reads this, and work left out on purpose is worth it knowing about
+  // before it fails a criterion for it.
+  if (output.suggested_tasks.length) {
+    out.push('## Suggested as separate cards', '');
+    for (const t of output.suggested_tasks) out.push(`- ${t.title}`);
     out.push('');
   }
   if (output.commits.length) {

@@ -199,7 +199,12 @@ export interface ApiImplementation {
   commits: string[];
   filesChanged: string[];
   deviations: string[];
-  followUps: string[];
+  /**
+   * Titles of what the run suggested as cards of their own, work it left
+   * undone included. The cards are linked from the rail; these are what the
+   * run said, which a card since renamed or archived no longer is.
+   */
+  suggestedTasks: string[];
 }
 
 export interface ApiCheckFailure {

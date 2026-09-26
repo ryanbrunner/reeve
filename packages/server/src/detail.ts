@@ -148,7 +148,7 @@ function latestImplementation(runs: Run[]): ApiImplementation | null {
     commits: i.commits,
     filesChanged: i.files_changed,
     deviations: i.deviations_from_plan,
-    followUps: i.follow_ups,
+    suggestedTasks: i.suggested_tasks.map((t) => t.title),
   };
 }
 
