@@ -2,7 +2,7 @@ import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
-import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
@@ -57,6 +57,7 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       testCommand: ctx.repo.testCommand
         ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
         : 'This repo defines no test command, so there is nothing to run.',
+      suggesting: renderSuggesting(),
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });

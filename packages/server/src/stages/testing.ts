@@ -12,7 +12,7 @@ import {
 } from '../db/queries.js';
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
 import { recordSuggestions } from '../suggestions.js';
-import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
@@ -106,6 +106,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
       testCommand: ctx.repo.testCommand
         ? `Run \`${ctx.repo.testCommand}\`.`
         : 'This repo defines no test command, so verify by reading and by the screenshots.',
+      suggesting: renderSuggesting(),
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });

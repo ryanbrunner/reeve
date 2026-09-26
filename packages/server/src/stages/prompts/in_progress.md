@@ -36,10 +36,8 @@ rather than unpick.
   already has, use theirs.
 - Do not leave commented-out code, debug logging, or a TODO you could have
   done in the time it took to write the TODO.
-- `follow_ups` is for work you deliberately left, not work you forgot. Be
-  specific enough that someone else could pick it up.
 - Report what you actually did in `summary`. If something does not work, say
   that plainly — the human is about to look at it either way, and a summary
   that oversells is worse than no summary.
-{{reviewNotes}}
+{{suggesting}}{{reviewNotes}}
 {{notes}}

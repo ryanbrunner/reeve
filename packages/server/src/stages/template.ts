@@ -21,6 +21,15 @@ export function blockquote(text: string): string {
   return text.trim().split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n');
 }
 
+/**
+ * What to do with an aside, worded once for every stage. Its own section
+ * rather than a line in each stage's list of what to return, so it reads as
+ * something to keep in mind while working and not one more thing to produce.
+ */
+export function renderSuggesting(): string {
+  return renderPrompt('suggested_tasks', {});
+}
+
 /** The notes block, or nothing at all when there are none. Every stage renders it. */
 export function renderNotes(notes: string[] | undefined): string {
   if (!notes?.length) return '';

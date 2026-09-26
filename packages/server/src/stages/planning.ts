@@ -12,7 +12,7 @@ import {
   replaceQuestions,
 } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
-import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import { GIT_READ } from './tools.js';
 import type { StageDefinition } from './types.js';
 
@@ -75,6 +75,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       reviewNotes,
       answers,
       mockups: prepared?.['mockups'] ?? '',
+      suggesting: renderSuggesting(),
       notes: renderNotes(ctx.notes),
     });
   },
