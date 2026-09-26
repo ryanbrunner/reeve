@@ -18,6 +18,7 @@ import { isOpeningPr, landPullRequest, maybeOpenPullRequest } from '../pullReque
 import { approveStage } from '../review.js';
 import type { EventWriter } from '../runs/events.js';
 import { maybeStartStage, startStage } from '../startStage.js';
+import { thinkOfIdeas } from './ideas.js';
 
 /**
  * VIBES MODE, doing the things a person would otherwise have to.
@@ -33,8 +34,9 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * was not ready and the `gh` call that timed out without one line of code
  * knowing that is what it is doing.
  *
- * Exactly the six things the arming overlay promises, and nothing else. Reeve's
- * own human-in-the-loop gates come off; the stages' tool permissions, the
+ * Exactly the seven things the arming overlay promises, and nothing else — the
+ * last of them, deciding what to build once a repo runs dry, in `ideas.ts`.
+ * Reeve's own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
  * of those is a human in the loop — they are limits on what a run may do, and
  * taking the person out of the loop is not a reason to widen them. Nor do a
@@ -80,9 +82,11 @@ let sweeping = false;
 export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
   if (sweeping) return;
   // The whole board with the switch on; otherwise only the cards flagged on
-  // their own, and nothing at all when there are none.
-  const cards = getSettings(db).vibesSince !== null ? boardCards(db) : vibesCards(db);
-  if (cards.length === 0) return;
+  // their own, and nothing at all when there are none. An empty board with the
+  // switch on is still swept, since that is exactly when it needs ideas.
+  const board = getSettings(db).vibesSince !== null;
+  const cards = board ? boardCards(db) : vibesCards(db);
+  if (cards.length === 0 && !board) return;
   sweeping = true;
   try {
     const repos = new Map(listRepos(db).map((r) => [r.id, r]));
@@ -98,6 +102,9 @@ export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
       if (!repo) continue;
       await advance(db, writer, card, repo);
     }
+    // After the cards, so a repo whose last card just reached Done is asked
+    // what comes next on the same pass. It reads the switch for itself.
+    await thinkOfIdeas(db, writer);
   } finally {
     sweeping = false;
   }
