@@ -233,6 +233,18 @@ body { background: var(--color-ink); color: var(--color-text); }
       box-shadow: 0 0 8px -2px var(--color-activity-running-mark);
     }
   }
+
+  /* A toast rises a few pixels as it fades in, so it reads as having just
+     arrived rather than as something that was always there. */
+  .toast-in {
+    animation: toast-in 150ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast-in {
+      animation: none;
+    }
+  }
 }
 
 @keyframes card-rail {
@@ -243,4 +255,9 @@ body { background: var(--color-ink); color: var(--color-text); }
 @keyframes btn-busy {
   0%, 100% { box-shadow: 0 0 0 0 transparent; }
   50% { box-shadow: 0 0 8px -2px var(--color-activity-running-mark); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }

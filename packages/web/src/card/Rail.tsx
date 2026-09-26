@@ -12,6 +12,7 @@ import {
   type Stage,
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
+import { copyText } from '../lib/clipboard.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
@@ -363,8 +364,12 @@ function Worktree({ detail }: { detail: CardDetail }) {
         <SectionHead>Worktree</SectionHead>
         {merged ? (
           <div className="flex flex-col">
-            <Fact label="Merged as">{merged.slice(0, 7)}</Fact>
-            <Fact label="Into">{worktree.baseBranch}</Fact>
+            <Fact label="Merged as" copy={merged} copyLabel="commit">
+              {merged.slice(0, 7)}
+            </Fact>
+            <Fact label="Into" copy={worktree.baseBranch} copyLabel="base branch">
+              {worktree.baseBranch}
+            </Fact>
           </div>
         ) : (
           <Empty>None yet</Empty>
@@ -389,6 +394,10 @@ function Worktree({ detail }: { detail: CardDetail }) {
         )}
       </div>
 
+      {/* Each copies what a person would paste, not what fits in the rail: the
+          whole path, since `~` means nothing to half the tools it lands in,
+          and the base without how far behind it is. The URL stays a link,
+          because opening the preview is what it is for. */}
       <div className="flex flex-col">
         <Fact label="URL">
           {server?.running && server.url ? (
@@ -399,12 +408,16 @@ function Worktree({ detail }: { detail: CardDetail }) {
             '—'
           )}
         </Fact>
-        <Fact label="Branch">{worktree.branch ?? '—'}</Fact>
-        <Fact label="Base">
+        <Fact label="Branch" copy={worktree.branch ?? undefined}>
+          {worktree.branch ?? '—'}
+        </Fact>
+        <Fact label="Base" copy={worktree.baseBranch} copyLabel="base branch">
           {worktree.baseBranch}
           {worktree.behind ? ` · ${worktree.behind} behind` : worktree.behind === 0 ? ' · up to date' : ''}
         </Fact>
-        <Fact label="Path">{worktree.path.replace(/^\/Users\/[^/]+/, '~')}</Fact>
+        <Fact label="Path" copy={worktree.path}>
+          {worktree.path.replace(/^\/Users\/[^/]+/, '~')}
+        </Fact>
       </div>
 
       {/* The server's error is the one thing here that is worth its own space:
@@ -456,7 +469,7 @@ function Handoff({ detail }: { detail: CardDetail }) {
     onSuccess: ({ command }) => {
       // In `onSuccess` rather than the mutation: the file and the event exist by
       // now, and a refused clipboard must not read as a failed handoff.
-      navigator.clipboard?.writeText(command).then(() => setCopied(true), () => {});
+      void copyText(command).then((ok) => ok && setCopied(true));
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
     },
   });
