@@ -70,6 +70,8 @@ function logLine(e: Entry): string | null {
       return `Pull request open on ${it} · merging it`;
     case 'pr_failed':
       return `Could not ship ${it} · ${e.body ?? 'no reason given'}`;
+    case 'merge_failed':
+      return `Could not merge ${it} · ${e.body ?? 'no reason given'}`;
     case 'run_finished': {
       const status = (e.meta as { status?: string } | null)?.status;
       return status === 'failed' || status === 'interrupted'

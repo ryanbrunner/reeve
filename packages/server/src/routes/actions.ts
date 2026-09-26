@@ -1,5 +1,10 @@
 import { Hono } from 'hono';
-import { needsWorktree, type CritReviewResponse, type ResolveConflictsResponse } from '@reeve/shared';
+import {
+  needsWorktree,
+  type CritReviewResponse,
+  type MergePullRequestResponse,
+  type ResolveConflictsResponse,
+} from '@reeve/shared';
 import { cardActivity } from '../board.js';
 import { startCritReview } from '../crit.js';
 import type { Db } from '../db/client.js';
@@ -7,7 +12,7 @@ import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '..
 import { GitError, checkWorktree } from '../git/worktree.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
-import { openPullRequest } from '../pullRequest.js';
+import { canMergePr, isPrConflicting, landPullRequest, openPullRequest } from '../pullRequest.js';
 import { resolveConflicts } from '../resolveConflicts.js';
 import type { EventWriter } from '../runs/events.js';
 import { ensureDevServer } from '../runs/devServer.js';
@@ -87,6 +92,34 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
     const body: ResolveConflictsResponse = { runId: result.runId, pushed: result.pushed };
     return c.json(body, result.runId ? 201 : 200);
+  });
+
+  /**
+   * Merge a Done card's pull request on GitHub, from the board. Only one that
+   * GitHub has said merges cleanly: the button is not offered otherwise, and a
+   * page left open since is refused the same. Branch protection still applies;
+   * see mergePullRequest.
+   */
+  routes.post('/:id/merge', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
+    const repo = repoFor(card.repoId);
+    if (!repo) return c.json({ error: 'card has no repo', detail: 'a merge needs a repo' }, 400);
+    if (card.mergedAt) return c.json({ error: 'already merged', detail: card.prUrl ?? `#${card.number}` }, 409);
+    if (!canMergePr(card)) {
+      return c.json({
+        error: 'not ready to merge',
+        detail: card.stage !== 'done' ? 'only a Done card’s pull request is merged'
+          : !card.prUrl ? 'the card has no pull request'
+          : isPrConflicting(card) ? 'GitHub says the pull request has conflicts'
+          : 'GitHub has not yet said the pull request can merge; it is asked again on the next sync',
+      }, 409);
+    }
+    const result = await landPullRequest(db, card, repo, 'human');
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    const body: MergePullRequestResponse = { merged: result.merged };
+    return c.json(body);
   });
 
   /** Start the repo's dev server for this card, on its own port. */

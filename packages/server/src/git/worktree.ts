@@ -437,6 +437,38 @@ export async function isAncestor(worktreePath: string, ancestor: string, descend
   }
 }
 
+/**
+ * `current` covers a branch that is ahead, too: nothing to take, and nothing
+ * of the person's to lose.
+ */
+export type FastForward = 'moved' | 'current' | 'diverged';
+
+/**
+ * Bring the repo's own `branch` up to `origin/<branch>` as last fetched, the
+ * way `git pull --ff-only` would. The only place Reeve moves the person's
+ * checkout rather than a card's, so git is left to refuse everything unsafe
+ * and nothing here is ever forced, reset or checked out.
+ *
+ * Where the branch is checked out, it is merged `--ff-only` in that checkout,
+ * which refuses local edits the new commits would overwrite and carries the
+ * rest across, as a pull does. Where it is not, the ref is fetched into from
+ * the repo itself rather than set with `update-ref`: without a `+` git refuses
+ * anything but a fast-forward, and refuses a branch that some worktree has
+ * checked out or is part-way through rebasing. The rebase matters: its
+ * worktree is detached, so looking for the checkout by branch cannot see it.
+ */
+export async function fastForwardBranch(repoPath: string, branch: string): Promise<FastForward> {
+  const local = `refs/heads/${branch}`;
+  const upstream = `refs/remotes/origin/${branch}`;
+  if (await isAncestor(repoPath, upstream, local)) return 'current';
+  if (!(await isAncestor(repoPath, local, upstream))) return 'diverged';
+
+  const checkout = (await listWorktrees(repoPath)).find((w) => w.branch === branch);
+  if (checkout) await git(checkout.path, ['merge', '--ff-only', '--quiet', upstream]);
+  else await git(repoPath, ['fetch', '--quiet', '.', `${upstream}:${local}`]);
+  return 'moved';
+}
+
 /** Paths HEAD differs from `sha` in, NUL-separated like `unmergedPaths`. */
 export async function changedPaths(worktreePath: string, sha: string): Promise<string[]> {
   return (await git(worktreePath, ['diff', '--name-only', '-z', sha, 'HEAD'])).split('\0').filter(Boolean);

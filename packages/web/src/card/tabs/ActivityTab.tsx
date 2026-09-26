@@ -62,7 +62,7 @@ export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sic
                   <p className="text-sm/5 whitespace-pre-line text-(--color-muted)">{e.body}</p>
                 )}
                 {(e.kind === 'pr_opened' || e.kind === 'merged') && <PullRequestLink event={e} />}
-                {(e.kind === 'pr_failed' || e.kind === 'conflicts_failed') && e.body && (
+                {(e.kind === 'pr_failed' || e.kind === 'conflicts_failed' || e.kind === 'merge_failed') && e.body && (
                   <p className="font-mono text-[11px]/4 whitespace-pre-wrap text-red-300">{e.body}</p>
                 )}
                 {e.kind === 'conflicts_resolved' && <Resolution event={e} />}
@@ -203,7 +203,7 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
     e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed' ||
-    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed'
+    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed' || e.kind === 'merge_failed'
   );
 }
 
@@ -271,6 +271,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     }
     case 'conflicts_failed':
       return 'could not resolve the conflicts';
+    case 'merge_failed': {
+      const number = e.meta?.['number'];
+      return `could not merge ${typeof number === 'number' ? `pull request #${number}` : 'the pull request'}`;
+    }
     case 'worktree_removed':
       // Forced means work nobody committed went with it, which is worth saying
       // where someone looking for it would look.

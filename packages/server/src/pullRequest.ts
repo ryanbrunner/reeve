@@ -19,7 +19,7 @@ import {
   pushBranch,
   type PullRequestState,
 } from './git/github.js';
-import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
+import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
 import { removeCardWorktree } from './startStage.js';
@@ -52,6 +52,15 @@ export function claimResolving(cardId: string): boolean {
 export const releaseResolving = (cardId: string) => void resolving.delete(cardId);
 
 /**
+ * Cards whose pull request `gh` is merging right now: two presses of Merge, or
+ * a press while SICKO MODE's sweep lands the same one. Refused by a push and a
+ * resolution as well, since either would change the branch mid-merge.
+ */
+const landing = new Set<string>();
+
+export const isMergingPr = (cardId: string) => landing.has(cardId);
+
+/**
  * The pull request GitHub last called conflicting, by card. In memory like
  * `opening`, because GitHub works it out again on every sync, and keyed to the
  * URL so a card that has since opened a new pull request does not inherit the
@@ -62,16 +71,34 @@ const conflicting = new Map<string, string>();
 export const isPrConflicting = (card: Pick<Card, 'id' | 'prUrl'>) =>
   card.prUrl !== null && conflicting.get(card.id) === card.prUrl;
 
+/**
+ * The pull request GitHub last called mergeable, by card: the other half of
+ * the same verdict, and what offers the Merge button. Kept apart from
+ * `conflicting` rather than read as its absence, because `UNKNOWN` is neither
+ * and a push leaves this one stale where it leaves a conflict standing.
+ */
+const mergeable = new Map<string, string>();
+
+export const isPrMergeable = (card: Pick<Card, 'id' | 'prUrl'>) =>
+  card.prUrl !== null && mergeable.get(card.id) === card.prUrl;
+
 /** After a push, GitHub's last verdict is about a branch that no longer exists. */
-export const forgetConflict = (cardId: string) => void conflicting.delete(cardId);
+export function forgetConflict(cardId: string): void {
+  conflicting.delete(cardId);
+  mergeable.delete(cardId);
+}
 
 /**
- * `UNKNOWN` changes nothing. GitHub says it for a while after every push, and
- * reading it as "fine" would take the button away from a conflict still there.
+ * `UNKNOWN` leaves a conflict standing: GitHub says it for a while after every
+ * push, and reading it as "fine" would take the button away from a conflict
+ * still there. It does not leave a card mergeable, though; a merge offered on
+ * a verdict GitHub has not reached is a merge that may not be clean.
  */
 function noteMergeable(cardId: string, url: string, pr: PullRequestState): void {
   if (pr.state === 'OPEN' && pr.mergeable === 'CONFLICTING') conflicting.set(cardId, url);
   else if (pr.state !== 'OPEN' || pr.mergeable === 'MERGEABLE') conflicting.delete(cardId);
+  if (pr.state === 'OPEN' && pr.mergeable === 'MERGEABLE') mergeable.set(cardId, url);
+  else mergeable.delete(cardId);
 }
 
 export type PullRequestResult =
@@ -117,6 +144,9 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
   if (resolving.has(card.id)) {
     return { ok: false, status: 409, error: 'conflicts are being resolved', detail: 'the branch is mid-merge; it is pushed once the merge is done' };
   }
+  if (landing.has(card.id)) {
+    return { ok: false, status: 409, error: 'the pull request is being merged', detail: card.prUrl ?? `#${card.number}` };
+  }
   opening.add(card.id);
 
   const failed = (status: 409 | 502, error: string, detail: string): PullRequestResult => {
@@ -146,6 +176,10 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
     } catch (e) {
       return failed(502, 'push to origin failed', reason(e));
     }
+    // Whatever went out may not merge as cleanly as what GitHub last saw, so
+    // Merge waits for the next sync to say. A conflict is left standing: new
+    // commits rarely settle one, and its button is how it gets settled.
+    mergeable.delete(card.id);
 
     const base = repo.defaultBranch;
     let pr: { url: string; number: number };
@@ -205,47 +239,125 @@ export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined)
   });
 }
 
-/** Cards with a merge under way, so two sweeps cannot both ask `gh` to land one. */
-const landing = new Set<string>();
+/**
+ * Whether the board offers to merge this card's pull request: a Done card's
+ * open one, which GitHub has said merges cleanly. The Merge button is drawn
+ * from this and the route refuses by it, so a page left open since the last
+ * verdict cannot merge what the board has stopped offering.
+ */
+export const canMergePr = (card: Card) =>
+  card.stage === 'done' && card.prUrl !== null && card.mergedAt === null && isPrMergeable(card);
 
-export type LandResult = { ok: true } | { ok: false; error: string; detail: string };
+export type LandResult =
+  | { ok: true; merged: boolean }
+  | { ok: false; status: 400 | 409 | 502; error: string; detail: string };
 
 /**
  * Land the card's pull request on the default branch.
  *
- * Only SICKO MODE calls this. On the calm board a pull request is where Reeve
- * stops on purpose: the point of opening one is that a person reads it, and
- * merging it is their decision, taken on GitHub. SICKO MODE is the mode where
- * that is not true, so this exists there and nowhere else.
+ * Two callers. A person pressing Merge on a Done card, having read the pull
+ * request or decided not to; and SICKO MODE, which is the mode where nobody
+ * reads it. Either way the decision is a human's — made on the button, or made
+ * once by switching SICKO MODE on — and never Claude's own.
  *
  * It refuses exactly what opening one refuses, and it does not reach past the
  * repository's own rules: a branch that requires a review still requires one,
- * `gh` says no, and the card records why. Success is not written here either —
- * the existing merge sync is asked to look, so the card is marked from GitHub's
- * answer and by the same code path as a pull request somebody merged by hand.
+ * `gh` says no, and the card records why as `merge_failed`. Success is not
+ * written here either — GitHub is asked where the pull request has got to, so
+ * the card is marked from its answer and by the same code path as a pull
+ * request somebody merged on GitHub. `merged` is false if that answer did not
+ * come; the next sync marks it.
+ *
+ * GitHub's mergeable verdict is the route's to check, not this: SICKO MODE
+ * lands a pull request as soon as it has one, and lets `gh` refuse.
  */
-export async function landPullRequest(db: Db, card: Card, repo: Repo): Promise<LandResult> {
-  if (card.mergedAt) return { ok: true };
-  if (!card.prUrl) return { ok: false, error: 'nothing to merge', detail: 'the card has no pull request' };
-  if (landing.has(card.id) || opening.has(card.id)) {
-    return { ok: false, error: 'busy', detail: `#${card.number}` };
-  }
+export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'human' | 'claude'): Promise<LandResult> {
+  if (card.mergedAt) return { ok: true, merged: true };
+  if (card.stage !== 'done') return { ok: false, status: 400, error: 'only a Done card’s pull request is merged', detail: card.stage };
+  const url = card.prUrl;
+  if (!url) return { ok: false, status: 400, error: 'nothing to merge', detail: 'the card has no pull request' };
+  // Taken before the first await, like `opening`.
+  if (landing.has(card.id)) return { ok: false, status: 409, error: 'already merging', detail: url };
+  if (opening.has(card.id)) return { ok: false, status: 409, error: 'a push to the pull request is under way', detail: url };
+  if (resolving.has(card.id)) return { ok: false, status: 409, error: 'conflicts are being resolved', detail: url };
   landing.add(card.id);
   try {
-    await mergePullRequest(repo.repoPath, card.prUrl);
+    await mergePullRequest(repo.repoPath, url);
   } catch (e) {
     const detail = reason(e);
     insertCardEvent(db, {
-      cardId: card.id, actor: 'claude', kind: 'pr_failed', stage: card.stage,
-      body: `could not merge: ${detail}`, meta: { url: card.prUrl },
+      cardId: card.id, actor, kind: 'merge_failed', stage: card.stage,
+      body: detail, meta: { url, number: card.prNumber },
     });
-    return { ok: false, error: 'could not merge the pull request', detail };
+    return { ok: false, status: 502, error: 'could not merge the pull request', detail };
   } finally {
     landing.delete(card.id);
   }
-  await syncMergedPullRequests(db);
-  return { ok: true };
+  // Merged, so GitHub's verdict is history, and the button goes with it.
+  mergeable.delete(card.id);
+
+  // This card alone, and now. The full sync would do it, but returns at once
+  // if one is already under way — one that may have asked about this pull
+  // request before it merged, leaving the card neither mergeable nor merged
+  // until the next tick.
+  let into: string | null = null;
+  try {
+    into = await syncPullRequest(db, card, repo, url);
+  } catch (e) {
+    console.error(`[reeve] could not check pull request for #${card.number} after merging it: ${reason(e)}`);
+  }
+  // Marked merged here, so the full sync below will not see this card land,
+  // and would not fast-forward the default branch for it. That is done first,
+  // so the two do not fetch and move the same branch at once; it logs rather
+  // than throws.
+  const first = keepsDefaultBranch(repo, into) ? syncDefaultBranch(repo) : Promise.resolve();
+  // And the rest, for every card's count of how far behind the base it is,
+  // which has just moved. Not awaited: a person pressed a button.
+  first
+    .then(() => syncMergedPullRequests(db))
+    .catch((e) => console.error(`[reeve] merge sync failed: ${reason(e)}`));
+  return { ok: true, merged: into !== null };
 }
+
+/** A push, a resolution or a merge will change the branch or the pull request. */
+const busy = (cardId: string) => opening.has(cardId) || resolving.has(cardId) || landing.has(cardId);
+
+/**
+ * Ask GitHub about one card's pull request: note whether it can merge, and
+ * mark the card merged if it has. Once the card is marked merged here, the
+ * branch it landed on, so the caller can bring the repo's own copy of it up to
+ * date; otherwise null.
+ */
+async function syncPullRequest(db: Db, card: Card, repo: Repo, url: string): Promise<string | null> {
+  const pr = await pullRequestState(repo.repoPath, url);
+  // Asked again: a push that started while `gh` answered makes the answer
+  // about a branch that is about to change.
+  if (!busy(card.id)) noteMergeable(card.id, url, pr);
+  if (pr.state !== 'MERGED') return null;
+
+  const now = new Date();
+  // Only if the card still points at the pull request that was asked
+  // about: a push while `gh` answered may have opened a different one.
+  const updated = db.update(cardTable)
+    .set({ mergedAt: pr.mergedAt ?? now, updatedAt: now })
+    .where(and(eq(cardTable.id, card.id), eq(cardTable.prUrl, url), isNull(cardTable.mergedAt)))
+    .run();
+  if (updated.changes === 0) return null;
+  const into = pr.base || repo.defaultBranch;
+  insertCardEvent(db, {
+    cardId: card.id, actor: 'human', kind: 'merged', stage: card.stage,
+    meta: { url, number: card.prNumber, sha: pr.mergeSha, into },
+  });
+  return into;
+}
+
+/**
+ * Whether a card that just landed on `into` should fast-forward its repo's
+ * default branch: the repo asked for it, and the pull request was not
+ * retargeted at another branch, which would not have landed on this one.
+ */
+const keepsDefaultBranch = (repo: Repo, into: string | null) =>
+  repo.syncDefaultBranch && into !== null && into === repo.defaultBranch;
 
 let syncing = false;
 
@@ -260,7 +372,8 @@ let syncing = false;
  * `cleanUpArchivedWorktrees`, and the branch stays for good.
  *
  * The same answer says whether GitHub could merge an open one as it stands,
- * which is what offers a Done card's conflicts for resolving.
+ * which is what offers a Done card's conflicts for resolving, or its Merge
+ * button.
  *
  * One card at a time, and one sync at a time, since each is a `gh` call and a
  * slow one must not stack up behind the next tick. A card that cannot be asked
@@ -269,10 +382,15 @@ let syncing = false;
  * First, each repo's base is fetched, so every card's "main · N behind" counts
  * against what has landed — including merges made outside Reeve, which no card
  * here is waiting on. A repo that cannot be fetched is skipped the same way.
+ *
+ * Last, a repo that asked for it has its own default branch brought up to
+ * date, if one of its cards landed on it in this sync.
  */
 export async function syncMergedPullRequests(db: Db): Promise<void> {
   if (syncing) return;
   syncing = true;
+  // By id, so three cards landing in one sync fast-forward their repo once.
+  const landedOnDefault = new Map<string, Repo>();
   try {
     for (const repo of listRepos(db)) {
       try {
@@ -282,35 +400,41 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
       }
     }
     for (const { card, repo } of cardsAwaitingMerge(db)) {
-      // A push under way will write the card itself; the next sync can look.
-      if (!card.prUrl || opening.has(card.id) || resolving.has(card.id)) continue;
-      let pr: PullRequestState;
+      // A push or a merge under way will write the card itself; the next sync can look.
+      if (!card.prUrl || busy(card.id)) continue;
+      let into: string | null = null;
       try {
-        pr = await pullRequestState(repo.repoPath, card.prUrl);
+        into = await syncPullRequest(db, card, repo, card.prUrl);
       } catch (e) {
         console.error(`[reeve] could not check pull request for #${card.number}: ${reason(e)}`);
-        continue;
       }
-      // Asked again: a push that started while `gh` answered makes the answer
-      // about a branch that is about to change.
-      if (!opening.has(card.id) && !resolving.has(card.id)) noteMergeable(card.id, card.prUrl, pr);
-      if (pr.state !== 'MERGED') continue;
-
-      const now = new Date();
-      // Only if the card still points at the pull request that was asked
-      // about: a push while `gh` answered may have opened a different one.
-      const updated = db.update(cardTable)
-        .set({ mergedAt: pr.mergedAt ?? now, updatedAt: now })
-        .where(and(eq(cardTable.id, card.id), eq(cardTable.prUrl, card.prUrl), isNull(cardTable.mergedAt)))
-        .run();
-      if (updated.changes === 0) continue;
-      insertCardEvent(db, {
-        cardId: card.id, actor: 'human', kind: 'merged', stage: card.stage,
-        meta: { url: card.prUrl, number: card.prNumber, sha: pr.mergeSha, into: pr.base || repo.defaultBranch },
-      });
+      if (keepsDefaultBranch(repo, into)) landedOnDefault.set(repo.id, repo);
     }
+    for (const repo of landedOnDefault.values()) await syncDefaultBranch(repo);
   } finally {
     syncing = false;
+  }
+}
+
+/**
+ * Fast-forward the repo's own default branch to what `origin` has now, for a
+ * repo that asked to be kept up to date when its cards merge.
+ *
+ * Fetched again first: the fetch at the top of the sync can predate the merge
+ * that was just noticed. A branch with commits of the person's own that
+ * `origin` lacks is theirs to reconcile, and is left as it is. Failures go to
+ * the log like a failed fetch, rather than onto a card: the checkout is the
+ * repo's, not any one card's, and the next merge tries again.
+ */
+async function syncDefaultBranch(repo: Repo): Promise<void> {
+  const branch = repo.defaultBranch;
+  try {
+    await fetchBranch(repo.repoPath, branch);
+    if ((await fastForwardBranch(repo.repoPath, branch)) === 'diverged') {
+      console.error(`[reeve] left ${branch} alone in ${repo.name}: it has commits origin does not`);
+    }
+  } catch (e) {
+    console.error(`[reeve] could not bring ${branch} up to date in ${repo.name}: ${reason(e)}`);
   }
 }
 
@@ -362,17 +486,17 @@ export async function cleanUpArchivedWorktrees(db: Db, writer: EventWriter): Pro
     return;
   }
   cleaning = true;
-  const busy = (cardId: string) => resolving.has(cardId) || runRegistry.all().some((r) => r.cardId === cardId);
+  const inUse = (cardId: string) => busy(cardId) || runRegistry.all().some((r) => r.cardId === cardId);
   try {
     do {
       cleanAgain = false;
       for (const { card, repo } of archivedMergedWorktrees(db)) {
-        if (busy(card.id)) continue;
+        if (inUse(card.id)) continue;
         try {
           await removeCardWorktree(db, writer, card, repo, {
             reason: 'archived',
             // A person may have restored it while its teardown ran.
-            stillWanted: (fresh) => fresh.archivedAt !== null && !busy(fresh.id),
+            stillWanted: (fresh) => fresh.archivedAt !== null && !inUse(fresh.id),
           });
         } catch (e) {
           console.error(`[reeve] could not remove the worktree of #${card.number}: ${reason(e)}`);

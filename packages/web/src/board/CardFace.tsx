@@ -15,6 +15,7 @@ const LINK_STYLE: Record<LinkRole, string> = {
   downstream: 'card-link-down',
   unlinked: 'card-link-dim',
 };
+import { MergeButton } from './MergeButton.js';
 import { RunButton } from './RunButton.js';
 
 export function CardFace({
@@ -139,6 +140,12 @@ export function CardFace({
           </span>
         )}
         {!sicko && !dragging && canStartRun(card) && <RunButton card={card} />}
+        {/* Never beside Run: that is for a column Claude works in, and this is
+            Done's alone. Gone while a push or a resolution is changing the
+            branch GitHub's verdict was about. */}
+        {!sicko && !dragging && (card.prMergeable || card.mergingPr) && !card.openingPr && !card.resolvingConflicts && (
+          <MergeButton card={card} />
+        )}
       </div>
       {card.activity === 'running' && (
         <span className="card-rail" aria-hidden="true">

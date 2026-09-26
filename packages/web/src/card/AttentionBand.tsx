@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
+import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
 import { duration, plural, tok } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
@@ -332,7 +333,8 @@ function Failed({ detail }: { detail: CardDetail }) {
  * Where a Done card's work went. Entering Done pushes the branch and opens a
  * pull request on its own, so this mostly reports: the pull request, whether
  * it has merged, the attempt still under way, or why the last attempt failed —
- * with a button to try again once the cause is put right.
+ * with a button to try again once the cause is put right, and one to merge it
+ * once GitHub says it can.
  */
 function PullRequest({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -425,6 +427,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
         </div>
         {failure && !busy && <p className="text-sm/5 text-amber-200">The last push did not reach it: {failure}</p>}
         {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+        <Merge detail={detail} pushing={busy} />
         <Conflicts detail={detail} pushing={busy} />
       </div>
     );
@@ -453,6 +456,78 @@ function PullRequest({ detail }: { detail: CardDetail }) {
         <div className="flex shrink-0 gap-2">{retry('Open pull request')}</div>
       </div>
       {failure && !busy && <p className="text-sm/5 text-red-300">{failure}</p>}
+      {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
+    </div>
+  );
+}
+
+/**
+ * GitHub's verdict that the open pull request merges cleanly, and the button
+ * that merges it there — the same merge as pressing it on GitHub, under the
+ * same branch protection. Offered on that verdict alone: a push, which leaves
+ * GitHub unsure for a while, takes the button away until the next sync.
+ *
+ * The first press arms it and the second merges, because it is the one button
+ * in the band that cannot be taken back from here. A refusal stays said until
+ * a push, a resolution or the merge itself replaces it.
+ */
+function Merge({ detail, pushing }: { detail: CardDetail; pushing: boolean }) {
+  const qc = useQueryClient();
+  const { card, worktree } = detail;
+  const [armed, setArmed] = useArmed();
+  const merge = useMutation({
+    mutationFn: () => api.mergePr(card.id),
+    // Settled, not succeeded: a refusal from `gh` is written to the card too.
+    onSettled: () => {
+      setArmed(false);
+      void qc.invalidateQueries({ queryKey: ['card', card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+
+  const merging = merge.isPending || card.mergingPr;
+  // Events are newest first, so this is how the latest attempt ended, unless
+  // the branch has moved on since.
+  const last = detail.events.find(
+    (e) => e.kind === 'merge_failed' || e.kind === 'pr_opened' || e.kind === 'conflicts_resolved',
+  );
+  const failure = last?.kind === 'merge_failed' ? (last.body ?? 'reason unrecorded') : null;
+  // The route says "could not merge…: <what gh said>", and the event holds
+  // what gh said, so a refusal is said once, not twice.
+  const refused = merge.error && !(failure && merge.error.message.endsWith(failure)) ? merge.error.message : null;
+  const base = worktree.baseBranch;
+
+  if (!card.prMergeable && !merging && !failure && !refused) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {(card.prMergeable || merging) && (
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 grow">
+            <div className="text-sm/5 font-medium text-(--color-text)">
+              {merging ? `Merging into ${base}` : `Ready to merge into ${base}`}
+            </div>
+            <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+              {merging
+                ? 'GitHub is merging the pull request…'
+                : armed
+                  ? `This squashes the pull request onto ${base} on GitHub, and cannot be undone from here.`
+                  : `GitHub says it merges cleanly. Merging squashes it onto ${base} there, under the repository’s own rules; the worktree here stays until the card is archived, and the branch is kept.`}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {armed && !merging && <SmallButton onClick={() => setArmed(false)}>Cancel</SmallButton>}
+            <Button
+              tone="review"
+              disabled={merging || pushing || card.resolvingConflicts}
+              onClick={() => (armed ? merge.mutate() : setArmed(true))}
+            >
+              {merging ? 'Merging…' : armed ? 'Confirm merge' : 'Merge pull request'}
+            </Button>
+          </div>
+        </div>
+      )}
+      {failure && !merging && <p className="text-sm/5 text-red-300">The last merge did not go through: {failure}</p>}
       {refused && <p className="text-sm/5 text-red-300">{refused}</p>}
     </div>
   );
