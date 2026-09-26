@@ -52,6 +52,13 @@
   --color-dep-fill: #8b5cf626;
   --color-dep-ring: #a78bfa;
 
+  /* Suggestions: one card's run proposing another. Pink, the one hue left
+     that is near none of the run states or violet, since a suggestion holds
+     nothing up and must not read as a dependency either. */
+  --color-sug: #f9a8d4;
+  --color-sug-fill: #ec489926;
+  --color-sug-ring: #f472b6;
+
   --shadow-card-glow-running: inset 0 0 18px 0 #00a6f459, inset 0 0 4px 0 #00a6f466, 0 0 18px -8px #00a6f48c;
   --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
@@ -184,6 +191,16 @@ body { background: var(--color-ink); color: var(--color-text); }
   }
 
   .card-link-down { outline-style: dashed; }
+
+  /* The same two strokes for suggestions, in their own colour: solid is the
+     card that suggested the focused one, dashed is what it suggested. */
+  .card-link-origin,
+  .card-link-offshoot {
+    outline: 1.5px solid var(--color-sug-ring);
+    outline-offset: 2px;
+  }
+
+  .card-link-offshoot { outline-style: dashed; }
 
   .card-link-dim { opacity: 0.35; }
 

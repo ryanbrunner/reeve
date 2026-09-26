@@ -16,7 +16,7 @@ export function Glyph() {
 }
 
 /**
- * The card-face marks for dependencies, sized to sit inside a 10px mono chip
+ * The card-face marks for links, sized to sit inside a 10px mono chip
  * and drawn in `currentColor` so the chip decides what they mean.
  */
 function Mini({ children }: { children: React.ReactNode }) {
@@ -46,6 +46,21 @@ export function WaitsGlyph({ open = false }: { open?: boolean }) {
     <Mini>
       <rect x="3" y="7" width="10" height="7" rx="1.5" />
       <path d={open ? 'M5.5 7V4.5a2.5 2.5 0 0 1 4.9-.7' : 'M5.5 7V5a2.5 2.5 0 0 1 5 0v2'} />
+    </Mini>
+  );
+}
+
+/**
+ * A shoot branching off a stem: one card's run put out another. Drawn apart
+ * from the fork below, which is dependents, because being suggested by a card
+ * does not mean waiting on it.
+ */
+export function SuggestedGlyph() {
+  return (
+    <Mini>
+      <path d="M5 2.5v11" />
+      <path d="M5 10c0-3 2.5-4.5 6-4.5" />
+      <circle cx="12" cy="5.5" r="1.5" />
     </Mini>
   );
 }

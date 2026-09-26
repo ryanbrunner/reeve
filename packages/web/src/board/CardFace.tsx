@@ -1,18 +1,21 @@
 import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { tok, tokenTitle } from '../card/format.js';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
-import { NeededByGlyph, WaitsGlyph } from './Glyph.js';
+import { NeededByGlyph, SuggestedGlyph, WaitsGlyph } from './Glyph.js';
 import { useLinks, type LinkRole } from './links.js';
 
 /**
  * How a card looks while another's chain is traced: what the focused card
  * waits on ringed solid, what waits on it ringed dashed, and everything else
- * stepped back. The focused card itself is left alone; the cursor is on it.
+ * stepped back. Suggestions ring the same way in pink. The focused card itself
+ * is left alone; the cursor is on it.
  */
 const LINK_STYLE: Record<LinkRole, string> = {
   focus: '',
   upstream: 'card-link-up',
   downstream: 'card-link-down',
+  origin: 'card-link-origin',
+  offshoot: 'card-link-offshoot',
   unlinked: 'card-link-dim',
 };
 import { MergeButton } from './MergeButton.js';
@@ -91,8 +94,9 @@ export function CardFace({
             </span>
           )
         }
+        {!sicko && <Suggestions card={card} />}
         <Dependencies card={card} sicko={sicko} />
-        {label && <span className="sr-only">{label}</span>}
+        {label &&<span className="sr-only">{label}</span>}
         {/* Only an idle card shows a status chip, and only to surface the run
             status the glow cannot say — a cancelled run. */}
         {!sicko && card.activity === 'idle' && run && (
@@ -177,8 +181,7 @@ const NAMED = 3;
  */
 function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
   const open = card.dependsOn.filter((d) => !d.done);
-  // `#142` is per repo, so one from another repo says which.
-  const ref = (d: ApiCardLink) => `${d.repoName && d.repoName !== card.repoName ? d.repoName : ''}#${d.number}`;
+  const ref = (d: ApiCardLink) => refFrom(card, d);
   const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${d.done ? ' (done)' : ''}`).join('\n');
   // Free to wrap: a column can be 136px wide, and three refs from another repo
   // are wider than that. SICKO's one footer line cannot wrap, so it names one.
@@ -213,6 +216,55 @@ function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
           <NeededByGlyph />
           <span className="sr-only">Needed by</span>
           {card.dependents.length}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** `#142` is per repo, so a card in another repo from this one says which. */
+function refFrom(card: ApiCard, to: { number: number; repoName: string | null }): string {
+  return `${to.repoName && to.repoName !== card.repoName ? to.repoName : ''}#${to.number}`;
+}
+
+/**
+ * Which card suggested this one, and how many this one suggested, drawn the
+ * way dependencies are but in pink: a suggestion holds nothing up, and must
+ * not read as something that does. Neither is on SICKO MODE's one-line card,
+ * which has no room for what is not a blocker.
+ *
+ * The suggester is named, as a dependency is, because it has often merged and
+ * gone by the time anyone looks. What this card suggested is a count, with
+ * the titles the board still has in the tooltip.
+ */
+function Suggestions({ card }: { card: ApiCard }) {
+  const links = useLinks();
+  const from = card.suggestedBy;
+  const n = card.suggestions.length;
+  const titles = card.suggestions
+    .map((id) => links.card(id))
+    .filter((c) => c !== undefined)
+    .map((c) => `${refFrom(card, c)} ${c.title}`);
+  return (
+    <>
+      {from && (
+        <span
+          title={`Suggested by\n${refFrom(card, from)} ${from.title}`}
+          className="inline-flex items-center gap-1 rounded bg-(--color-sug-fill) px-1.5 py-0.5 font-mono text-[10px]/4 text-(--color-sug)"
+        >
+          <SuggestedGlyph />
+          <span className="sr-only">Suggested by</span>
+          from {refFrom(card, from)}
+        </span>
+      )}
+      {n > 0 && (
+        <span
+          title={[`Suggested ${n} ${n === 1 ? 'card' : 'cards'}`, ...titles].join('\n')}
+          className="inline-flex items-center gap-1 font-mono text-[10px]/4 text-(--color-sug)"
+        >
+          <SuggestedGlyph />
+          <span className="sr-only">Suggested</span>
+          {n}
         </span>
       )}
     </>
