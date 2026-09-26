@@ -68,6 +68,9 @@ export const CARD_EVENT_KINDS = [
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
+  // The card's worktree deleted from disk, by hand or once a merged card was
+  // archived. The branch stays; `meta.forced` says uncommitted work went with it.
+  'worktree_removed',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

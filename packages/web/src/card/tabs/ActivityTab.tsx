@@ -266,6 +266,11 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     }
     case 'conflicts_failed':
       return 'could not resolve the conflicts';
+    case 'worktree_removed':
+      // Forced means work nobody committed went with it, which is worth saying
+      // where someone looking for it would look.
+      return (e.meta?.['reason'] === 'archived' ? 'removed the worktree once the card was archived' : 'removed the worktree') +
+        (e.meta?.['forced'] ? ' with uncommitted changes' : '');
   }
 }
 
