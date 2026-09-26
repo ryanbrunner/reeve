@@ -139,6 +139,12 @@ worktree is made (`packages/server/src/startStage.ts`). Never symlink the main
 checkout's `node_modules` into a worktree: removing the worktree deletes the
 real one through the link.
 
+As in Claude Code, gitignored files that match the repo's `.worktreeinclude`
+(`.gitignore` syntax) are copied from the main checkout when a worktree is
+made, before the setup command starts (`copyWorktreeIncludes` in
+`packages/server/src/git/worktree.ts`). They are copied, never linked, and
+never over a file the worktree already has. A reused worktree gets nothing.
+
 ## Conventions
 
 - Strict TypeScript with `noUncheckedIndexedAccess` and `verbatimModuleSyntax`
