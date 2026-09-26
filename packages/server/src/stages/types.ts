@@ -11,6 +11,12 @@ export interface StageContext {
   card: Card;
   repo: Repo;
   worktreePath: string;
+  /**
+   * The card's body as the prompt should carry it: pasted images pointed at
+   * their files, and a line saying so when there is nothing. What every stage
+   * puts where the brief goes, rather than `card.body`.
+   */
+  brief: string;
   /** Present when the human rejected the previous attempt with notes. */
   reviewNotes?: string | null;
   /**

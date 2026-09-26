@@ -304,6 +304,10 @@ export function detailRoutes(db: Db, writer: EventWriter) {
    * `url` and `viewport` are not decoration — they are what tells the capturer
    * which page to photograph and how wide, so that a mockup and its screenshot
    * end up as a pair rather than two unrelated images.
+   *
+   * Or, with `kind=pasted`, an image pasted into the brief. That one is none
+   * of those things: it is part of the writing, referenced from the body by its
+   * `src`, so it takes neither and nothing downstream mistakes it for a mockup.
    */
   routes.post('/:id/assets', async (c) => {
     const cardId = c.req.param('id');
@@ -325,6 +329,19 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     writeAsset(rel, bytes);
 
     const size = imageSize(bytes);
+    if (form?.['kind'] === 'pasted') {
+      const row = insertAsset(db, {
+        cardId,
+        kind: 'pasted',
+        label: String(form['label'] ?? file.name),
+        path: rel,
+        contentType: file.type,
+        width: size?.width ?? null,
+        height: size?.height ?? null,
+      });
+      return c.json(toApiAsset(row), 201);
+    }
+
     const viewport = Number(form?.['viewport']);
     const row = insertAsset(db, {
       cardId,

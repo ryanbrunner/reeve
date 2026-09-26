@@ -42,7 +42,7 @@ export function resolveConflictsTask(merge: { base: string; conflicts: string[] 
         branch: ctx.card.branchName ?? 'this branch',
         base: merge.base,
         title: ctx.card.title,
-        body: ctx.card.body.trim() || '_No further detail was given._',
+        body: ctx.brief,
         plan: plan ?? '_No plan was recorded for this card._',
         implementation: notes ?? '_No implementation notes were recorded for this card._',
         conflicts: merge.conflicts.map((p) => `- \`${p}\``).join('\n'),

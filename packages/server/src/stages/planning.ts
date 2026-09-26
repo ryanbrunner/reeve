@@ -71,7 +71,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
     return renderPrompt('planning', {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
-      body: ctx.card.body.trim() || '_No further detail was given._',
+      body: ctx.brief,
       reviewNotes,
       answers,
       mockups: prepared?.['mockups'] ?? '',

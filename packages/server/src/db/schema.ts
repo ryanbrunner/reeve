@@ -35,8 +35,12 @@ export type CardEventActor = (typeof CARD_EVENT_ACTORS)[number];
 export const CRITERION_VERDICTS = ['pass', 'fail'] as const;
 export type CriterionVerdict = (typeof CRITERION_VERDICTS)[number];
 
-/** A picture of the work: one drawn beforehand, or one taken of the build. */
-export const ASSET_KINDS = ['mockup', 'screenshot'] as const;
+/**
+ * A picture of the work: one drawn beforehand, or one taken of the build. Or
+ * one pasted into the brief, which is part of what the card says rather than a
+ * picture of the work, and which only the brief's own body points at.
+ */
+export const ASSET_KINDS = ['mockup', 'screenshot', 'pasted'] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /** What a piece of context points at: a path in the repo, another card, a link. */
