@@ -2,12 +2,10 @@ import { nextStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import { cardsInStage, insertCardEvent, insertReview, moveCard } from './db/queries.js';
 import type { Card, CardEventActor, Repo, Run } from './db/schema.js';
-import { checkWorktree } from './git/worktree.js';
 import { maybeOpenPullRequest } from './pullRequest.js';
-import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { stageDefinition } from './stages/index.js';
-import { maybeStartStage } from './startStage.js';
+import { continueStage, maybeStartStage } from './startStage.js';
 
 /**
  * The two verdicts the human gate can reach, whoever reaches them.
@@ -90,17 +88,17 @@ export async function sendBackForRevision(
 
   const stage = stageDefinition(card.stage as never);
   if (!stage) return { ok: false, error: 'stage not implemented yet', status: 501 };
-  const health = await checkWorktree(repo.repoPath, card.worktreePath);
-  if (health.state !== 'ok') return { ok: false, error: 'card has no usable worktree', status: 409 };
 
-  const handle = startClaudeRun({
-    db, writer, card, repo, stage,
-    worktreePath: health.path,
+  // Waits for any setup the worktree is owed, so a card whose setup failed
+  // when its stage started is not revised in the same unfinished tree.
+  const revision = await continueStage(db, writer, card, repo, {
+    stage,
     reviewNotes: notes,
     // Fork rather than continue: the rejected attempt stays readable and the
     // card's history is a list of attempts, not one mutating session.
     resumeSessionId: lastRun.sessionId,
     parentRunId: lastRun.id,
   });
-  return { ok: true, revisionRunId: handle.runId, forkedFrom: lastRun.sessionId };
+  if (!revision.ok) return { ok: false, error: revision.error, status: 409 };
+  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId };
 }

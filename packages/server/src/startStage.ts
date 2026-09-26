@@ -15,7 +15,7 @@ import {
   isDirty,
   removeWorktree,
 } from './git/worktree.js';
-import { startClaudeRun } from './runs/claude.js';
+import { startClaudeRun, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
 import { serverEnv, serverVars } from './runs/serverUrl.js';
@@ -30,10 +30,11 @@ import { stageDefinition } from './stages/index.js';
 const starting = new Set<string>();
 
 /**
- * Whether a start is under way for the card: its worktree is being made and
- * its run has no row yet. For those seconds the card reads as idle, and
- * `reeve card wait` has to be able to tell that from a card nothing is going
- * to start.
+ * Whether a start is under way for the card: its worktree is being made, or
+ * its setup waited on, and its run has no row yet. For those seconds the card
+ * reads as whatever its last run left — idle, or for a revision or a resume
+ * still waiting on a person — and `reeve card wait` has to be able to tell
+ * that from a card nothing is going to start.
  */
 export const isStartingStage = (cardId: string) => starting.has(cardId);
 
@@ -41,9 +42,9 @@ export const isStartingStage = (cardId: string) => starting.has(cardId);
  * Setup commands still running, by card. A stage started beside one works in
  * a tree whose `node_modules` is half there, where `npm test` fails on missing
  * modules and the stage's shell is too narrow to install them itself, so
- * `startStage` waits on this before Claude is let in. Kept here rather than
- * read off the registry, which holds how to stop a run but not how to wait
- * for one.
+ * `startStage` and `continueStage` wait on this before Claude is let in. Kept
+ * here rather than read off the registry, which holds how to stop a run but
+ * not how to wait for one.
  */
 const settingUp = new Map<string, ShellRunHandle>();
 
@@ -310,15 +311,73 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
       return { ok: false, status: 429, error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` };
     }
 
-    // Only once the stage is certain to start, which is what the note says.
-    if (setup && setup.exitCode !== 0 && setup.stopReason !== 'cancelled_by_user') {
-      insertCardEvent(db, {
-        cardId: fresh.id, actor: 'human', kind: 'note', stage: fresh.stage,
-        body: `The repo's setup command failed (run ${setup.runId}), so the stage started in a worktree it did not finish setting up.`,
-      });
-    }
+    noteFailedSetup(db, fresh, setup);
     const handle = startClaudeRun({ db, writer, card: fresh, repo, stage, worktreePath: path });
     return { ok: true, runId: handle.runId, sessionId: handle.sessionId };
+  } finally {
+    starting.delete(card.id);
+  }
+}
+
+/** Written only once the run is certain to start, which is what the note says. */
+function noteFailedSetup(db: Db, card: Card, setup: Awaited<ReturnType<typeof setupSettled>>) {
+  if (!setup || setup.exitCode === 0 || setup.stopReason === 'cancelled_by_user') return;
+  insertCardEvent(db, {
+    cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+    body: `The repo's setup command failed (run ${setup.runId}), so the run started in a worktree it did not finish setting up.`,
+  });
+}
+
+export type ContinueStageResult =
+  | { ok: true; runId: string }
+  | { ok: false; error: string };
+
+/**
+ * Pick the card's stage back up in the worktree it already has: a revision
+ * after a rejection, or the run that asked questions once they are answered.
+ * Both fork a session that did its work in that tree, so a tree that has gone
+ * is refused rather than made again the way `startStage` would.
+ *
+ * Otherwise the same wait `startStage` makes. A card whose setup failed when
+ * its stage started, and was then rejected, would have its revision run in the
+ * same unfinished tree with no retry; and one whose repo changed its setup
+ * command since would never run the new one. So the setup the tree is owed is
+ * run, and waited on, first. `starting` is held throughout, so a Run pressed,
+ * or a second rejection sent, while `npm install` runs is refused rather than
+ * starting beside this.
+ *
+ * Neither the concurrency cap nor `blockedStart` is asked, as neither was
+ * before: the verdict or the answers are already recorded by now, and a
+ * revision refused for the cap would leave a rejection with nothing after it.
+ */
+export async function continueStage(
+  db: Db,
+  writer: EventWriter,
+  card: Card,
+  repo: Repo,
+  run: Omit<ClaudeRunParams, 'db' | 'writer' | 'card' | 'repo' | 'worktreePath'>,
+): Promise<ContinueStageResult> {
+  if (starting.has(card.id)) return { ok: false, error: 'the stage is already starting' };
+  starting.add(card.id);
+
+  try {
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
+    if (health.state !== 'ok') return { ok: false, error: 'card has no usable worktree' };
+    owedSetup(db, writer, card, repo, health.path);
+    const setup = await setupSettled(card.id);
+
+    // Read again, as `startStage` does: a setup can take minutes, and the card
+    // may have been approved on, dragged or archived while it ran.
+    const fresh = getCard(db, card.id);
+    if (!fresh || fresh.archivedAt || fresh.stage !== card.stage) {
+      return { ok: false, error: 'the card moved while its stage was starting' };
+    }
+    const live = liveStageRun(db, fresh.id);
+    if (live) return { ok: false, error: 'a run is already active for this card' };
+
+    noteFailedSetup(db, fresh, setup);
+    const handle = startClaudeRun({ ...run, db, writer, card: fresh, repo, worktreePath: health.path });
+    return { ok: true, runId: handle.runId };
   } finally {
     starting.delete(card.id);
   }
