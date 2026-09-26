@@ -231,9 +231,15 @@ export async function checkWorktree(repoPath: string, path: string | null): Prom
   return { state: 'ok', path };
 }
 
-/** Everything the card changed, committed or not. */
-export async function diffSince(worktreePath: string, baseSha: string): Promise<string> {
-  return git(worktreePath, ['diff', baseSha]);
+/**
+ * Everything the card changed, committed or not. With `ref`, only what is
+ * committed there: that is for a card whose worktree is gone, read from its
+ * branch in the main checkout, where the working tree is not the card's.
+ * Without it there is deliberately no second ref, not even `HEAD`, so that
+ * uncommitted work counts.
+ */
+export async function diffSince(cwd: string, baseSha: string, ref?: string): Promise<string> {
+  return git(cwd, ['diff', baseSha, ...(ref ? [ref] : []), '--']);
 }
 
 export interface CommitRef {
@@ -243,10 +249,12 @@ export interface CommitRef {
 
 /**
  * NUL-separated rather than split on a delimiter that could appear in a commit
- * subject. Newest first, which is the order the rail lists them in.
+ * subject. Newest first, which is the order the rail lists them in. `ref` is
+ * the card's branch when the worktree whose HEAD it was has been removed.
  */
-export async function commitsSince(worktreePath: string, baseSha: string): Promise<CommitRef[]> {
-  return parseLog(await git(worktreePath, ['log', '--format=%h%x00%s', `${baseSha}..HEAD`]));
+export async function commitsSince(cwd: string, baseSha: string, ref = 'HEAD'): Promise<CommitRef[]> {
+  // `--` so a branch that shares its name with a path is read as the branch.
+  return parseLog(await git(cwd, ['log', '--format=%h%x00%s', `${baseSha}..${ref}`, '--']));
 }
 
 function parseLog(out: string): CommitRef[] {

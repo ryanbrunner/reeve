@@ -254,17 +254,23 @@ export function detailRoutes(db: Db, writer: EventWriter) {
         deletions: files.reduce((n, f) => n + f.deletions, 0),
       } satisfies ApiDiff);
     }
-    if (!card.worktreePath || !card.baseSha || !repo) {
+    const { worktreePath, branchName, baseSha } = card;
+    if (!(worktreePath || branchName) || !baseSha || !repo) {
       // No worktree is a normal state for a card in Backlog, not an error.
       return c.json({ base: '', baseBranch: repo?.defaultBranch ?? '', files: [], additions: 0, deletions: 0 } satisfies ApiDiff);
     }
     // A worktree removed from under the card is a state the rail already
     // reports, so it reads here as "nothing changed" rather than a 500 that
-    // takes the tab down with it.
-    const raw = await diffSince(card.worktreePath, card.baseSha).catch(() => null);
+    // takes the tab down with it. One Reeve removed on purpose, once the card
+    // merged and was archived, left its branch behind in the repo, and what is
+    // committed there is what the card changed.
+    const raw = await (worktreePath
+      ? diffSince(worktreePath, baseSha)
+      : diffSince(repo.repoPath, baseSha, branchName!)
+    ).catch(() => null);
     const files = raw === null ? [] : parseDiff(raw);
     const body: ApiDiff = {
-      base: card.baseSha,
+      base: baseSha,
       baseBranch: repo.defaultBranch,
       files,
       additions: files.reduce((n, f) => n + f.additions, 0),
@@ -334,12 +340,15 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.get('/:id/commits', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
     if (card.mergedSha) {
-      const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
       return c.json(repo ? await commitAt(repo.repoPath, card.mergedSha).catch(() => []) : []);
     }
-    if (!card.worktreePath || !card.baseSha) return c.json([]);
-    return c.json(await commitsSince(card.worktreePath, card.baseSha).catch(() => []));
+    if (!card.baseSha) return c.json([]);
+    if (card.worktreePath) return c.json(await commitsSince(card.worktreePath, card.baseSha).catch(() => []));
+    // The worktree is gone, but its branch is not: see `/diff`.
+    if (!card.branchName || !repo) return c.json([]);
+    return c.json(await commitsSince(repo.repoPath, card.baseSha, card.branchName).catch(() => []));
   });
 
   return routes;
