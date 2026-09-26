@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
+import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
 import { duration, plural, tok } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
@@ -471,7 +472,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
 function Merge({ detail, pushing }: { detail: CardDetail; pushing: boolean }) {
   const qc = useQueryClient();
   const { card, worktree } = detail;
-  const [armed, setArmed] = useState(false);
+  const [armed, setArmed] = useArmed();
   const merge = useMutation({
     mutationFn: () => api.mergePr(card.id),
     // Settled, not succeeded: a refusal from `gh` is written to the card too.

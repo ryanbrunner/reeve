@@ -1,10 +1,7 @@
-import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ApiCard } from '@reeve/shared';
 import { api } from '../lib/api.js';
-
-/** How long an armed button waits for the second press before it forgets the first. */
-const ARMED_MS = 3_000;
+import { useArmed } from '../lib/armed.js';
 
 /**
  * Merges a Done card's pull request on GitHub, offered only once GitHub has
@@ -19,7 +16,7 @@ const ARMED_MS = 3_000;
  */
 export function MergeButton({ card }: { card: ApiCard }) {
   const qc = useQueryClient();
-  const [armed, setArmed] = useState(false);
+  const [armed, setArmed] = useArmed();
   const merge = useMutation({
     mutationFn: () => api.mergePr(card.id),
     onSettled: () => {
@@ -27,12 +24,6 @@ export function MergeButton({ card }: { card: ApiCard }) {
       void qc.invalidateQueries({ queryKey: ['board'] });
     },
   });
-
-  useEffect(() => {
-    if (!armed) return;
-    const timer = setTimeout(() => setArmed(false), ARMED_MS);
-    return () => clearTimeout(timer);
-  }, [armed]);
 
   const merging = merge.isPending || card.mergingPr;
   return (
