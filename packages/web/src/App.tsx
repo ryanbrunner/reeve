@@ -113,7 +113,9 @@ export function App() {
       // A card in SICKO MODE on its own moves with nobody touching it too, and
       // at the idle rate it would jump a column without anyone seeing it go.
       : q.state.data?.cards.some(
-          (c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts || (c.sicko && c.mergedAt == null),
+          (c) =>
+            c.activity === 'running' || c.openingPr || c.resolvingConflicts || c.mergingPr ||
+            (c.sicko && c.mergedAt == null),
         ) ? 1_500
       : 5_000,
   });

@@ -35,7 +35,8 @@ export type CardEventKind =
   | 'handed_off'
   | 'crit_reviewed'
   | 'conflicts_resolved'
-  | 'conflicts_failed';
+  | 'conflicts_failed'
+  | 'merge_failed';
 
 export interface ApiCardEvent {
   id: string;
@@ -283,6 +284,15 @@ export interface CritReviewResponse {
 export interface ResolveConflictsResponse {
   runId: string | null;
   pushed: boolean;
+}
+
+/**
+ * What `POST /cards/:id/merge` answers with once `gh` has merged the pull
+ * request. `merged` says the card is marked merged already; false means GitHub
+ * could not be asked straight after, and the next sync marks it.
+ */
+export interface MergePullRequestResponse {
+  merged: boolean;
 }
 
 // --- The whole card ---------------------------------------------------------

@@ -17,6 +17,7 @@ import type {
   CritReviewResponse,
   EffortLevel,
   HandoffResponse,
+  MergePullRequestResponse,
   ModelsResponse,
   MoveCardBody,
   ResolveConflictsResponse,
@@ -146,6 +147,8 @@ export const api = {
   /** Merges the base branch in; Claude resolves the conflicts, and the server pushes once it has checked them. */
   resolveConflicts: (id: string) =>
     post(`/api/cards/${id}/resolve-conflicts`, {}).then(json<ResolveConflictsResponse>),
+  /** Merges the pull request on GitHub. Refused unless GitHub has said it merges cleanly. */
+  mergePr: (id: string) => post(`/api/cards/${id}/merge`, {}).then(json<MergePullRequestResponse>),
   /** Writes `.reeve/handoff.md` into the worktree and answers with the command to paste. */
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
   /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */

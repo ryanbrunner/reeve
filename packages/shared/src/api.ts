@@ -129,10 +129,18 @@ export interface ApiCard {
    */
   prConflicting: boolean;
   /**
+   * GitHub last said the pull request merges cleanly, so the Merge button is
+   * offered. Set on the same cards as `prConflicting` and never with it, but
+   * not its opposite: for a while after every push GitHub says neither.
+   */
+  prMergeable: boolean;
+  /**
    * Reeve is merging the base branch into this card's branch right now: from
    * the fetch, through Claude's run, to the push. In memory like `openingPr`.
    */
   resolvingConflicts: boolean;
+  /** `gh` is merging the card's pull request right now. In memory like `openingPr`. */
+  mergingPr: boolean;
   /**
    * The card's stage run is being started: its worktree is being made, and
    * `latestRun` does not show the run yet. The card still reads `idle` for
