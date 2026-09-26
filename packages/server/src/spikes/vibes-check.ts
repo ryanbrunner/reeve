@@ -13,6 +13,7 @@
  */
 import { createApp } from '../index.js';
 import {
+  boardCards,
   cardEventsFor,
   createCard,
   createRepo,
@@ -30,6 +31,17 @@ import { vibesSweep } from '../vibes/engine.js';
 import { vibesState } from '../vibes/state.js';
 
 const { db, writer } = createApp();
+
+// An empty board or nothing. With the switch on the sweep takes every card on
+// the board, not just the ones made below, so a second run on the same database
+// moves and approves the first run's leftovers and the scoreboard counts them
+// ("reviews skipped" 3, "moves" 8). On `data/reeve.db`, which is what an unset
+// `REEVE_DB` opens, those leftovers are somebody's real cards.
+const already = boardCards(db).length;
+if (already > 0) {
+  console.error(`vibes-check wants an empty board and this one has ${already} cards. Give it a fresh REEVE_DB.`);
+  process.exit(1);
+}
 
 const repo = createRepo(db, {
   name: `vibes-check-${Date.now()}`,
