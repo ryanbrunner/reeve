@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import type { PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
@@ -77,11 +78,20 @@ export function decideToolUse({ toolName, input, allowedTools, worktreePath }: T
  * `NODE_OPTIONS` or `PATH` would each let an allowed prefix mean something the
  * list never said, which is why this is a name and not a pattern. A second
  * assignment is left in `rest`, where it matches no prefix and is denied.
+ *
+ * `db` has to be the path the shell will open, or the live-board check below is
+ * comparing against something else. So only the forms whose value can be read
+ * exactly are taken: wholly quoted, or bare with no quote or backslash in it,
+ * and a bare `~` or `~/…` expanded as the shell expands it after `=`.
+ * `REEVE_DB=…/reeve".db"` or `~someone/…` is left in `rest` and denied with
+ * the rest of what this does not reason about.
  */
 function withScratchDb(command: string): { assignment: string; db: string | null; rest: string } {
-  const m = /^REEVE_DB=("[^"]*"|'[^']*'|\S+)\s+(.+)$/s.exec(command);
+  const m = /^REEVE_DB=("[^"\\]*"|'[^']*'|(?!~[^/\s])[^\s"'\\]+)\s+(.+)$/s.exec(command);
   if (!m) return { assignment: '', db: null, rest: command };
-  return { assignment: `REEVE_DB=${m[1]!} `, db: m[1]!.replace(/^["']|["']$/g, ''), rest: m[2]! };
+  const value = m[1]!;
+  const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
+  return { assignment: `REEVE_DB=${value} `, db, rest: m[2]! };
 }
 
 /**
