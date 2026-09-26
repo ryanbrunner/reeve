@@ -266,6 +266,20 @@ export interface UsageState {
  */
 export const PLACEHOLDER_TITLE = 'Untitled';
 
+/** The same, for a project: Add Project makes one and opens it the same way. */
+export const PLACEHOLDER_PROJECT_TITLE = 'Untitled project';
+
+/**
+ * Whether nobody has said anything about this card yet: its placeholder title,
+ * trimmed, and no brief. SICKO MODE reads it to leave such a card where it is,
+ * and closing one reads it to throw the card away — the two places that need to
+ * tell "just made" apart from "meant".
+ */
+export function isPlaceholderCard(card: { kind: CardKind; title: string; body: string }): boolean {
+  const placeholder = card.kind === 'project' ? PLACEHOLDER_PROJECT_TITLE : PLACEHOLDER_TITLE;
+  return card.title.trim() === placeholder && card.body.trim() === '';
+}
+
 export interface CreateCardBody {
   title: string;
   body?: string;

@@ -1,4 +1,4 @@
-import { PLACEHOLDER_TITLE, canStartRun, isRunnable, nextStage, type Stage } from '@reeve/shared';
+import { canStartRun, isPlaceholderCard, isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
 import { blockedStart } from '../blockers.js';
 import { cardActivity } from '../board.js';
@@ -134,7 +134,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // difference between the switch being fun and the switch being a trap —
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
-    if (card.title.trim() === PLACEHOLDER_TITLE && card.body.trim() === '') return;
+    if (isPlaceholderCard(card)) return;
     // And a card waiting on another that is not done. That is not one of
     // Reeve's human gates but the order the work has to happen in, and taking
     // the person out of the loop does not change it. It goes on the first

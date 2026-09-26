@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql } from 'drizzle-orm';
 import {
   RUNNABLE_STAGES,
+  isPlaceholderCard,
   type ApiCard,
   type ApiCardLink,
   type ApiSettings,
@@ -433,6 +434,9 @@ export function createCard(
  * Next free `#n` for a repo. Counting live rows would reuse an archived
  * card's number, so this reads the high-water mark instead: numbers are handed
  * out once and never again, which is what makes them worth quoting to a person.
+ * The one exception is a card thrown away by `discardIfBlank`. If it held the
+ * top number, the next task gets that number again. Nobody named that card, so
+ * nobody can have quoted its number.
  */
 function nextCardNumber(db: Db, repoId: string | null): number {
   const top = db
@@ -510,6 +514,33 @@ export function restoreCard(db: Db, id: string) {
   insertCardEvent(db, { cardId: id, actor: 'human', kind: 'restored', stage });
   renormaliseIfNeeded(db, stage);
   return restored;
+}
+
+/**
+ * Throw away a card nobody did anything with, and say whether it went.
+ *
+ * A card is made and opened before anyone types into it, so closing it again
+ * untouched would leave an "Untitled" behind every time. Only that card goes:
+ * its placeholder title and no brief, never archived, never given a worktree,
+ * with nothing hanging off it — no run, criterion, reference, picture or note —
+ * and, for a task, still in Backlog, or for a project, with no tasks at all.
+ * Archived tasks count: they were put under it and taken off on purpose. A
+ * change of repo, model or effort alone does not keep it. Those are settings,
+ * and none of them is something anyone would miss.
+ *
+ * Checked and deleted in one synchronous call, so no save can land between the
+ * two. A hard delete, not an archive: the Archive is for work, and every table
+ * that belongs to a card cascades off it.
+ */
+export function discardIfBlank(db: Db, id: string): boolean {
+  const c = getCard(db, id);
+  if (!c || !isPlaceholderCard(c) || c.archivedAt || c.worktreePath) return false;
+  if (c.kind === 'task' ? c.stage !== 'backlog' : tasksInProject(db, id).length > 0) return false;
+  if (runsForCard(db, id).length > 0 || criteriaFor(db, id).length > 0) return false;
+  if (refsFor(db, id).length > 0 || assetsFor(db, id).length > 0) return false;
+  // Its birth is the one entry a blank card has. A note is anything else.
+  if (cardEventsFor(db, id).some((e) => e.kind !== 'created')) return false;
+  return db.delete(card).where(eq(card.id, id)).run().changes > 0;
 }
 
 /**

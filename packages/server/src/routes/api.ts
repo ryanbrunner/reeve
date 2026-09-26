@@ -13,6 +13,7 @@ import {
   createCard,
   createRepo,
   dependencyLinks,
+  discardIfBlank,
   getCard,
   getSettings,
   listRepos,
@@ -378,6 +379,17 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     }
     archiveCard(db, id);
     return c.json({ ok: true });
+  });
+
+  // Asked whenever a card closes, of every card, and it is the server that
+  // decides whether this one goes, because only the server sees its criteria,
+  // references, pictures and tasks as they are right now. It is conditional,
+  // which is why it is a POST: a DELETE would read as "get rid of it", and
+  // nothing a person does on the board removes a card outright.
+  api.post('/cards/:id/discard', (c) => {
+    const id = c.req.param('id');
+    if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json({ deleted: discardIfBlank(db, id) });
   });
 
   api.post('/cards/:id/restore', (c) => {
