@@ -207,7 +207,9 @@ Migrations live in `packages/server/drizzle/` and run on every boot.
 
 A card's worktree is a fresh checkout. It has no `node_modules` unless the
 repo's setup command installed them, which starts in the background when the
-worktree is made (`packages/server/src/startStage.ts`). Never symlink the main
+worktree is made (`packages/server/src/startStage.ts`). A stage waits for it
+before Claude starts, and a reused worktree whose setup never succeeded runs it
+again on its next start. Never symlink the main
 checkout's `node_modules` into a worktree: removing the worktree deletes the
 real one through the link.
 

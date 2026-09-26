@@ -229,7 +229,11 @@ export const api = {
     write<ApiCardRef>('POST', `/api/cards/${enc(id)}/refs`, body),
   addNote: (id: string, body: string) => write<ApiCardEvent>('POST', `/api/cards/${enc(id)}/notes`, { body }),
 
-  /** Made, or the healthy one already there. `setupRunId` only on the first. */
+  /**
+   * Made, or the healthy one already there. `setupRunId` when the repo's setup
+   * command is running in it: a new one's, or the one owed to a tree already
+   * there whose setup never finished.
+   */
   createWorktree: (id: string) =>
     write<{ ok: true; reused: boolean; path: string; branch?: string; setupRunId?: string | null }>(
       'POST',

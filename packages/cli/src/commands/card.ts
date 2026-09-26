@@ -114,10 +114,9 @@ async function worktree(args: string[]): Promise<void> {
 
   const made = await api.createWorktree(card.id);
   if (values.json) return printJson(made);
-  if (!made.reused) {
-    note(`Made a worktree for ${cardRef(card)}${made.branch ? ` on ${made.branch}` : ''}.`);
-    if (made.setupRunId) note(`The repo's setup command is running in it (run ${made.setupRunId}).`);
-  }
+  if (!made.reused) note(`Made a worktree for ${cardRef(card)}${made.branch ? ` on ${made.branch}` : ''}.`);
+  // A reused one too, when its setup never finished there.
+  if (made.setupRunId) note(`The repo's setup command is running in it (run ${made.setupRunId}).`);
   print(made.path);
 }
 
