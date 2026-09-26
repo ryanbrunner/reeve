@@ -337,7 +337,6 @@ export function App() {
             moveError={refusal}
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
-            cardCount={cards.length}
             usage={data?.usage ?? null}
             sicko={sicko}
           />
@@ -440,7 +439,7 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, cardCount, usage, sicko }: {
+function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, sicko }: {
   repos: ApiRepo[];
   onAddProject: () => void;
   /** SICKO MODE's Ship it: a named card, made without opening it. */
@@ -451,7 +450,6 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   moveError: string | null;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
-  cardCount: number;
   usage: UsageState | null;
   sicko: Sicko;
 }) {
@@ -475,10 +473,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
         <Glyph />
         <span className={sick ? 'sk-wm' : ''}>Reeve</span>
       </h1>
-      <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
-        {cardCount} cards
-      </span>
-      {/* Beside the count rather than by Add, which is about something else;
+      {/* By the wordmark rather than by Add, which is about something else;
           and allowed to shrink, since the blocking cards can be a long list. */}
       {moveError && (
         <p role="alert" className="min-w-0 truncate font-mono text-[10px]/4 text-red-300" title={moveError}>
