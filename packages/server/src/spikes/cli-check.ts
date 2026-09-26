@@ -60,6 +60,15 @@ async function ok(...args: string[]) {
   return result;
 }
 
+/** A finished In Progress run, which a card needs before it may enter Testing or Done. */
+function implemented(cardId: string) {
+  const r = insertRun(db, {
+    id: crypto.randomUUID(), cardId, kind: 'claude', stage: 'in_progress', status: 'running',
+    sessionId: crypto.randomUUID(), cwd: '/tmp', createdAt: new Date(), startedAt: new Date(),
+  });
+  setRunStatus(db, r.id, { status: 'succeeded', stopReason: 'completed', finishedAt: new Date() });
+}
+
 // --- card add ---------------------------------------------------------------
 
 // --quiet is the id alone, for `id=$(reeve card add …)`.
@@ -175,6 +184,7 @@ assert.equal(getCard(db, loose)?.stage, 'planning');
 
 // Into Done with no branch: nothing to push, and it says that rather than
 // promising a pull request.
+implemented(loose);
 const noPr = await ok('card', 'move', loose, 'done');
 assert.match(noPr.stderr, /No pull request: .* has no branch to push/);
 
@@ -199,6 +209,7 @@ assert.match(held.stderr, /No Planning run: its last run there is waiting on you
 // The run appearing is what the watch reports. The server's own start fails
 // at the missing worktree, so the one it finds is written here, mid-watch,
 // as startClaudeRun would write it.
+implemented(second.id);
 const watching = ok('card', 'move', second.id, 'testing');
 await new Promise((done) => setTimeout(done, 1500));
 const started = insertRun(db, {
