@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useQuery } from '@tanstack/react-query';
 import type { CardActivity } from '@reeve/shared';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS } from '../board/activity.js';
+import { api } from '../lib/api.js';
 import { CardHeader } from './CardHeader.js';
 import { Rail } from './Rail.js';
 import { Tabs } from './Tabs.js';
@@ -81,7 +83,11 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
   // The ring the card wears on the calm board when it is in VIBES MODE alone,
   // at this size too: it is the same card. Not in the board's VIBES MODE, which
   // dresses every card the same and so has nothing to single this one out for.
-  const solo = !vibes && data?.card.vibes === true && data.card.mergedAt == null;
+  // A task in a project in VIBES MODE wears it too, off the board, since the
+  // card carries only its own flag; a project wears it for its own switch.
+  const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const lane = board?.projects.find((p) => p.id === data?.card.projectId)?.vibes === true;
+  const solo = !vibes && (data?.card.vibes === true || lane) && data?.card.mergedAt == null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
