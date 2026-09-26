@@ -1,14 +1,17 @@
 import { PLACEHOLDER_TITLE, canStartRun, isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
+import { blockedStart } from '../blockers.js';
 import { cardActivity } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
   boardCards,
   cardsInStage,
+  getCard,
   getSettings,
   listRepos,
   moveCard,
   questionsForRun,
+  sickoCards,
 } from '../db/queries.js';
 import type { Card, Question, Repo, Run } from '../db/schema.js';
 import { isOpeningPr, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
@@ -34,7 +37,14 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
  * of those is a human in the loop — they are limits on what a run may do, and
- * taking the person out of the loop is not a reason to widen them.
+ * taking the person out of the loop is not a reason to widen them. Nor do a
+ * card's dependencies, for the same reason: see `blockers.ts`.
+ *
+ * A card can also be put in SICKO MODE on its own. With the board's switch off
+ * the sweep looks at those cards and no others, and does the same five things
+ * to each — landing its pull request included — while the rest of the board
+ * waits for a person as usual. With the board's switch on, every card goes
+ * whatever its flag says.
  */
 
 /** What the review gate is told, and what the card's history will say for ever. */
@@ -68,14 +78,20 @@ let sweeping = false;
  * Idempotent and safe to call on a timer: each rule reads the card as it is now.
  */
 export async function sickoSweep(db: Db, writer: EventWriter): Promise<void> {
-  if (sweeping || getSettings(db).sickoSince === null) return;
+  if (sweeping) return;
+  // The whole board with the switch on; otherwise only the cards flagged on
+  // their own, and nothing at all when there are none.
+  const cards = getSettings(db).sickoSince !== null ? boardCards(db) : sickoCards(db);
+  if (cards.length === 0) return;
   sweeping = true;
   try {
     const repos = new Map(listRepos(db).map((r) => [r.id, r]));
-    for (const { card } of boardCards(db)) {
-      // Re-read per card: the switch going off mid-sweep has to stop it here,
-      // not after it has walked the rest of the board.
-      if (getSettings(db).sickoSince === null) return;
+    for (const { card: listed } of cards) {
+      // Re-read per card, both switches: either going off mid-sweep has to
+      // stop it here, not one approval or merge later off a stale list.
+      const card = getCard(db, listed.id);
+      if (!card || card.archivedAt) continue;
+      if (getSettings(db).sickoSince === null && !card.sicko) continue;
       const repo = card.repoId ? repos.get(card.repoId) : undefined;
       // A card with no repo has no worktree, so no stage of it can run and
       // there is nothing to automate. It waits, as it would anyway.
@@ -119,6 +135,11 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
     if (card.title.trim() === PLACEHOLDER_TITLE && card.body.trim() === '') return;
+    // And a card waiting on another that is not done. That is not one of
+    // Reeve's human gates but the order the work has to happen in, and taking
+    // the person out of the loop does not change it. It goes on the first
+    // sweep after its dependency reaches Done.
+    if (blockedStart(db, card)) return;
     moveOn(db, writer, card, repo);
     return;
   }

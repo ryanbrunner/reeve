@@ -45,6 +45,10 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     openingPr: false,
     prConflicting: false,
     resolvingConflicts: false,
+    startingStage: false,
+    sicko: false,
+    dependsOn: [],
+    dependents: [],
     model: null,
     effort: null,
     generateMockups: false,
@@ -66,6 +70,7 @@ const board: BoardResponse = {
   repos: [alpha, beta],
   projects: [],
   sicko: null,
+  usage: null,
   cards: [
     card({ id: 'aaaa1111-0000-4000-8000-000000000001', number: 12, ...inAlpha, stage: 'planning' }),
     card({ id: 'bbbb2222-0000-4000-8000-000000000002', number: 12, ...inBeta }),
@@ -138,6 +143,7 @@ describe('whereAmI', () => {
       repos: [alpha],
       projects: [],
       sicko: null,
+      usage: null,
       cards: [card({ id: 'dddd', number: 3, ...inAlpha, worktreePath: join(tmp, 'real', 'wt') })],
     };
     assert.equal(whereAmI(linked, join(tmp, 'link', 'wt', 'src')).card?.number, 3);
