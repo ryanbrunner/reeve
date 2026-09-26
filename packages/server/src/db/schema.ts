@@ -71,6 +71,9 @@ export const CARD_EVENT_KINDS = [
   // `gh` refused to merge the pull request: from the Done band's Merge, or
   // SICKO MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
+  // An open card moved to No project because its project was archived. `meta`
+  // names the project, which the card no longer points at.
+  'left_project',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

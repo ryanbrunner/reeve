@@ -36,7 +36,8 @@ export type CardEventKind =
   | 'crit_reviewed'
   | 'conflicts_resolved'
   | 'conflicts_failed'
-  | 'merge_failed';
+  | 'merge_failed'
+  | 'left_project';
 
 export interface ApiCardEvent {
   id: string;

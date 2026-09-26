@@ -63,7 +63,7 @@ reeve card edit <card> [--title T] [--body …] [--repo R | --no-repo] [--model 
 reeve card criteria list|add|rm <card> …
 reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
-reeve card archive <card>
+reeve card archive <card> [--detach-open]
 reeve card restore <card>
 ```
 
@@ -80,6 +80,11 @@ nothing started. Reeve records these as your actions, whoever ran the command.
 `card merge` is the board's Merge button: it lands a Done card's pull request
 on GitHub, and only once GitHub has said it merges cleanly. Branch protection
 still applies, and a refusal says what `gh` said.
+
+**Archiving a project takes its Done cards with it.** A project with cards not
+yet Done is refused, and the refusal names them; `--detach-open` archives it
+anyway and moves them to No project. Restoring the project brings back the Done
+cards that went with it, and leaves the moved ones where they are.
 
 Criteria are numbered from 1, as `criteria list` shows them. There is no
 `criteria check`: a verdict is Testing's, and belongs to the run that reached it.
@@ -110,13 +115,15 @@ reeve card move "$id" planning
 as the web app gets it, typed by `@reeve/shared` — while anything said to a
 person goes to stderr.
 
-| Command            | Endpoint                    | Type              |
-| ------------------ | --------------------------- | ----------------- |
-| `board`            | `GET /api/board`            | `BoardResponse`   |
-| `board --archived` | `GET /api/cards/archived`   | `ApiCard[]`       |
-| `card show`        | `GET /api/cards/:id/detail` | `CardDetail`      |
-| `repos`            | `GET /api/repos`            | `ApiRepo[]`       |
-| `runs`             | `GET /api/cards/:id/runs`   | `ApiRunSummary[]` |
+| Command            | Endpoint                      | Type                  |
+| ------------------ | ----------------------------- | --------------------- |
+| `board`            | `GET /api/board`              | `BoardResponse`       |
+| `board --archived` | `GET /api/cards/archived`     | `ApiCard[]`           |
+| `card show`        | `GET /api/cards/:id/detail`   | `CardDetail`          |
+| `repos`            | `GET /api/repos`              | `ApiRepo[]`           |
+| `runs`             | `GET /api/cards/:id/runs`     | `ApiRunSummary[]`     |
+| `card archive`     | `POST /api/cards/:id/archive` | `ArchiveCardResponse` |
+| `card restore`     | `POST /api/cards/:id/restore` | `ApiCard`             |
 
 `board`'s filters narrow the arrays in that document and leave its shape
 alone: `cards` loses what does not match, and `projects` loses projects outside

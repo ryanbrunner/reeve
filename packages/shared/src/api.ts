@@ -436,6 +436,23 @@ export interface MoveCardBody {
   projectId?: string | null;
 }
 
+/**
+ * Archiving a project takes its Done cards with it. Its open cards are
+ * refused, not taken: they are work still going on. `detachOpen` is the
+ * caller saying it has seen them, and moves them to No project instead.
+ * Ignored for a task.
+ */
+export interface ArchiveCardBody {
+  detachOpen?: boolean;
+}
+
+/** The counts only for a project: how many Done cards went with it, and how many open ones were moved out. */
+export interface ArchiveCardResponse {
+  ok: true;
+  archived?: number;
+  detached?: number;
+}
+
 /** Make the card this is sent for depend on another task. */
 export interface AddDependencyBody {
   dependsOnId: string;

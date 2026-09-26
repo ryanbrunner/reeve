@@ -11,6 +11,8 @@ import {
   type ApiRepo,
   type ApiSettings,
   type ApiRunSummary,
+  type ArchiveCardBody,
+  type ArchiveCardResponse,
   type BoardResponse,
   type CardDetail,
   type CreateCardBody,
@@ -213,7 +215,8 @@ export const api = {
   updateCard: (id: string, body: UpdateCardBody) => write<ApiCard>('PATCH', `/api/cards/${enc(id)}`, body),
   /** The card it answers with has `repoName: null`; take that from the board. */
   moveCard: (id: string, body: MoveCardBody) => write<ApiCard>('POST', `/api/cards/${enc(id)}/move`, body),
-  archiveCard: (id: string) => write<{ ok: true }>('POST', `/api/cards/${enc(id)}/archive`),
+  archiveCard: (id: string, body?: ArchiveCardBody) =>
+    write<ArchiveCardResponse>('POST', `/api/cards/${enc(id)}/archive`, body),
   restoreCard: (id: string) => write<ApiCard>('POST', `/api/cards/${enc(id)}/restore`),
   splitProject: (id: string) => write<{ ok: true; runId: string }>('POST', `/api/cards/${enc(id)}/split`),
 
