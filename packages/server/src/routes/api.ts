@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES } from '@reeve/shared';
+import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
-import { toBoardCard } from '../board.js';
+import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedStart } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
@@ -266,6 +266,10 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (projectId && !liveProject(db, projectId)) {
       return c.json({ error: 'no such project', detail: projectId }, 400);
     }
+    // Made straight into a column is entering it, so the rule a drag meets
+    // applies here too, and a card that does not exist yet has built nothing.
+    const refusal = stageEntryRefusal('backlog', parsed.data.stage ?? 'backlog', false);
+    if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
     const created = createCard(db, parsed.data);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     // Made straight into a column Claude works in is entering it, the same as a drag.
@@ -338,6 +342,11 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       const blocked = blockedStart(db, before);
       if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
     }
+    // Entering Testing starts a run against the branch and entering Done pushes
+    // it, so with nothing built yet one tests nothing and the other opens an
+    // empty pull request. Reorders and moves backwards are never refused.
+    const refusal = entryRefusal(db, before, parsed.data.stage);
+    if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index, 'human', projectId);
     if (!moved) return c.json({ error: 'not found' }, 404);
     // Started before the response is built, so the card it returns already

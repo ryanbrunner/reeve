@@ -261,6 +261,25 @@ export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage
 }
 
 /**
+ * Whether the card has been implemented: `isImplementationRun` in
+ * @reeve/shared, asked of the database. The board asks this of every card on
+ * every poll, so it looks for one row rather than loading the card's runs to
+ * filter them. The two must keep the same filters.
+ */
+export function hasImplementationRun(db: Db, cardId: string): boolean {
+  const found = db
+    .select({ id: run.id })
+    .from(run)
+    .where(and(
+      eq(run.cardId, cardId), eq(run.stage, 'in_progress'), eq(run.kind, 'claude'),
+      eq(run.status, 'succeeded'), isNull(run.task),
+    ))
+    .limit(1)
+    .get();
+  return found !== undefined;
+}
+
+/**
  * A task of this kind still in flight for the card, if there is one.
  *
  * Read off the rows rather than the registry, which only hears about a run once

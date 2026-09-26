@@ -45,6 +45,7 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     prConflicting: false,
     resolvingConflicts: false,
     startingStage: false,
+    implemented: false,
     sicko: false,
     dependsOn: [],
     dependents: [],

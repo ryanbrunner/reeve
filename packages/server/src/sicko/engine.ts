@@ -1,7 +1,7 @@
 import { canStartRun, isPlaceholderCard, isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
 import { blockedStart } from '../blockers.js';
-import { cardActivity } from '../board.js';
+import { cardActivity, entryRefusal } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
   boardCards,
@@ -147,9 +147,13 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
   const { activity, run } = cardActivity(db, card);
   switch (activity) {
     // The gate, waived. `approveStage` records the verdict, moves the card on
-    // and starts its next stage — the same three things the button does.
+    // and starts its next stage — the same three things the button does. Not
+    // the rule under the gate: a Testing card that was never built is left for
+    // a person, as the button would refuse it, rather than pushed empty to Done.
     case 'needs_review':
-      if (run) approveStage(db, writer, card, repo, run, { actor: 'claude', notes: APPROVAL });
+      if (run && !entryRefusal(db, card, nextStage(stage) ?? stage)) {
+        approveStage(db, writer, card, repo, run, { actor: 'claude', notes: APPROVAL });
+      }
       return;
 
     case 'needs_input':

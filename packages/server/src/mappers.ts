@@ -126,8 +126,9 @@ function toApiToolDenials(stored: unknown): ApiToolDenial[] {
 
 /**
  * Pure on purpose: `latestRun` and `activity` are handed in already agreed with
- * each other (see ./board.ts), which keeps this module free of the stage
- * definitions and the database.
+ * each other (see ./board.ts), and so is everything else that is read rather
+ * than stored, which keeps this module free of the stage definitions and the
+ * database.
  */
 export function toApiCard(
   c: Card,
@@ -135,7 +136,7 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
-  inMemory: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts' | 'startingStage'>,
+  derived: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts' | 'startingStage' | 'implemented'>,
   links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
 ): ApiCard {
   return {
@@ -157,7 +158,7 @@ export function toApiCard(
     prUrl: c.prUrl,
     prNumber: c.prNumber,
     prOpenedAt: ms(c.prOpenedAt),
-    ...inMemory,
+    ...derived,
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
