@@ -23,6 +23,8 @@ export interface ApiRepo {
   teardownCommand: string | null;
   finishCommand: string | null;
   laneColor: string | null;
+  /** Fast-forward the repo's own `defaultBranch` when a card's pull request is merged. */
+  syncDefaultBranch: boolean;
 }
 
 /**
@@ -338,6 +340,7 @@ export interface CreateRepoBody {
   teardownCommand?: string | null;
   finishCommand?: string | null;
   laneColor?: string | null;
+  syncDefaultBranch?: boolean;
 }
 
 export type UpdateRepoBody = Partial<CreateRepoBody>;

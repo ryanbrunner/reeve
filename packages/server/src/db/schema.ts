@@ -87,6 +87,10 @@ export const repo = sqliteTable('repo', {
   finishCommand: text('finish_command'),
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
+  // Fast-forward the repo's own default branch once one of its cards' pull
+  // requests is merged. Off unless asked for: it moves the person's checkout,
+  // which nothing else in Reeve touches.
+  syncDefaultBranch: integer('sync_default_branch', { mode: 'boolean' }).notNull().default(false),
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
 });
