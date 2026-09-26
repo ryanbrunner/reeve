@@ -10,6 +10,8 @@
  * their way out at the worktree and the pull requests never open. What is being
  * checked is the part above that: the moving, the approving, the answering, and
  * who each of those is recorded as.
+ *
+ * Exits 1 if any check fails, so it can be run for its exit code alone.
  */
 import { createApp } from '../index.js';
 import {
@@ -181,8 +183,15 @@ await vibesSweep(db, writer);
 const soloStageAfterOff = getCard(db, solo.id)!.stage;
 const soloReviewsAfterOff = actorsOf(solo.id, 'reviewed');
 
-const ok = (label: string, got: unknown, want: unknown) =>
-  console.log(`${JSON.stringify(got) === JSON.stringify(want) ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}`);
+// Counted as well as printed. The single-card checks printed a cross on every
+// run after #26 and #27 crossed, and nobody saw them because the script still
+// exited 0 (#62).
+let failed = 0;
+const ok = (label: string, got: unknown, want: unknown) => {
+  const pass = JSON.stringify(got) === JSON.stringify(want);
+  if (!pass) failed++;
+  console.log(`${pass ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}${pass ? '' : `, wanted ${JSON.stringify(want)}`}`);
+};
 
 console.log('\n--- with the switch off ---');
 ok('a backlog card is left alone', stayedPut, 'backlog');
@@ -224,4 +233,5 @@ ok('tokens count the runs since, without cache reads', state.spendTokens, 66_200
 console.log('log:');
 for (const line of state.log) console.log(`  ◆ ${line}`);
 
-process.exit(0);
+if (failed > 0) console.error(`\n${failed} check${failed === 1 ? '' : 's'} failed`);
+process.exit(failed > 0 ? 1 : 0);
