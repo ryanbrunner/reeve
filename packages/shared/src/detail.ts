@@ -140,7 +140,8 @@ export interface ApiCommit {
 
 // --- Pictures ---------------------------------------------------------------
 
-export type AssetKind = 'mockup' | 'screenshot';
+/** `pasted` is an image in the brief, shown where the body links it and nowhere else. */
+export type AssetKind = 'mockup' | 'screenshot' | 'pasted';
 
 export interface ApiAsset {
   id: string;
