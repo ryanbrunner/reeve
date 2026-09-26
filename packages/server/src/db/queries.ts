@@ -1,5 +1,11 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, sql } from 'drizzle-orm';
-import { RUNNABLE_STAGES, type ApiSettings, type StageRunDefaults, type UpdateSettingsBody } from '@reeve/shared';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql } from 'drizzle-orm';
+import {
+  RUNNABLE_STAGES,
+  type ApiCard,
+  type ApiSettings,
+  type StageRunDefaults,
+  type UpdateSettingsBody,
+} from '@reeve/shared';
 import { config } from '../config.js';
 import type { Db } from './client.js';
 import {
@@ -830,8 +836,32 @@ export function deleteRef(db: Db, id: string) {
 }
 
 // ---------------------------------------------------------------------------
-// What a card waits on
+// What a card waits on, and what waits on it
 // ---------------------------------------------------------------------------
+
+export type DependencyLinks = Pick<ApiCard, 'dependsOn' | 'dependents'>;
+
+/**
+ * Dependencies filed both ways, as a lookup by card id. Given a card, only the
+ * rows that touch it are read. The board reads the whole table once instead,
+ * rather than twice for every card on it, and so does the cycle check, which
+ * has to be able to walk every link there is.
+ */
+export function dependencyLinks(db: Db, cardId?: string): (id: string) => DependencyLinks {
+  const rows = db
+    .select({ cardId: cardDependency.cardId, dependsOnId: cardDependency.dependsOnId })
+    .from(cardDependency)
+    .where(cardId ? or(eq(cardDependency.cardId, cardId), eq(cardDependency.dependsOnId, cardId)) : undefined)
+    .orderBy(asc(cardDependency.createdAt))
+    .all();
+  const dependsOn = new Map<string, string[]>();
+  const dependents = new Map<string, string[]>();
+  for (const r of rows) {
+    dependsOn.set(r.cardId, [...(dependsOn.get(r.cardId) ?? []), r.dependsOnId]);
+    dependents.set(r.dependsOnId, [...(dependents.get(r.dependsOnId) ?? []), r.cardId]);
+  }
+  return (id) => ({ dependsOn: dependsOn.get(id) ?? [], dependents: dependents.get(id) ?? [] });
+}
 
 /**
  * Every link on the board, archived cards' included. Read whole rather than
@@ -848,6 +878,30 @@ export function allDependencies(db: Db) {
  */
 export function addDependency(db: Db, cardId: string, dependsOnId: string) {
   db.insert(cardDependency).values({ cardId, dependsOnId }).onConflictDoNothing().run();
+}
+
+export function removeDependency(db: Db, cardId: string, dependsOnId: string) {
+  return db
+    .delete(cardDependency)
+    .where(and(eq(cardDependency.cardId, cardId), eq(cardDependency.dependsOnId, dependsOnId)))
+    .returning()
+    .get();
+}
+
+/**
+ * The cards behind a handful of ids, with their repos, archived ones included:
+ * a dependency that has merged and left the board is still one, and still
+ * needs a number and a title to be shown by.
+ */
+export function cardsWithRepo(db: Db, ids: string[]) {
+  if (ids.length === 0) return [];
+  return db
+    .select({ card, repoName: repo.name, laneColor: repo.laneColor })
+    .from(card)
+    .leftJoin(repo, eq(card.repoId, repo.id))
+    .where(inArray(card.id, ids))
+    .orderBy(asc(repo.name), asc(card.number))
+    .all();
 }
 
 // ---------------------------------------------------------------------------

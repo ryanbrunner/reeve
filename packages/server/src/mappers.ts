@@ -105,6 +105,7 @@ export function toApiCard(
   latestRun: Run | null,
   activity: CardActivity,
   github: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts'>,
+  links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
 ): ApiCard {
   return {
     id: c.id,
@@ -130,6 +131,7 @@ export function toApiCard(
     effort: c.effort,
     generateMockups: c.generateMockups,
     sicko: c.sicko,
+    ...links,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     archivedAt: ms(c.archivedAt),

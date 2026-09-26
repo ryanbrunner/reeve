@@ -331,9 +331,14 @@ export const cardRef = sqliteTable(
  * One card that cannot start before another finishes. Its own table rather
  * than a `card_ref` of kind `card`: a ref is something worth reading first,
  * and reading every existing one as a blocker would jam cards nobody meant to.
+ * A dependency also has to be read both ways — what this card waits on, and
+ * what waits on it — which a ref's free-text `value` cannot be indexed for.
  *
  * The pair is the key, so the same link twice is one row — which is what lets
  * a project's Split run again without doubling every link it proposed.
+ *
+ * Only tasks take part, and the links never form a cycle; the table cannot say
+ * either, so `../dependencies.ts` refuses them before a row is written.
  */
 export const cardDependency = sqliteTable(
   'card_dependency',
@@ -346,6 +351,7 @@ export const cardDependency = sqliteTable(
       .references(() => card.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
+  // The key serves "what does this card wait on"; the index, the other way.
   (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_on').on(t.dependsOnId)],
 );
 
