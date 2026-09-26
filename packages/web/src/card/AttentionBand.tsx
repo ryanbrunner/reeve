@@ -341,7 +341,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
   const commits = useQuery({
     queryKey: ['commits', card.id],
     queryFn: () => api.commits(card.id),
-    enabled: Boolean(worktree.path && worktree.base) && !card.mergedSha,
+    enabled: Boolean((worktree.path || worktree.branch) && worktree.base) && !card.mergedSha,
   });
   const open = useMutation({
     mutationFn: () => api.openPr(card.id),
@@ -395,7 +395,9 @@ function PullRequest({ detail }: { detail: CardDetail }) {
           merged into {typeof into === 'string' ? into : base}
         </div>
         <p className="mt-0.5 text-sm/5 text-(--color-muted)">
-          Merged on GitHub. The worktree and branch here are left as they were.
+          {worktree.path
+            ? `Merged on GitHub. The worktree is removed when the card is archived, with anything uncommitted in it; ${worktree.branch ?? 'the branch'} is kept.`
+            : `Merged on GitHub. The worktree has been removed; ${worktree.branch ?? 'the branch'} is kept.`}
         </p>
       </div>
     );

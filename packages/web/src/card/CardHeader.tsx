@@ -102,14 +102,16 @@ export function CardHeader({
       <div className="relative flex items-center gap-2">
         {/* The repo chip is the picker. Locked once there is a worktree: that
             and its branch belong to the repo they were made in, and the server
-            refuses the move for the same reason. */}
+            refuses the move for the same reason. A merged card's branch
+            outlives its worktree, so that stays locked for good. */}
         <select
           value={card.repoId ?? ''}
-          disabled={Boolean(card.worktreePath) || refile.isPending}
+          disabled={Boolean(card.worktreePath || (card.mergedAt != null && card.branchName)) || refile.isPending}
           onChange={(e) => refile.mutate(e.target.value || null)}
           aria-label="Repo"
           title={
             card.worktreePath ? 'Remove the worktree before moving the card to another repo'
+            : card.mergedAt != null && card.branchName ? 'Merged from this repo, where its branch is kept'
             : card.kind === 'project' ? 'The repo the project is split from, and its tasks default to'
             : 'Move the card to another repo'
           }

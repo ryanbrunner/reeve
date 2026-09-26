@@ -69,8 +69,9 @@ function Repo({ detail }: { detail: CardDetail }) {
   });
 
   // The branch and the directory on disk belong to the repo they were cut from,
-  // so once there is a tree the answer is settled. The server refuses this too.
-  const settled = Boolean(detail.worktree.path);
+  // so once there is a tree the answer is settled. So is a merged card's, whose
+  // branch outlives its tree and is read from that repo. The server refuses both.
+  const settled = Boolean(detail.worktree.path || (detail.card.mergedAt != null && detail.worktree.branch));
 
   return (
     <section className="flex flex-col gap-2">
@@ -111,7 +112,7 @@ function Repo({ detail }: { detail: CardDetail }) {
       )}
       {settled && (
         <p className="font-mono text-[10px]/4 text-(--color-muted)">
-          Fixed by the worktree. Remove it to move the card.
+          {detail.worktree.path ? 'Fixed by the worktree. Remove it to move the card.' : 'Fixed by the merged branch.'}
         </p>
       )}
       {assign.error && <p className="font-mono text-[10px]/4 text-red-300">{assign.error.message}</p>}
@@ -199,7 +200,9 @@ function Worktree({ detail }: { detail: CardDetail }) {
   const stop = useMutation({ mutationFn: () => api.stopServer(detail.card.id), onSuccess: invalidate });
 
   if (!worktree.path) {
-    const merged = detail.card.mergedSha;
+    const { mergedSha: merged, prUrl, prNumber } = detail.card;
+    // Newest first, so this is why the tree went last. The branch outlives it.
+    const removed = detail.events.find((e) => e.kind === 'worktree_removed');
     return (
       <section className="flex flex-col gap-2">
         <SectionHead>Worktree</SectionHead>
@@ -208,6 +211,26 @@ function Worktree({ detail }: { detail: CardDetail }) {
             <Fact label="Merged as">{merged.slice(0, 7)}</Fact>
             <Fact label="Into">{worktree.baseBranch}</Fact>
           </div>
+        ) : worktree.branch ? (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="inline-block rounded-sm bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
+                {removed?.meta?.['reason'] === 'archived' ? 'removed on archive' : 'removed'}
+              </span>
+              {removed && <span className="font-mono text-[11px]/4 text-(--color-muted)">{when(removed.createdAt)}</span>}
+            </div>
+            <div className="flex flex-col">
+              <Fact label="Branch">{worktree.branch}</Fact>
+              <Fact label="Base">{worktree.baseBranch}</Fact>
+              {prUrl && (
+                <Fact label="Pull request">
+                  <a href={prUrl} target="_blank" rel="noreferrer" className="text-sky-300 no-underline">
+                    #{prNumber}
+                  </a>
+                </Fact>
+              )}
+            </div>
+          </>
         ) : (
           <Empty>None yet</Empty>
         )}
@@ -359,11 +382,13 @@ function Checks({ detail }: { detail: CardDetail }) {
 }
 
 function Commits({ detail }: { detail: CardDetail }) {
-  // Only fetched once there is a worktree to ask about, or a merge to read.
+  // Only fetched once there is a worktree to ask about, the branch one left
+  // behind, or a merge to read.
+  const { worktree } = detail;
   const { data } = useQuery({
     queryKey: ['commits', detail.card.id],
     queryFn: () => api.commits(detail.card.id),
-    enabled: Boolean((detail.worktree.path && detail.worktree.base) || detail.card.mergedSha),
+    enabled: Boolean(((worktree.path || worktree.branch) && worktree.base) || detail.card.mergedSha),
   });
   if (!data?.length) return null;
   return (
