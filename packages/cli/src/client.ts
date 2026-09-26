@@ -1,29 +1,33 @@
 import {
   DEFAULT_PORT,
   type ApiCard,
+  type ApiError,
   type ApiQuestion,
+  type ApiRepo,
   type ApiRunSummary,
   type BoardResponse,
+  type CardDetail,
   type Stage,
 } from '@reeve/shared';
 import { CliError } from './output.js';
 
 /**
- * The CLI is a client of the running server, never of the database. Runs live
- * in the server's memory — their processes, their abort handles, the event bus
- * a transcript streams from — and a second process opening the database would
- * reap the live server's runs on the way in.
+ * The CLI is a client of the running server, never of the database. The
+ * server holds live runs in memory, and a second process opening the database
+ * would reap them on the way in — the same reason the spikes are told to keep
+ * off `data/reeve.db`.
  */
 
-/** Where the commands look for Reeve. `REEVE_URL` wins over `REEVE_PORT`; either way it is loopback. */
+/** Always loopback unless `REEVE_URL` says otherwise: that is all the server binds. */
 export function baseUrl(): string {
-  const url = process.env.REEVE_URL ?? `http://127.0.0.1:${Number(process.env.REEVE_PORT ?? DEFAULT_PORT)}`;
-  return url.replace(/\/+$/, '');
+  const port = Number(process.env.REEVE_PORT ?? DEFAULT_PORT);
+  return (process.env.REEVE_URL ?? `http://127.0.0.1:${port}`).replace(/\/+$/, '');
 }
 
 /**
- * Nothing listening, as opposed to something listening and failing. fetch says
- * only "fetch failed"; what went wrong is on its cause.
+ * Nothing listening, as opposed to something listening and failing. Worth
+ * telling apart because the first has one fix — start Reeve — and the second
+ * does not.
  */
 function isRefused(e: unknown): boolean {
   const cause = (e as { cause?: { code?: string; errors?: Array<{ code?: string }> } })?.cause;
@@ -33,38 +37,51 @@ function isRefused(e: unknown): boolean {
   return !!cause.errors?.length && cause.errors.every((err) => err.code === 'ECONNREFUSED');
 }
 
-function unreachable(url: string, e: unknown): CliError {
-  if (isRefused(e)) return new CliError(`Reeve isn't running at ${url} — start it with \`npm start\` in its checkout`);
-  return new CliError(`could not reach Reeve at ${url}: ${String((e as { cause?: unknown })?.cause ?? e)}`);
-}
+/** fetch says only "fetch failed"; what went wrong is on its cause. */
+const describe = (e: unknown) => String((e as { cause?: unknown })?.cause ?? e);
 
+/**
+ * One request, answered or refused. Handed back whole rather than parsed,
+ * because a run's transcript is read as a stream and never as JSON.
+ */
 async function send(path: string, init?: RequestInit): Promise<Response> {
   const url = baseUrl();
   let res: Response;
   try {
     res = await fetch(`${url}${path}`, init);
   } catch (e) {
-    throw unreachable(url, e);
+    // `reeve serve` is the launcher the sibling serve card adds; the CLI names
+    // it rather than `npm start`, which only works from inside Reeve's checkout.
+    if (isRefused(e)) throw new CliError(`Reeve isn't running at ${url} — start it with \`reeve serve\``);
+    throw new CliError(`could not reach Reeve at ${url}: ${describe(e)}`);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+    const body = (await res.json().catch(() => ({}))) as Partial<ApiError>;
     // The same message the web UI shows: `detail` is the sentence worth reading.
     const message = body.detail ? `${body.error}: ${body.detail}` : body.error;
-    // A bare "not found" does not say which id it was; the path does.
-    if (res.status === 404 && !body.detail) throw new CliError(`${message ?? 'not found'}: ${path}`);
-    throw new CliError(message ?? `HTTP ${res.status}`);
+    throw new CliError(message ?? `HTTP ${res.status} from ${path}`);
   }
   return res;
 }
 
-const get = <T>(path: string) => send(path).then((res) => res.json() as Promise<T>);
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init);
+  // Something else on the port, such as Vite's dev server or a Reeve from
+  // another checkout, can answer 200 with HTML. That is worth a sentence, not
+  // a SyntaxError's stack.
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new CliError(`${baseUrl()}${path} did not answer with JSON — is that Reeve's server?`);
+  }
+}
 
 const post = <T>(path: string, body: unknown) =>
-  send(path, {
+  request<T>(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  }).then((res) => res.json() as Promise<T>);
+  });
 
 const enc = encodeURIComponent;
 
@@ -99,17 +116,27 @@ export interface AnswerResponse {
   blocked?: string;
 }
 
+/**
+ * Each of these is one endpoint, answered with the server's own wire type, so
+ * `--json` can print what came back without a second shape to keep in step.
+ */
 export const api = {
-  board: () => get<BoardResponse>('/api/board'),
-  card: (id: string) => get<ApiCard>(`/api/cards/${enc(id)}`),
-  run: (id: string) => get<ApiRunSummary>(`/api/runs/${enc(id)}`),
+  board: () => request<BoardResponse>('/api/board'),
+  /** Everything off the board, projects included, most recently archived first. */
+  archived: () => request<ApiCard[]>('/api/cards/archived'),
+  repos: () => request<ApiRepo[]>('/api/repos'),
+  detail: (id: string) => request<CardDetail>(`/api/cards/${encodeURIComponent(id)}/detail`),
+  /** Newest first, every kind. An unknown id is an empty list rather than a 404, so resolve it first. */
+  runs: (id: string) => request<ApiRunSummary[]>(`/api/cards/${enc(id)}/runs`),
+  card: (id: string) => request<ApiCard>(`/api/cards/${enc(id)}`),
+  run: (id: string) => request<ApiRunSummary>(`/api/runs/${enc(id)}`),
 
   startRun: (cardId: string) => post<StartRunResponse>(`/api/cards/${enc(cardId)}/run`, {}),
   approve: (cardId: string, notes?: string) =>
     post<ApproveResponse>(`/api/cards/${enc(cardId)}/review`, { decision: 'approved', notes }),
   reject: (cardId: string, notes: string) =>
     post<RejectResponse>(`/api/cards/${enc(cardId)}/review`, { decision: 'rejected', notes }),
-  questions: (cardId: string) => get<ApiQuestion[]>(`/api/cards/${enc(cardId)}/questions`),
+  questions: (cardId: string) => request<ApiQuestion[]>(`/api/cards/${enc(cardId)}/questions`),
   answer: (cardId: string, questionId: string, answer: string) =>
     post<AnswerResponse>(`/api/cards/${enc(cardId)}/questions/${enc(questionId)}/answer`, { answer }),
   stopRun: (runId: string) => post<ApiRunSummary>(`/api/runs/${enc(runId)}/stop`, {}),

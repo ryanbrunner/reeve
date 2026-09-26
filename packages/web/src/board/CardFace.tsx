@@ -1,5 +1,19 @@
-import { canStartRun, type ApiCard } from '@reeve/shared';
+import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
+import { NeededByGlyph, WaitsGlyph } from './Glyph.js';
+import { useLinks, type LinkRole } from './links.js';
+
+/**
+ * How a card looks while another's chain is traced: what the focused card
+ * waits on ringed solid, what waits on it ringed dashed, and everything else
+ * stepped back. The focused card itself is left alone; the cursor is on it.
+ */
+const LINK_STYLE: Record<LinkRole, string> = {
+  focus: '',
+  upstream: 'card-link-up',
+  downstream: 'card-link-down',
+  unlinked: 'card-link-dim',
+};
 import { RunButton } from './RunButton.js';
 
 export function CardFace({
@@ -26,15 +40,21 @@ export function CardFace({
   // there is no calm state for "this is on main now", because on the calm board
   // a person put it there and knows.
   const skin = sicko && card.mergedAt != null ? 'sk-merged' : ACTIVITY_STYLE[card.activity];
+  const links = useLinks();
+  // The copy under the cursor mid-drag is not on the board, so it neither
+  // traces a chain nor takes part in one.
+  const role = dragging ? null : links.role(card.id);
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.
       // dnd-kit's sensor has a 4px activation distance, so a press that never
       // moved still arrives here as a click and a real drag never does.
       onClick={onOpen ? () => onOpen(card.id) : undefined}
-      className={`relative cursor-grab rounded-md border p-2.5 ${skin} ${
+      onMouseEnter={dragging ? undefined : () => links.enter(card.id)}
+      onMouseLeave={dragging ? undefined : () => links.leave(card.id)}
+      className={`relative cursor-grab rounded-md border p-2.5 transition-opacity duration-150 ${skin} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
-      } ${sicko ? 'sk-card' : ''}`}
+      } ${sicko ? 'sk-card' : ''} ${role ? LINK_STYLE[role] : ''}`}
     >
       {ACTIVITY_MARKS[card.activity]}
       {/* The title and footer are positioned so they read above the mark. */}
@@ -42,6 +62,16 @@ export function CardFace({
         {card.title}
       </p>
       <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${sicko ? 'sk-card-foot' : ''}`}>
+        {/* In SICKO MODE on its own. The one mark of it on the calm board, and
+            gone once merged: after that there is nothing left for it to do. */}
+        {!sicko && card.sicko && card.mergedAt == null && (
+          <span
+            className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold"
+            title="In SICKO MODE: Claude approves and merges this card with nobody reviewing it"
+          >
+            <span>sicko</span>
+          </span>
+        )}
         {/* In SICKO MODE the repo chip, the Run button and the PR link all give
             way to one chip: at 88px there is room for the state and the bill,
             and nothing on the card is pressable any more anyway. */}
@@ -56,6 +86,7 @@ export function CardFace({
             </span>
           )
         }
+        <Dependencies card={card} sicko={sicko} />
         {label && <span className="sr-only">{label}</span>}
         {/* Only an idle card shows a status chip, and only to surface the run
             status the glow cannot say — a cancelled run. */}
@@ -109,6 +140,68 @@ export function CardFace({
       )}
       {stamped && <span className="sk-stamp" aria-hidden="true">Merged</span>}
     </article>
+  );
+}
+
+/** How many waiting cards the blocked chip names before it says how many more. */
+const NAMED = 3;
+
+/**
+ * What this card waits on, and how many wait on it.
+ *
+ * Only an unfinished dependency makes the card blocked, and only those are
+ * named on the chip; the tooltip lists every one with where it stands. A card
+ * whose dependencies have all finished keeps a quiet chip rather than losing
+ * it, because "this waited on #12" is still true and still why it is here —
+ * it just no longer reads as a warning.
+ *
+ * The other direction is lighter on purpose: being needed is not a problem,
+ * so it is a glyph and a count, with the names in the tooltip.
+ *
+ * SICKO MODE's card has one footer line and no room to spare, so there it is
+ * the blocked chip alone: the first number and how many more.
+ */
+function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
+  const open = card.dependsOn.filter((d) => !d.done);
+  // `#142` is per repo, so one from another repo says which.
+  const ref = (d: ApiCardLink) => `${d.repoName && d.repoName !== card.repoName ? d.repoName : ''}#${d.number}`;
+  const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${d.done ? ' (done)' : ''}`).join('\n');
+  // Free to wrap: a column can be 136px wide, and three refs from another repo
+  // are wider than that. SICKO's one footer line cannot wrap, so it names one.
+  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]/4';
+  const named = sicko ? 1 : NAMED;
+  return (
+    <>
+      {open.length > 0 ?
+        <span
+          title={`Waits on\n${list}`}
+          className={`${chip} bg-(--color-dep-fill) text-(--color-dep) ${sicko ? 'sk-dep whitespace-nowrap' : ''}`}
+        >
+          <WaitsGlyph />
+          <span className="sr-only">Blocked:</span>
+          {!sicko && 'waits on'} {open.slice(0, named).map(ref).join(' ')}
+          {open.length > named && ` +${open.length - named}`}
+        </span>
+      : !sicko && card.dependsOn.length > 0 && (
+          <span title={`Waited on, all done\n${list}`} className={`${chip} bg-slate-500/15 text-(--color-muted)`}>
+            <WaitsGlyph open />
+            <span className="sr-only">Dependencies done:</span>
+            {card.dependsOn.slice(0, NAMED).map(ref).join(' ')}
+            {card.dependsOn.length > NAMED && ` +${card.dependsOn.length - NAMED}`}
+          </span>
+        )
+      }
+      {!sicko && card.dependents.length > 0 && (
+        <span
+          title={`${card.dependents.length} ${card.dependents.length === 1 ? 'card waits' : 'cards wait'} on this`}
+          className="inline-flex items-center gap-1 font-mono text-[10px]/4 text-(--color-muted)"
+        >
+          <NeededByGlyph />
+          <span className="sr-only">Needed by</span>
+          {card.dependents.length}
+        </span>
+      )}
+    </>
   );
 }
 

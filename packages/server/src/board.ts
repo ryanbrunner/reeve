@@ -1,6 +1,6 @@
 import { deriveActivity, isRunnable, type ApiCard, type CardActivity, type RunnableStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { latestClaudeRunForStage } from './db/queries.js';
+import { dependencyLinks, latestClaudeRunForStage, type DependencyLinks } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
@@ -25,11 +25,16 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
   return { activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run) }), run };
 }
 
+/**
+ * `links` is for a caller mapping many cards, which reads the dependency table
+ * once and hands the lookup to each. Left out, only this card's rows are read.
+ */
 export function toBoardCard(
   db: Db,
   card: Card,
   repoName: string | null,
   laneColor: string | null,
+  links: (id: string) => DependencyLinks = dependencyLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
   // Only Done offers a resolution. A card dragged back for another round keeps
@@ -40,7 +45,7 @@ export function toBoardCard(
     prConflicting: openInDone && isPrConflicting(card),
     resolvingConflicts: isResolvingConflicts(card.id),
     startingStage: isStartingStage(card.id),
-  });
+  }, links(card.id));
 }
 
 /**

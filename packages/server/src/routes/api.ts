@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES } from '@reeve/shared';
 import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { toBoardCard } from '../board.js';
+import { blockedStart } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
@@ -11,6 +12,7 @@ import {
   boardProjects,
   createCard,
   createRepo,
+  dependencyLinks,
   getCard,
   getSettings,
   listRepos,
@@ -33,6 +35,7 @@ import { sickoState } from '../sicko/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
+import { usageState } from '../usage.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -61,6 +64,7 @@ const updateCardSchema = z.object({
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
   generateMockups: z.boolean().optional(),
+  sicko: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({
@@ -153,13 +157,16 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.get('/board', (c) => {
     const rows = boardCards(db);
+    const links = dependencyLinks(db);
     const body: BoardResponse = {
       repos: listRepos(db).map(toApiRepo),
       projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
-      cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor)),
+      cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)),
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
       sicko: sickoState(db),
+      // Here for the same reason. Read from memory, never the table: see usage.ts.
+      usage: usageState(Date.now()),
     };
     return c.json(body);
   });
@@ -323,6 +330,14 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (projectId && !liveProject(db, projectId)) {
       return c.json({ error: 'no such project', detail: projectId }, 400);
     }
+    // Leaving Backlog is starting the card, and a card whose dependencies are
+    // not done may not start. Only leaving it: a reorder within Backlog is
+    // fine, and a card already past it when a dependency was added moves as
+    // it likes, since this rule guards starting and never pulls a card back.
+    if (before.stage === 'backlog' && parsed.data.stage !== 'backlog') {
+      const blocked = blockedStart(db, before);
+      if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
+    }
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index, 'human', projectId);
     if (!moved) return c.json({ error: 'not found' }, 404);
     // Started before the response is built, so the card it returns already
@@ -336,9 +351,10 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, moved, null, null));
   });
 
-  api.get('/cards/archived', (c) =>
-    c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor))),
-  );
+  api.get('/cards/archived', (c) => {
+    const links = dependencyLinks(db);
+    return c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)));
+  });
 
   // One card as the board has it. After `/cards/archived`, which it would
   // otherwise answer for. `reeve card wait` polls this: `/detail` is the whole

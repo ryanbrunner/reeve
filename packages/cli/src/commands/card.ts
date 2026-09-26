@@ -1,11 +1,14 @@
-import { parseArgs } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { ApiCard, ApiQuestion } from '@reeve/shared';
-import { api } from '../client.js';
+import { parseArgs } from 'node:util';
+import { STAGE_LABELS, type ApiCard, type ApiQuestion, type CardDetail } from '@reeve/shared';
+import { api, baseUrl } from '../client.js';
 import { EXIT, waitOutcome, type WaitExit } from '../exit.js';
 import {
   CliError,
+  activityLabel,
   cardRef,
+  formatCost,
+  formatTime,
   note,
   parseOrUsage,
   print,
@@ -14,8 +17,91 @@ import {
   textOrFile,
   usageError,
 } from '../output.js';
-import { resolveCard } from '../resolve.js';
+import { resolveCard, resolveCardOnBoard } from '../resolve.js';
 import { followRun } from './run.js';
+import { renderRuns, totalCost } from './runs.js';
+
+/** Runs listed before the rest are only counted. `reeve runs` has them all. */
+const RUNS_SHOWN = 5;
+
+const indent = (text: string, by = '  ') =>
+  text
+    .split('\n')
+    .map((line) => (line ? `${by}${line}` : line))
+    .join('\n');
+
+function render(detail: CardDetail, projectTitle: string | null): string {
+  const { card, worktree } = detail;
+  const sections: string[] = [];
+
+  const facts: Array<[string, string | null]> = [
+    ['Id', card.id],
+    // A project sits in no column, whatever its row says, so it has no stage to show.
+    card.kind === 'project'
+      ? ['Kind', 'project']
+      : ['Stage', `${STAGE_LABELS[card.stage]} · ${activityLabel(card.activity)}`],
+    ['Repo', card.repoName],
+    ['Project', projectTitle],
+    ['Archived', card.archivedAt === null ? null : formatTime(card.archivedAt)],
+    ['Branch', worktree.branch],
+    ['Worktree', worktree.path && (worktree.exists ? worktree.path : `${worktree.path} (removed)`)],
+    ['PR', card.prUrl ?? (card.openingPr ? 'opening…' : null)],
+    ['Merged', card.mergedAt === null ? null : formatTime(card.mergedAt)],
+    ['Link', `${baseUrl()}/?card=${encodeURIComponent(card.id)}`],
+  ];
+  const shown = facts.filter((f): f is [string, string] => f[1] !== null);
+  const width = Math.max(...shown.map(([label]) => label.length));
+  sections.push([card.title, ...shown.map(([label, value]) => `${label.padEnd(width)}  ${value}`)].join('\n'));
+
+  if (card.body.trim()) sections.push(indent(card.body.trim()));
+
+  if (detail.criteria.length > 0) {
+    const lines = detail.criteria.map((c) => `  [${(c.verdict ?? '').padEnd(4)}] ${c.text}`);
+    sections.push(['Criteria', ...lines].join('\n'));
+  }
+
+  // Only the open ones: an answered question is history, and the events have it.
+  const open = detail.questions.filter((q) => q.answer === null);
+  if (open.length > 0) {
+    const lines = open.flatMap((q) => [`  ${q.position}. ${q.text}`, ...q.suggestions.map((s) => `     - ${s}`)]);
+    sections.push(['Open questions', ...lines].join('\n'));
+  }
+
+  if (detail.plan) {
+    const { plan } = detail;
+    sections.push(`Plan v${plan.version} (${plan.risk} risk, ${plan.steps.length} steps)\n${indent(plan.summary)}`);
+  }
+  if (detail.implementation) sections.push(`Implementation\n${indent(detail.implementation.summary)}`);
+  if (detail.checks) {
+    const { checks } = detail;
+    const verdict = checks.passed ? 'passed' : 'failed';
+    sections.push(
+      `Checks ${verdict} (${checks.criteriaVerified}/${checks.criteriaTotal} criteria)\n${indent(checks.summary)}`,
+    );
+  }
+
+  if (detail.runs.length > 0) {
+    const lines = renderRuns(detail.runs.slice(0, RUNS_SHOWN), '  ');
+    const more = detail.runs.length - RUNS_SHOWN;
+    if (more > 0) lines.push(`  …and ${more} more`);
+    sections.push([`Runs (${detail.runs.length} · ${formatCost(totalCost(detail.runs))})`, ...lines].join('\n'));
+  }
+
+  return sections.join('\n\n');
+}
+
+/** One card in full, by id or a unique prefix of one. `--json` is the detail endpoint's answer as it came. */
+async function show(args: string[]): Promise<void> {
+  const { values, positionals } = parseOrUsage(() =>
+    parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }),
+  );
+  if (positionals.length !== 1) throw usageError('card show takes one card');
+  const { card, cards } = await resolveCard(positionals[0]!);
+  const detail = await api.detail(card.id);
+  if (values.json) return printJson(detail);
+  const project = detail.card.projectId ? cards.find((c) => c.id === detail.card.projectId) : undefined;
+  print(render(detail, project?.title ?? null));
+}
 
 /** How often `wait` asks. The board polls at about this pace while a card is running. */
 const POLL_MS = 2_000;
@@ -45,7 +131,7 @@ async function run(args: string[]): Promise<void> {
       options: { follow: { type: 'boolean', short: 'f' }, json: { type: 'boolean' } },
     }),
   );
-  const card = await resolveCard(oneCard('run', positionals));
+  const card = await resolveCardOnBoard(oneCard('run', positionals));
   const result = await api.startRun(card.id);
   if (values.json && !values.follow) return printJson(result);
   await started(result.runId, `started ${stageLabel(card.stage)} on ${cardRef(card)}`, !!values.follow, !!values.json);
@@ -65,7 +151,7 @@ async function approve(args: string[]): Promise<void> {
     }),
   );
   const notes = textOrFile(values.notes, values['notes-file'], 'notes');
-  const card = await resolveCard(oneCard('approve', positionals));
+  const card = await resolveCardOnBoard(oneCard('approve', positionals));
   const result = await api.approve(card.id, notes?.trim() || undefined);
   if (values.json) return printJson(result);
   note(
@@ -91,7 +177,7 @@ async function reject(args: string[]): Promise<void> {
   const notes = textOrFile(values.notes, values['notes-file'], 'notes')?.trim();
   // The server says the same, but only after the card has been looked up.
   if (!notes) throw usageError('a rejection needs --notes: they are the prompt for the next run');
-  const card = await resolveCard(oneCard('reject', positionals));
+  const card = await resolveCardOnBoard(oneCard('reject', positionals));
   const result = await api.reject(card.id, notes);
   if (values.json && !values.follow) return printJson(result);
   await started(
@@ -113,7 +199,7 @@ async function questions(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() =>
     parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }),
   );
-  const card = await resolveCard(oneCard('questions', positionals));
+  const card = await resolveCardOnBoard(oneCard('questions', positionals));
   const list = await api.questions(card.id);
   if (values.json) return printJson(list);
   if (list.length === 0) return note(`${cardRef(card)} has no questions in ${stageLabel(card.stage)}`);
@@ -139,7 +225,7 @@ async function answer(args: string[]): Promise<void> {
   if (!ref || !which) throw usageError('reeve card answer takes a card, a question and an answer');
   if (words.length > 0 && values.suggestion !== undefined) throw usageError('give an answer or --suggestion, not both');
 
-  const card = await resolveCard(ref);
+  const card = await resolveCardOnBoard(ref);
   const list = await api.questions(card.id);
   const question = /^\d+$/.test(which) ? list.find((q) => q.position === Number(which)) : list.find((q) => q.id === which);
   if (!question) throw new CliError(`${cardRef(card)} has no question ${which} in ${stageLabel(card.stage)}`);
@@ -197,7 +283,7 @@ async function wait(args: string[]): Promise<void> {
     deadline = Date.now() + seconds * 1000;
   }
 
-  let card = await resolveCard(oneCard('wait', positionals));
+  let card = await resolveCardOnBoard(oneCard('wait', positionals));
   let said = '';
   for (;;) {
     const outcome = waitOutcome(card) ?? (Date.now() >= deadline ? EXIT.timeout : null);
@@ -224,7 +310,12 @@ function failure(card: ApiCard, outcome: WaitExit): string {
   return `: ${errorMessage ?? stopReason ?? card.latestRun.status}`;
 }
 
-export const cardCommands: Record<string, (args: string[]) => Promise<void>> = {
+/**
+ * `reeve card <verb>`: everything done to one card, under the noun it is done
+ * to. `show` reads it; the rest drive the stage the card is in.
+ */
+const VERBS: Record<string, (args: string[]) => Promise<void>> = {
+  show,
   run,
   approve,
   reject,
@@ -232,3 +323,11 @@ export const cardCommands: Record<string, (args: string[]) => Promise<void>> = {
   answer,
   wait,
 };
+
+export async function card(args: string[]): Promise<void> {
+  const [verb, ...rest] = args;
+  if (verb === undefined) throw usageError(`card needs a verb: ${Object.keys(VERBS).join(', ')}`);
+  const go = Object.hasOwn(VERBS, verb) ? VERBS[verb] : undefined;
+  if (!go) throw usageError(`unknown card verb '${verb}'`);
+  return go(rest);
+}

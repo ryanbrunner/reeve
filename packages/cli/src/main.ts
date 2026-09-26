@@ -1,57 +1,68 @@
 import { DEFAULT_PORT } from '@reeve/shared';
-import { cardCommands } from './commands/card.js';
+import { board } from './commands/board.js';
+import { card } from './commands/card.js';
+import { repos } from './commands/repos.js';
 import { runCommands } from './commands/run.js';
+import { runs } from './commands/runs.js';
 import { EXIT } from './exit.js';
 import { CliError, note, print, usageError } from './output.js';
 
-const USAGE = `Usage: reeve <card|run> <command> [options]
+const USAGE = `Usage: reeve <command> [options]
 
+  reeve board [--repo NAME] [--project TITLE|ID] [--stage S] [--archived] [--json]
+      The board, column by column: each card's id, activity, repo, project
+      and title, then the projects. --archived lists what is off the board.
+  reeve card show <card> [--json]
+      A card in full: its facts, criteria, open questions, plan and runs.
+  reeve repos [--json]
+      The repos cards can be made in.
   reeve card run <card> [--follow] [--json]
-      Start the card's stage. Prints the run id.
-  reeve card approve <card> [--notes TEXT | --notes-file PATH|-] [--json]
-      Pass the review gate: the card moves on one column and its next stage starts.
-  reeve card reject <card> (--notes TEXT | --notes-file PATH|-) [--follow] [--json]
-      Send the stage back. The notes are the next run's prompt. Prints the run id.
-  reeve card questions <card> [--json]
-      What the stage's run asked, and what has been answered.
-  reeve card answer <card> <question> (<answer…> | --suggestion N) [--json]
-      Answer one, by its number or id. The last answer resumes the run and prints its id.
-  reeve card wait <card> [--timeout SECONDS] [--json]
-      Block until the card needs a person, and exit saying why (below).
-  reeve run follow <run> [--json]
-      The run's transcript, from the start, until it ends.
-  reeve run stop <run> [--json]
-      Stop a run.
+      Start the stage the card is in. --follow streams the run's transcript.
+  reeve card approve <card> [--notes T] / reject <card> --notes T
+      The verdict a person gives a finished stage. Approving does not move the
+      card; a human does that.
+  reeve card questions <card> [--json] / answer <card> <question> <answer>
+      What Claude could not decide for itself, and the answer that resumes it.
+  reeve card wait <card> [--timeout S] [--json]
+      Block until the card's run wants a person, and say which by exit status.
+  reeve runs <card> [--json]
+      Every run a card has had, newest first.
+  reeve run follow <run> [--json] / run stop <run>
+      Stream a run already going, or stop it.
 
-<card>   its id, the start of its id, 142, #142 or <repo>#142
+<card>   a card's id, or any prefix of it no other card shares. The board
+         shows the first 8 characters, which are what its branch is named
+         after. The verbs that drive a run also take its number: 142, #142,
+         or repo#142 while two repos both have one.
+<stage>  backlog, planning, in-progress, testing or done
 
-Exit codes. wait ends with the first that applies; follow uses the same for how its run ended.
-  ${EXIT.ok}  wait: the run finished and awaits review    follow: the run succeeded
-  ${EXIT.error}  something went wrong: Reeve unreachable, no such card, the server refused
-  ${EXIT.usage}  the command line was wrong
-  ${EXIT.needsInput}  wait: Claude asked questions (reeve card questions)
-  ${EXIT.failed}  wait: the stage's run failed or was interrupted    follow: the run did
-  ${EXIT.idle}  wait: nothing running or waiting — Backlog, Done, stopped, or refused a start
-     follow: the run was stopped
-  ${EXIT.timeout}  wait: --timeout ran out with the card still running
+--json prints the API's answer unchanged, filtered by any flags given, alone
+on stdout. Anything said to a person goes to stderr.
 
-Nothing here approves on its own. --follow streams the run a command started, as run follow does.
---json puts JSON alone on stdout (one event per line for follow); messages go to stderr.
-Talks to $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
+Exit status is 0 on success, 1 when Reeve refused or could not be reached, and
+2 for a mistake in the command itself. card wait says how the run ended with
+a status of its own: ${EXIT.needsInput} questions asked, ${EXIT.failed} the run failed, ${EXIT.idle} nothing
+running, ${EXIT.timeout} --timeout ran out.
 
-const GROUPS: Record<string, Record<string, (args: string[]) => Promise<void>>> = {
-  card: cardCommands,
-  run: runCommands,
-};
+Talks to a running Reeve at $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
+
+/** `reeve run <verb>`: what is done to a run already going, rather than to its card. */
+async function run(args: string[]): Promise<void> {
+  const [verb, ...rest] = args;
+  if (verb === undefined) throw usageError(`run needs a verb: ${Object.keys(runCommands).join(', ')}`);
+  const go = Object.hasOwn(runCommands, verb) ? runCommands[verb] : undefined;
+  if (!go) throw usageError(`unknown run verb '${verb}'`);
+  return go(rest);
+}
+
+const COMMANDS: Record<string, (args: string[]) => Promise<void>> = { board, card, repos, run, runs };
 
 async function main(argv: string[]): Promise<void> {
-  const [group, command, ...rest] = argv;
-  if (group === undefined || group === 'help' || argv.includes('--help') || argv.includes('-h')) return print(USAGE);
-  const commands = Object.hasOwn(GROUPS, group) ? GROUPS[group] : undefined;
-  if (!commands) throw usageError(`unknown command '${group}'`);
-  const run = command !== undefined && Object.hasOwn(commands, command) ? commands[command] : undefined;
-  if (!run) throw usageError(command === undefined ? `reeve ${group} needs a command` : `unknown command '${group} ${command}'`);
-  return run(rest);
+  const [first] = argv;
+  if (first === undefined || first === 'help' || argv.includes('--help') || argv.includes('-h')) return print(USAGE);
+  const command = Object.hasOwn(COMMANDS, first) ? COMMANDS[first] : undefined;
+  if (!command) throw usageError(`unknown command '${first}'`);
+  return command(argv.slice(1));
 }
 
 try {
@@ -59,6 +70,6 @@ try {
 } catch (e) {
   if (!(e instanceof CliError)) throw e;
   note(`reeve: ${e.message}`);
-  if (e.exitCode === EXIT.usage) note(`\n${USAGE}`);
+  if (e.exitCode === 2) note(`\n${USAGE}`);
   process.exitCode = e.exitCode;
 }

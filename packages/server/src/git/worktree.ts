@@ -172,18 +172,19 @@ export interface CreatedWorktree {
   baseSha: string;
 }
 
+/** `base` is anything `rev-parse` takes: the sha just fetched, or a branch name. */
 export async function createWorktree(opts: {
   repoPath: string;
   worktreeRoot: string;
   cardId: string;
   title: string;
-  baseBranch: string;
+  base: string;
 }): Promise<CreatedWorktree> {
-  const { repoPath, worktreeRoot, cardId, title, baseBranch } = opts;
+  const { repoPath, worktreeRoot, cardId, title, base } = opts;
   const path = worktreePathFor(worktreeRoot, cardId);
   const branch = branchNameFor(cardId, title);
 
-  const baseSha = (await git(repoPath, ['rev-parse', baseBranch])).trim();
+  const baseSha = (await git(repoPath, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
   await git(repoPath, ['worktree', 'add', '-b', branch, path, baseSha]);
   return { path, branch, baseSha };
 }
@@ -273,10 +274,14 @@ export async function commitAt(repoPath: string, sha: string): Promise<CommitRef
  * How far the base branch has moved on since this worktree started — the rail's
  * "main · 2 behind". Counts commits on the base that the worktree lacks, which
  * is not the same as commits it is missing from its own history.
+ *
+ * Against `origin/<base>`, as last fetched: the local branch is the person's,
+ * and moves only when they pull. Nothing here fetches — a card view stays
+ * offline, and the merge sync keeps the remote-tracking ref current.
  */
 export async function behindBase(worktreePath: string, baseBranch: string): Promise<number | null> {
   try {
-    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..${baseBranch}`]);
+    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..origin/${baseBranch}`]);
     const n = Number.parseInt(out.trim(), 10);
     return Number.isNaN(n) ? null : n;
   } catch {

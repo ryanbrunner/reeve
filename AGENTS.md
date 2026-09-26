@@ -32,10 +32,11 @@ npm workspaces, four packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
-- `packages/cli` (`@reeve/cli`) — the `reeve` command. A client of the running
-  server's HTTP API and nothing else: it never opens the database, because
-  runs live in the server's memory and a second process opening the database
-  reaps them. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command, an HTTP client of a
+  running server and never of its database: runs live in the server's memory,
+  and a second process opening the database reaps them. Its `--json` output is
+  the API's own wire types from `@reeve/shared`, unreshaped; see its README.
+  Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
 
 ## Commands
 
@@ -49,6 +50,8 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   When that exists, `npm start` serves it from the server on the same port.
 - `npm run seed` — one repo and four cards, into an empty database only. Its
   repo paths are hard-coded to one machine.
+- `npm run cli -- board` — the `reeve` CLI without linking it, against the
+  server on `REEVE_URL` or `REEVE_PORT`.
 - `npm run typecheck` — `tsc --noEmit` in every workspace.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
 - `npm run -s reeve -- <args>` — the CLI, against a server that is already
