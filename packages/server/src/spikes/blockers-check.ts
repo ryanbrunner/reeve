@@ -166,8 +166,14 @@ const releasedIdlePlanner = getCard(db, idlePlanner.id)!.stage;
 const unblockedRun = await startStage(db, writer, getCard(db, latecomer.id)!, repo);
 updateSettings(db, { vibes: false });
 
-const ok = (label: string, got: unknown, want: unknown) =>
-  console.log(`${JSON.stringify(got) === JSON.stringify(want) ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}`);
+// Counted as well as printed, so a ✗ fails the exit code rather than waiting
+// for someone to read every line; vibes-check's went unnoticed that way.
+let failed = 0;
+const ok = (label: string, got: unknown, want: unknown) => {
+  const pass = JSON.stringify(got) === JSON.stringify(want);
+  if (!pass) failed++;
+  console.log(`${pass ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}${pass ? '' : ` (wanted ${JSON.stringify(want)})`}`);
+};
 
 console.log('\n--- the drag ---');
 ok('leaving Backlog is refused with a 409', dragged.status, 409);
@@ -230,4 +236,5 @@ ok('and moves on the one with no plan', releasedIdlePlanner, 'in_progress');
 // worktree in — and that is the point: it got past the dependency.
 ok('and the card past Backlog is no longer refused for it', unblockedRun.ok ? null : unblockedRun.error, 'could not create the worktree');
 
-process.exit(0);
+console.log(failed === 0 ? '\nall blocker checks pass' : `\n${failed} FAILED`);
+process.exit(failed === 0 ? 0 : 1);
