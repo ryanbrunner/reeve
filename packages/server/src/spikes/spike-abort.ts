@@ -19,7 +19,7 @@ const q = query({
   options: {
     cwd: dir, sessionId, model: 'claude-sonnet-5', abortController: ac,
     permissionMode: 'acceptEdits', permissionPrompts: 'none',
-    allowedTools: ['Bash'], maxBudgetUsd: 1.0,
+    allowedTools: ['Bash'],
   },
 });
 
@@ -47,7 +47,7 @@ let recalled = '';
 try {
   for await (const m of query({
     prompt: once('Do not run commands. In one short sentence: did your sleep command finish?'),
-    options: { cwd: dir, resume: sessionId, model: 'claude-sonnet-5', permissionMode: 'plan', permissionPrompts: 'none', maxBudgetUsd: 0.5 },
+    options: { cwd: dir, resume: sessionId, model: 'claude-sonnet-5', permissionMode: 'plan', permissionPrompts: 'none',},
   })) {
     if (m.type === 'result') recalled = ((m as { result?: string }).result ?? '').replace(/\s+/g, ' ').slice(0, 130);
   }

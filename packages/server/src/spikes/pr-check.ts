@@ -95,7 +95,7 @@ const repo = createRepo(db, {
 /** A card with a worktree and, unless told otherwise, one commit — as In Progress would leave it. */
 async function card(title: string, files: Record<string, string> = {}) {
   const c = createCard(db, { title, repoId: repo.id, stage: 'testing' });
-  const wt = await createWorktree({ repoPath, worktreeRoot, cardId: c.id, title, baseBranch: 'main' });
+  const wt = await createWorktree({ repoPath, worktreeRoot, cardId: c.id, title, base: 'main' });
   db.update(cardTable)
     .set({ worktreePath: wt.path, branchName: wt.branch, baseSha: wt.baseSha })
     .where(eq(cardTable.id, c.id))

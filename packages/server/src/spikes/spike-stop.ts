@@ -23,7 +23,7 @@ const q = query({
   options: {
     cwd: dir, sessionId, model: 'claude-sonnet-5',
     permissionMode: 'acceptEdits', permissionPrompts: 'none',
-    allowedTools: ['Bash'], maxBudgetUsd: 1.0,
+    allowedTools: ['Bash'],
   },
 });
 
@@ -54,7 +54,7 @@ note('result', resultLine);
 let recalled = '';
 for await (const m of query({
   prompt: once('Do not run any commands. Which of the three sleep commands did you actually finish? One short sentence.'),
-  options: { cwd: dir, resume: sessionId, model: 'claude-sonnet-5', permissionMode: 'plan', permissionPrompts: 'none', maxBudgetUsd: 0.5 },
+  options: { cwd: dir, resume: sessionId, model: 'claude-sonnet-5', permissionMode: 'plan', permissionPrompts: 'none',},
 })) {
   if (m.type === 'result') {
     recalled = ((m as { result?: string }).result ?? '').replace(/\s+/g, ' ').slice(0, 150);

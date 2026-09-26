@@ -63,3 +63,15 @@ export const ACTIVITY_LABELS: Partial<Record<CardActivity, string>> = {
   needs_input: 'Needs your answer',
   error: 'Error',
 };
+
+/**
+ * Each non-idle state's colour, for when there is no card face to glow: a
+ * collapsed lane's header tallies them with a dot. Most urgent first, which is
+ * the order they are drawn in — a person is waiting on the first two.
+ */
+export const ACTIVITY_DOTS: ReadonlyArray<{ activity: CardActivity; color: string }> = [
+  { activity: 'needs_input', color: 'var(--color-activity-input-mark)' },
+  { activity: 'needs_review', color: 'var(--color-activity-review-mark)' },
+  { activity: 'error', color: 'var(--color-activity-error-mark)' },
+  { activity: 'running', color: 'var(--color-activity-running-mark)' },
+];

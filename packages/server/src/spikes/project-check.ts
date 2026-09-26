@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import type { ApiCard, BoardResponse } from '@reeve/shared';
 import { createApp } from '../index.js';
-import { cardEventsFor, createRepo, criteriaFor, getCard, listRepos, runsForCard, tasksInProject } from '../db/queries.js';
+import { allDependencies, cardEventsFor, createRepo, criteriaFor, getCard, listRepos, runsForCard, tasksInProject } from '../db/queries.js';
 import { splitProjectTask } from '../stages/split_project.js';
 import type { StageContext } from '../stages/types.js';
 
@@ -81,10 +81,10 @@ const stored = getCard(db, project.id)!;
 const ctx = { card: stored, repo: api, worktreePath: api.repoPath } as StageContext;
 splitProjectTask.onPersist!(db, ctx, {
   tasks: [
-    { title: 'Web task', body: 'b', repo: web.name, criteria: ['one', 'two'] },
-    { title: 'Default task', body: 'b', repo: null, criteria: [] },
-    { title: 'Unknown repo task', body: 'b', repo: 'nope', criteria: [] },
-    { title: 'SECOND', body: 'b', repo: null, criteria: [] },
+    { title: 'Web task', body: 'b', repo: web.name, criteria: ['one', 'two'], dependsOn: [] },
+    { title: 'Default task', body: 'b', repo: null, criteria: [], dependsOn: [] },
+    { title: 'Unknown repo task', body: 'b', repo: 'nope', criteria: [], dependsOn: [] },
+    { title: 'SECOND', body: 'b', repo: null, criteria: [], dependsOn: [] },
   ],
 }, 'run');
 const made = tasksInProject(db, project.id);
@@ -99,5 +99,41 @@ assert.equal(named('Web task').stage, 'backlog');
 
 board = (await call<BoardResponse>('GET', '/api/board')).json;
 assert.equal(board.projects.find((p) => p.id === project.id)?.taskCount, 4);
+
+// What a split's links become: resolved by title, in any case, against the
+// tasks it made and the ones already there, whichever order they came in —
+// and never to nothing, to itself, to an archived task or round in a loop.
+const retired = (await call<ApiCard>('POST', '/api/cards', { title: 'Retired', repoId: api.id, projectId: project.id })).json;
+await call('POST', `/api/cards/${retired.id}/archive`);
+assert.ok(getCard(db, retired.id)?.archivedAt, 'archived before the split names it');
+const linked = {
+  tasks: [
+    { title: 'Schema', body: 'b', repo: null, criteria: [], dependsOn: [] },
+    { title: 'Screen', body: 'b', repo: null, criteria: [], dependsOn: ['schema', 'Endpoint', 'Endpoint'] },
+    { title: 'Endpoint', body: 'b', repo: null, criteria: [], dependsOn: [' SCHEMA ', 'second', 'Screen'] },
+    { title: 'Loner', body: 'b', repo: null, criteria: [], dependsOn: ['Loner', 'No such task', 'retired'] },
+    { title: 'Web task', body: 'b', repo: null, criteria: [], dependsOn: ['Schema'] },
+  ],
+};
+splitProjectTask.onPersist!(db, ctx, linked, 'run');
+const titleOf = new Map(tasksInProject(db, project.id).map((c) => [c.id, c.title]));
+const links = () =>
+  allDependencies(db)
+    .filter((d) => titleOf.has(d.cardId))
+    .map((d) => `${titleOf.get(d.cardId)} → ${titleOf.get(d.dependsOnId)}`)
+    .sort();
+assert.deepEqual(links(), [
+  // Endpoint → Screen is dropped: Screen named Endpoint first.
+  'Endpoint → Schema',
+  'Endpoint → second',
+  'Screen → Endpoint',
+  'Screen → Schema',
+  // Nothing from Loner, and nothing onto "Web task", which was already there.
+]);
+
+// Split again with the same answer: no new cards, and no second copy of a link.
+splitProjectTask.onPersist!(db, ctx, linked, 'run');
+assert.equal(tasksInProject(db, project.id).length, 9);
+assert.equal(links().length, 4);
 
 console.log('[reeve] projects check passed');

@@ -117,8 +117,22 @@
     {
       "idx": 16,
       "version": "6",
-      "when": 1790421898769,
-      "tag": "0016_drop_repo_budget",
+      "when": 1790368332506,
+      "tag": "0016_card_dependency",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790422061217,
+      "tag": "0017_card_sicko",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790427947271,
+      "tag": "0018_drop_repo_budget",
       "breakpoints": true
     }
   ]

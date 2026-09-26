@@ -5,6 +5,7 @@ import {
   STAGE_LABELS,
   isRunnable,
   needsWorktree,
+  type ApiCard,
   type ApiRunSummary,
   type CardDetail,
   type EffortLevel,
@@ -22,13 +23,14 @@ import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
  * these are things the system knows rather than things a person wrote, and
  * they should read as reference rather than as prose.
  */
-export function Rail({ detail }: { detail: CardDetail }) {
+export function Rail({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
   return (
     <aside
       aria-label="Card facts"
       className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
     >
       <Repo detail={detail} />
+      <Dependencies detail={detail} onOpen={onOpen} />
       <Model detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
@@ -121,6 +123,162 @@ function Repo({ detail }: { detail: CardDetail }) {
 
 const SELECT =
   'w-full rounded-sm border border-(--color-edge) bg-(--color-ink) px-1.5 py-1 font-mono text-[11px]/[18px] text-(--color-text) outline-none focus:border-sky-600 disabled:opacity-50';
+
+/**
+ * The tasks this card depends on, and the ones that depend on it.
+ *
+ * Each opens in this card's place, the way a project's tasks do. The linked
+ * cards come off the detail rather than the board because the board has no
+ * archived cards, and a dependency that merged and left is still one. The
+ * picker is the board's cards, though: something to start depending on now
+ * has to be live.
+ */
+function Dependencies({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const invalidate = () => {
+    // Every card detail rather than this one's: the card at the other end of
+    // the link has just gained or lost a dependent.
+    void qc.invalidateQueries({ queryKey: ['card'] });
+    void qc.invalidateQueries({ queryKey: ['board'] });
+  };
+  const add = useMutation({
+    mutationFn: (dependsOnId: string) => api.addDependency(detail.card.id, { dependsOnId }),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (dependsOnId: string) => api.removeDependency(detail.card.id, dependsOnId),
+    onSuccess: invalidate,
+  });
+
+  const { dependsOn, dependents } = detail.dependencies;
+  const groups = byRepo(pickable(data?.cards ?? [], detail.card));
+  const error = add.error ?? remove.error;
+
+  return (
+    <>
+      <section className="flex flex-col gap-2">
+        <SectionHead count={dependsOn.length || undefined}>Depends on</SectionHead>
+        {dependsOn.length > 0 && (
+          <div className="-mx-1.5 flex flex-col">
+            {dependsOn.map((c) => (
+              <LinkedCard
+                key={c.id}
+                card={c}
+                onOpen={onOpen}
+                onRemove={() => !remove.isPending && remove.mutate(c.id)}
+              />
+            ))}
+          </div>
+        )}
+        <select
+          aria-label="Add a card this one depends on"
+          value=""
+          disabled={add.isPending || groups.length === 0}
+          onChange={(e) => {
+            if (e.target.value) add.mutate(e.target.value);
+          }}
+          className={SELECT}
+        >
+          <option value="">{groups.length ? 'Add a dependency…' : 'No other cards to depend on'}</option>
+          {groups.map(([repo, cards]) => (
+            <optgroup key={repo} label={repo}>
+              {cards.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.number} {c.title}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {error && <p className="font-mono text-[10px]/4 text-red-300">{error.message}</p>}
+      </section>
+      {dependents.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <SectionHead count={dependents.length}>Needed by</SectionHead>
+          <div className="-mx-1.5 flex flex-col">
+            {dependents.map((c) => (
+              <LinkedCard key={c.id} card={c} onOpen={onOpen} />
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+/** One linked card: its repo's colour, `#number`, title, and where it has got to. */
+function LinkedCard({ card, onOpen, onRemove }: {
+  card: ApiCard;
+  onOpen: (id: string) => void;
+  /** Only on this card's own dependencies. A dependent's link is removed from that card. */
+  onRemove?: () => void;
+}) {
+  return (
+    <div className="group flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => onOpen(card.id)}
+        title={card.repoName ? `${card.repoName} #${card.number}` : undefined}
+        className="flex min-w-0 grow items-center gap-2 rounded-sm border border-transparent px-1.5 py-0.5 text-left font-mono text-[11px]/[18px] hover:border-(--color-edge) hover:bg-white/4"
+      >
+        <span
+          aria-hidden="true"
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: card.laneColor ?? '#3f4754' }}
+        />
+        <span className="shrink-0 text-(--color-muted)">#{card.number}</span>
+        <span className="min-w-0 grow truncate text-(--color-text)">{card.title}</span>
+        <span className="shrink-0 text-(--color-muted)">
+          {card.archivedAt ? 'archived' : STAGE_LABELS[card.stage]}
+        </span>
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={`Stop depending on #${card.number}`}
+          onClick={onRemove}
+          className="shrink-0 px-1 font-mono text-[11px]/[18px] text-(--color-muted) opacity-0 group-hover:opacity-100 hover:text-red-300 focus:opacity-100"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What this card could depend on: every task on the board but itself and the
+ * ones it already depends on, less any that already depend on it however
+ * indirectly. The server would refuse those as a cycle, so they are not
+ * offered. The board only knows live cards, so a loop through an archived one
+ * is left to that refusal, which says why.
+ */
+function pickable(cards: ApiCard[], card: ApiCard): ApiCard[] {
+  const byId = new Map(cards.map((c) => [c.id, c]));
+  const excluded = new Set([card.id, ...card.dependsOn.map((d) => d.id)]);
+  // A for-of visits what is pushed onto the array mid-loop, so it is the queue too.
+  const waiting = [...card.dependents];
+  for (const id of waiting) {
+    if (excluded.has(id)) continue;
+    excluded.add(id);
+    waiting.push(...(byId.get(id)?.dependents ?? []));
+  }
+  return cards.filter((c) => !excluded.has(c.id));
+}
+
+/** Grouped under their repo's name, since `#number` only means something within one. */
+function byRepo(cards: ApiCard[]): Array<[string, ApiCard[]]> {
+  const groups = new Map<string, ApiCard[]>();
+  const sorted = [...cards].sort(
+    (a, b) => (a.repoName ?? '').localeCompare(b.repoName ?? '') || a.number - b.number,
+  );
+  for (const c of sorted) {
+    const repo = c.repoName ?? 'No repo';
+    groups.set(repo, [...(groups.get(repo) ?? []), c]);
+  }
+  return [...groups];
+}
 
 /**
  * Which model this card's runs use, and how hard they think.

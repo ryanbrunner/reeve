@@ -6,7 +6,7 @@ import type { Db } from '../db/client.js';
 import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '../db/queries.js';
 import { card as cardTable, type Card, type Repo } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { checkWorktree, isDirty, removeWorktree } from '../git/worktree.js';
+import { GitError, checkWorktree, isDirty, removeWorktree } from '../git/worktree.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { openPullRequest } from '../pullRequest.js';
@@ -56,7 +56,15 @@ export function actionRoutes(db: Db, writer: EventWriter) {
       return c.json({ error: 'stage does not need a worktree', detail: card.stage }, 400);
     }
 
-    const worktree = await ensureWorktree(db, writer, card, repo);
+    // Caught, so git's own words reach the caller rather than a bare 500 —
+    // the same answer startStage gives when the worktree cannot be made.
+    let worktree: Awaited<ReturnType<typeof ensureWorktree>>;
+    try {
+      worktree = await ensureWorktree(db, writer, card, repo);
+    } catch (e) {
+      const detail = e instanceof GitError ? e.stderr || e.message : String(e);
+      return c.json({ error: 'could not create the worktree', detail }, 500);
+    }
     return c.json({ ok: true, ...worktree }, worktree.reused ? 200 : 201);
   });
 

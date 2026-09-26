@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  LANE_COLORS,
   RUNNABLE_STAGES,
   STAGE_LABELS,
+  freeLaneColor,
   type ApiRepo,
   type ApiSettings,
   type CreateRepoBody,
@@ -300,21 +302,12 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   );
 }
 
-/**
- * Lane colours, as a fixed set rather than a colour input.
- *
- * These are the board's swim lane dots and the chips on every card face, so
- * they have to sit on a dark panel without shouting — a free picker produces a
- * neon lane on the first try. Muted, evenly spaced, and picked for you.
- */
-const LANE_COLORS = ['#6b7db3', '#7fa38a', '#b3866b', '#8f7fb3', '#b36b81', '#6ba3b3'] as const;
-
 type FormState = {
   [K in keyof CreateRepoBody]-?: string;
 };
 
 function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): FormState {
-  const free = LANE_COLORS.find((c) => !takenColors.includes(c)) ?? LANE_COLORS[0];
+  const free = freeLaneColor(takenColors);
   return {
     name: repo?.name ?? '',
     repoPath: repo?.repoPath ?? '',

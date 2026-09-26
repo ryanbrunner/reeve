@@ -130,6 +130,43 @@ const parked = createCard(db, { title: 'parked', repoId: repo.id, stage: 'backlo
 await sickoSweep(db, writer);
 const afterOff = getCard(db, parked.id)!.stage;
 
+// --- one card on its own --------------------------------------------------
+// The board's switch stays off. Flagged cards go, and the one beside each of
+// them that nobody flagged waits for a person as it always has.
+const solo = createCard(db, { title: 'solo', repoId: repo.id, stage: 'backlog' });
+const bystander = createCard(db, { title: 'bystander', repoId: repo.id, stage: 'backlog' });
+const soloWaiting = createCard(db, { title: 'solo waiting', repoId: repo.id, stage: 'planning' });
+succeeded(soloWaiting.id, 'planning');
+const bystanderWaiting = createCard(db, { title: 'bystander waiting', repoId: repo.id, stage: 'planning' });
+succeeded(bystanderWaiting.id, 'planning');
+// Flagged the moment after Add, before anything is typed into it.
+const soloUnnamed = createCard(db, { title: PLACEHOLDER_TITLE, repoId: repo.id, stage: 'backlog' });
+updateCard(db, solo.id, { sicko: true });
+updateCard(db, soloWaiting.id, { sicko: true });
+updateCard(db, soloUnnamed.id, { sicko: true });
+await sickoSweep(db, writer);
+const soloUnnamedStage = getCard(db, soloUnnamed.id)!.stage;
+const soloStage = getCard(db, solo.id)!.stage;
+const soloMovedBy = actorsOf(solo.id, 'moved');
+const bystanderStage = getCard(db, bystander.id)!.stage;
+const parkedStage = getCard(db, parked.id)!.stage;
+const soloWaitingStage = getCard(db, soloWaiting.id)!.stage;
+const soloReviews = cardEventsFor(db, soloWaiting.id)
+  .filter((e) => e.kind === 'reviewed')
+  .map((e) => ({ actor: e.actor, body: e.body }));
+const bystanderWaitingStage = getCard(db, bystanderWaiting.id)!.stage;
+const bystanderReviews = actorsOf(bystanderWaiting.id, 'reviewed');
+
+// Turned off again, the card that just moved itself stops where it is, however
+// many sweeps go by — with a plan waiting that the next sweep would otherwise
+// approve.
+updateCard(db, solo.id, { sicko: false });
+succeeded(solo.id, 'planning');
+await sickoSweep(db, writer);
+await sickoSweep(db, writer);
+const soloStageAfterOff = getCard(db, solo.id)!.stage;
+const soloReviewsAfterOff = actorsOf(solo.id, 'reviewed');
+
 const ok = (label: string, got: unknown, want: unknown) =>
   console.log(`${JSON.stringify(got) === JSON.stringify(want) ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}`);
 
@@ -148,6 +185,21 @@ ok('a plan waiting for review is approved', reviewedBy, ['claude']);
 ok('and the card advances', afterReview, 'in_progress');
 ok('a question is answered with Claude’s own first suggestion', answers, ['Left']);
 ok('and the answer is recorded as Claude', answeredBy, ['claude']);
+
+console.log('\n--- one card on its own, with the switch off ---');
+ok('a flagged backlog card moves itself into planning', soloStage, 'planning');
+ok('and the move is recorded as Claude', soloMovedBy, ['claude']);
+ok('the unflagged backlog card beside it stays put', bystanderStage, 'backlog');
+ok('and so does the one parked earlier', parkedStage, 'backlog');
+ok('a flagged card nobody has named yet is left where it is', soloUnnamedStage, 'backlog');
+ok('a flagged plan waiting for review is approved without being read', soloReviews, [
+  { actor: 'claude', body: 'Approved by SICKO MODE. Nobody read this.' },
+]);
+ok('and the card advances', soloWaitingStage, 'in_progress');
+ok('an unflagged plan waiting for review is not approved', bystanderReviews, []);
+ok('and stays in planning', bystanderWaitingStage, 'planning');
+ok('unflagged, its waiting plan is not approved', soloReviewsAfterOff, []);
+ok('and it stays in planning', soloStageAfterOff, 'planning');
 
 console.log('\n--- the scoreboard ---');
 ok('human approvals', state.humanApprovals, 0);
