@@ -19,7 +19,7 @@ import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
 import { serverEnv, serverVars } from './runs/serverUrl.js';
-import { startShellRun } from './runs/shell.js';
+import { startShellRun, type ShellRunHandle } from './runs/shell.js';
 import { stageDefinition } from './stages/index.js';
 
 /**
@@ -36,6 +36,16 @@ const starting = new Set<string>();
  * to start.
  */
 export const isStartingStage = (cardId: string) => starting.has(cardId);
+
+/**
+ * Setup commands still running, by card. A stage started beside one works in
+ * a tree whose `node_modules` is half there, where `npm test` fails on missing
+ * modules and the stage's shell is too narrow to install them itself, so
+ * `startStage` waits on this before Claude is let in. Kept here rather than
+ * read off the registry, which holds how to stop a run but not how to wait
+ * for one.
+ */
+const settingUp = new Map<string, ShellRunHandle>();
 
 export type StartStageResult =
   | { ok: true; runId: string; sessionId: string }
@@ -61,9 +71,10 @@ export function refuseMergedWorktree(card: Card): { error: string; detail: strin
 /**
  * The card's worktree, made if it is not there yet. A new one is given the
  * files the repo's `.worktreeinclude` names, and if the repo defines a setup
- * command, that is kicked off as a background shell run and not awaited: it is
- * a different run kind, so it counts against neither the card's active run nor
- * the concurrency cap.
+ * command, that is kicked off as a background shell run and not awaited here:
+ * `startStage` waits on it, and the worktree button answers as soon as the
+ * tree is there. It is a different run kind, so it counts against neither the
+ * card's active run nor the concurrency cap.
  */
 export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, repo: Repo) {
   const health = await checkWorktree(repo.repoPath, card.worktreePath);
@@ -120,9 +131,26 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
       command: repo.setupCommand, cwd: created.path,
       env: serverEnv(serverVars(card.id, created.branch)),
     });
+    settingUp.set(card.id, handle);
+    // Only its own entry: a tree removed and made again while this ran has a
+    // setup of its own by now, and that is the one a start has to wait for.
+    void handle.done.then(() => {
+      if (settingUp.get(card.id) === handle) settingUp.delete(card.id);
+    });
     setupRunId = handle.runId;
   }
   return { reused: false as const, path: created.path, branch: created.branch, setupRunId, included };
+}
+
+/**
+ * How the card's setup command ended, once it has, or null when none is
+ * running. Asked straight away, so a setup that finished before the start
+ * reads as null: the tree was ready by then either way.
+ */
+export async function setupSettled(cardId: string) {
+  const setup = settingUp.get(cardId);
+  if (!setup) return null;
+  return { runId: setup.runId, ...(await setup.done) };
 }
 
 export type WorktreeRemoval =
@@ -218,6 +246,23 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
       ({ path } = await ensureWorktree(db, writer, card, repo));
     } catch (e) {
       return { ok: false, status: 500, error: 'could not create the worktree', detail: reason(e) };
+    }
+
+    // The stage is told to get `npm test` green, and cannot install anything
+    // to do it. Awaited before the card is read again, so a card dragged on
+    // while `npm install` ran is still caught below and the cap is read as it
+    // stands when Claude starts. `starting` is held all the while, so the card
+    // reads as starting and `reeve card wait` keeps waiting. A VIBES sweep,
+    // which awaits this, waits with it; a setup that hangs is let go by
+    // stopping its run. One that failed does not hold the stage back — under
+    // VIBES that would rerun it every sweep and never start — but the card
+    // says so, since the stage's own checks will fail for the same reason.
+    const setup = await setupSettled(card.id);
+    if (setup && setup.exitCode !== 0 && setup.stopReason !== 'cancelled_by_user') {
+      insertCardEvent(db, {
+        cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+        body: `The repo's setup command failed (run ${setup.runId}), so the stage started in a worktree it did not finish setting up.`,
+      });
     }
 
     // Read again, and nothing awaited from here to the run: the worktree has
