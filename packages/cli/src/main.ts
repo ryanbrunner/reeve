@@ -7,6 +7,7 @@ import { repos } from './commands/repos.js';
 import { serve } from './commands/serve.js';
 import { models, settings } from './commands/settings.js';
 import { sicko } from './commands/sicko.js';
+import { status } from './commands/status.js';
 import { runCommands } from './commands/run.js';
 import { runs } from './commands/runs.js';
 import { EXIT } from './exit.js';
@@ -40,8 +41,12 @@ const USAGE = `Usage: reeve <command> [options]
       A card's work, for a caller not looking at its rail: the worktree's path,
       the pull request, the dev server's URL, the diff, the commits. With no
       card, the one whose worktree you are in.
-  reeve serve [--port N] [--no-open]
-      Open the board, starting Reeve first if nothing is listening.
+  reeve serve [--port N] [--no-open] [--db F] [--assets D] [--max-concurrent N]
+      Open the board, starting Reeve first if nothing is listening. Each
+      option past --no-open sets the environment variable beside it, which
+      works just as well on its own.
+  reeve status [--url U] [--json]
+      Whether a Reeve is answering: exit 0 if one is, 1 if not.
   reeve open [<card>]
       Open the board in a browser, on a card if one is named.
   reeve settings [...] / reeve models [--json]
@@ -91,6 +96,7 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   serve,
   settings,
   sicko,
+  status,
 };
 
 /** The nouns whose verbs carry help of their own, and so answer `--help` themselves. */

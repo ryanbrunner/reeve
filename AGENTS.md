@@ -32,12 +32,12 @@ npm workspaces, four packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
-- `packages/cli` (`@reeve/cli`) — the `reeve` command. `reeve serve` boots the
-  server; everything else goes through a running server's HTTP API and never
-  its database, because runs live in the server's memory and a second process
-  opening the database reaps them. Its `--json` output is the API's own wire
-  types from `@reeve/shared`, unreshaped; see its README. Its `bin/reeve.js`
-  registers tsx and imports `src/main.ts`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command. `serve` is the only
+  command that imports the server; everything else goes through a running
+  server's HTTP API and never its database, because runs live in the server's
+  memory and a second process opening the database reaps them. Its `--json`
+  output is the API's own wire types from `@reeve/shared`, unreshaped; see its
+  README. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
 
 ## Commands
 
@@ -57,15 +57,29 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `npm test` — the CLI's resolution tests, and nothing else; see below.
 - `npm run cli -- <args>` — the `reeve` command, run from the repo root.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
-- `npm run -s reeve -- <args>` — the CLI, against a server that is already
-  running; see The CLI below. `npm link -w @reeve/cli` puts `reeve` on your
-  PATH instead.
+- `npm run -s cli -- <args>` — the CLI, against a server that is already
+  running; see its README. `npm link -w @reeve/cli` puts `reeve` on your PATH
+  instead.
+- `reeve serve` — the same server as `npm start`, opening the board once it is
+  up, and doing nothing but opening it when one is already running. `--port`,
+  `--db`, `--assets` and `--max-concurrent` set `REEVE_PORT`, `REEVE_DB`,
+  `REEVE_ASSETS` and `REEVE_MAX_CONCURRENT`; relative paths are taken from
+  where the command is run.
+- `reeve status` — exits 0 if a server answers and 1 if not, so a script can
+  ask before starting one.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
 `REEVE_AUTO_ARCHIVE_MS`, `REEVE_SICKO_SWEEP_MS`. By default the database is
 `data/reeve.db` and mockups and screenshots go in `data/assets/`; `data/` is
 gitignored and created at runtime. The server binds to 127.0.0.1 only.
+Its default paths, and the built web app's, are resolved from the repo root
+rather than the working directory, so the server behaves the same wherever it
+is started.
+
+The CLI's commands other than `serve` find the server at `--url`, then
+`REEVE_URL`, then `http://127.0.0.1:4317`. A server started on another port
+needs one of the first two.
 
 ## Checking a change
 
@@ -159,8 +173,8 @@ switched on.
 - **Timers, `gh` calls, the SICKO sweep and model listing stay out of
   `createApp()`.** It checks contracts, migrates, reaps orphaned runs and
   builds routes, and nothing more. The rest starts only in `startServer()`,
-  which `packages/server/src/main.ts` and `reeve` call, because the spikes
-  build an app and must not start any of it.
+  which `packages/server/src/main.ts` and `reeve serve` call, because the
+  spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
 - **Tool permissions deny by default.** A stage's `allowedTools` is the
