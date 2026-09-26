@@ -8,13 +8,13 @@
  * is a thing that was protecting you.
  *
  * The diamond is deliberate. It is the same mark the board puts in a column
- * header to mean "Claude runs here", and in SICKO MODE that is every column
+ * header to mean "Claude runs here", and in VIBE MODE that is every column
  * but Planning, which it skips.
  *
  * Also a card's own switch, in its Brief, which is why the words can be
  * handed in: the header's are about the whole board.
  */
-export function SickoSwitch({ on, onToggle, disabled, title, label = 'Sicko mode', className = '' }: {
+export function VibeSwitch({ on, onToggle, disabled, title, label = 'Vibe mode', className = '' }: {
   on: boolean;
   onToggle: () => void;
   disabled?: boolean;

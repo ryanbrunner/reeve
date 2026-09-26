@@ -2,7 +2,7 @@
  * The Reeve mark: the bar, the bowl and the diamond.
  *
  * Inline rather than an `<img>` because the diamond is the one part of the
- * product that SICKO MODE spins and cycles through the rainbow, and a document
+ * product that VIBE MODE spins and cycles through the rainbow, and a document
  * cannot reach inside an image to do that.
  */
 export function Glyph() {

@@ -20,29 +20,29 @@ type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'acti
  * how many criteria, which plan version, how many files changed — and is
  * absent rather than zero when there is nothing there yet.
  *
- * In SICKO MODE there are four: what was asked, what was planned, what it looks
+ * In VIBE MODE there are four: what was asked, what was planned, what it looks
  * like and that things happened. What actually changed is not yours to see.
  */
-export function Tabs({ detail, onOpen, sicko = false }: {
+export function Tabs({ detail, onOpen, vibe = false }: {
   detail: CardDetail;
   onOpen: (id: string) => void;
-  sicko?: boolean;
+  vibe?: boolean;
 }) {
   const project = detail.card.kind === 'project';
   // Open on whatever this card is currently about. A card in Testing wants its
   // preview; one in Backlog has only a brief.
-  const [chosen, setTab] = useState<TabId>(() => defaultTab(detail, sicko));
+  const [chosen, setTab] = useState<TabId>(() => defaultTab(detail, vibe));
 
   // Shells out to git, but fetched for any card that has a worktree rather than
   // only while the Diff tab is open: the tab's own count comes out of it, and a
   // count that only becomes true after you click is worse than no count. A
   // merged card has no worktree left, but the server reads its diff back off
-  // the squash commit. Not at all in SICKO MODE, where there is no tab to show
+  // the squash commit. Not at all in VIBE MODE, where there is no tab to show
   // it in.
   const diff = useQuery({
     queryKey: ['diff', detail.card.id],
     queryFn: () => api.diff(detail.card.id),
-    enabled: Boolean(detail.worktree.path || detail.card.mergedSha) && !sicko,
+    enabled: Boolean(detail.worktree.path || detail.card.mergedSha) && !vibe,
   });
   // The board already holds every task, so the Tasks tab reads them from there
   // rather than asking for them again.
@@ -69,10 +69,10 @@ export function Tabs({ detail, onOpen, sicko = false }: {
     { id: 'preview', label: 'Preview', count: shots.length || undefined },
     { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
   ];
-  const tabs = sicko ? all.filter((t) => t.id !== 'changes' && t.id !== 'diff') : all;
-  // Derived rather than reset, so a card left open on Diff when SICKO MODE
+  const tabs = vibe ? all.filter((t) => t.id !== 'changes' && t.id !== 'diff') : all;
+  // Derived rather than reset, so a card left open on Diff when VIBE MODE
   // comes on shows something real, and goes back to Diff when it goes off.
-  const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, sicko);
+  const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, vibe);
 
   return (
     <div className="flex min-w-0 grow flex-col">
@@ -108,21 +108,21 @@ export function Tabs({ detail, onOpen, sicko = false }: {
         {tab === 'changes' && <ChangesTab detail={detail} />}
         {tab === 'diff' && <DiffTab detail={detail} diff={diff.data ?? null} loading={diff.isLoading} />}
         {tab === 'preview' && <PreviewTab detail={detail} />}
-        {tab === 'activity' && <ActivityTab detail={detail} sicko={sicko} />}
+        {tab === 'activity' && <ActivityTab detail={detail} vibe={vibe} />}
       </div>
     </div>
   );
 }
 
-function defaultTab(detail: CardDetail, sicko: boolean): TabId {
+function defaultTab(detail: CardDetail, vibe: boolean): TabId {
   if (detail.card.kind === 'project') return 'brief';
   if (detail.card.activity === 'needs_input') return 'plan';
   const shots = detail.assets.some((a) => a.kind === 'screenshot');
   // Claude's notes once it has written them; until then — a card still running
-  // — the diff is the only account of the work there is. In SICKO MODE neither
+  // — the diff is the only account of the work there is. In VIBE MODE neither
   // is on offer, so the work is whatever it looks like, or failing that, what
   // was asked for.
-  const work: TabId = sicko ? (shots ? 'preview' : 'brief') : detail.implementation ? 'changes' : 'diff';
+  const work: TabId = vibe ? (shots ? 'preview' : 'brief') : detail.implementation ? 'changes' : 'diff';
   switch (detail.card.stage) {
     case 'planning': return 'plan';
     case 'in_progress': return work;

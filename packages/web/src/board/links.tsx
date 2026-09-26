@@ -26,7 +26,7 @@ export const useLinks = () => useContext(LinksContext);
 
 /**
  * A context rather than props because the cards it lights sit under two
- * different trees — the calm board's sortable columns and SICKO MODE's flying
+ * different trees — the calm board's sortable columns and VIBE MODE's flying
  * layer — and both would otherwise thread the same pair of props through every
  * level to reach the face.
  *

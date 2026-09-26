@@ -51,7 +51,7 @@ export function Column({
   onOpen,
   onAdd,
   adding = false,
-  sicko = false,
+  vibe = false,
   hot = false,
   skipped = false,
   children,
@@ -67,18 +67,18 @@ export function Column({
   /**
    * The column as a well: its cards have lifted off it into the flying layer,
    * so it keeps its header and its count and holds nothing. Not a droppable
-   * either, because nobody drags anything in SICKO MODE.
+   * either, because nobody drags anything in VIBE MODE.
    */
-  sicko?: boolean;
-  /** Something just landed here. Only SICKO MODE says so; a drag lights it itself. */
+  vibe?: boolean;
+  /** Something just landed here. Only VIBE MODE says so; a drag lights it itself. */
   hot?: boolean;
-  /** SICKO MODE goes straight past this column: struck out, and closed. */
+  /** VIBE MODE goes straight past this column: struck out, and closed. */
   skipped?: boolean;
-  /** Drawn inside the well. Only a SICKO well has room for anything but cards. */
+  /** Drawn inside the well. Only a VIBE well has room for anything but cards. */
   children?: React.ReactNode;
 }) {
   const id = columnId(stage, laneId ?? null);
-  const { setNodeRef, isOver, over, active } = useDroppable({ id, disabled: sicko });
+  const { setNodeRef, isOver, over, active } = useDroppable({ id, disabled: vibe });
   // Over one of its cards is over the column too; that is where the card lands.
   const lit = isOver || cards.some((c) => c.id === over?.id);
   return (
@@ -86,38 +86,38 @@ export function Column({
       ref={setNodeRef}
       className={`group flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
         lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
-      } ${sicko ? `sk-col${hot ? ' sk-hot' : ''}${skipped ? ' sk-col-closed' : ''}` : ''}`}
+      } ${vibe ? `sk-col${hot ? ' sk-hot' : ''}${skipped ? ' sk-col-closed' : ''}` : ''}`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
         <h3
           className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase ${
-            sicko ? `sk-col-t${skipped ? ' sk-col-skip' : ''}` : ''
+            vibe ? `sk-col-t${skipped ? ' sk-col-skip' : ''}` : ''
           }`}
         >
           {STAGE_LABELS[stage]}
         </h3>
         <span
           className={`font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted)/60 ${
-            sicko ? 'sk-cnt' : ''
+            vibe ? 'sk-cnt' : ''
           }`}
         >
           {cards.length}
         </span>
-        {/* Claude runs in three columns on the calm board. In SICKO MODE it runs
+        {/* Claude runs in three columns on the calm board. In VIBE MODE it runs
             in every one it has not skipped, so those headers get the diamond. */}
-        {sicko && skipped ? (
+        {vibe && skipped ? (
           <span className="sk-skip ml-auto">Skipped</span>
         ) : (
-          (sicko || isRunnable(stage)) && (
-            <span title="Claude runs here" className={`ml-auto text-xs text-sky-500 ${sicko ? 'sk-runs' : ''}`}>
+          (vibe || isRunnable(stage)) && (
+            <span title="Claude runs here" className={`ml-auto text-xs text-sky-500 ${vibe ? 'sk-runs' : ''}`}>
               ◆
             </span>
           )
         )}
       </div>
-      {sicko && children}
+      {vibe && children}
       {/* Named after the column so columnCollisions can find its cards. */}
-      {!sicko && (
+      {!vibe && (
         <SortableContext id={id} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
             {cards.map((c) => <SortableCard key={c.id} card={c} onOpen={onOpen} />)}
@@ -128,9 +128,9 @@ export function Column({
           card, and gone while anything is dragged: a drop here is a drop on
           the column. Faded in rather than mounted on hover, so it keeps its
           place in the tab order. Held while a card is being made, since a
-          double-click would otherwise make two and open both. Never in SICKO
+          double-click would otherwise make two and open both. Never in VIBE
           MODE, whose well holds nothing and whose cards come from Ship it. */}
-      {onAdd && !active && !sicko && (
+      {onAdd && !active && !vibe && (
         <button
           type="button"
           onClick={onAdd}

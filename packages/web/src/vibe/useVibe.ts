@@ -5,12 +5,12 @@ import { api } from '../lib/api.js';
 
 /**
  * `off` and `on` are the stored setting. `arming` is the two seconds between
- * the click and the consequences: the board is already in SICKO MODE — the
+ * the click and the consequences: the board is already in VIBE MODE — the
  * server was told the moment the switch was pressed — but the sweep has not
  * been watched yet and the overlay is still reading out which guardrails have
  * just come off.
  */
-export type SickoPhase = 'off' | 'arming' | 'on';
+export type VibePhase = 'off' | 'arming' | 'on';
 
 /** How long the arming overlay holds. The only confirmation step this has. */
 const ARM_MS = 2_000;
@@ -21,10 +21,10 @@ const TOAST_MS = 7_000;
 /** Back-to-back merges are common; the screen going white twice in a blink is not. */
 const FLASH_MS = 700;
 
-export interface Sicko {
-  phase: SickoPhase;
-  /** Dressed as SICKO MODE — true through `arming` as well as `on`. */
-  sick: boolean;
+export interface Vibe {
+  phase: VibePhase;
+  /** Dressed as VIBE MODE — true through the `arming` phase as well as `on`. */
+  on: boolean;
   /** Whether cards are actually being moved without anyone asking. */
   live: boolean;
   state: VibeState | null;
@@ -41,25 +41,25 @@ export interface Sicko {
 }
 
 /**
- * The client half of SICKO MODE: the arming overlay, the goodbye toast, and the
+ * The client half of VIBE MODE: the arming overlay, the goodbye toast, and the
  * three one-shot flourishes a merge sets off.
  *
  * Everything durable — since when, and every number the HUD shows — comes off
  * the board response, so a reload lands back in the same place with the same
  * totals. Only what is inherently momentary lives here.
  */
-export function useSicko(
+export function useVibe(
   state: VibeState | null,
   mergedIds: readonly string[],
   /**
    * Whether a board has arrived at all. Without it the loading render — no
    * data, so no merged cards — counts as the first reading, and the real board
    * that follows reads as every card in Done having just landed: a reload with
-   * SICKO MODE on would stamp old cards MERGED, flash the screen and shake the
+   * VIBE MODE on would stamp old cards MERGED, flash the screen and shake the
    * stage for work that finished days ago.
    */
   ready: boolean,
-): Sicko {
+): Vibe {
   const qc = useQueryClient();
   const [arming, setArming] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -79,7 +79,7 @@ export function useSicko(
   });
 
   const on = state !== null;
-  const phase: SickoPhase = arming && on ? 'arming' : on ? 'on' : 'off';
+  const phase: VibePhase = arming && on ? 'arming' : on ? 'on' : 'off';
 
   // The switch going off elsewhere — Settings, another tab, a server restart —
   // must not leave the overlay up over a calm board.
@@ -150,7 +150,7 @@ export function useSicko(
 
   return {
     phase,
-    sick: phase !== 'off',
+    on: phase !== 'off',
     live: phase === 'on',
     state,
     shake,

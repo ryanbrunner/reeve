@@ -30,13 +30,13 @@ import { useCollapsedLanes } from './board/useCollapsedLanes.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
-import { SickoArming } from './sicko/Arming.js';
-import { SickoHud } from './sicko/Hud.js';
-import { SickoLane } from './sicko/Lane.js';
-import { SickoLightsBehind, SickoLightsOver } from './sicko/Lights.js';
-import { SickoSwitch } from './sicko/Switch.js';
-import { SickoTicker } from './sicko/Ticker.js';
-import { useSicko, type Sicko } from './sicko/useSicko.js';
+import { VibeArming } from './vibe/Arming.js';
+import { VibeHud } from './vibe/Hud.js';
+import { VibeLane } from './vibe/Lane.js';
+import { VibeLightsBehind, VibeLightsOver } from './vibe/Lights.js';
+import { VibeSwitch } from './vibe/Switch.js';
+import { VibeTicker } from './vibe/Ticker.js';
+import { useVibe, type Vibe } from './vibe/useVibe.js';
 import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
 
@@ -106,11 +106,11 @@ export function App() {
     staleTime: 0,
     refetchInterval: (q) =>
       held ? false
-      // SICKO MODE moves cards on its own every couple of seconds, and a card
+      // VIBE MODE moves cards on its own every couple of seconds, and a card
       // that flew while the board was not looking would land without the
       // flight. Kept brisk whatever the cards are doing.
       : q.state.data?.vibe ? 1_000
-      // A card in SICKO MODE on its own moves with nobody touching it too, and
+      // A card in VIBE MODE on its own moves with nobody touching it too, and
       // at the idle rate it would jump a column without anyone seeing it go.
       : q.state.data?.cards.some(
           (c) =>
@@ -163,7 +163,7 @@ export function App() {
    * only hang off a card that exists, and a card needs a title typed into it.
    * Add Project the same way, since a project's brief is what it is for.
    *
-   * Ship it, in SICKO MODE, does not open anything: the title came with the
+   * Ship it, in VIBE MODE, does not open anything: the title came with the
    * request and the card is already on its way, so putting a modal over the
    * board would hide the one thing worth watching.
    */
@@ -203,7 +203,7 @@ export function App() {
   };
   const addProject = () =>
     create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
-  // SICKO MODE's Ship it: named already, so it is not opened, and under no
+  // VIBE MODE's Ship it: named already, so it is not opened, and under no
   // project, since the header has no lane to file it in.
   const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
     create.mutate({ title, repoId, stage: 'backlog' });
@@ -214,7 +214,7 @@ export function App() {
   // on.
   const mergedKey = cards.filter((c) => c.mergedAt != null).map((c) => c.id).sort().join(',');
   const mergedIds = useMemo(() => (mergedKey ? mergedKey.split(',') : []), [mergedKey]);
-  const sicko = useSicko(data?.vibe ?? null, mergedIds, data !== undefined);
+  const vibe = useVibe(data?.vibe ?? null, mergedIds, data !== undefined);
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);
@@ -278,9 +278,9 @@ export function App() {
   ];
 
   /*
-   * In SICKO MODE the whole app is dressed differently, so the frame goes on
-   * here rather than in a dozen places: the root carries `.sicko`, which is the
-   * only thing every rule in sicko.css hangs off, and the lights go in front of
+   * In VIBE MODE the whole app is dressed differently, so the frame goes on
+   * here rather than in a dozen places: the root carries `.vibe`, which is the
+   * only thing every rule in vibe.css hangs off, and the lights go in front of
    * and behind the two shake wrappers.
    *
    * Those wrappers are also why the modals are siblings of the stage rather than
@@ -289,7 +289,7 @@ export function App() {
    * the window.
    */
   const lanesInner = (
-    <div className={`flex-1 overflow-auto p-4 ${sicko.sick ? 'pb-20' : ''}`}>
+    <div className={`flex-1 overflow-auto p-4 ${vibe.on ? 'pb-20' : ''}`}>
       {lanes.map((lane) => {
         const key = lane.id ?? 'none';
         const bodyId = `lane-${key}`;
@@ -306,7 +306,7 @@ export function App() {
               onToggle={() => collapsedLanes.toggle(key)}
               onOpen={openAndClose.open}
               bodyId={bodyId}
-              sick={sicko.sick}
+              vibe={vibe.on}
             />
             {/* Always there, so the chevron's aria-controls has something to
                 point at. What is inside is unmounted when the lane is shut,
@@ -317,11 +317,11 @@ export function App() {
             <div id={bodyId}>
               {collapsed ?
                 null
-              : sicko.sick ?
-                <SickoLane
+              : vibe.on ?
+                <VibeLane
                   cards={laneCards}
                   laneId={lane.id}
-                  justMerged={sicko.justMerged}
+                  justMerged={vibe.justMerged}
                   onOpen={openAndClose.open}
                 />
               : <div className="grid grid-cols-5 gap-3 min-w-[920px]">
@@ -352,13 +352,13 @@ export function App() {
   );
 
   return (
-    <div className={`relative flex h-full flex-col ${sicko.sick ? 'sicko' : ''}`}>
-      {sicko.sick && <SickoLightsBehind />}
+    <div className={`relative flex h-full flex-col ${vibe.on ? 'vibe' : ''}`}>
+      {vibe.on && <VibeLightsBehind />}
       {/* Two wrappers, one transform each: the outer jumps when a card lands on
           main, the inner glitches on its own clock. */}
       <div
         className={`sk-stage relative z-10 flex min-h-0 flex-1 flex-col ${
-          sicko.live ? (sicko.shake ? 'sk-shake-a' : 'sk-shake-b') : ''
+          vibe.live ? (vibe.shake ? 'sk-shake-a' : 'sk-shake-b') : ''
         }`}
       >
         <div className="sk-stage-in flex min-h-0 flex-1 flex-col">
@@ -372,16 +372,16 @@ export function App() {
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
             usage={data?.usage ?? null}
-            sicko={sicko}
+            vibe={vibe}
           />
-          {/* Above the ticker, which is decoration: this is not. SICKO MODE does
+          {/* Above the ticker, which is decoration: this is not. VIBE MODE does
               not stop at the limit, so in it this is the only thing that says. */}
           <UsageWarning usage={data?.usage ?? null} />
-          {sicko.sick && <SickoTicker />}
-          {/* Nothing is draggable in SICKO MODE, so the drag machinery is left
+          {vibe.on && <VibeTicker />}
+          {/* Nothing is draggable in VIBE MODE, so the drag machinery is left
               out entirely rather than made inert around an overlay it would
               fight with. */}
-          {sicko.sick ?
+          {vibe.on ?
             board
           : <DndContext
               sensors={sensors}
@@ -394,11 +394,11 @@ export function App() {
               <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
             </DndContext>
           }
-          {sicko.state && <SickoHud state={sicko.state} pop={sicko.pop} />}
+          {vibe.state && <VibeHud state={vibe.state} pop={vibe.pop} />}
         </div>
       </div>
-      {sicko.sick && <SickoLightsOver flash={sicko.flash} />}
-      {sicko.phase === 'arming' && <SickoArming />}
+      {vibe.on && <VibeLightsOver flash={vibe.flash} />}
+      {vibe.phase === 'arming' && <VibeArming />}
       {/* Keyed, so opening a task from its project's modal starts it afresh on
           its own tabs rather than on whichever tab the project was showing. */}
       {openCard && (
@@ -408,7 +408,7 @@ export function App() {
           onClose={openAndClose.close}
           onOpen={openAndClose.open}
           editTitle={openCard === freshId}
-          sicko={sicko.sick}
+          vibe={vibe.on}
         />
       )}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
@@ -488,10 +488,10 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, sicko }: {
+function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibe }: {
   repos: ApiRepo[];
   onAddProject: () => void;
-  /** SICKO MODE's Ship it: a named card, made without opening it. */
+  /** VIBE MODE's Ship it: a named card, made without opening it. */
   onShip: (v: { repoId: string | null; title: string }) => void;
   adding: boolean;
   addError: Error | null;
@@ -500,9 +500,9 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   usage: UsageState | null;
-  sicko: Sicko;
+  vibe: Vibe;
 }) {
-  // Only SICKO MODE's Ship it picks a repo here. On the calm board a card is
+  // Only VIBE MODE's Ship it picks a repo here. On the calm board a card is
   // added from the ghost in its lane and its repo picked in the card's header,
   // but a shipped card is never opened, so this is its only chance.
   // Filed under the first repo unless told otherwise, because an unfiled
@@ -515,12 +515,12 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   const [idea, setIdea] = useState('');
   const chosen = repoId === '' || repos.some((p) => p.id === repoId);
   const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
-  const sick = sicko.sick;
+  const on = vibe.on;
   return (
     <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex shrink-0 items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
         <Glyph />
-        <span className={sick ? 'sk-wm' : ''}>Reeve</span>
+        <span className={on ? 'sk-wm' : ''}>Reeve</span>
       </h1>
       {/* By the wordmark rather than by Add, which is about something else;
           and allowed to shrink, since the blocking cards can be a long list. */}
@@ -530,14 +530,14 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
         </p>
       )}
       <UsageMeter usage={usage} />
-      {/* In SICKO MODE the idea is typed here rather than into a modal: the card
+      {/* In VIBE MODE the idea is typed here rather than into a modal: the card
           it makes is named, so the sweep can take it immediately, and nothing
           covers the board while it goes. */}
       <form
         className="ml-auto flex shrink-0 items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!sick) return onAddProject();
+          if (!on) return onAddProject();
           const title = idea.trim();
           if (!title) return;
           onShip({ repoId: filedUnder || null, title });
@@ -545,13 +545,13 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
         }}
       >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
-        {sick && repos.length > 0 && (
+        {on && repos.length > 0 && (
           <select
             value={filedUnder}
             onChange={(e) => setRepoId(e.target.value)}
             aria-label="Repo for the new card"
             className={`rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600 ${
-              sick ? 'sk-field' : ''
+              on ? 'sk-field' : ''
             }`}
           >
             {repos.map((p) => (
@@ -560,7 +560,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
             <option value="">No repo</option>
           </select>
         )}
-        {sick && (
+        {on && (
           <>
             <label className="sr-only" htmlFor="new-idea">New idea</label>
             <input
@@ -579,13 +579,13 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
             column, in the lane they belong to. */}
         <button
           type="submit"
-          disabled={adding || (sick && idea.trim() === '')}
+          disabled={adding || (on && idea.trim() === '')}
           className={`rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium whitespace-nowrap hover:bg-sky-600 disabled:opacity-40 ${
-            sick ? 'sk-add' : ''
+            on ? 'sk-add' : ''
           }`}
         >
           {/* A card added while this is on does not wait in Backlog for anyone. */}
-          {sick ? 'Ship it' : 'Add Project'}
+          {on ? 'Ship it' : 'Add Project'}
         </button>
       </form>
       <button
@@ -609,10 +609,10 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
       </button>
       {/* What happened while you were not being asked. Said once, on the way
           out, and then gone. */}
-      {sicko.toast && <span className="sk-toast" role="status">{sicko.toast}</span>}
+      {vibe.toast && <span className="sk-toast" role="status">{vibe.toast}</span>}
       {/* Quiet until it is hovered: the one control here that changes what
           Reeve IS rather than what it shows. */}
-      <SickoSwitch on={sick} onToggle={sicko.toggle} disabled={sicko.pending} />
+      <VibeSwitch on={on} onToggle={vibe.toggle} disabled={vibe.pending} />
     </header>
   );
 }
