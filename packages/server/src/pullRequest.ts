@@ -12,7 +12,7 @@ import {
   pushBranch,
   type PullRequestState,
 } from './git/github.js';
-import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
+import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import { runRegistry } from './runs/registry.js';
 
 /**
@@ -291,16 +291,23 @@ export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'hu
   // if one is already under way — one that may have asked about this pull
   // request before it merged, leaving the card neither mergeable nor merged
   // until the next tick.
-  let merged = false;
+  let into: string | null = null;
   try {
-    merged = await syncPullRequest(db, card, repo, url);
+    into = await syncPullRequest(db, card, repo, url);
   } catch (e) {
     console.error(`[reeve] could not check pull request for #${card.number} after merging it: ${reason(e)}`);
   }
+  // Marked merged here, so the full sync below will not see this card land,
+  // and would not fast-forward the default branch for it. That is done first,
+  // so the two do not fetch and move the same branch at once; it logs rather
+  // than throws.
+  const first = keepsDefaultBranch(repo, into) ? syncDefaultBranch(repo) : Promise.resolve();
   // And the rest, for every card's count of how far behind the base it is,
   // which has just moved. Not awaited: a person pressed a button.
-  syncMergedPullRequests(db).catch((e) => console.error(`[reeve] merge sync failed: ${reason(e)}`));
-  return { ok: true, merged };
+  first
+    .then(() => syncMergedPullRequests(db))
+    .catch((e) => console.error(`[reeve] merge sync failed: ${reason(e)}`));
+  return { ok: true, merged: into !== null };
 }
 
 /** A push, a resolution or a merge will change the branch or the pull request. */
@@ -308,14 +315,16 @@ const busy = (cardId: string) => opening.has(cardId) || resolving.has(cardId) ||
 
 /**
  * Ask GitHub about one card's pull request: note whether it can merge, and
- * mark the card merged if it has. True once the card is marked merged here.
+ * mark the card merged if it has. Once the card is marked merged here, the
+ * branch it landed on, so the caller can bring the repo's own copy of it up to
+ * date; otherwise null.
  */
-async function syncPullRequest(db: Db, card: Card, repo: Repo, url: string): Promise<boolean> {
+async function syncPullRequest(db: Db, card: Card, repo: Repo, url: string): Promise<string | null> {
   const pr = await pullRequestState(repo.repoPath, url);
   // Asked again: a push that started while `gh` answered makes the answer
   // about a branch that is about to change.
   if (!busy(card.id)) noteMergeable(card.id, url, pr);
-  if (pr.state !== 'MERGED') return false;
+  if (pr.state !== 'MERGED') return null;
 
   const now = new Date();
   // Only if the card still points at the pull request that was asked
@@ -324,13 +333,22 @@ async function syncPullRequest(db: Db, card: Card, repo: Repo, url: string): Pro
     .set({ mergedAt: pr.mergedAt ?? now, updatedAt: now })
     .where(and(eq(cardTable.id, card.id), eq(cardTable.prUrl, url), isNull(cardTable.mergedAt)))
     .run();
-  if (updated.changes === 0) return false;
+  if (updated.changes === 0) return null;
+  const into = pr.base || repo.defaultBranch;
   insertCardEvent(db, {
     cardId: card.id, actor: 'human', kind: 'merged', stage: card.stage,
-    meta: { url, number: card.prNumber, sha: pr.mergeSha, into: pr.base || repo.defaultBranch },
+    meta: { url, number: card.prNumber, sha: pr.mergeSha, into },
   });
-  return true;
+  return into;
 }
+
+/**
+ * Whether a card that just landed on `into` should fast-forward its repo's
+ * default branch: the repo asked for it, and the pull request was not
+ * retargeted at another branch, which would not have landed on this one.
+ */
+const keepsDefaultBranch = (repo: Repo, into: string | null) =>
+  repo.syncDefaultBranch && into !== null && into === repo.defaultBranch;
 
 let syncing = false;
 
@@ -354,10 +372,15 @@ let syncing = false;
  * First, each repo's base is fetched, so every card's "main · N behind" counts
  * against what has landed — including merges made outside Reeve, which no card
  * here is waiting on. A repo that cannot be fetched is skipped the same way.
+ *
+ * Last, a repo that asked for it has its own default branch brought up to
+ * date, if one of its cards landed on it in this sync.
  */
 export async function syncMergedPullRequests(db: Db): Promise<void> {
   if (syncing) return;
   syncing = true;
+  // By id, so three cards landing in one sync fast-forward their repo once.
+  const landedOnDefault = new Map<string, Repo>();
   try {
     for (const repo of listRepos(db)) {
       try {
@@ -369,14 +392,39 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
     for (const { card, repo } of cardsAwaitingMerge(db)) {
       // A push or a merge under way will write the card itself; the next sync can look.
       if (!card.prUrl || busy(card.id)) continue;
+      let into: string | null = null;
       try {
-        await syncPullRequest(db, card, repo, card.prUrl);
+        into = await syncPullRequest(db, card, repo, card.prUrl);
       } catch (e) {
         console.error(`[reeve] could not check pull request for #${card.number}: ${reason(e)}`);
       }
+      if (keepsDefaultBranch(repo, into)) landedOnDefault.set(repo.id, repo);
     }
+    for (const repo of landedOnDefault.values()) await syncDefaultBranch(repo);
   } finally {
     syncing = false;
+  }
+}
+
+/**
+ * Fast-forward the repo's own default branch to what `origin` has now, for a
+ * repo that asked to be kept up to date when its cards merge.
+ *
+ * Fetched again first: the fetch at the top of the sync can predate the merge
+ * that was just noticed. A branch with commits of the person's own that
+ * `origin` lacks is theirs to reconcile, and is left as it is. Failures go to
+ * the log like a failed fetch, rather than onto a card: the checkout is the
+ * repo's, not any one card's, and the next merge tries again.
+ */
+async function syncDefaultBranch(repo: Repo): Promise<void> {
+  const branch = repo.defaultBranch;
+  try {
+    await fetchBranch(repo.repoPath, branch);
+    if ((await fastForwardBranch(repo.repoPath, branch)) === 'diverged') {
+      console.error(`[reeve] left ${branch} alone in ${repo.name}: it has commits origin does not`);
+    }
+  } catch (e) {
+    console.error(`[reeve] could not bring ${branch} up to date in ${repo.name}: ${reason(e)}`);
   }
 }
 
