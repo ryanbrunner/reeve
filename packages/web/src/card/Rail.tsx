@@ -34,6 +34,7 @@ export function Rail({ detail, onOpen }: { detail: CardDetail; onOpen: (id: stri
     >
       <Repo detail={detail} />
       <Dependencies detail={detail} onOpen={onOpen} />
+      <Suggestions detail={detail} onOpen={onOpen} />
       <Model detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
@@ -207,6 +208,41 @@ function Dependencies({ detail, onOpen }: { detail: CardDetail; onOpen: (id: str
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * The card whose run suggested this one, and the cards this one's runs
+ * suggested. Read-only, unlike dependencies above it: a run made these links
+ * and nothing a person does changes them, so there is no picker and no ✕.
+ * Each still opens in this card's place.
+ */
+function Suggestions({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
+  const { suggestedBy, suggested } = detail.suggestions;
+  if (!suggestedBy && suggested.length === 0) return null;
+  const label = 'font-mono text-[10px]/4 text-(--color-muted)';
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead>Suggestions</SectionHead>
+      {suggestedBy && (
+        <div className="flex flex-col gap-1">
+          <p className={label}>Suggested by</p>
+          <div className="-mx-1.5 flex flex-col">
+            <LinkedCard card={suggestedBy} onOpen={onOpen} />
+          </div>
+        </div>
+      )}
+      {suggested.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className={label}>Suggested · {suggested.length}</p>
+          <div className="-mx-1.5 flex flex-col">
+            {suggested.map((c) => (
+              <LinkedCard key={c.id} card={c} onOpen={onOpen} />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

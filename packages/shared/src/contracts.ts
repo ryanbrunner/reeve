@@ -15,6 +15,30 @@ import type { RunnableStage } from './stages.js';
  */
 
 /**
+ * Work a stage noticed along the way that deserves a card of its own. Shared by
+ * all three stages, because an aside can turn up in any of them, and the server
+ * turns each into a Backlog card linked back to the one that suggested it —
+ * which is how Planning, with no write tools, still gets to make one.
+ *
+ * Defaulted, as `mockups` is, so output stored before this existed still
+ * parses. Capped on the server rather than with `.max()`, which would fail a
+ * whole run over one suggestion too many.
+ */
+const suggestedTasks = z
+  .array(
+    z.object({
+      title: z.string().describe('A short imperative title for the card, as it would read on the board.'),
+      body: z
+        .string()
+        .describe('The card’s brief, in Markdown: what you noticed, where, and why it is worth doing.'),
+    }),
+  )
+  .default([])
+  .describe(
+    'Separate pieces of work you noticed along the way, or left undone, that deserve their own card. Do not go looking for them. Usually empty.',
+  );
+
+/**
  * There is deliberately no `plan_markdown` here.
  *
  * A prose copy of the plan alongside a structured one is a second source of
@@ -116,6 +140,7 @@ export const planningOutput = z.object({
     .array(z.string())
     .describe('Repo-relative paths you expect to create or modify.'),
   risk: z.enum(['low', 'medium', 'high']).describe('How likely this is to go wrong or need rework.'),
+  suggested_tasks: suggestedTasks,
 });
 
 export const implementationOutput = z.object({
@@ -125,7 +150,10 @@ export const implementationOutput = z.object({
   deviations_from_plan: z
     .array(z.string())
     .describe('Where you departed from the approved plan and why. Empty if you followed it exactly.'),
-  follow_ups: z.array(z.string()).describe('Work you deliberately left undone. Empty if none.'),
+  // Once `follow_ups`, prose that sat on the Changes tab until someone copied
+  // it into a card. Work left undone is a card now, like any other aside. Runs stored with the old key still parse:
+  // zod drops a key the object does not name.
+  suggested_tasks: suggestedTasks,
 });
 
 export const testingOutput = z.object({
@@ -163,6 +191,7 @@ export const testingOutput = z.object({
     .describe(
       'Where the build and the mockup differ, judged by looking at both images. Report what a person would notice — a control that became a link, spacing that changed the rhythm — not every pixel. Empty if there were no mockups, or if they match.',
     ),
+  suggested_tasks: suggestedTasks,
 });
 
 export const triageOutput = z.object({

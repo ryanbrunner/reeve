@@ -25,11 +25,11 @@ export function ChangesTab({ detail }: { detail: CardDetail }) {
         Implementation notes
       </SectionHead>
       <Markdown className="max-w-[44rem]">{impl.summary}</Markdown>
-      {(impl.deviations.length > 0 || impl.followUps.length > 0) && (
+      {(impl.deviations.length > 0 || impl.suggestedTasks.length > 0) && (
         <ul className="flex max-w-[44rem] list-disc flex-col gap-1 pl-5 text-sm/5 text-(--color-text) marker:text-(--color-muted)">
           {impl.deviations.map((d) => <li key={d}><InlineMarkdown>{d}</InlineMarkdown></li>)}
-          {impl.followUps.map((f) => (
-            <li key={f} className="text-(--color-muted)">Still to do: <InlineMarkdown>{f}</InlineMarkdown></li>
+          {impl.suggestedTasks.map((t) => (
+            <li key={t} className="text-(--color-muted)">Suggested as a card: <InlineMarkdown>{t}</InlineMarkdown></li>
           ))}
         </ul>
       )}

@@ -125,6 +125,11 @@ export function tasksInProject(db: Db, projectId: string): Card[] {
     .all();
 }
 
+/** The cards a card's runs have suggested, archived ones included, as `tasksInProject` does. */
+export function cardsSuggestedBy(db: Db, cardId: string): Card[] {
+  return db.select().from(card).where(eq(card.suggestedById, cardId)).orderBy(asc(card.createdAt)).all();
+}
+
 /**
  * Every live card with a pull request GitHub might yet merge, beside the repo
  * to ask from. Not filtered on stage: a card dragged back out of Done for
@@ -400,6 +405,10 @@ export function moveCard(
 /**
  * A project takes no number and no place in a column: it is in none, and a
  * `#n` spent on it would be one the repo's next task never gets.
+ *
+ * `suggestedById` is for `recordSuggestions` alone. The route that creates a
+ * card validates its body with a schema that does not name it, which is what
+ * keeps the link something only a run can make.
  */
 export function createCard(
   db: Db,
@@ -411,6 +420,7 @@ export function createCard(
     generateMockups?: boolean;
     kind?: CardKind;
     projectId?: string | null;
+    suggestedById?: string | null;
     actor?: CardEventActor;
   },
 ) {
@@ -425,6 +435,7 @@ export function createCard(
       id: crypto.randomUUID(),
       kind,
       projectId: values.projectId ?? null,
+      suggestedById: values.suggestedById ?? null,
       number: kind === 'project' ? 0 : nextCardNumber(db, repoId),
       title: values.title,
       body: values.body ?? '',
@@ -1008,29 +1019,43 @@ export function dependenciesOf(db: Db, cardId: string): Card[] {
     .map((r) => r.card);
 }
 
-export type DependencyLinks = Pick<ApiCard, 'dependsOn' | 'dependents'>;
+export type CardLinks = Pick<ApiCard, 'dependsOn' | 'dependents' | 'suggestedBy' | 'suggestions'>;
 
 /**
- * Dependencies filed both ways, as a lookup by card id. Given a card, only the
- * rows that touch it are read. The board reads the whole table once instead,
- * rather than twice for every card on it, and so does the cycle check, which
- * has to be able to walk every link there is.
+ * Every link a card has to another — dependencies, and suggestions — filed
+ * both ways, as a lookup by card id. Given a card, only the rows that touch it
+ * are read. The board reads each whole once instead, rather than twice for
+ * every card on it, and so does the cycle check, which has to be able to walk
+ * every link there is.
  *
- * `dependsOn` is named — the board draws a chip per dependency, and one that
- * has been archived or swept off after merging is not in the board's `cards` to
- * be looked up there. That costs one more query for the whole set, not one a
- * card. `dependents` stays ids: they are live cards the board already has, and
- * it only lights them up.
+ * `dependsOn` and `suggestedBy` are named — the board draws a chip for each,
+ * and a card that has been archived or swept off after merging is not in the
+ * board's `cards` to be looked up there. That costs one more query for the
+ * whole set, not one a card. `dependents` and `suggestions` stay ids: they are
+ * live cards the board already has, and it only lights them up.
  */
-export function dependencyLinks(db: Db, cardId?: string): (id: string) => DependencyLinks {
+export function cardLinks(db: Db, cardId?: string): (id: string) => CardLinks {
   const rows = db
     .select({ cardId: cardDependency.cardId, dependsOnId: cardDependency.dependsOnId })
     .from(cardDependency)
     .where(cardId ? or(eq(cardDependency.cardId, cardId), eq(cardDependency.dependsOnId, cardId)) : undefined)
     .orderBy(asc(cardDependency.createdAt))
     .all();
+  // Both ends of every suggestion that touches the card: the one that made it,
+  // and the ones it made.
+  const suggested = db
+    .select({ id: card.id, suggestedById: card.suggestedById, archivedAt: card.archivedAt })
+    .from(card)
+    .where(
+      cardId ?
+        or(eq(card.suggestedById, cardId), and(eq(card.id, cardId), isNotNull(card.suggestedById)))
+      : isNotNull(card.suggestedById),
+    )
+    .orderBy(asc(card.createdAt))
+    .all()
+    .filter((r): r is typeof r & { suggestedById: string } => r.suggestedById !== null);
   const named = new Map(
-    cardsWithRepo(db, [...new Set(rows.map((r) => r.dependsOnId))]).map(
+    cardsWithRepo(db, [...new Set([...rows.map((r) => r.dependsOnId), ...suggested.map((r) => r.suggestedById)])]).map(
       (r) =>
         [
           r.card.id,
@@ -1054,7 +1079,19 @@ export function dependencyLinks(db: Db, cardId?: string): (id: string) => Depend
     if (link) dependsOn.set(r.cardId, [...(dependsOn.get(r.cardId) ?? []), link]);
     dependents.set(r.dependsOnId, [...(dependents.get(r.dependsOnId) ?? []), r.cardId]);
   }
-  return (id) => ({ dependsOn: dependsOn.get(id) ?? [], dependents: dependents.get(id) ?? [] });
+  const suggestedBy = new Map<string, ApiCardLink>();
+  const suggestions = new Map<string, string[]>();
+  for (const r of suggested) {
+    const link = named.get(r.suggestedById);
+    if (link) suggestedBy.set(r.id, link);
+    if (!r.archivedAt) suggestions.set(r.suggestedById, [...(suggestions.get(r.suggestedById) ?? []), r.id]);
+  }
+  return (id) => ({
+    dependsOn: dependsOn.get(id) ?? [],
+    dependents: dependents.get(id) ?? [],
+    suggestedBy: suggestedBy.get(id) ?? null,
+    suggestions: suggestions.get(id) ?? [],
+  });
 }
 
 /**

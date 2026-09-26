@@ -281,7 +281,9 @@ const IMPL = {
   // truth agree here the way they would in a real run.
   files_changed: ['src/checkout-summary.ts', 'src/cart/billableLines.ts', 'src/cart/SavedList.tsx'],
   deviations_from_plan: ['Totals come from billableLines() rather than a filter at each call site, so checkout cannot miss it.'],
-  follow_ups: ['e2e tests for guest persistence'],
+  suggested_tasks: [
+    { title: 'Cover guest saved items with an e2e test', body: 'Only the signed-in path has one. Guests keep theirs in localStorage, which no test reaches.' },
+  ],
 };
 
 // Sized so the board shows each shape the formatter has: "840", "1.4 k", and
@@ -315,6 +317,10 @@ for (const t of PLAN.acceptance_criteria.slice(0, 4)) addCriterion(db, working.i
 const broken = card('Fix tax rounding on refunds', 'Partial refunds are a cent out when the order had a discount.', 'testing', 60 * 30);
 pastRun({ cardId: broken.id, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.031, tokens: PLANNED, startedMinsAgo: 300, ranMins: 9 });
 pastRun({ cardId: broken.id, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.094, tokens: BUILT, startedMinsAgo: 240, ranMins: 39 });
+// What that run's suggestion became, so the rail has both ends to show.
+for (const t of IMPL.suggested_tasks) {
+  createCard(db, { title: t.title, body: t.body, repoId: storefront.id, suggestedById: broken.id, actor: 'claude' });
+}
 pastRun({
   cardId: broken.id, stage: 'testing', status: 'failed', usd: 0.002, tokens: STALLED,
   startedMinsAgo: 14, ranMins: 0.2,
@@ -473,7 +479,7 @@ if (shot.unavailable) {
   }
 }
 
-console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state`);
+console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state, and one of them suggested`);
 console.log('  idle · needs_input · running · error · needs_review');
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');

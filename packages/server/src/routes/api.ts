@@ -13,7 +13,7 @@ import {
   boardProjects,
   createCard,
   createRepo,
-  dependencyLinks,
+  cardLinks,
   discardIfBlank,
   getCard,
   getSettings,
@@ -197,7 +197,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.get('/board', (c) => {
     const rows = boardCards(db);
-    const links = dependencyLinks(db);
+    const links = cardLinks(db);
     const body: BoardResponse = {
       repos: listRepos(db).map(toApiRepo),
       projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
@@ -400,7 +400,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.get('/cards/archived', (c) => {
-    const links = dependencyLinks(db);
+    const links = cardLinks(db);
     return c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)));
   });
 

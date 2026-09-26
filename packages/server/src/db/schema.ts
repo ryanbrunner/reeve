@@ -113,6 +113,14 @@ export const card = sqliteTable(
     // The project this card belongs to, if any. A project's own repo is its
     // default: the one its split reads, and the one its tasks fall back to.
     projectId: text('project_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
+    /**
+     * The card whose run suggested this one, if a run did. A column rather than
+     * a pair table like `card_dependency`: a card is suggested by one card at
+     * most, the link is made once when the run lands and never changes, and it
+     * cannot loop, since this card did not exist when its suggester ran. Only
+     * `recordSuggestions` in `../suggestions.ts` writes it; no route takes it.
+     */
+    suggestedById: text('suggested_by_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
@@ -176,6 +184,7 @@ export const card = sqliteTable(
     index('card_repo').on(t.repoId, t.stage, t.position),
     index('card_number').on(t.repoId, t.number),
     index('card_project').on(t.projectId, t.stage, t.position),
+    index('card_suggested_by').on(t.suggestedById),
   ],
 );
 

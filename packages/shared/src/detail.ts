@@ -200,7 +200,12 @@ export interface ApiImplementation {
   commits: string[];
   filesChanged: string[];
   deviations: string[];
-  followUps: string[];
+  /**
+   * Titles of what the run suggested as cards of their own, work it left
+   * undone included. The cards are linked from the rail; these are what the
+   * run said, which a card since renamed or archived no longer is.
+   */
+  suggestedTasks: string[];
 }
 
 export interface ApiCheckFailure {
@@ -330,6 +335,12 @@ export interface CardDetail {
    * rather than looked up on the board, which has no archived cards on it.
    */
   dependencies: { dependsOn: ApiCard[]; dependents: ApiCard[] };
+  /**
+   * The cards behind `card.suggestedBy` and `card.suggestions`, in full, for
+   * the same reason. Archived suggestions are included here, unlike on the
+   * board: they were made, and the rail says what became of them.
+   */
+  suggestions: { suggestedBy: ApiCard | null; suggested: ApiCard[] };
   /** The questions the card's current run asked. Empty when it asked none. */
   questions: ApiQuestion[];
   plan: ApiPlan | null;
