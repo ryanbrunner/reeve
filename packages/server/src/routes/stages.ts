@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { Stage } from '@reeve/shared';
+import { nextStage, type Stage } from '@reeve/shared';
+import { entryRefusal } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
@@ -69,6 +70,10 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
+      // Approving Testing is a move into Done, which pushes the branch. A card
+      // that reached Testing without being built would push an empty one.
+      const refusal = entryRefusal(db, card, nextStage(card.stage) ?? card.stage);
+      if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
       return c.json({ ok: true, ...approveStage(db, writer, card, repo, lastRun, { notes }) });
     }
 

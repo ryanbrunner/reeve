@@ -30,7 +30,7 @@ const q1 = query({
   options: {
     cwd: dir, sessionId, model: MODEL,
     permissionMode: 'acceptEdits', permissionPrompts: 'none',
-    allowedTools: ['Write', 'Read'], maxBudgetUsd: 1.0,
+    allowedTools: ['Write', 'Read'],
   },
 });
 
@@ -60,7 +60,7 @@ console.log('\n--- phase 2: resume the interrupted session ---');
 let answer = '';
 for await (const m of query({
   prompt: once('Do not create any more files. Which step-N.txt files did you already create? Reply with just the filenames.'),
-  options: { cwd: dir, resume: sessionId, model: MODEL, permissionMode: 'plan', permissionPrompts: 'none', maxBudgetUsd: 0.5 },
+  options: { cwd: dir, resume: sessionId, model: MODEL, permissionMode: 'plan', permissionPrompts: 'none',},
 })) {
   if (m.type === 'result') {
     cost += (m as { total_cost_usd?: number }).total_cost_usd ?? 0;
@@ -78,7 +78,7 @@ for await (const m of query({
   prompt: once('Reviewer notes: stop at 3 files. Without writing anything, say how many files you would end up with.'),
   options: {
     cwd: dir, resume: sessionId, forkSession: true, sessionId: forkedId,
-    model: MODEL, permissionMode: 'plan', permissionPrompts: 'none', maxBudgetUsd: 0.5,
+    model: MODEL, permissionMode: 'plan', permissionPrompts: 'none',
   },
 })) {
   if (m.type === 'result') {

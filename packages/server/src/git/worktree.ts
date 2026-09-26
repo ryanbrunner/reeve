@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import { cp, lstat, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -172,20 +173,90 @@ export interface CreatedWorktree {
   baseSha: string;
 }
 
+async function branchExists(repoPath: string, branch: string): Promise<boolean> {
+  return git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** `base` is anything `rev-parse` takes: the sha just fetched, or a branch name. */
 export async function createWorktree(opts: {
   repoPath: string;
   worktreeRoot: string;
   cardId: string;
   title: string;
-  baseBranch: string;
+  base: string;
+  /** The branch and base the card had before, if its worktree has been removed since. */
+  previous?: { branch: string; baseSha: string } | null;
 }): Promise<CreatedWorktree> {
-  const { repoPath, worktreeRoot, cardId, title, baseBranch } = opts;
+  const { repoPath, worktreeRoot, cardId, title, base, previous } = opts;
   const path = worktreePathFor(worktreeRoot, cardId);
+
+  // Removing a worktree keeps its branch, and `worktree add -b` refuses a
+  // branch that exists, so a card whose worktree was removed (`reeve card
+  // worktree --remove`, or deleted by hand) could never have one again. Its
+  // branch is checked out afresh instead, with the base it started from, so
+  // its diff and commits still count from where the card began. Pruned first,
+  // because a directory deleted by hand leaves git thinking the branch is
+  // still checked out there.
+  if (previous && (await branchExists(repoPath, previous.branch))) {
+    await git(repoPath, ['worktree', 'prune']);
+    await git(repoPath, ['worktree', 'add', path, previous.branch]);
+    return { path, branch: previous.branch, baseSha: previous.baseSha };
+  }
+
   const branch = branchNameFor(cardId, title);
 
-  const baseSha = (await git(repoPath, ['rev-parse', baseBranch])).trim();
+  const baseSha = (await git(repoPath, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
   await git(repoPath, ['worktree', 'add', '-b', branch, path, baseSha]);
   return { path, branch, baseSha };
+}
+
+/**
+ * Copy what a repo's `.worktreeinclude` names from the main checkout into a new
+ * worktree: the `.env` and local config a fresh checkout never has. Claude
+ * Code's rule, so a repo set up for its worktrees works in Reeve's too. The
+ * file uses `.gitignore` syntax, and only files that match it AND are
+ * gitignored are copied, so a tracked file is never duplicated. Returns the
+ * paths copied, relative to the repo.
+ *
+ * Two listings rather than one. The first uses the include patterns alone, so
+ * its answer is small. The ignored set is collapsed with `--directory`,
+ * because listed in full it is every file in `node_modules`, and that can
+ * overflow `git()`'s buffer. A match counts as ignored if it is in that set or
+ * under a directory the set names whole.
+ *
+ * Nothing already in the worktree is overwritten: with the main checkout on
+ * another branch, a file ignored there can be tracked at the card's base, and
+ * the checked-out copy is the right one. Symlinks are copied as symlinks, and
+ * nothing is ever linked back to the main checkout.
+ */
+export async function copyWorktreeIncludes(repoPath: string, worktreePath: string): Promise<string[]> {
+  const includeFile = join(repoPath, '.worktreeinclude');
+  if (!existsSync(includeFile)) return [];
+
+  const listed = async (args: string[]) =>
+    (await git(repoPath, ['ls-files', '-z', '--others', '--ignored', ...args])).split('\0').filter(Boolean);
+  // A nested repository is listed as its directory even without `--directory`,
+  // and there is no one file there to copy.
+  const matched = (await listed([`--exclude-from=${includeFile}`])).filter((p) => !p.endsWith('/'));
+  if (!matched.length) return [];
+  const ignored = await listed(['--exclude-standard', '--directory']);
+  const ignoredFiles = new Set(ignored);
+  const ignoredDirs = ignored.filter((p) => p.endsWith('/'));
+
+  const copied: string[] = [];
+  for (const rel of matched) {
+    if (!ignoredFiles.has(rel) && !ignoredDirs.some((dir) => rel.startsWith(dir))) continue;
+    const dest = join(worktreePath, rel);
+    // lstat rather than existsSync, which follows a link and calls a dangling one absent.
+    if (await lstat(dest).then(() => true, () => false)) continue;
+    await mkdir(dirname(dest), { recursive: true });
+    await cp(join(repoPath, rel), dest, { force: false, errorOnExist: false, verbatimSymlinks: true, preserveTimestamps: true });
+    copied.push(rel);
+  }
+  return copied;
 }
 
 export async function removeWorktree(repoPath: string, path: string, force = false): Promise<void> {
@@ -281,10 +352,14 @@ export async function commitAt(repoPath: string, sha: string): Promise<CommitRef
  * How far the base branch has moved on since this worktree started — the rail's
  * "main · 2 behind". Counts commits on the base that the worktree lacks, which
  * is not the same as commits it is missing from its own history.
+ *
+ * Against `origin/<base>`, as last fetched: the local branch is the person's,
+ * and moves only when they pull. Nothing here fetches — a card view stays
+ * offline, and the merge sync keeps the remote-tracking ref current.
  */
 export async function behindBase(worktreePath: string, baseBranch: string): Promise<number | null> {
   try {
-    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..${baseBranch}`]);
+    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..origin/${baseBranch}`]);
     const n = Number.parseInt(out.trim(), 10);
     return Number.isNaN(n) ? null : n;
   } catch {

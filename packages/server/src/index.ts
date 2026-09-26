@@ -18,6 +18,7 @@ import { runRoutes } from './routes/runs.js';
 import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
 import { listModels } from './runs/models.js';
+import { seedUsage } from './usage.js';
 
 /**
  * Boot order matters. Contracts convert first so a schema JSON Schema can't
@@ -29,6 +30,7 @@ export function createApp() {
 
   const db = openDatabase(config.dbFile);
   runMigrations(db);
+  seedUsage(db);
 
   const orphans = reapOrphanedRuns(db, new Date());
   if (orphans.length > 0) {
@@ -62,55 +64,76 @@ export function createApp() {
   return { app, db, writer };
 }
 
-const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '');
-if (isEntry) {
+/**
+ * Builds the app and serves it, resolving with the URL once it is listening.
+ *
+ * Importing this module must never boot anything: the CLI imports it, and a
+ * second server would reap the first one's runs before failing to bind. So
+ * booting is this call, made by ./main.ts and by `reeve`, and nothing else.
+ */
+export function startServer({ port = config.port }: { port?: number } = {}): Promise<string> {
   const { app, db, writer } = createApp();
-  // Out here rather than in createApp, which the spikes call and which should
-  // not start a CLI each time. Warmed now so the first picker and the first
-  // pinned run do not wait on it.
-  void listModels();
-  serve({ fetch: app.fetch, port: config.port, hostname: config.hostname }, (info) => {
-    console.log(`[reeve] http://${config.hostname}:${info.port}`);
+
+  // Everything past the bind waits for it, so a port already in use leaves no
+  // child process or timer holding the failed process open.
+  return new Promise((resolve, reject) => {
+    const server = serve({ fetch: app.fetch, port, hostname: config.hostname }, (info) => {
+      const url = `http://${config.hostname}:${info.port}`;
+      console.log(`[reeve] ${url}`);
+
+      // Out here rather than in createApp, which the spikes call and which should
+      // not start a CLI each time. Warmed now so the first picker and the first
+      // pinned run do not wait on it.
+      void listModels();
+
+      // Here rather than in createApp, so the spikes that build an app do not
+      // shell out to GitHub. Nothing may escape: a rejection would end the server.
+      const syncMerges = () => {
+        syncMergedPullRequests(db).catch((e) => console.error(`[reeve] merge sync failed: ${String(e)}`));
+      };
+      // Beside the sync rather than inside it: a slow `gh` call skips the next
+      // sync, and archiving should not wait on it. Synchronous, so a throw here
+      // would escape the timer unless caught.
+      const archiveMerged = () => {
+        try {
+          archiveMergedCards(db);
+        } catch (e) {
+          console.error(`[reeve] archiving merged cards failed: ${String(e)}`);
+        }
+      };
+      // Straight after archiving, so a card taken off the board just now loses
+      // its worktree on the same tick. Each tick also retries a removal that
+      // failed, or one a restart cut short: the archive route starts one too,
+      // and nothing remembers it across a restart.
+      const cleanUpWorktrees = () => {
+        cleanUpArchivedWorktrees(db, writer).catch((e) =>
+          console.error(`[reeve] worktree clean-up failed: ${String(e)}`),
+        );
+      };
+      syncMerges();
+      archiveMerged();
+      cleanUpWorktrees();
+      setInterval(() => {
+        syncMerges();
+        archiveMerged();
+        cleanUpWorktrees();
+      }, config.mergeSyncMs);
+
+      // The other half of SICKO MODE. Out here for the same reason: the sweep
+      // starts Claude runs and talks to GitHub, and a spike that builds an app
+      // should do neither. It reads the switch itself and, while it is off, looks
+      // only at cards flagged on their own — a cheap settings read and one small
+      // select every couple of seconds, and the price of the switches being rows
+      // rather than a process that has to be restarted.
+      const sweep = () => {
+        sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
+      };
+      setInterval(sweep, config.sickoSweepMs);
+
+      resolve(url);
+    });
+    server.once('error', reject);
   });
-
-  // Here rather than in createApp, so the spikes that build an app do not
-  // shell out to GitHub. Nothing may escape: a rejection would end the server.
-  const syncMerges = () => {
-    syncMergedPullRequests(db).catch((e) => console.error(`[reeve] merge sync failed: ${String(e)}`));
-  };
-  // Beside the sync rather than inside it: a slow `gh` call skips the next
-  // sync, and archiving should not wait on it. Synchronous, so a throw here
-  // would escape the timer unless caught.
-  const archiveMerged = () => {
-    try {
-      archiveMergedCards(db);
-    } catch (e) {
-      console.error(`[reeve] archiving merged cards failed: ${String(e)}`);
-    }
-  };
-  // Straight after archiving, so a card taken off the board just now loses its
-  // worktree on the same tick. Each tick also retries a removal that failed, or
-  // one a restart cut short: the archive route starts one too, and nothing
-  // remembers it across a restart.
-  const cleanUpWorktrees = () => {
-    cleanUpArchivedWorktrees(db, writer).catch((e) => console.error(`[reeve] worktree clean-up failed: ${String(e)}`));
-  };
-  syncMerges();
-  archiveMerged();
-  cleanUpWorktrees();
-  setInterval(() => {
-    syncMerges();
-    archiveMerged();
-    cleanUpWorktrees();
-  }, config.mergeSyncMs);
-
-  // The other half of SICKO MODE. Out here for the same reason: the sweep
-  // starts Claude runs and talks to GitHub, and a spike that builds an app
-  // should do neither. It reads the switch itself and does nothing while it is
-  // off, which is a cheap settings read every couple of seconds and the price
-  // of the switch being one row rather than a process that has to be restarted.
-  const sweep = () => {
-    sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
-  };
-  setInterval(sweep, config.sickoSweepMs);
 }
+
+export { config };

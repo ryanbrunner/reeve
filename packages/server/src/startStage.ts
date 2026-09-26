@@ -1,11 +1,20 @@
 import { existsSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { canStartRun, isRunnable, type Stage } from '@reeve/shared';
+import { blockedStart } from './blockers.js';
 import { cardActivity } from './board.js';
 import type { Db } from './db/client.js';
 import { getCard, getSettings, insertCardEvent, liveStageRun } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
-import { GitError, checkWorktree, createWorktree, isDirty, removeWorktree } from './git/worktree.js';
+import { fetchBranch } from './git/github.js';
+import {
+  GitError,
+  checkWorktree,
+  copyWorktreeIncludes,
+  createWorktree,
+  isDirty,
+  removeWorktree,
+} from './git/worktree.js';
 import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -19,6 +28,14 @@ import { stageDefinition } from './stages/index.js';
  */
 const starting = new Set<string>();
 
+/**
+ * Whether a start is under way for the card: its worktree is being made and
+ * its run has no row yet. For those seconds the card reads as idle, and
+ * `reeve card wait` has to be able to tell that from a card nothing is going
+ * to start.
+ */
+export const isStartingStage = (cardId: string) => starting.has(cardId);
+
 export type StartStageResult =
   | { ok: true; runId: string; sessionId: string }
   | { ok: false; status: 400 | 409 | 429 | 500 | 501; error: string; detail: string };
@@ -26,40 +43,71 @@ export type StartStageResult =
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
 
 /**
- * A merged card whose worktree has been removed cannot have one made again:
- * its branch is kept, and `worktree add -b` refuses a branch that exists. Its
- * work has landed anyway, so anything more is a new card. Asked by the two
- * ways a worktree is made, so both say the same sentence rather than git's.
+ * A merged card whose worktree has been removed is not given one again.
+ * `createWorktree` could check its kept branch out afresh, but the work on it
+ * has landed and its pull request is merged, so nothing done there could ship
+ * through this card: anything more is a new card. Asked by the two ways a
+ * worktree is made, so both say the same sentence.
  */
 export function refuseMergedWorktree(card: Card): { error: string; detail: string } | null {
   if (!card.mergedAt || card.worktreePath) return null;
   return {
     error: 'already merged',
-    detail: 'its worktree was removed once it merged and its branch is kept; start a new card for more work',
+    detail: 'its worktree has been removed and its branch is kept; start a new card for more work',
   };
 }
 
 /**
- * The card's worktree, made if it is not there yet. If it is made and the repo
- * defines a setup command, that is kicked off as a background shell run and
- * not awaited: it is a different run kind, so it counts against neither the
- * card's active run nor the concurrency cap.
+ * The card's worktree, made if it is not there yet. A new one is given the
+ * files the repo's `.worktreeinclude` names, and if the repo defines a setup
+ * command, that is kicked off as a background shell run and not awaited: it is
+ * a different run kind, so it counts against neither the card's active run nor
+ * the concurrency cap.
  */
 export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, repo: Repo) {
   const health = await checkWorktree(repo.repoPath, card.worktreePath);
   if (health.state === 'ok') return { reused: true as const, path: health.path };
 
+  // From the base as origin has it, never the local branch: that is the
+  // person's own, and a commit sitting unpushed on it would otherwise ride
+  // along in this card's pull request and every sibling cut beside it. Only a
+  // fetch that fails falls back to the local branch, and the card says so.
+  const base = repo.defaultBranch;
+  let fetched: string | null = null;
+  let fetchFailure = '';
+  try {
+    fetched = await fetchBranch(repo.repoPath, base);
+  } catch (e) {
+    fetchFailure = reason(e);
+  }
   const created = await createWorktree({
     repoPath: repo.repoPath,
     worktreeRoot: repo.worktreeRoot,
     cardId: card.id,
     title: card.title,
-    baseBranch: repo.defaultBranch,
+    base: fetched ?? base,
+    previous: card.branchName && card.baseSha ? { branch: card.branchName, baseSha: card.baseSha } : null,
   });
   db.update(cardTable)
     .set({ worktreePath: created.path, branchName: created.branch, baseSha: created.baseSha, updatedAt: new Date() })
     .where(eq(cardTable.id, card.id))
     .run();
+  if (!fetched) {
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+      body: `Started from the local ${base} at ${created.baseSha.slice(0, 7)}, because fetching origin/${base} failed: ${fetchFailure}`,
+    });
+  }
+
+  // Awaited before the setup command, which may well need the `.env` this
+  // brings over. Only a new worktree gets them: a reused one keeps whatever it
+  // has been given since. A copy that fails costs the card a file, not its start.
+  let included: string[] = [];
+  try {
+    included = await copyWorktreeIncludes(repo.repoPath, created.path);
+  } catch (e) {
+    console.warn(`[reeve] #${card.number} .worktreeinclude not copied: ${reason(e)}`);
+  }
 
   let setupRunId: string | null = null;
   if (repo.setupCommand) {
@@ -69,7 +117,7 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     });
     setupRunId = handle.runId;
   }
-  return { reused: false as const, path: created.path, branch: created.branch, setupRunId };
+  return { reused: false as const, path: created.path, branch: created.branch, setupRunId, included };
 }
 
 export type WorktreeRemoval =
@@ -145,6 +193,13 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
   if (!stage) return { ok: false, status: 501, error: 'stage not implemented yet', detail: card.stage };
   const merged = refuseMergedWorktree(card);
   if (merged) return { ok: false, status: 409, ...merged };
+  // The move route already keeps a blocked card in Backlog, so this is for
+  // the one that got past it first: a dependency added, or put back out of
+  // Done, after the card had left. It keeps its column and does not run until
+  // the dependency is done. Before the worktree, so a card that may not start
+  // is not given one.
+  const blocked = blockedStart(db, card);
+  if (blocked) return { ok: false, ...blocked };
   // Taken before the first await, so no second start can slip in between
   // looking for a worktree and making one.
   if (starting.has(card.id)) {

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { isTerminal, type CardDetail } from '@reeve/shared';
+import { useCallback, useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isTerminal, type ApiAsset, type ApiCriterion, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
+import { SickoSwitch } from '../../sicko/Switch.js';
+import { when } from '../format.js';
+import { Lightbox } from '../Lightbox.js';
 import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
@@ -111,6 +114,8 @@ function Purpose({ detail }: { detail: CardDetail }) {
       {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
       {/* A project is never planned, so it has no mockups to draw. */}
       {detail.card.kind === 'task' && <GenerateMockups detail={detail} />}
+      {/* Nor is a project ever swept, so it has no switch: the sweep moves tasks. */}
+      {detail.card.kind === 'task' && <CardSicko detail={detail} />}
     </section>
   );
 }
@@ -206,6 +211,54 @@ function GenerateMockups({ detail }: { detail: CardDetail }) {
   );
 }
 
+/**
+ * SICKO MODE for this card alone. The header's switch, worn by one card: the
+ * same control, so it reads as the same promise, and the only rainbow the calm
+ * board lets through besides the header.
+ *
+ * Shown on and left alone while the board's own switch is on, because then
+ * this card goes whatever it says here.
+ */
+function CardSicko({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const set = useMutation({
+    mutationFn: (sicko: boolean) => api.updateCard(detail.card.id, { sicko }),
+    // Returned rather than fired, as in GenerateMockups above.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['board'] });
+      return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    },
+  });
+  const everyone = board?.sicko != null;
+  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.sicko);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <SickoSwitch
+        on={on}
+        onToggle={() => set.mutate(!on)}
+        disabled={everyone || set.isPending}
+        className="self-start"
+        title={
+          everyone ? 'Every card goes while the board is in SICKO MODE'
+          : on ?
+            'Put the human back in the loop for this card'
+          : 'Claude approves, answers and merges this card to main, with nobody reviewing it'
+        }
+      />
+      <span className="font-mono text-[10px]/4 text-(--color-muted)">
+        {everyone ?
+          'The whole board is in SICKO MODE already'
+        : detail.card.repoId === null ?
+          'Nothing happens until the card has a repo to run in'
+        : 'Only this card moves on its own, all the way to a merged pull request'}
+      </span>
+      {set.error && <p className="text-sm/5 text-red-300">{set.error.message}</p>}
+    </div>
+  );
+}
+
 function Criteria({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState<string | null>(null);
@@ -238,6 +291,31 @@ function Criteria({ detail }: { detail: CardDetail }) {
       ? `Suggest failed: ${last.errorMessage ?? 'the run was interrupted'}`
       : null);
 
+  // Until Testing has judged something, the list stays as it was drawn before
+  // there were verdicts: no mark column, and the footnote saying what's to come.
+  // That covers a new card, and a Testing run in progress, which clears them.
+  const judged = detail.criteria.some((c) => c.verdict);
+
+  // Evidence often names a screenshot ("Screenshot 'Cart with saved items'
+  // shows…"), so it links to it. Only this run's pictures: a failed capture
+  // leaves the last run's in place, and they may show something since fixed.
+  const shots = detail.assets.filter((a) => a.kind === 'screenshot' && a.label.trim());
+  const shotFor = (c: ApiCriterion) => {
+    const evidence = c.evidence?.toLowerCase();
+    if (!evidence || !c.verifiedRunId) return null;
+    // The longest label that fits, so "Cart" never claims "Cart on mobile".
+    return (
+      shots
+        .filter((s) => s.runId === c.verifiedRunId && evidence.includes(s.label.toLowerCase()))
+        .sort((a, b) => b.label.length - a.label.length)[0] ?? null
+    );
+  };
+  // An id rather than the asset, so each poll of the card shows the fresh row.
+  const [viewing, setViewing] = useState<string | null>(null);
+  // Stable, or every poll of the card would re-run the lightbox's effect.
+  const close = useCallback(() => setViewing(null), []);
+  const shown = detail.assets.find((a) => a.id === viewing) ?? null;
+
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
@@ -257,25 +335,22 @@ function Criteria({ detail }: { detail: CardDetail }) {
       {detail.criteria.length === 0 && adding === null ? (
         <Empty>Nothing yet. Write what done means, or ask Claude to suggest it.</Empty>
       ) : (
-        <ol className="rounded-md border border-(--color-edge) bg-(--color-ink)">
+        // Clipped, so a failed first or last row's wash keeps to the corners.
+        <ol className="overflow-hidden rounded-md border border-(--color-edge) bg-(--color-ink)">
           {detail.criteria.map((c, i) => (
             <li
               key={c.id}
-              className="group flex gap-3 px-3 py-[7px] not-first:border-t not-first:border-(--color-edge)"
+              className={`group flex items-start gap-3 px-3 py-[7px] not-first:border-t not-first:border-(--color-edge) ${
+                c.verdict === 'fail' ? 'bg-red-500/[0.06]' : ''
+              }`}
             >
               <span className="w-3 shrink-0 font-mono text-[11px]/5 text-(--color-muted)">{i + 1}</span>
-              <span className="grow text-sm/5 text-(--color-text)">{c.text}</span>
-              {/* A verdict, once Testing has reached this one. */}
-              {c.verdict && (
-                <span
-                  title={c.evidence ?? undefined}
-                  className={`shrink-0 font-mono text-[11px]/5 ${
-                    c.verdict === 'pass' ? 'text-emerald-300' : 'text-red-300'
-                  }`}
-                >
-                  {c.verdict === 'pass' ? '✓' : '✕'} {c.evidence}
-                </span>
-              )}
+              {judged && <Mark verdict={c.verdict} />}
+              {/* min-w-0, or the evidence under it would set the row's width. */}
+              <div className="flex min-w-0 grow flex-col">
+                <span className="text-sm/5 text-(--color-text)">{c.text}</span>
+                {judged && <Evidence criterion={c} shot={shotFor(c)} onView={setViewing} />}
+              </div>
               <button
                 type="button"
                 aria-label={`Remove criterion ${i + 1}`}
@@ -291,6 +366,8 @@ function Criteria({ detail }: { detail: CardDetail }) {
               <span className="w-3 shrink-0 font-mono text-[11px]/5 text-(--color-muted)">
                 {detail.criteria.length + 1}
               </span>
+              {/* The mark's width, so what is typed lines up with the text above. */}
+              {judged && <span className="w-3 shrink-0" />}
               <form
                 className="flex grow gap-2"
                 onSubmit={(e) => {
@@ -314,11 +391,108 @@ function Criteria({ detail }: { detail: CardDetail }) {
           )}
         </ol>
       )}
-      <span className="font-mono text-[10px]/4 text-(--color-muted)">
-        Claude checks each one in Testing and links the evidence here
-      </span>
+      {judged ? (
+        <Tally criteria={detail.criteria} />
+      ) : (
+        <span className="font-mono text-[10px]/4 text-(--color-muted)">
+          Claude checks each one in Testing and links the evidence here
+        </span>
+      )}
       {failure && <p className="text-sm/5 text-red-300">{failure}</p>}
+      {shown && (
+        <Lightbox
+          asset={shown}
+          kind="Build"
+          caption={`${shown.url ?? ''} · ${shown.viewport ?? '?'}px · ${when(shown.createdAt)}`}
+          onClose={close}
+        />
+      )}
     </section>
+  );
+}
+
+/** Where a person looks first to see what failed, so it has a column of its own. */
+function Mark({ verdict }: { verdict: ApiCriterion['verdict'] }) {
+  const [glyph, tone, label] =
+    verdict === 'pass'
+      ? ['✓', 'text-emerald-300', 'Passed']
+      : verdict === 'fail'
+        ? ['✕', 'text-red-300', 'Failed']
+        : ['–', 'text-(--color-muted)', 'Not checked'];
+  return (
+    <span title={label} className={`w-3 shrink-0 font-mono text-[11px]/5 ${tone}`}>
+      {glyph}
+    </span>
+  );
+}
+
+/**
+ * What Testing saw, under the criterion rather than beside it. It is free text:
+ * a test name, a path with no spaces in it, or a sentence of output. Beside the
+ * criterion, the long ones squeezed it to a sliver or ran off the modal, so here
+ * it wraps wherever it has to.
+ */
+function Evidence({ criterion: c, shot, onView }: {
+  criterion: ApiCriterion;
+  shot: ApiAsset | null;
+  onView: (id: string) => void;
+}) {
+  // Criteria are only unjudged beside judged ones when they were added since
+  // the last run, because a run clears every verdict when it starts.
+  if (!c.verdict) {
+    return (
+      <span className="mt-0.5 font-mono text-[11px]/4 text-(--color-muted)">
+        Not checked in the last Testing run
+      </span>
+    );
+  }
+  if (!c.evidence?.trim()) return null;
+  return (
+    <p
+      className={`mt-0.5 font-mono text-[11px]/4 whitespace-pre-wrap [overflow-wrap:anywhere] ${
+        c.verdict === 'pass' ? 'text-(--color-muted)' : 'text-red-300'
+      }`}
+    >
+      {c.evidence.trim()}
+      {shot && (
+        <>
+          {' '}
+          <button
+            type="button"
+            // Safari and Firefox leave a clicked button unfocused, and the
+            // lightbox hands focus back to whatever had it.
+            onClick={(e) => { e.currentTarget.focus(); onView(shot.id); }}
+            className="whitespace-nowrap text-sky-300 hover:underline"
+          >
+            View screenshot
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** The footnote, once there are verdicts to count. A zero is left out rather than coloured. */
+function Tally({ criteria }: { criteria: ApiCriterion[] }) {
+  const passed = criteria.filter((c) => c.verdict === 'pass').length;
+  const failed = criteria.filter((c) => c.verdict === 'fail').length;
+  const unchecked = criteria.length - passed - failed;
+  const parts = [
+    { n: passed, text: 'passed', tone: 'text-emerald-300' },
+    { n: failed, text: 'failed', tone: 'text-red-300' },
+    { n: unchecked, text: 'not checked', tone: 'text-(--color-muted)' },
+  ].filter((p) => p.n > 0);
+  return (
+    <span className="font-mono text-[10px]/4 text-(--color-muted)">
+      {parts.map((p, i) => (
+        <span key={p.text}>
+          {i > 0 && ' · '}
+          <span className={p.tone}>
+            {p.n} {p.text}
+          </span>
+        </span>
+      ))}
+    </span>
   );
 }
 

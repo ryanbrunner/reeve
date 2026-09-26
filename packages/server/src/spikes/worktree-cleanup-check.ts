@@ -44,7 +44,7 @@ const teardownCommand = `echo "$PWD" >> '${teardownLog}'`;
 const repo = createRepo(db, {
   name: `cleanup-check-${Date.now()}`, repoPath, worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand, finishCommand: null, laneColor: null,
 });
 
 /** A Done card with a real worktree, one commit on its branch, and Reeve's own `.reeve/` beside it. */
