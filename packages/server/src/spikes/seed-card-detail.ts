@@ -98,7 +98,6 @@ const storefront =
     teardownCommand: null,
     finishCommand: null,
     laneColor: '#6b7db3',
-    maxBudgetUsd: 10,
   });
 
 const ago = (mins: number) => new Date(Date.now() - mins * 60_000);

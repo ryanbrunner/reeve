@@ -20,7 +20,7 @@ function repo(name: string, laneColor: string) {
     createRepo(db, {
       name, repoPath: `/tmp/${name}`, worktreeRoot: `/tmp/${name}-worktrees`, defaultBranch: 'main',
       setupCommand: null, testCommand: null, serverCommand: null,
-      teardownCommand: null, finishCommand: null, laneColor, maxBudgetUsd: null,
+      teardownCommand: null, finishCommand: null, laneColor,
     })
   );
 }

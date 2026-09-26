@@ -20,7 +20,6 @@ export interface ApiRepo {
   teardownCommand: string | null;
   finishCommand: string | null;
   laneColor: string | null;
-  maxBudgetUsd: number | null;
 }
 
 /**
@@ -245,7 +244,6 @@ export interface CreateRepoBody {
   teardownCommand?: string | null;
   finishCommand?: string | null;
   laneColor?: string | null;
-  maxBudgetUsd?: number | null;
 }
 
 export type UpdateRepoBody = Partial<CreateRepoBody>;

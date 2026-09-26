@@ -51,7 +51,6 @@ export function toApiRepo(p: Repo): ApiRepo {
     teardownCommand: p.teardownCommand,
     finishCommand: p.finishCommand,
     laneColor: p.laneColor,
-    maxBudgetUsd: p.maxBudgetUsd,
   };
 }
 

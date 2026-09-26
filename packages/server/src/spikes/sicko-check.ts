@@ -35,7 +35,7 @@ const repo = createRepo(db, {
   name: `sicko-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 
 const PLAN = {

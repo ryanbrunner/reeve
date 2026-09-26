@@ -89,7 +89,7 @@ runMigrations(db);
 const repo = createRepo(db, {
   name: 'pr-check', repoPath, worktreeRoot, defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 
 /** A card with a worktree and, unless told otherwise, one commit — as In Progress would leave it. */
