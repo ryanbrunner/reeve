@@ -4,7 +4,7 @@ import { canStartRun, isRunnable, type Stage } from '@reeve/shared';
 import { blockedStart } from './blockers.js';
 import { cardActivity } from './board.js';
 import type { Db } from './db/client.js';
-import { getCard, getSettings, insertCardEvent, liveStageRun } from './db/queries.js';
+import { getCard, getSettings, insertCardEvent, liveStageRun, runsForCard } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import { fetchBranch } from './git/github.js';
 import {
@@ -74,11 +74,14 @@ export function refuseMergedWorktree(card: Card): { error: string; detail: strin
  * command, that is kicked off as a background shell run and not awaited here:
  * `startStage` waits on it, and the worktree button answers as soon as the
  * tree is there. It is a different run kind, so it counts against neither the
- * card's active run nor the concurrency cap.
+ * card's active run nor the concurrency cap. A reused worktree gets it too if
+ * it never finished there; see `owedSetup`.
  */
 export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, repo: Repo) {
   const health = await checkWorktree(repo.repoPath, card.worktreePath);
-  if (health.state === 'ok') return { reused: true as const, path: health.path };
+  if (health.state === 'ok') {
+    return { reused: true as const, path: health.path, setupRunId: owedSetup(db, writer, card, repo, health.path) };
+  }
 
   // From the base as origin has it, never the local branch: that is the
   // person's own, and a commit sitting unpushed on it would otherwise ride
@@ -121,25 +124,52 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     console.warn(`[reeve] #${card.number} .worktreeinclude not copied: ${reason(e)}`);
   }
 
-  let setupRunId: string | null = null;
-  if (repo.setupCommand) {
-    // The names a Server URL template can use, so a setup script can register
-    // the same host with a local proxy. From `created`: `card` predates the
-    // branch. There is no port yet; each server start picks its own.
-    const handle = startShellRun({
-      db, writer, cardId: card.id, stage: card.stage,
-      command: repo.setupCommand, cwd: created.path,
-      env: serverEnv(serverVars(card.id, created.branch)),
-    });
-    settingUp.set(card.id, handle);
-    // Only its own entry: a tree removed and made again while this ran has a
-    // setup of its own by now, and that is the one a start has to wait for.
-    void handle.done.then(() => {
-      if (settingUp.get(card.id) === handle) settingUp.delete(card.id);
-    });
-    setupRunId = handle.runId;
-  }
+  // From `created`: `card` predates the branch.
+  const setupRunId = startSetup(db, writer, card, repo, created.path, created.branch);
   return { reused: false as const, path: created.path, branch: created.branch, setupRunId, included };
+}
+
+/**
+ * The setup a reused worktree is still owed: the one running in it, or a
+ * fresh one when the last to run there did not succeed. #67's tree was made
+ * before Reeve's own repo had a setup command, so nothing had ever installed
+ * its `node_modules`, and two stages in a row failed `npm test` on missing
+ * modules. Matched on the command as well as the tree, so a setup command
+ * changed since is run where only the old one had.
+ */
+function owedSetup(db: Db, writer: EventWriter, card: Card, repo: Repo, path: string): string | null {
+  const running = settingUp.get(card.id);
+  if (running) return running.runId;
+  if (!repo.setupCommand) return null;
+  const last = runsForCard(db, card.id)
+    .find((r) => r.kind === 'shell' && r.command === repo.setupCommand && r.cwd === path);
+  if (last?.status === 'succeeded') return null;
+  return startSetup(db, writer, card, repo, path, card.branchName);
+}
+
+/**
+ * The repo's setup command, run in the tree and recorded for `startStage` to
+ * wait on. Not awaited: see `ensureWorktree`.
+ */
+function startSetup(
+  db: Db, writer: EventWriter, card: Card, repo: Repo, path: string, branch: string | null,
+): string | null {
+  if (!repo.setupCommand) return null;
+  // The names a Server URL template can use, so a setup script can register
+  // the same host with a local proxy. There is no port yet; each server start
+  // picks its own.
+  const handle = startShellRun({
+    db, writer, cardId: card.id, stage: card.stage,
+    command: repo.setupCommand, cwd: path,
+    env: serverEnv(serverVars(card.id, branch)),
+  });
+  settingUp.set(card.id, handle);
+  // Only its own entry: a tree removed and made again while this ran has a
+  // setup of its own by now, and that is the one a start has to wait for.
+  void handle.done.then(() => {
+    if (settingUp.get(card.id) === handle) settingUp.delete(card.id);
+  });
+  return handle.runId;
 }
 
 /**
