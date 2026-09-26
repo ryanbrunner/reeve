@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { needsWorktree, type ApiCard, type ApiDiff, type BoardResponse } from '@reeve/shared';
+import { STAGE_LABELS, needsWorktree, type ApiCard, type ApiDiff, type BoardResponse } from '@reeve/shared';
 import { api } from '../client.js';
-import { cardRef, note, parseOrUsage, print, printJson, usageError } from '../output.js';
+import { CliError, cardRef, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 import { resolveCard, whereAmI } from '../resolve.js';
 
 /**
@@ -73,6 +73,11 @@ async function worktree(args: string[]): Promise<void> {
     if (values.json) return printJson({ ok: true, reused: true, path: card.worktreePath });
     return print(card.worktreePath);
   }
+  // The server's refusal names the stage and nothing else. Said as the card's
+  // rail says it, so the way to a worktree is in the message.
+  if (!needsWorktree(card.stage)) {
+    throw new CliError(`${cardRef(card)} is in ${STAGE_LABELS[card.stage]}, which has no worktree. Move it to Planning to get one`);
+  }
 
   const made = await api.createWorktree(card.id);
   if (values.json) return printJson(made);
@@ -90,7 +95,8 @@ async function worktree(args: string[]): Promise<void> {
  */
 async function pr(args: string[]): Promise<void> {
   const { values, card } = await target('pr', args);
-  note(`Pushing ${cardRef(card)}'s branch to origin…`);
+  // Only where a push can happen: the server refuses anything else before it tries.
+  if (card.stage === 'done') note(`Pushing ${cardRef(card)}'s branch to origin…`);
   const opened = await api.openPr(card.id);
   if (values.json) return printJson(opened);
   note(opened.reused ? `Pushed to the open pull request #${opened.number}.` : `Opened pull request #${opened.number}.`);
