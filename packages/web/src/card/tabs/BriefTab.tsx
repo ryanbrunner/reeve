@@ -223,15 +223,15 @@ function CardSicko({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
   const set = useMutation({
-    mutationFn: (sicko: boolean) => api.updateCard(detail.card.id, { sicko }),
+    mutationFn: (vibe: boolean) => api.updateCard(detail.card.id, { vibe }),
     // Returned rather than fired, as in GenerateMockups above.
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['board'] });
       return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
     },
   });
-  const everyone = board?.sicko != null;
-  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.sicko);
+  const everyone = board?.vibe != null;
+  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.vibe);
 
   return (
     <div className="flex flex-col gap-1">

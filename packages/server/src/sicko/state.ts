@@ -1,4 +1,4 @@
-import { STAGE_LABELS, type SickoState, type Stage } from '@reeve/shared';
+import { STAGE_LABELS, type Stage, type VibeState } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import { getSettings, sickoLedger, tokensSince } from '../db/queries.js';
 
@@ -18,17 +18,17 @@ const LOG_LINES = 4;
  * does walk over and approve a card by hand while this is on, the HUD should
  * say so rather than quietly claim otherwise.
  */
-export function sickoState(db: Db): SickoState | null {
-  const { sickoSince } = getSettings(db);
-  if (sickoSince === null) return null;
-  const since = new Date(sickoSince);
+export function sickoState(db: Db): VibeState | null {
+  const { vibeSince } = getSettings(db);
+  if (vibeSince === null) return null;
+  const since = new Date(vibeSince);
   const ledger = sickoLedger(db, since);
 
   const byClaude = (kind: string) =>
     ledger.filter((e) => e.kind === kind && e.actor === 'claude').length;
 
   return {
-    since: sickoSince,
+    since: vibeSince,
     merged: ledger.filter((e) => e.kind === 'merged').length,
     humanApprovals: ledger.filter((e) => e.kind === 'reviewed' && e.actor === 'human').length,
     reviewsSkipped: byClaude('reviewed'),

@@ -5,7 +5,7 @@
  * Point it at a scratch database, because SICKO MODE moves real cards:
  *
  *   REEVE_DB=/tmp/sicko.db tsx src/spikes/seed-sicko-board.ts
- *   REEVE_DB=/tmp/sicko.db REEVE_SICKO_SWEEP_MS=3600000 REEVE_PORT=4399 npm start
+ *   REEVE_DB=/tmp/sicko.db REEVE_VIBE_SWEEP_MS=3600000 REEVE_PORT=4399 npm start
  *
  * The long sweep interval is the point of the second line: it leaves the board
  * holding still in every state at once, which is what you want to look at. Drop
@@ -109,6 +109,6 @@ card('Cart page redesign', 'done', 'merged', 1.6);
 card('Apple Pay on mobile', 'done', 'merged', 0.141);
 card('Make the logo bigger', 'done', 'idle', 0.09);
 
-updateSettings(db, { sicko: true });
+updateSettings(db, { vibe: true });
 console.log('seeded, and SICKO MODE is on');
 process.exit(0);

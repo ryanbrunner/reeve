@@ -117,7 +117,7 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
       const sweep = () => {
         sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
       };
-      setInterval(sweep, config.sickoSweepMs);
+      setInterval(sweep, config.vibeSweepMs);
 
       resolve(url);
     });

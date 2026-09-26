@@ -73,7 +73,7 @@ const stranded = createCard(db, { title: 'stranded', repoId: repo.id, stage: 'pl
 await sickoSweep(db, writer);
 const stayedPut = getCard(db, asleep.id)!.stage;
 
-updateSettings(db, { sicko: true });
+updateSettings(db, { vibe: true });
 
 // --- backlog --------------------------------------------------------------
 // Nobody is going to drag this, and nobody is going to plan it either.
@@ -125,7 +125,7 @@ const answeredBy = actorsOf(asking.id, 'answered');
 const state = sickoState(db)!;
 
 // --- off again ------------------------------------------------------------
-updateSettings(db, { sicko: false });
+updateSettings(db, { vibe: false });
 const parked = createCard(db, { title: 'parked', repoId: repo.id, stage: 'backlog' });
 await sickoSweep(db, writer);
 const afterOff = getCard(db, parked.id)!.stage;
@@ -141,9 +141,9 @@ const bystanderWaiting = createCard(db, { title: 'bystander waiting', repoId: re
 succeeded(bystanderWaiting.id, 'planning');
 // Flagged the moment after Add, before anything is typed into it.
 const soloUnnamed = createCard(db, { title: PLACEHOLDER_TITLE, repoId: repo.id, stage: 'backlog' });
-updateCard(db, solo.id, { sicko: true });
-updateCard(db, soloWaiting.id, { sicko: true });
-updateCard(db, soloUnnamed.id, { sicko: true });
+updateCard(db, solo.id, { vibe: true });
+updateCard(db, soloWaiting.id, { vibe: true });
+updateCard(db, soloUnnamed.id, { vibe: true });
 await sickoSweep(db, writer);
 const soloUnnamedStage = getCard(db, soloUnnamed.id)!.stage;
 const soloStage = getCard(db, solo.id)!.stage;
@@ -160,7 +160,7 @@ const bystanderReviews = actorsOf(bystanderWaiting.id, 'reviewed');
 // Turned off again, the card that just moved itself stops where it is, however
 // many sweeps go by — with a plan waiting that the next sweep would otherwise
 // approve.
-updateCard(db, solo.id, { sicko: false });
+updateCard(db, solo.id, { vibe: false });
 succeeded(solo.id, 'planning');
 await sickoSweep(db, writer);
 await sickoSweep(db, writer);

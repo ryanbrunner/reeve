@@ -107,9 +107,9 @@ const approveBuilt = await send('POST', `/api/cards/${builtTesting.id}/review`, 
 // --- SICKO MODE ----------------------------------------------------------
 // The same unbuilt card still reads as waiting for review. With nobody
 // watching, the sweep must leave it for a person rather than push it to Done.
-updateSettings(db, { sicko: true });
+updateSettings(db, { vibe: true });
 await sickoSweep(db, writer);
-updateSettings(db, { sicko: false });
+updateSettings(db, { vibe: false });
 const sickoReviews = cardEventsFor(db, unbuiltTesting.id).filter((e) => e.kind === 'reviewed');
 
 const checks: Array<[string, boolean, string]> = [

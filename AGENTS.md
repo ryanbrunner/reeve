@@ -70,7 +70,7 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
-`REEVE_AUTO_ARCHIVE_MS`, `REEVE_SICKO_SWEEP_MS`. By default the database is
+`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBE_SWEEP_MS`. By default the database is
 `data/reeve.db` and mockups and screenshots go in `data/assets/`; `data/` is
 gitignored and created at runtime. The server binds to 127.0.0.1 only.
 Its default paths, and the built web app's, are resolved from the repo root

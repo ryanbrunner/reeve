@@ -80,7 +80,7 @@ export function sickoCards(db: Db) {
   return db
     .select({ card })
     .from(card)
-    .where(and(isTask, eq(card.sicko, true), isNull(card.archivedAt)))
+    .where(and(isTask, eq(card.vibe, true), isNull(card.archivedAt)))
     .orderBy(asc(card.stage), asc(card.position))
     .all();
 }
@@ -477,7 +477,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'sicko'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'vibe'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -608,7 +608,7 @@ export function getSettings(db: Db): ApiSettings {
   const stored = row?.stageDefaults ?? {};
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
-    sickoSince: row?.sickoSince?.getTime() ?? null,
+    vibeSince: row?.vibeSince?.getTime() ?? null,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,
@@ -618,7 +618,7 @@ export function getSettings(db: Db): ApiSettings {
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, sicko, ...rest } = patch;
+  const { stageDefaults, vibe, ...rest } = patch;
   const current = getSettings(db);
   const values = {
     ...rest,
@@ -627,9 +627,9 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
-    ...(sicko === undefined ? {}
-      : sicko ? (current.sickoSince === null ? { sickoSince: new Date() } : {})
-      : { sickoSince: null }),
+    ...(vibe === undefined ? {}
+      : vibe ? (current.vibeSince === null ? { vibeSince: new Date() } : {})
+      : { vibeSince: null }),
   };
   if (Object.keys(values).length === 0) return current;
   db.insert(settings)

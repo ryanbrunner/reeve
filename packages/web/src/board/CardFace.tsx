@@ -48,7 +48,7 @@ export function CardFace({
   const role = dragging ? null : links.role(card.id);
   // In SICKO MODE on its own, on the calm board. Not once merged: after that
   // there is nothing left for it to do.
-  const solo = !sicko && card.sicko && card.mergedAt == null;
+  const solo = !sicko && card.vibe && card.mergedAt == null;
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.

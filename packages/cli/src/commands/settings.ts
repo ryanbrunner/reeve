@@ -75,7 +75,7 @@ function layered(value: string | null, builtIn: string | null | undefined): stri
 function render(settings: ApiSettings, models: ModelsResponse | null): string {
   const rows: Array<[string, string]> = [
     ['Max concurrent runs', String(settings.maxConcurrentRuns)],
-    ['SICKO MODE', settings.sickoSince === null ? 'off' : `ON since ${formatTime(settings.sickoSince)}`],
+    ['SICKO MODE', settings.vibeSince === null ? 'off' : `ON since ${formatTime(settings.vibeSince)}`],
   ];
   const width = Math.max(...rows.map(([label]) => label.length));
   const stageWidth = Math.max(...RUNNABLE_STAGES.map((s) => STAGE_LABELS[s].length));

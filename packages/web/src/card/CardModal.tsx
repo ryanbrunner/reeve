@@ -81,7 +81,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
   // The ring the card wears on the calm board when it is in SICKO MODE alone,
   // at this size too: it is the same card. Not in the board's SICKO MODE, which
   // dresses every card the same and so has nothing to single this one out for.
-  const solo = !sicko && data?.card.sicko === true && data.card.mergedAt == null;
+  const solo = !sicko && data?.card.vibe === true && data.card.mergedAt == null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">

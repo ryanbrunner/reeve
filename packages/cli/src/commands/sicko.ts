@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { PLACEHOLDER_TITLE, type BoardResponse, type SickoState } from '@reeve/shared';
+import { PLACEHOLDER_TITLE, type BoardResponse, type VibeState } from '@reeve/shared';
 import { api } from '../client.js';
 import { formatTokens, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 
@@ -44,7 +44,7 @@ function whatComesOff(board: BoardResponse): string[] {
   ];
 }
 
-function summary(state: SickoState): string {
+function summary(state: VibeState): string {
   return [
     `${plural(state.moves, 'move')}, ${plural(state.merged, 'merge')}`,
     `${plural(state.reviewsSkipped, 'review')} skipped`,
@@ -54,34 +54,34 @@ function summary(state: SickoState): string {
 }
 
 async function status(json: boolean): Promise<void> {
-  const { sicko } = await api.board();
-  if (json) return printJson(sicko);
-  if (!sicko) return print('SICKO MODE is off.');
-  print(`SICKO MODE has been on since ${formatTime(sicko.since)}: ${summary(sicko)}.`);
-  for (const line of sicko.log) print(`  ${line}`);
+  const { vibe } = await api.board();
+  if (json) return printJson(vibe);
+  if (!vibe) return print('SICKO MODE is off.');
+  print(`SICKO MODE has been on since ${formatTime(vibe.since)}: ${summary(vibe)}.`);
+  for (const line of vibe.log) print(`  ${line}`);
 }
 
 async function on(json: boolean): Promise<void> {
   const board = await api.board();
-  if (board.sicko) {
+  if (board.vibe) {
     // Saying on again is harmless — the server keeps the clock — but it is
     // not what the caller thought was happening.
-    note(`SICKO MODE was already on, since ${formatTime(board.sicko.since)}.`);
+    note(`SICKO MODE was already on, since ${formatTime(board.vibe.since)}.`);
     if (json) return printJson(await api.settings());
     return;
   }
   for (const line of whatComesOff(board)) note(line);
-  const saved = await api.updateSettings({ sicko: true });
+  const saved = await api.updateSettings({ vibe: true });
   if (json) return printJson(saved);
   print('SICKO MODE is on.');
 }
 
 async function off(json: boolean): Promise<void> {
-  const { sicko } = await api.board();
-  const saved = await api.updateSettings({ sicko: false });
+  const { vibe } = await api.board();
+  const saved = await api.updateSettings({ vibe: false });
   if (json) return printJson(saved);
-  if (!sicko) return print('SICKO MODE was already off.');
-  print(`SICKO MODE is off. You're back in the loop. While it was on: ${summary(sicko)}.`);
+  if (!vibe) return print('SICKO MODE was already off.');
+  print(`SICKO MODE is off. You're back in the loop. While it was on: ${summary(vibe)}.`);
   note('Runs it started carry on to the end; nothing new starts without you.');
 }
 

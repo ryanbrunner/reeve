@@ -155,11 +155,11 @@ export interface ApiCard {
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
   /**
-   * SICKO MODE for this card alone: approved, answered, started and merged
+   * VIBE MODE for this card alone: approved, answered, started and merged
    * without anyone asked, while the rest of the board stays calm. Beside the
    * board's own switch rather than under it — with that on, every card goes.
    */
-  sicko: boolean;
+  vibe: boolean;
   /**
    * The cards this one waits on, finished ones included, lowest number first.
    * Named rather than listed by id because the board draws a chip for each, and
@@ -229,14 +229,14 @@ export interface BoardResponse {
   projects: ApiProject[];
   /** Tasks only. A project is never one of these. */
   cards: ApiCard[];
-  /** Null while SICKO MODE is off, which is nearly always. */
-  sicko: SickoState | null;
+  /** Null while VIBE MODE is off, which is nearly always. */
+  vibe: VibeState | null;
   /** Null until a run has reported one, and always under API-key auth, which has no such limits. */
   usage: UsageState | null;
 }
 
 /**
- * SICKO MODE, as the board sees it: since when, and what has happened without
+ * VIBE MODE, as the board sees it: since when, and what has happened without
  * anybody being asked.
  *
  * Rides on the board response rather than an endpoint of its own because the
@@ -245,7 +245,7 @@ export interface BoardResponse {
  * log and its runs — nothing here is a counter that a reload could reset or
  * that could disagree with a card's history.
  */
-export interface SickoState {
+export interface VibeState {
   /** When the switch was flipped. */
   since: number;
   /** Cards whose pull request landed on the default branch since then. */
@@ -297,7 +297,7 @@ export interface UsageState {
  *
  * A card is made and opened rather than asked for a title first, because
  * criteria and context can only hang off a card that exists — so for a moment
- * every new card is called this. SICKO MODE has to be able to tell that moment
+ * every new card is called this. VIBE MODE has to be able to tell that moment
  * apart from a card somebody meant, which is why the string is here rather than
  * spelled out twice.
  */
@@ -308,7 +308,7 @@ export const PLACEHOLDER_PROJECT_TITLE = 'Untitled project';
 
 /**
  * Whether nobody has said anything about this card yet: its placeholder title,
- * trimmed, and no brief. SICKO MODE reads it to leave such a card where it is,
+ * trimmed, and no brief. VIBE MODE reads it to leave such a card where it is,
  * and closing one reads it to throw the card away — the two places that need to
  * tell "just made" apart from "meant".
  */
@@ -377,8 +377,8 @@ export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
 export interface ApiSettings {
   /** Claude runs allowed at once, across every card and repo. */
   maxConcurrentRuns: number;
-  /** When SICKO MODE was switched on; null while it is off. */
-  sickoSince: number | null;
+  /** When VIBE MODE was switched on; null while it is off. */
+  vibeSince: number | null;
   /**
    * Every runnable stage is present, so the form can loop over them. A null in
    * one falls through to what the stage's own module asks for.
@@ -391,11 +391,11 @@ export interface UpdateSettingsBody {
   maxConcurrentRuns?: number;
   stageDefaults?: Partial<StageRunDefaults>;
   /**
-   * The SICKO MODE switch. A boolean rather than the timestamp it sets, because
+   * The VIBE MODE switch. A boolean rather than the timestamp it sets, because
    * "on" must not silently restart the clock — flipping it while it is already
    * on would otherwise wipe every number the HUD is showing.
    */
-  sicko?: boolean;
+  vibe?: boolean;
 }
 
 /**

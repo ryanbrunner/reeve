@@ -109,13 +109,13 @@ export function App() {
       // SICKO MODE moves cards on its own every couple of seconds, and a card
       // that flew while the board was not looking would land without the
       // flight. Kept brisk whatever the cards are doing.
-      : q.state.data?.sicko ? 1_000
+      : q.state.data?.vibe ? 1_000
       // A card in SICKO MODE on its own moves with nobody touching it too, and
       // at the idle rate it would jump a column without anyone seeing it go.
       : q.state.data?.cards.some(
           (c) =>
             c.activity === 'running' || c.openingPr || c.resolvingConflicts || c.mergingPr ||
-            (c.sicko && c.mergedAt == null),
+            (c.vibe && c.mergedAt == null),
         ) ? 1_500
       : 5_000,
   });
@@ -214,7 +214,7 @@ export function App() {
   // on.
   const mergedKey = cards.filter((c) => c.mergedAt != null).map((c) => c.id).sort().join(',');
   const mergedIds = useMemo(() => (mergedKey ? mergedKey.split(',') : []), [mergedKey]);
-  const sicko = useSicko(data?.sicko ?? null, mergedIds, data !== undefined);
+  const sicko = useSicko(data?.vibe ?? null, mergedIds, data !== undefined);
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);

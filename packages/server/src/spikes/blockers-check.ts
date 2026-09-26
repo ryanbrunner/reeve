@@ -73,7 +73,7 @@ archiveCard(db, dropped.id);
 const afterArchive = await move(orphan.id, 'planning');
 
 // --- SICKO MODE -------------------------------------------------------------
-updateSettings(db, { sicko: true });
+updateSettings(db, { vibe: true });
 await sickoSweep(db, writer);
 await sickoSweep(db, writer);
 const sickoStage = getCard(db, waiter.id)!.stage;
@@ -85,7 +85,7 @@ await sickoSweep(db, writer);
 const releasedStage = getCard(db, waiter.id)!.stage;
 const releasedBy = cardEventsFor(db, waiter.id).filter((e) => e.kind === 'moved').map((e) => e.actor);
 const unblockedRun = await startStage(db, writer, getCard(db, latecomer.id)!, repo);
-updateSettings(db, { sicko: false });
+updateSettings(db, { vibe: false });
 
 const ok = (label: string, got: unknown, want: unknown) =>
   console.log(`${JSON.stringify(got) === JSON.stringify(want) ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}`);

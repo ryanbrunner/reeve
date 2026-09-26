@@ -81,7 +81,7 @@ export async function sickoSweep(db: Db, writer: EventWriter): Promise<void> {
   if (sweeping) return;
   // The whole board with the switch on; otherwise only the cards flagged on
   // their own, and nothing at all when there are none.
-  const cards = getSettings(db).sickoSince !== null ? boardCards(db) : sickoCards(db);
+  const cards = getSettings(db).vibeSince !== null ? boardCards(db) : sickoCards(db);
   if (cards.length === 0) return;
   sweeping = true;
   try {
@@ -91,7 +91,7 @@ export async function sickoSweep(db: Db, writer: EventWriter): Promise<void> {
       // stop it here, not one approval or merge later off a stale list.
       const card = getCard(db, listed.id);
       if (!card || card.archivedAt) continue;
-      if (getSettings(db).sickoSince === null && !card.sicko) continue;
+      if (getSettings(db).vibeSince === null && !card.vibe) continue;
       const repo = card.repoId ? repos.get(card.repoId) : undefined;
       // A card with no repo has no worktree, so no stage of it can run and
       // there is nothing to automate. It waits, as it would anyway.

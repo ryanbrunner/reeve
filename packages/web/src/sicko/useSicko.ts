@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { SickoState } from '@reeve/shared';
+import type { VibeState } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
@@ -27,7 +27,7 @@ export interface Sicko {
   sick: boolean;
   /** Whether cards are actually being moved without anyone asking. */
   live: boolean;
-  state: SickoState | null;
+  state: VibeState | null;
   /** Flipped on each merge so a CSS animation can be restarted by changing class. */
   shake: boolean;
   pop: boolean;
@@ -49,7 +49,7 @@ export interface Sicko {
  * totals. Only what is inherently momentary lives here.
  */
 export function useSicko(
-  state: SickoState | null,
+  state: VibeState | null,
   mergedIds: readonly string[],
   /**
    * Whether a board has arrived at all. Without it the loading render — no
@@ -74,7 +74,7 @@ export function useSicko(
   latest.current = state;
 
   const set = useMutation({
-    mutationFn: (sicko: boolean) => api.updateSettings({ sicko }),
+    mutationFn: (vibe: boolean) => api.updateSettings({ vibe }),
     onSettled: () => qc.invalidateQueries({ queryKey: ['board'] }),
   });
 

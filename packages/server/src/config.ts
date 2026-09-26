@@ -26,5 +26,5 @@ export const config = {
    * How often SICKO MODE looks at the board. Each pass moves any given card at
    * most one step, so this is also the pace the board advances at.
    */
-  sickoSweepMs: Number(process.env.REEVE_SICKO_SWEEP_MS ?? 2_000),
+  vibeSweepMs: Number(process.env.REEVE_VIBE_SWEEP_MS ?? 2_000),
 } as const;
