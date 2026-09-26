@@ -45,6 +45,11 @@ export type WaitExit = Exclude<ExitCode, typeof EXIT.error | typeof EXIT.usage>;
 export function waitOutcome(card: ApiCard): Exclude<WaitExit, typeof EXIT.timeout> | null {
   // Off the board, nothing will start it.
   if (card.archivedAt !== null) return EXIT.idle;
+  // A run is about to be. Approving moves a card into a column whose run is
+  // not there yet, and it reads idle while its worktree is made; a revision or
+  // a resume waits on the tree's setup first, reading needs_review or
+  // needs_input all the while for a verdict or answers already given.
+  if (card.startingStage) return null;
   switch (card.activity) {
     case 'running':
       return null;
@@ -55,9 +60,7 @@ export function waitOutcome(card: ApiCard): Exclude<WaitExit, typeof EXIT.timeou
     case 'error':
       return EXIT.failed;
     case 'idle':
-      // Approving moves a card into a column whose run is not there yet: it
-      // reads idle for as long as its worktree takes to make.
-      return card.startingStage ? null : EXIT.idle;
+      return EXIT.idle;
   }
 }
 

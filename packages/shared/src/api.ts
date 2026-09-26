@@ -144,10 +144,12 @@ export interface ApiCard {
   /** `gh` is merging the card's pull request right now. In memory like `openingPr`. */
   mergingPr: boolean;
   /**
-   * The card's stage run is being started: its worktree is being made, and
-   * `latestRun` does not show the run yet. The card still reads `idle` for
-   * those seconds, which to anything waiting on it looks exactly like a card
-   * nothing will start. In memory like `openingPr`.
+   * The card's stage run is being started: its worktree is being made, or its
+   * setup waited on, and `latestRun` does not show the run yet. The card still
+   * reads as its last run left it for those seconds — `idle`, which to anything
+   * waiting on it looks exactly like a card nothing will start, or, for a
+   * revision or a resume, the verdict or answers it was just given. In memory
+   * like `openingPr`.
    */
   startingStage: boolean;
   /**

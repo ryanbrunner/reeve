@@ -142,7 +142,9 @@ same numbers for how its run ended.
 `wait` on a card that already needs a person returns at once. A card that has
 just been approved into a runnable column reads idle while its worktree is
 made; `wait` keeps waiting through that, because the card says so
-(`startingStage`), rather than returning 5.
+(`startingStage`), rather than returning 5. The same holds while a revision or
+a resume waits on the worktree's setup, when the card still reads as the
+review or the questions it was just given.
 
 Approving is a human gate, and the CLI passes it only when a person or their
 script calls `reeve card approve`. Nothing in the CLI approves, answers or
