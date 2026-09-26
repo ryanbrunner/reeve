@@ -45,6 +45,9 @@ export function CardFace({
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.
   const role = dragging ? null : links.role(card.id);
+  // In SICKO MODE on its own, on the calm board. Not once merged: after that
+  // there is nothing left for it to do.
+  const solo = !sicko && card.sicko && card.mergedAt == null;
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.
@@ -55,7 +58,7 @@ export function CardFace({
       onMouseLeave={dragging ? undefined : () => links.leave(card.id)}
       className={`relative cursor-grab rounded-md border p-2.5 transition-opacity duration-150 ${skin} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
-      } ${sicko ? 'sk-card' : ''} ${role ? LINK_STYLE[role] : ''}`}
+      } ${sicko ? 'sk-card' : ''} ${solo ? 'sk-solo-ring' : ''} ${role ? LINK_STYLE[role] : ''}`}
     >
       {ACTIVITY_MARKS[card.activity]}
       {/* The title and footer are positioned so they read above the mark. */}
@@ -63,9 +66,9 @@ export function CardFace({
         {card.title}
       </p>
       <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${sicko ? 'sk-card-foot' : ''}`}>
-        {/* In SICKO MODE on its own. The one mark of it on the calm board, and
-            gone once merged: after that there is nothing left for it to do. */}
-        {!sicko && card.sicko && card.mergedAt == null && (
+        {/* The ring dresses the card; this names why, so it is not left to
+            colour alone. */}
+        {solo && (
           <span
             className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold"
             title="In SICKO MODE: Claude approves and merges this card with nobody reviewing it"

@@ -38,11 +38,15 @@
 }
 
 /* A card in SICKO MODE on its own, on the calm board — so, like the switch, it
-   carries the rainbow itself. Still, because nothing else on that board moves.
+   carries the rainbow itself. The chip names it; the ring below dresses it.
    Two spans: the rainbow border is this one's background and the rainbow text
    is the inner one's, and one element cannot clip a background both ways. */
-.sk-solo {
+.sk-solo,
+.sk-solo-ring {
   --sk-rainbow: linear-gradient(90deg, #ff2d95, #ff8a00, #ffe600, #2dff7a, #00d1ff, #9b5cff, #ff2d95);
+}
+
+.sk-solo {
   border: 1px solid transparent;
   background: linear-gradient(var(--color-ink), var(--color-ink)) padding-box, var(--sk-rainbow) border-box;
 }
@@ -52,6 +56,37 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/*
+ * The same card's face, and its modal: a rainbow ring running just inside the
+ * border, and the only thing on the calm board that moves without Claude
+ * running. It flows because a card that is going to merge itself should not
+ * be mistaken for one waiting on you.
+ *
+ * A masked pseudo-element rather than a rainbow border, for two reasons. The
+ * four glowing skins clip at the padding edge, so anything drawn in the border
+ * itself would vanish on all of them; and the skin's border, tint and mark are
+ * what say the card's activity, so they are left exactly as they are rather
+ * than recomposed with a rainbow layer — or hue-rotated, as the cards in full
+ * SICKO MODE are, which would turn a card awaiting review the colour of one
+ * that failed. Above the content, but only its outer two pixels, and inert.
+ */
+.sk-solo-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 2px;
+  background: var(--sk-rainbow);
+  background-size: 200% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: sk-flow 2.4s linear infinite;
 }
 
 /* ---------------------------------------------------------------- frame ---- */
@@ -1072,7 +1107,7 @@
   .sk-sw.sk-on, .sk-sw.sk-on .sk-sw-knob, .sk-sw.sk-on .sk-sw-track, .sk-sw.sk-on .sk-sw-label,
   .sk-sw:hover .sk-sw-label, .sk-stat-n, .sk-pop-a, .sk-pop-b, .sicko .sk-add,
   .sicko .sk-hdr::after, .sk-hud, .sk-hud::before, .sk-stamp, .sk-arm-title, .sk-g-2, .sk-g-3,
-  .sk-v, .sicko .sk-lane-dot, .sk-tape-run, .sk-sign {
+  .sk-v, .sicko .sk-lane-dot, .sk-tape-run, .sk-sign, .sk-solo-ring::before {
     animation: none !important;
   }
 
