@@ -100,6 +100,7 @@ const repoSchema = z.object({
   teardownCommand: z.string().nullable().optional(),
   finishCommand: z.string().nullable().optional(),
   laneColor: z.string().nullable().optional(),
+  syncDefaultBranch: z.boolean().optional(),
 });
 
 /** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */

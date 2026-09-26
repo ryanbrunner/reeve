@@ -77,6 +77,10 @@ a Claude column, and `project add --split`. The command waits a few seconds and
 says on stderr what it set off: the run's id, the pull request's link, or why
 nothing started. Reeve records these as your actions, whoever ran the command.
 
+`card merge` is the board's Merge button: it lands a Done card's pull request
+on GitHub, and only once GitHub has said it merges cleanly. Branch protection
+still applies, and a refusal says what `gh` said.
+
 **Archiving a project takes its Done cards with it.** A project with cards not
 yet Done is refused, and the refusal names them; `--detach-open` archives it
 anyway and moves them to No project. Restoring the project brings back the Done

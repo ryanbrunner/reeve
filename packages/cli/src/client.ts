@@ -17,6 +17,7 @@ import {
   type CardDetail,
   type CreateCardBody,
   type CreateRepoBody,
+  type MergePullRequestResponse,
   type ModelsResponse,
   type MoveCardBody,
   type ResolveConflictsResponse,
@@ -241,6 +242,7 @@ export const api = {
     write<{ ok: true; url: string; number: number; reused: boolean }>('POST', `/api/cards/${enc(id)}/pr`, {}),
   resolveConflicts: (id: string) =>
     write<ResolveConflictsResponse>('POST', `/api/cards/${enc(id)}/resolve-conflicts`, {}),
+  mergePr: (id: string) => write<MergePullRequestResponse>('POST', `/api/cards/${enc(id)}/merge`, {}),
   startServer: (id: string) =>
     write<{ ok: true; runId: string; port: number; url: string }>('POST', `/api/cards/${enc(id)}/server`, {}),
   stopServer: (id: string) => write<{ ok: true }>('DELETE', `/api/cards/${enc(id)}/server`),

@@ -51,6 +51,7 @@ export function toApiRepo(p: Repo): ApiRepo {
     teardownCommand: p.teardownCommand,
     finishCommand: p.finishCommand,
     laneColor: p.laneColor,
+    syncDefaultBranch: p.syncDefaultBranch,
   };
 }
 
@@ -136,7 +137,10 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
-  derived: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts' | 'startingStage' | 'implemented'>,
+  derived: Pick<
+    ApiCard,
+    'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage' | 'implemented'
+  >,
   links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
 ): ApiCard {
   return {

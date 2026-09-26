@@ -18,7 +18,7 @@ import {
   unmergedPaths,
   type MergeStart,
 } from './git/worktree.js';
-import { claimResolving, forgetConflict, isOpeningPr, releaseResolving } from './pullRequest.js';
+import { claimResolving, forgetConflict, isMergingPr, isOpeningPr, releaseResolving } from './pullRequest.js';
 import { startClaudeRun, type ClaudeRunHandle, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -78,6 +78,7 @@ export async function resolveConflicts(
   if (!prUrl) return refuse(400, 'no pull request', 'conflicts are resolved against an open pull request');
   if (!branch || !worktreePath) return refuse(400, 'nothing to merge into', 'the card has no worktree');
   if (isOpeningPr(card.id)) return refuse(409, 'a pull request is being opened', `#${card.number}`);
+  if (isMergingPr(card.id)) return refuse(409, 'the pull request is being merged', prUrl);
   if (liveTaskRun(db, card.id, RESOLVE_CONFLICTS_TASK)) return refuse(409, 'already resolving conflicts', `#${card.number}`);
   // Checked before touching git as well as after, so a refusal here leaves nothing to undo.
   const full = atCap(db);

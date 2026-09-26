@@ -11,6 +11,7 @@ import { findProject, findRepo, requireStage } from '../resolve.js';
 function status(card: ApiCard): string {
   const parts = card.activity === 'idle' ? [] : [activityLabel(card.activity)];
   if (card.mergedAt !== null) parts.push('merged');
+  else if (card.mergingPr) parts.push(`merging PR #${card.prNumber}`);
   else if (card.resolvingConflicts) parts.push('resolving conflicts');
   else if (card.prConflicting) parts.push(`PR #${card.prNumber} conflicts`);
   else if (card.openingPr) parts.push('opening PR');

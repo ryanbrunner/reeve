@@ -68,6 +68,9 @@ export const CARD_EVENT_KINDS = [
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
+  // `gh` refused to merge the pull request: from the Done band's Merge, or
+  // SICKO MODE landing it. Success is `merged`, written once GitHub says so.
+  'merge_failed',
   // An open card moved to No project because its project was archived. `meta`
   // names the project, which the card no longer points at.
   'left_project',
@@ -90,6 +93,10 @@ export const repo = sqliteTable('repo', {
   finishCommand: text('finish_command'),
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
+  // Fast-forward the repo's own default branch once one of its cards' pull
+  // requests is merged. Off unless asked for: it moves the person's checkout,
+  // which nothing else in Reeve touches.
+  syncDefaultBranch: integer('sync_default_branch', { mode: 'boolean' }).notNull().default(false),
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
 });
