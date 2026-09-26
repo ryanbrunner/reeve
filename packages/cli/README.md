@@ -78,8 +78,8 @@ reeve card commits [<card>]
   `cd "$(reeve card worktree 12)"` works. A card from Planning on gets one made
   if it has none, and the repo's setup command starts in it. `--remove` stops
   its dev server, runs the repo's teardown command and deletes the directory,
-  uncommitted work included. The branch stays, and while it does, making the
-  card's worktree again fails: the server cuts a new branch of the same name.
+  uncommitted work included. The branch stays, and making the card's worktree
+  again checks that branch out, with its commits and its diff as they were.
 - **`pr`** pushes a Done card's branch and opens its pull request, or pushes to
   the one already open, and prints its URL. Entering Done does this once on
   its own; this is the retry.
