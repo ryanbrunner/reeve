@@ -330,6 +330,8 @@ function Handoff({ detail }: { detail: CardDetail }) {
   if (card.stage === 'done') return null;
   const blocked =
     !needsWorktree(card.stage) ? 'Move to Planning to get a worktree'
+    // Restored after its worktree was removed: starting it is refused too.
+    : !worktree.path && card.mergedAt != null ? 'Merged, and its worktree has been removed.'
     : !worktree.path ? 'Start the stage first. Its worktree is made then.'
     : !worktree.exists ? 'The worktree is missing from disk.'
     : card.activity === 'running' ? 'Claude is working here. Stop the run before taking over.'
