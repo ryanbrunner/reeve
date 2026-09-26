@@ -138,6 +138,22 @@ export function mergedCardsDueForArchive(db: Db, cutoff: Date): Card[] {
     .all();
 }
 
+/**
+ * Merged cards that have been archived and still have a worktree on disk,
+ * beside the repo it belongs to. Both halves are needed: a merged card still
+ * on the board may be sat in, and an archived one that never merged may be
+ * restored to carry on. No once-only check like the auto-archive's: a restored
+ * card is not archived, and a merged card never gets its worktree back.
+ */
+export function archivedMergedWorktrees(db: Db) {
+  return db
+    .select({ card, repo })
+    .from(card)
+    .innerJoin(repo, eq(card.repoId, repo.id))
+    .where(and(isTask, isNotNull(card.mergedAt), isNotNull(card.archivedAt), isNotNull(card.worktreePath)))
+    .all();
+}
+
 export function cardsInStage(db: Db, stage: CardStage): Card[] {
   return db
     .select()
@@ -443,8 +459,10 @@ export function updateCard(
 }
 
 /**
- * Taking a card off the board is a soft delete: the row, its runs and its
- * worktree all stay put, and `archivedCards` is where it can be found again.
+ * Taking a card off the board is a soft delete: the row and its runs stay
+ * put, and `archivedCards` is where it can be found again. So does the
+ * worktree, unless the card has merged, in which case the sweep in
+ * pullRequest.ts removes it and keeps the branch.
  * `meta` goes on the `archived` event, to tell an automatic archive from a
  * person's.
  */
