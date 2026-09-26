@@ -11,6 +11,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import {
+  PLACEHOLDER_PROJECT_TITLE,
   PLACEHOLDER_TITLE,
   STAGES,
   type ApiCard,
@@ -147,7 +148,8 @@ export function App() {
       repoId: project?.repoId ?? repos[0]?.id ?? null,
     });
   };
-  const addProject = () => create.mutate({ title: 'Untitled project', kind: 'project', repoId: repos[0]?.id ?? null });
+  const addProject = () =>
+    create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
   // SICKO MODE's Ship it: named already, so it is not opened, and under no
   // project, since the header has no lane to file it in.
   const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
