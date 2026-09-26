@@ -2,14 +2,23 @@
  * Seeds one card in each activity state, carrying every surface the detail
  * modal renders: a brief, criteria with verdicts, questions half answered, a
  * plan with steps, an implementation with commits, checks, a mockup beside the
- * screenshot of it, and a full timeline. And one more, merged and archived
+ * screenshot of it, and a full timeline. And two merged in Done: one archived
  * with its worktree removed, for what a card looks like once only its branch
- * is left.
+ * is left, and one still on the board, for how the board shows a merged card.
  *
  * The point is to be able to drive the whole modal without spending a penny of
  * API credit. Run it, open the board, click the cards.
  *
  *   REEVE_DB=data/reeve.db npx tsx packages/server/src/spikes/seed-card-detail.ts
+ *
+ * The merged card on the board merged hours ago, so a server with the default
+ * REEVE_AUTO_ARCHIVE_MS archives it on its first merge-sync tick, which runs
+ * as it starts, and removes its worktree on the same tick. Start the server
+ * with a large one, a year here, to keep it there. Leave REEVE_DB unset: npm
+ * runs the server from packages/server, so a relative one would open an empty
+ * database there, and the default is already the data/reeve.db seeded above.
+ *
+ *   REEVE_AUTO_ARCHIVE_MS=31536000000 npm run dev
  */
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -435,6 +444,36 @@ insertCardEvent(db, {
   meta: { reason: 'archived', path: landedPath, branch: landedBranch, forced: false },
 });
 
+// 7. Done and merged, but not yet archived: the one merged card on the board,
+// with its worktree still in place as it is until the archive. The auto-archive
+// takes it on the server's first tick unless held off; see the header.
+const MERGED_ID = 'c1ea0000-0000-4000-8000-000000000002';
+db.$client.prepare('DELETE FROM card WHERE id = ?').run(MERGED_ID);
+const merged = card('Leave saved items out of the cart badge', 'The cart badge counts saved-for-later items as if they were in the cart. Count only what will be charged.', 'done', 60 * 20);
+db.$client.transaction(() => {
+  db.$client.pragma('defer_foreign_keys = ON');
+  db.$client.prepare('UPDATE card SET id = ? WHERE id = ?').run(MERGED_ID, merged.id);
+  db.$client.prepare('UPDATE card_event SET card_id = ? WHERE card_id = ?').run(MERGED_ID, merged.id);
+})();
+pastRun({ cardId: MERGED_ID, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.027, tokens: PLANNED, startedMinsAgo: 60 * 18, ranMins: 8 });
+pastRun({ cardId: MERGED_ID, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.081, tokens: BUILT, startedMinsAgo: 60 * 14, ranMins: 31 });
+pastRun({ cardId: MERGED_ID, stage: 'testing', status: 'succeeded', usd: 0.044, tokens: TESTED, startedMinsAgo: 60 * 9, ranMins: 6 });
+
+const mergedBranch = git(join(repo, '..', `reeve-seed-wt-${merged.number}`), 'rev-parse', '--abbrev-ref', 'HEAD');
+const mergedPrUrl = 'https://github.com/example/storefront/pull/44';
+db.run(
+  `UPDATE card SET pr_url='${mergedPrUrl}', pr_number=44, pr_opened_at=${ago(60 * 5).getTime()},
+   merged_at=${ago(60 * 2).getTime()} WHERE id='${MERGED_ID}'` as never,
+);
+insertCardEvent(db, {
+  cardId: MERGED_ID, actor: 'human', kind: 'pr_opened', stage: 'done', createdAt: ago(60 * 5),
+  meta: { url: mergedPrUrl, number: 44, branch: mergedBranch, into: 'main', reused: false },
+});
+insertCardEvent(db, {
+  cardId: MERGED_ID, actor: 'human', kind: 'merged', stage: 'done', createdAt: ago(60 * 2),
+  meta: { url: mergedPrUrl, number: 44, sha: null, into: 'main' },
+});
+
 // --- the pictures ------------------------------------------------------------
 
 /**
@@ -526,6 +565,8 @@ if (shot.unavailable) {
 console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state, and one of them suggested`);
 console.log('  idle · needs_input · running · error · needs_review');
 console.log(`  and one merged, archived and cleaned up: /?card=${LANDED_ID}`);
+console.log(`  and one merged and still in Done: /?card=${MERGED_ID}`);
+console.log('  (it stays only if the server has a large REEVE_AUTO_ARCHIVE_MS; see the header)');
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');
 process.exit(0);
