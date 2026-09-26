@@ -1,6 +1,6 @@
 import { STAGE_LABELS, type SickoState, type Stage } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getSettings, sickoLedger, spendSince } from '../db/queries.js';
+import { getSettings, sickoLedger, tokensSince } from '../db/queries.js';
 
 /** How many log lines the HUD is given. It shows two; the rest are headroom. */
 const LOG_LINES = 4;
@@ -33,7 +33,7 @@ export function sickoState(db: Db): SickoState | null {
     humanApprovals: ledger.filter((e) => e.kind === 'reviewed' && e.actor === 'human').length,
     reviewsSkipped: byClaude('reviewed'),
     questionsSelfAnswered: byClaude('answered'),
-    spendUsd: spendSince(db, since),
+    spendTokens: tokensSince(db, since),
     moves: byClaude('moved'),
     log: ledger.flatMap((e) => {
       const line = logLine(e);

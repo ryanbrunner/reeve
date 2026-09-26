@@ -36,6 +36,25 @@ const ASKS = {
   open_questions: [{ question: 'Per IP or per account?', suggestions: ['Per account', 'Per IP'] }],
 };
 
+/**
+ * A run's `modelUsage` in proportion to what it cost, which is what its token
+ * count is read off. Roughly an agentic run's shape: mostly cache writes, some
+ * output, and a pile of cache reads that the count leaves out.
+ */
+function usageFor(usd: number) {
+  const k = usd / 0.03;
+  return {
+    'claude-opus-5-5': {
+      inputTokens: Math.round(20 * k),
+      outputTokens: Math.round(4_800 * k),
+      cacheCreationInputTokens: Math.round(33_200 * k),
+      cacheReadInputTokens: Math.round(212_000 * k),
+      webSearchRequests: 0,
+      costUSD: usd,
+    },
+  };
+}
+
 type Face = 'idle' | 'running' | 'review' | 'input' | 'error' | 'merged';
 
 function card(title: string, stage: Stage, face: Face, cost?: number) {
@@ -61,6 +80,7 @@ function card(title: string, stage: Stage, face: Face, cost?: number) {
   setRunStatus(db, r.id, {
     status,
     totalCostUsd: cost,
+    modelUsageJson: usageFor(cost),
     structuredOutput: face === 'input' ? ASKS : PLAN,
     startedAt: new Date(),
     finishedAt: status === 'running' ? null : new Date(),
@@ -84,7 +104,8 @@ card('Fix tax rounding on refunds', 'in_progress', 'error', 0.009);
 card('Rewrite checkout in Rust', 'in_progress', 'running', 0.096);
 card('Save items for later from the cart', 'testing', 'review', 0.184);
 card('Migrate the database, live', 'testing', 'review', 0.141);
-card('Cart page redesign', 'done', 'merged', 0.212);
+// Big enough to show in millions.
+card('Cart page redesign', 'done', 'merged', 1.6);
 card('Apple Pay on mobile', 'done', 'merged', 0.141);
 card('Make the logo bigger', 'done', 'idle', 0.09);
 

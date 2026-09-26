@@ -1,4 +1,5 @@
 import { canStartRun, type ApiCard } from '@reeve/shared';
+import { tok, tokenTitle } from '../card/format.js';
 import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE } from './activity.js';
 import { RunButton } from './RunButton.js';
 
@@ -64,9 +65,12 @@ export function CardFace({
             {run.status}
           </span>
         )}
-        {run?.totalCostUsd != null && (
-          <span className={`font-mono text-[10px] leading-snug text-(--color-muted) ${sicko ? 'sk-cost' : ''}`}>
-            ${run.totalCostUsd.toFixed(3)}
+        {run?.totalTokens != null && (
+          <span
+            title={tokenTitle(run.tokenBreakdown)}
+            className={`font-mono text-[10px] leading-snug whitespace-nowrap text-(--color-muted) ${sicko ? 'sk-cost' : ''}`}
+          >
+            {tok(run.totalTokens)}
           </span>
         )}
         {!sicko && card.mergedAt != null && (

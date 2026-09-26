@@ -60,7 +60,12 @@ const split = insertRun(db, {
   id: crypto.randomUUID(), cardId: saved.id, kind: 'claude', stage: 'backlog',
   status: 'running', task: 'split_project', cwd: web.repoPath, startedAt: new Date(Date.now() - 95_000),
 });
-setRunStatus(db, split.id, { status: 'succeeded', stopReason: 'completed', totalCostUsd: 0.214, finishedAt: new Date() });
+setRunStatus(db, split.id, {
+  status: 'succeeded', stopReason: 'completed', totalCostUsd: 0.214, finishedAt: new Date(),
+  modelUsageJson: {
+    'claude-opus-5-5': { inputTokens: 60, outputTokens: 6_400, cacheCreationInputTokens: 41_900, cacheReadInputTokens: 318_000 },
+  },
+});
 
 task('Store saved items per customer', 'in_progress', api.id, saved.id, {
   claude: true,
