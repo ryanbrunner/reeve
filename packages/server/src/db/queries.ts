@@ -1291,6 +1291,41 @@ export function replaceGeneratedMockups(db: Db, cardId: string, runId: string): 
   return stale.map((a) => a.path);
 }
 
+/**
+ * How long a pasted image is kept with nothing pointing at it. The editor
+ * stores an image the moment it is pasted and saves the body only when it is
+ * left, so a save from anywhere else in between — a second tab, the CLI —
+ * would otherwise delete a picture someone is still looking at.
+ */
+const PASTED_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * The images pasted into a card's brief that no brief links any more: taken
+ * out of it, or uploaded for a save that then failed. Removes their rows and
+ * returns their paths, for the caller to delete the files.
+ *
+ * Any card's body counts, not only this one's. A split copies a project's
+ * brief into its tasks, links and all, and the images stay the project's rows
+ * — so rewriting the project's brief must not take a picture out of a task's.
+ */
+export function prunePastedAssets(db: Db, cardId: string): string[] {
+  const stale = db
+    .select()
+    .from(asset)
+    .where(and(
+      eq(asset.cardId, cardId),
+      eq(asset.kind, 'pasted'),
+      lte(asset.createdAt, new Date(Date.now() - PASTED_GRACE_MS)),
+      notExists(
+        db.select({ id: card.id }).from(card)
+          .where(sql`instr(${card.body}, '/api/assets/' || ${asset.id}) > 0`),
+      ),
+    ))
+    .all();
+  for (const a of stale) db.delete(asset).where(eq(asset.id, a.id)).run();
+  return stale.map((a) => a.path);
+}
+
 export function differencesFor(db: Db, cardId: string) {
   return db.select().from(difference).where(eq(difference.cardId, cardId)).orderBy(asc(difference.position)).all();
 }
