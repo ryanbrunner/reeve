@@ -104,7 +104,8 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
-  github: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts'>,
+  inMemory: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts' | 'startingStage'>,
+  links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
 ): ApiCard {
   return {
     id: c.id,
@@ -125,10 +126,12 @@ export function toApiCard(
     prUrl: c.prUrl,
     prNumber: c.prNumber,
     prOpenedAt: ms(c.prOpenedAt),
-    ...github,
+    ...inMemory,
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
+    sicko: c.sicko,
+    ...links,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
     archivedAt: ms(c.archivedAt),

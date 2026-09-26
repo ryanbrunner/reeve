@@ -195,7 +195,9 @@ export const criteriaOutput = z.object({
 /**
  * Not a stage either — the project's split: its brief, broken into cards. Each
  * task names its repo because a project can span several, and the server
- * matches that name rather than trusting Claude with an id.
+ * matches that name rather than trusting Claude with an id. What a task
+ * depends on is named by title for the same reason: the new tasks have no ids
+ * until the server makes them.
  */
 export const projectSplitOutput = z.object({
   tasks: z
@@ -212,6 +214,11 @@ export const projectSplitOutput = z.object({
         criteria: z
           .array(z.string())
           .describe('What must be true for this task to be done, each written as something a person could observe.'),
+        dependsOn: z
+          .array(z.string())
+          .describe(
+            'Titles of the tasks, from this answer or already under the project, that must be finished before this one can start. Only where it genuinely cannot start sooner: every link holds a task back. Usually empty.',
+          ),
       }),
     )
     .describe('The work in the brief as separate cards, in the order it would sensibly be done. Leave out any already listed.'),

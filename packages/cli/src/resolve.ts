@@ -10,6 +10,7 @@ import {
   type CardKind,
   type Stage,
 } from '@reeve/shared';
+import { api } from './client.js';
 import { CliError, cardRef, usageError } from './output.js';
 
 /**
@@ -209,4 +210,15 @@ export function resolveTarget(board: BoardResponse, ref: string, here: Here): Ta
  */
 export function appendIndex(board: BoardResponse, cardId: string, stage: Stage): number {
   return board.cards.filter((c) => c.stage === stage && c.id !== cardId).length;
+}
+
+/**
+ * The one place that goes to the server for a card, so every command reads the
+ * same board and the same cwd. Archived cards go in beside the board's: `show`
+ * and `runs` reach one, and restoring a card has to find it there.
+ */
+export async function resolveCardRef(ref: string): Promise<{ card: ApiCard; board: BoardResponse }> {
+  const [board, archived] = await Promise.all([api.board(), api.archived()]);
+  const here = whereAmI(board, process.cwd());
+  return { card: resolveCard(board, ref, here, [...board.cards, ...archived]), board };
 }
