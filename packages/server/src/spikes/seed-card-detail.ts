@@ -309,7 +309,7 @@ const ready = card('Save items for later from the cart', 'Shoppers who aren’t 
 for (const [kind, value, label] of [['file', 'src/cart/CartPage.tsx', null], ['file', 'src/api/cart.ts', null], ['card', '97', '#97 Cart page redesign']] as const) {
   addRef(db, ready.id, kind, value, label);
 }
-const criteria = PLAN.acceptance_criteria.map((t) => addCriterion(db, ready.id, t, 'claude'));
+for (const t of PLAN.acceptance_criteria) addCriterion(db, ready.id, t, 'claude');
 
 const planRun = pastRun({ cardId: ready.id, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.031, startedMinsAgo: 400, ranMins: 10 });
 replaceQuestions(db, ready.id, planRun.id, 'planning', PLAN.open_questions);
@@ -323,6 +323,20 @@ for (const [pos, ans] of [[1, 'Merge them, dedupe by SKU, keep the newer quantit
   });
 }
 
+// Evidence as Claude actually writes it, not the tidy one-word kind: a path too
+// long to break at a space, a screenshot named in a sentence, a failure that
+// runs to two lines, and output with a newline in it. Short, all-passing
+// evidence is how the criteria list once overflowed the modal unnoticed.
+const VERDICTS = [
+  { verdict: 'pass', evidence: 'tests/e2e/cart/saved-for-later/cart.spec.ts::save_for_later_moves_the_line_out_of_the_subtotal_and_into_the_saved_list' },
+  { verdict: 'pass', evidence: 'Screenshot “Cart with saved items” shows Move to cart and Remove on each saved row' },
+  { verdict: 'fail', evidence: 'No second session could be signed in: the dev server has no seeded users, so persistence across devices was not observed. saved-items.e2e.ts › survives sign-out was skipped.' },
+  { verdict: 'pass', evidence: 'guest.spec.ts › restores saved items from localStorage after reload' },
+  { verdict: 'pass', evidence: '52 unit tests pass\ncart-store.test.ts › recomputes subtotal on save (4 ms)' },
+  { verdict: 'pass', evidence: 'CartPage.test.tsx › hides Saved for later when empty' },
+] as const;
+const verdicts = VERDICTS.map((v, i) => ({ index: i + 1, ...v }));
+
 pastRun({ cardId: ready.id, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.094, startedMinsAgo: 300, ranMins: 39 });
 pastRun({ cardId: ready.id, stage: 'testing', status: 'failed', usd: 0.002, startedMinsAgo: 40, ranMins: 0.2, error: 'Port 5174 is already in use' });
 const testRun = pastRun({
@@ -332,11 +346,13 @@ const testRun = pastRun({
     summary: '52 unit tests and 7 e2e tests pass. Typecheck and lint clean.',
     failures: [],
     fixes_applied: [],
-    criteria: criteria.map((_, i) => ({ index: i + 1, verdict: 'pass' as const, evidence: i === 1 ? 'Cart with saved items' : 'cart.spec.ts' })),
+    criteria: verdicts,
     differences: [{ capture_label: 'Cart with saved items', claim: 'Save for later is a link here but a button in the mockup.', note: 'Claude matched it to Remove beside it.' }],
   },
 });
-recordVerdicts(db, ready.id, testRun.id, criteria.map((_, i) => ({ index: i + 1, verdict: 'pass' as const, evidence: i === 1 ? 'Cart with saved items' : 'cart.spec.ts' })));
+recordVerdicts(db, ready.id, testRun.id, verdicts);
+// Written after the run, so Testing never judged it: the not-checked row.
+addCriterion(db, ready.id, 'Saved list shows at most 50 items');
 const readyServer = insertRun(db, {
   id: crypto.randomUUID(), cardId: ready.id, kind: 'server', stage: 'testing',
   status: 'running', cwd: '/tmp/x', port: 5174, createdAt: ago(18), startedAt: ago(18),
