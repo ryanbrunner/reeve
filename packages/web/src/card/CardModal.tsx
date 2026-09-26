@@ -78,6 +78,10 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
   }, [onClose]);
 
   const activity = data?.card.activity ?? 'idle';
+  // The ring the card wears on the calm board when it is in SICKO MODE alone,
+  // at this size too: it is the same card. Not in the board's SICKO MODE, which
+  // dresses every card the same and so has nothing to single this one out for.
+  const solo = !sicko && data?.card.sicko === true && data.card.mergedAt == null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
@@ -88,7 +92,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
         aria-modal="true"
         aria-labelledby="card-title"
         tabIndex={-1}
-        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${GLOW[activity]}`}
+        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
       >
         {isLoading && <Middle>Loading card…</Middle>}
         {error && <Middle>Could not load this card. {error.message}</Middle>}
