@@ -323,6 +323,7 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
+    serverUrl: repo?.serverUrl ?? '',
     teardownCommand: repo?.teardownCommand ?? '',
     finishCommand: repo?.finishCommand ?? '',
     laneColor: repo?.laneColor ?? free,
@@ -358,6 +359,7 @@ function RepoForm({
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
         serverCommand: blankIsNull(form.serverCommand),
+        serverUrl: blankIsNull(form.serverUrl),
         teardownCommand: blankIsNull(form.teardownCommand),
         finishCommand: blankIsNull(form.finishCommand),
         laneColor: blankIsNull(form.laneColor),
@@ -426,14 +428,28 @@ function RepoForm({
 
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
         <SectionHead>Commands</SectionHead>
-        <Field label="Setup" hint="Once, after a worktree is made.">
+        <Field label="Setup" hint="Once, after a worktree is made. Sees REEVE_WORKTREE and REEVE_SLUG.">
           <Text value={form.setupCommand} onChange={set('setupCommand')} placeholder="npm install" mono />
         </Field>
         <Field label="Test" hint="What Testing runs to check the work.">
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
         </Field>
-        <Field label="Server" hint="The dev server behind Preview.">
-          <Text value={form.serverCommand} onChange={set('serverCommand')} placeholder="npm run dev" mono />
+        <Field
+          label="Server"
+          hint="The dev server behind Preview. Put {{port}} where it takes a port, or Reeve waits for it to print a localhost URL; PORT alone is not proof it listened there."
+        >
+          <Text
+            value={form.serverCommand}
+            onChange={set('serverCommand')}
+            placeholder="npm run dev -- --port {{port}}"
+            mono
+          />
+        </Field>
+        <Field
+          label="Server URL"
+          hint="Where Preview opens, if a local proxy serves it. {{port}}, {{worktree}} and {{slug}} are filled per card; the commands see REEVE_WORKTREE and REEVE_SLUG. Blank uses the command's."
+        >
+          <Text value={form.serverUrl} onChange={set('serverUrl')} placeholder="https://{{slug}}.test" mono />
         </Field>
         <Field label="Teardown" hint="Before a worktree is removed.">
           <Text value={form.teardownCommand} onChange={set('teardownCommand')} mono />

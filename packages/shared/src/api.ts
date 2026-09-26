@@ -17,6 +17,8 @@ export interface ApiRepo {
   setupCommand: string | null;
   testCommand: string | null;
   serverCommand: string | null;
+  /** Where the dev server is, as a template, e.g. `https://{{slug}}.test`. */
+  serverUrl: string | null;
   teardownCommand: string | null;
   finishCommand: string | null;
   laneColor: string | null;
@@ -220,6 +222,7 @@ export interface CreateRepoBody {
   setupCommand?: string | null;
   testCommand?: string | null;
   serverCommand?: string | null;
+  serverUrl?: string | null;
   teardownCommand?: string | null;
   finishCommand?: string | null;
   laneColor?: string | null;
