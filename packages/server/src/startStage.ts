@@ -62,6 +62,7 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     cardId: card.id,
     title: card.title,
     base: fetched ?? base,
+    previous: card.branchName && card.baseSha ? { branch: card.branchName, baseSha: card.baseSha } : null,
   });
   db.update(cardTable)
     .set({ worktreePath: created.path, branchName: created.branch, baseSha: created.baseSha, updatedAt: new Date() })

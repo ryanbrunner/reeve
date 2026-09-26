@@ -32,11 +32,12 @@ npm workspaces, four packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   SICKO MODE's styles are scoped under `.sicko` in `packages/web/src/sicko.css`.
-- `packages/cli` (`@reeve/cli`) — the `reeve` command, an HTTP client of a
-  running server and never of its database: runs live in the server's memory,
-  and a second process opening the database reaps them. Its `--json` output is
-  the API's own wire types from `@reeve/shared`, unreshaped; see its README.
-  Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
+- `packages/cli` (`@reeve/cli`) — the `reeve` command. `reeve serve` boots the
+  server; everything else goes through a running server's HTTP API and never
+  its database, because runs live in the server's memory and a second process
+  opening the database reaps them. Its `--json` output is the API's own wire
+  types from `@reeve/shared`, unreshaped; see its README. Its `bin/reeve.js`
+  registers tsx and imports `src/main.ts`.
 
 ## Commands
 
@@ -53,6 +54,7 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `npm run cli -- board` — the `reeve` CLI without linking it, against the
   server on `REEVE_URL` or `REEVE_PORT`.
 - `npm run typecheck` — `tsc --noEmit` in every workspace.
+- `npm test` — the CLI's resolution tests, and nothing else; see below.
 - `npm run cli -- <args>` — the `reeve` command, run from the repo root.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
 - `npm run -s reeve -- <args>` — the CLI, against a server that is already
@@ -67,7 +69,8 @@ gitignored and created at runtime. The server binds to 127.0.0.1 only.
 
 ## Checking a change
 
-There is no test suite and no test command. `npm run typecheck` is the gate.
+`npm run typecheck` is the gate. The only tests are the CLI's card and cwd
+resolution, `npm test -w @reeve/cli`; the server and web app have none.
 
 Behaviour is checked by the throwaway scripts in `packages/server/src/spikes/`,
 each a standalone `tsx` file that builds an app, drives it and prints what it
@@ -155,9 +158,9 @@ switched on.
   `{{name}}` and leaves an empty string for any variable not passed.
 - **Timers, `gh` calls, the SICKO sweep and model listing stay out of
   `createApp()`.** It checks contracts, migrates, reaps orphaned runs and
-  builds routes, and nothing more. The rest starts only when
-  `packages/server/src/index.ts` is the entry point, because the spikes build
-  an app and must not start any of it.
+  builds routes, and nothing more. The rest starts only in `startServer()`,
+  which `packages/server/src/main.ts` and `reeve` call, because the spikes
+  build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
 - **Tool permissions deny by default.** A stage's `allowedTools` is the

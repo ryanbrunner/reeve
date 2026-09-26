@@ -2,7 +2,11 @@ import { DEFAULT_PORT } from '@reeve/shared';
 import { board } from './commands/board.js';
 import { card } from './commands/card.js';
 import { project } from './commands/project.js';
+import { open } from './commands/open.js';
 import { repos } from './commands/repos.js';
+import { serve } from './commands/serve.js';
+import { models, settings } from './commands/settings.js';
+import { sicko } from './commands/sicko.js';
 import { runCommands } from './commands/run.js';
 import { runs } from './commands/runs.js';
 import { EXIT } from './exit.js';
@@ -15,8 +19,6 @@ const USAGE = `Usage: reeve <command> [options]
       and title, then the projects. --archived lists what is off the board.
   reeve card show <card> [--json]
       A card in full: its facts, criteria, open questions, plan and runs.
-  reeve repos [--json]
-      The repos cards can be made in.
   reeve card add <title> / edit / move / note / criteria / archive / restore
       Write a card: the calls the card's modal makes, from a terminal.
       reeve card <verb> --help says what each one takes.
@@ -34,6 +36,21 @@ const USAGE = `Usage: reeve <command> [options]
       Block until the card's run wants a person, and say which by exit status.
   reeve runs <card> [--json]
       Every run a card has had, newest first.
+  reeve card worktree|pr|server|diff|commits|resolve-conflicts [<card>]
+      A card's work, for a caller not looking at its rail: the worktree's path,
+      the pull request, the dev server's URL, the diff, the commits. With no
+      card, the one whose worktree you are in.
+  reeve serve [--port N] [--no-open]
+      Open the board, starting Reeve first if nothing is listening.
+  reeve open [<card>]
+      Open the board in a browser, on a card if one is named.
+  reeve settings [...] / reeve models [--json]
+      Reeve's own settings, and the models a stage can be set to.
+  reeve sicko [on|off] [--json]
+      SICKO MODE: the sweep that takes the human out of the loop. Bare, it
+      says whether it is on.
+  reeve repos [add|edit|show] ...
+      The repos cards can be made in, and how each one is set up.
   reeve run follow <run> [--json] / run stop <run>
       Stream a run already going, or stop it.
 
@@ -65,10 +82,15 @@ async function run(args: string[]): Promise<void> {
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   board,
   card,
+  models,
+  open,
   project: (args) => project.run(args),
   repos,
   run,
   runs,
+  serve,
+  settings,
+  sicko,
 };
 
 /** The nouns whose verbs carry help of their own, and so answer `--help` themselves. */

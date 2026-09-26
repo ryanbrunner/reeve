@@ -3,16 +3,24 @@ import {
   type ApiCard,
   type ApiCardEvent,
   type ApiCardRef,
+  type ApiCommit,
+  type ApiDiff,
   type ApiCriterion,
   type ApiError,
   type ApiQuestion,
   type ApiRepo,
+  type ApiSettings,
   type ApiRunSummary,
   type BoardResponse,
   type CardDetail,
   type CreateCardBody,
+  type CreateRepoBody,
+  type ModelsResponse,
   type MoveCardBody,
+  type ResolveConflictsResponse,
   type Stage,
+  type UpdateRepoBody,
+  type UpdateSettingsBody,
 } from '@reeve/shared';
 import { CliError } from './output.js';
 
@@ -91,6 +99,20 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
     throw new CliError(message ?? `HTTP ${res.status} from ${path}`);
   }
   return res;
+}
+
+/**
+ * Whether something is already answering as Reeve. `serve` must be sure before
+ * it boots: booting reaps every run the database still calls live, so a second
+ * server over a running one interrupts its runs and only then fails on the port.
+ */
+export async function isRunning(url = baseUrl()): Promise<boolean> {
+  try {
+    const res = await fetch(`${url}/api/board`);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -202,4 +224,31 @@ export const api = {
   addRef: (id: string, body: Pick<ApiCardRef, 'kind' | 'value'>) =>
     write<ApiCardRef>('POST', `/api/cards/${enc(id)}/refs`, body),
   addNote: (id: string, body: string) => write<ApiCardEvent>('POST', `/api/cards/${enc(id)}/notes`, { body }),
+
+  /** Made, or the healthy one already there. `setupRunId` only on the first. */
+  createWorktree: (id: string) =>
+    write<{ ok: true; reused: boolean; path: string; branch?: string; setupRunId?: string | null }>(
+      'POST',
+      `/api/cards/${enc(id)}/worktree`,
+      {},
+    ),
+  /** `forced` is true when the tree had uncommitted work, which went with it. */
+  removeWorktree: (id: string) => write<{ ok: true; forced: boolean }>('DELETE', `/api/cards/${enc(id)}/worktree`),
+  openPr: (id: string) =>
+    write<{ ok: true; url: string; number: number; reused: boolean }>('POST', `/api/cards/${enc(id)}/pr`, {}),
+  resolveConflicts: (id: string) =>
+    write<ResolveConflictsResponse>('POST', `/api/cards/${enc(id)}/resolve-conflicts`, {}),
+  startServer: (id: string) =>
+    write<{ ok: true; runId: string; port: number; url: string }>('POST', `/api/cards/${enc(id)}/server`, {}),
+  stopServer: (id: string) => write<{ ok: true }>('DELETE', `/api/cards/${enc(id)}/server`),
+  diff: (id: string) => request<ApiDiff>(`/api/cards/${enc(id)}/diff`),
+  commits: (id: string) => request<ApiCommit[]>(`/api/cards/${enc(id)}/commits`),
+
+  createRepo: (body: CreateRepoBody) => write<ApiRepo>('POST', '/api/repos', body),
+  updateRepo: (id: string, body: UpdateRepoBody) => write<ApiRepo>('PATCH', `/api/repos/${enc(id)}`, body),
+
+  settings: () => request<ApiSettings>('/api/settings'),
+  updateSettings: (body: UpdateSettingsBody) => write<ApiSettings>('PATCH', '/api/settings', body),
+  /** Slow only on the first call after the server boots, which asks the Claude CLI. */
+  models: () => request<ModelsResponse>('/api/models'),
 };

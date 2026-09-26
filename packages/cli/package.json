@@ -6,9 +6,11 @@
     "reeve": "./bin/reeve.js"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
+    "@reeve/server": "*",
     "@reeve/shared": "*",
     "tsx": "^4.23.15"
   },

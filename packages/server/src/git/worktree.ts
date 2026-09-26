@@ -172,6 +172,13 @@ export interface CreatedWorktree {
   baseSha: string;
 }
 
+async function branchExists(repoPath: string, branch: string): Promise<boolean> {
+  return git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).then(
+    () => true,
+    () => false,
+  );
+}
+
 /** `base` is anything `rev-parse` takes: the sha just fetched, or a branch name. */
 export async function createWorktree(opts: {
   repoPath: string;
@@ -179,9 +186,25 @@ export async function createWorktree(opts: {
   cardId: string;
   title: string;
   base: string;
+  /** The branch and base the card had before, if its worktree has been removed since. */
+  previous?: { branch: string; baseSha: string } | null;
 }): Promise<CreatedWorktree> {
-  const { repoPath, worktreeRoot, cardId, title, base } = opts;
+  const { repoPath, worktreeRoot, cardId, title, base, previous } = opts;
   const path = worktreePathFor(worktreeRoot, cardId);
+
+  // Removing a worktree keeps its branch, and `worktree add -b` refuses a
+  // branch that exists, so a card whose worktree was removed (`reeve card
+  // worktree --remove`, or deleted by hand) could never have one again. Its
+  // branch is checked out afresh instead, with the base it started from, so
+  // its diff and commits still count from where the card began. Pruned first,
+  // because a directory deleted by hand leaves git thinking the branch is
+  // still checked out there.
+  if (previous && (await branchExists(repoPath, previous.branch))) {
+    await git(repoPath, ['worktree', 'prune']);
+    await git(repoPath, ['worktree', 'add', path, previous.branch]);
+    return { path, branch: previous.branch, baseSha: previous.baseSha };
+  }
+
   const branch = branchNameFor(cardId, title);
 
   const baseSha = (await git(repoPath, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
