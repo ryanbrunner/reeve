@@ -839,6 +839,18 @@ export function deleteRef(db: Db, id: string) {
 // What a card waits on, and what waits on it
 // ---------------------------------------------------------------------------
 
+/** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
+export function dependenciesOf(db: Db, cardId: string): Card[] {
+  return db
+    .select({ card })
+    .from(cardDependency)
+    .innerJoin(card, eq(cardDependency.dependsOnId, card.id))
+    .where(eq(cardDependency.cardId, cardId))
+    .orderBy(asc(cardDependency.createdAt))
+    .all()
+    .map((r) => r.card);
+}
+
 export type DependencyLinks = Pick<ApiCard, 'dependsOn' | 'dependents'>;
 
 /**

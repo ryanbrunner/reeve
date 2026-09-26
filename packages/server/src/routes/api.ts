@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES } from '@reeve/shared';
 import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { toBoardCard } from '../board.js';
+import { blockedStart } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
@@ -328,6 +329,14 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const { projectId } = parsed.data;
     if (projectId && !liveProject(db, projectId)) {
       return c.json({ error: 'no such project', detail: projectId }, 400);
+    }
+    // Leaving Backlog is starting the card, and a card whose dependencies are
+    // not done may not start. Only leaving it: a reorder within Backlog is
+    // fine, and a card already past it when a dependency was added moves as
+    // it likes, since this rule guards starting and never pulls a card back.
+    if (before.stage === 'backlog' && parsed.data.stage !== 'backlog') {
+      const blocked = blockedStart(db, before);
+      if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
     }
     const moved = moveCard(db, id, parsed.data.stage, parsed.data.index, 'human', projectId);
     if (!moved) return c.json({ error: 'not found' }, 404);

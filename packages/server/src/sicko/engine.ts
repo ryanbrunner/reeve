@@ -1,5 +1,6 @@
 import { PLACEHOLDER_TITLE, canStartRun, isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
+import { blockedStart } from '../blockers.js';
 import { cardActivity } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
@@ -36,7 +37,8 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
  * of those is a human in the loop — they are limits on what a run may do, and
- * taking the person out of the loop is not a reason to widen them.
+ * taking the person out of the loop is not a reason to widen them. Nor do a
+ * card's dependencies, for the same reason: see `blockers.ts`.
  *
  * A card can also be put in SICKO MODE on its own. With the board's switch off
  * the sweep looks at those cards and no others, and does the same five things
@@ -133,6 +135,11 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
     if (card.title.trim() === PLACEHOLDER_TITLE && card.body.trim() === '') return;
+    // And a card waiting on another that is not done. That is not one of
+    // Reeve's human gates but the order the work has to happen in, and taking
+    // the person out of the loop does not change it. It goes on the first
+    // sweep after its dependency reaches Done.
+    if (blockedStart(db, card)) return;
     moveOn(db, writer, card, repo);
     return;
   }
