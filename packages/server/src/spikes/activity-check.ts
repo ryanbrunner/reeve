@@ -13,7 +13,7 @@ const repo = createRepo(db, {
   name: `activity-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 
 // A minimal plan the current contract accepts. If this stops parsing, awaitsInput

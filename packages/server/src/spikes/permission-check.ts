@@ -99,7 +99,6 @@ for await (const m of query({
     model: 'claude-sonnet-5',
     permissionMode: 'acceptEdits',
     allowedTools,
-    maxBudgetUsd: 0.5,
     maxTurns: 12,
     canUseTool: (toolName, input, { toolUseID }) => {
       asks.push(typeof input['command'] === 'string' ? input['command'] : toolName);

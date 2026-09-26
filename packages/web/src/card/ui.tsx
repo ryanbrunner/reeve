@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { copyText } from '../lib/clipboard.js';
+import { useToast } from '../lib/toast.js';
 
 /**
  * The small vocabulary the detail view is built from.
@@ -35,13 +37,66 @@ export function SectionHead({ children, count, aside }: { children: ReactNode; c
   );
 }
 
-/** A key and its value, ellipsised. The rail is almost entirely these. */
-export function Fact({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * A key and its value, ellipsised. The rail is almost entirely these.
+ *
+ * With `copy`, the value is a button that puts that text on the clipboard. It
+ * is passed separately rather than read off the children because what is shown
+ * and what is wanted differ: the path is shown from `~`, the sha is shown
+ * short, and the base carries how far behind it is.
+ */
+export function Fact({ label, children, copy, copyLabel }: {
+  label: string;
+  children: ReactNode;
+  /** The exact text to copy when the value is clicked. */
+  copy?: string;
+  /** What the toast calls it. The label, lowercased, if not given. */
+  copyLabel?: string;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-3 font-mono text-[11px]/[18px]">
       <span className="shrink-0 text-(--color-muted)">{label}</span>
-      <span className="min-w-0 truncate text-right text-(--color-text)">{children}</span>
+      {copy === undefined ?
+        <span className="min-w-0 truncate text-right text-(--color-text)">{children}</span>
+      : <CopyValue text={copy} noun={copyLabel ?? label.toLowerCase()}>
+          {children}
+        </CopyValue>
+      }
     </div>
+  );
+}
+
+/**
+ * Its own component so that only a copyable fact reaches for the toast, and
+ * every other `Fact` stays the plain span it always was.
+ *
+ * The title carries the whole value, because the rail is 300px wide and a
+ * worktree path is not. The toast shows what was copied rather than what was
+ * on screen, so `~/…` in the rail becomes the full path in the toast.
+ */
+function CopyValue({ text, noun, children }: { text: string; noun: string; children: ReactNode }) {
+  const toast = useToast();
+  const copy = async () => {
+    if (await copyText(text)) {
+      toast(
+        <>
+          <span className="shrink-0">Copied {noun}</span>
+          <span className="min-w-0 truncate text-(--color-text)">{text}</span>
+        </>,
+      );
+    } else {
+      toast("Couldn't copy: the clipboard isn't available here", 'error');
+    }
+  };
+  return (
+    <button
+      type="button"
+      title={text}
+      onClick={() => void copy()}
+      className="min-w-0 cursor-pointer truncate rounded-xs text-right text-(--color-text) decoration-dotted underline-offset-2 outline-sky-500 hover:text-sky-300 hover:underline focus-visible:outline-1 focus-visible:outline-offset-1"
+    >
+      {children}
+    </button>
   );
 }
 

@@ -31,7 +31,7 @@ const repo = createRepo(db, {
   name: `implemented-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 
 const succeeded = (cardId: string, stage: 'in_progress' | 'testing', task: string | null = null) => {
