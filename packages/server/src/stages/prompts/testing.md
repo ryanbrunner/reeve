@@ -54,5 +54,5 @@ Commit anything you fixed, before you finish, with a subject that says it came
 from verification. Uncommitted work is invisible to everything downstream: the
 card's pull request is its commits, and a dirty worktree refuses to be pushed at
 all. Leaving a fix in the working tree loses it.
-{{reviewNotes}}
+{{suggesting}}{{reviewNotes}}
 {{notes}}

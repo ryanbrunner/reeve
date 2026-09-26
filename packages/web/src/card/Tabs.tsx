@@ -36,13 +36,14 @@ export function Tabs({ detail, onOpen, vibes = false }: {
   // Shells out to git, but fetched for any card that has a worktree rather than
   // only while the Diff tab is open: the tab's own count comes out of it, and a
   // count that only becomes true after you click is worse than no count. A
-  // merged card has no worktree left, but the server reads its diff back off
-  // the squash commit. Not at all in VIBES MODE, where there is no tab to show
-  // it in.
+  // card whose worktree has been removed still has its branch, and an old
+  // squash-merged card its commit, and the server reads the diff from either.
+  // Not at all in VIBES MODE, where there is no tab to show it in.
+  const { worktree } = detail;
   const diff = useQuery({
     queryKey: ['diff', detail.card.id],
     queryFn: () => api.diff(detail.card.id),
-    enabled: Boolean(detail.worktree.path || detail.card.mergedSha) && !vibes,
+    enabled: Boolean(worktree.path || (worktree.branch && worktree.base) || detail.card.mergedSha) && !vibes,
   });
   // The board already holds every task, so the Tasks tab reads them from there
   // rather than asking for them again.

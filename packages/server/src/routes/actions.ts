@@ -9,9 +9,7 @@ import { cardActivity } from '../board.js';
 import { startCritReview } from '../crit.js';
 import type { Db } from '../db/client.js';
 import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '../db/queries.js';
-import { card as cardTable, type Card, type Repo } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
-import { GitError, checkWorktree, isDirty, removeWorktree } from '../git/worktree.js';
+import { GitError, checkWorktree } from '../git/worktree.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { canMergePr, isPrConflicting, landPullRequest, openPullRequest } from '../pullRequest.js';
@@ -20,34 +18,13 @@ import type { EventWriter } from '../runs/events.js';
 import { ensureDevServer } from '../runs/devServer.js';
 import { runRegistry } from '../runs/registry.js';
 import { startShellRun } from '../runs/shell.js';
-import { ensureWorktree } from '../startStage.js';
+import { ensureWorktree, refuseMergedWorktree, removeCardWorktree } from '../startStage.js';
 
 export function actionRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
 
   const repoFor = (repoId: string | null) =>
     repoId ? listRepos(db).find((p) => p.id === repoId) : undefined;
-
-  /** Teardown, then remove. Ordered so a failed teardown never strands the tree. */
-  const teardownWorktree = async (card: Card, repo: Repo, path: string) => {
-    for (const run of runRegistry.all().filter((r) => r.cardId === card.id && r.kind === 'server')) {
-      await run.stop('cancelled_by_user');
-    }
-    if (repo.teardownCommand) {
-      const handle = startShellRun({
-        db, writer, cardId: card.id, stage: card.stage,
-        command: repo.teardownCommand, cwd: path,
-      });
-      await handle.done;
-    }
-    const force = await isDirty(path).catch(() => true);
-    await removeWorktree(repo.repoPath, path, force);
-    db.update(cardTable)
-      .set({ worktreePath: null, updatedAt: new Date() })
-      .where(eq(cardTable.id, card.id))
-      .run();
-    return force;
-  };
 
   /** Create the worktree and, if the repo defines one, run its setup command. */
   routes.post('/:id/worktree', async (c) => {
@@ -60,6 +37,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!needsWorktree(card.stage)) {
       return c.json({ error: 'stage does not need a worktree', detail: card.stage }, 400);
     }
+    const merged = refuseMergedWorktree(card);
+    if (merged) return c.json(merged, 409);
 
     // Caught, so git's own words reach the caller rather than a bare 500 —
     // the same answer startStage gives when the worktree cannot be made.
@@ -78,8 +57,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!card) return c.json({ error: 'not found' }, 404);
     const repo = repoFor(card.repoId);
     if (!repo || !card.worktreePath) return c.json({ error: 'no worktree to remove' }, 400);
-    const forced = await teardownWorktree(card, repo, card.worktreePath);
-    return c.json({ ok: true, forced });
+    const removal = await removeCardWorktree(db, writer, card, repo, { reason: 'by_hand' });
+    return c.json({ ok: true, forced: removal.removed && removal.forced });
   });
 
   /**

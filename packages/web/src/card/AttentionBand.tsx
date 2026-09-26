@@ -343,7 +343,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
   const commits = useQuery({
     queryKey: ['commits', card.id],
     queryFn: () => api.commits(card.id),
-    enabled: Boolean(worktree.path && worktree.base) && !card.mergedSha,
+    enabled: Boolean((worktree.path || worktree.branch) && worktree.base) && !card.mergedSha,
   });
   const open = useMutation({
     mutationFn: () => api.openPr(card.id),
@@ -397,7 +397,9 @@ function PullRequest({ detail }: { detail: CardDetail }) {
           merged into {typeof into === 'string' ? into : base}
         </div>
         <p className="mt-0.5 text-sm/5 text-(--color-muted)">
-          Merged on GitHub. The worktree and branch here are left as they were.
+          {worktree.path
+            ? `Merged on GitHub. The worktree is removed when the card is archived, with anything uncommitted in it; ${worktree.branch ?? 'the branch'} is kept.`
+            : `Merged on GitHub. The worktree has been removed; ${worktree.branch ?? 'the branch'} is kept.`}
         </p>
       </div>
     );
@@ -510,7 +512,7 @@ function Merge({ detail, pushing }: { detail: CardDetail; pushing: boolean }) {
                 ? 'GitHub is merging the pull request…'
                 : armed
                   ? `This squashes the pull request onto ${base} on GitHub, and cannot be undone from here.`
-                  : `GitHub says it merges cleanly. Merging squashes it onto ${base} there, under the repository’s own rules; the worktree and branch here are left as they were.`}
+                  : `GitHub says it merges cleanly. Merging squashes it onto ${base} there, under the repository’s own rules; the worktree here stays until the card is archived, and the branch is kept.`}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

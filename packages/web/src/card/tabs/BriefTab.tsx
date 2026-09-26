@@ -6,6 +6,7 @@ import { VibesSwitch } from '../../vibes/Switch.js';
 import { when } from '../format.js';
 import { Lightbox } from '../Lightbox.js';
 import { Markdown } from '../Markdown.js';
+import { RichText } from '../RichText.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
 /**
@@ -27,16 +28,16 @@ export function BriefTab({ detail }: { detail: CardDetail }) {
 }
 
 /**
- * The field's own look, worn by the textarea and — when nothing is written yet —
- * by the empty box standing in for it, so clicking one doesn't change the shape
- * of the other.
+ * The empty box standing in for the editor when nothing is written yet, in the
+ * editor's own look, so clicking one doesn't change the shape of the other.
  */
 const FIELD =
   'max-w-[40rem] rounded-md border border-(--color-edge) bg-(--color-ink) p-3 text-sm/5 outline-none focus:border-sky-600';
 
 function Purpose({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
-  const [draft, setDraft] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
   const noun = detail.card.kind === 'project' ? 'project' : 'card';
   const prompt = `What is this ${noun} for?`;
   const save = useMutation({
@@ -44,45 +45,46 @@ function Purpose({ detail }: { detail: CardDetail }) {
     onSuccess: async () => {
       void qc.invalidateQueries({ queryKey: ['board'] });
       await qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
-      setDraft(null);
+      setEditing(false);
     },
   });
 
+  const start = () => {
+    setPasteError(null);
+    setEditing(true);
+  };
   // Clicking the text is what edits it, except where the click meant something
   // else: following a link, or finishing a selection to copy.
   const edit = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('a')) return;
     if (window.getSelection()?.toString()) return;
-    setDraft(detail.card.body);
+    start();
   };
   // Enter on the field itself, not on a link inside it.
   const open = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && e.target === e.currentTarget) setDraft(detail.card.body);
+    if (e.key === 'Enter' && e.target === e.currentTarget) start();
   };
 
   // Blur is the save — and Escape blurs (see CardModal), so it saves too. The
-  // draft stays up until the save lands, rather than flashing the old body.
-  const commit = () => {
-    if (draft === null) return;
-    if (draft === detail.card.body) setDraft(null);
-    else save.mutate(draft);
+  // editor stays up until the save lands, rather than flashing the old body.
+  const done = (markdown: string | null) => {
+    if (markdown === null || markdown === detail.card.body.trim()) setEditing(false);
+    else save.mutate(markdown);
   };
 
   return (
     <section className="flex flex-col gap-2">
-      {draft !== null ? (
-        <textarea
-          autoFocus
-          rows={4}
-          value={draft}
+      {editing ? (
+        <RichText
+          initial={detail.card.body}
           disabled={save.isPending}
           placeholder={prompt}
           // The heading used to name this field. Nothing else does now, and a
           // placeholder stops naming it the moment there is something in it.
-          aria-label={`What this ${noun} is for`}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          className={`${FIELD} resize-y placeholder:text-(--color-muted)`}
+          label={`What this ${noun} is for`}
+          upload={(file) => api.uploadPasted(detail.card.id, file).then((a) => a.src)}
+          onDone={done}
+          onError={setPasteError}
         />
       ) : detail.card.body.trim() ? (
         // No role: the brief is a passage with links in it, and calling that a
@@ -104,14 +106,15 @@ function Purpose({ detail }: { detail: CardDetail }) {
           title="Click to write"
           onClick={edit}
           onKeyDown={open}
-          // 6.625rem is the textarea's four rows, padding and border, so the
-          // box does not change height the moment it becomes one.
+          // 6.625rem is the editor's four rows, padding and border, so opening
+          // it adds the toolbar and nothing else.
           className={`${FIELD} min-h-[6.625rem] cursor-text text-(--color-muted) hover:border-slate-600`}
         >
           {prompt}
         </div>
       )}
       {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
+      {pasteError && <p className="text-sm/5 text-red-300">{pasteError}</p>}
       {/* A project is never planned, so it has no mockups to draw. */}
       {detail.card.kind === 'task' && <GenerateMockups detail={detail} />}
       {/* A project is never swept itself, but its switch sweeps every task in it. */}

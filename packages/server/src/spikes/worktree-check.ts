@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { openDatabase } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
-import { createCard, createRepo, eventsSince, getCard, getRun } from '../db/queries.js';
+import { createCard, createRepo, eventsSince, getCard, getRun, setRunStatus, updateRepo } from '../db/queries.js';
 import {
   branchNameFor, checkWorktree, commitsSince, copyWorktreeIncludes, createWorktree, diffSince, isDirty, listWorktrees,
   removeWorktree,
 } from '../git/worktree.js';
 import { EventWriter } from '../runs/events.js';
-import { ensureWorktree } from '../startStage.js';
+import { ensureWorktree, setupSettled } from '../startStage.js';
 
 const note = (l: string, v: unknown) => console.log(`${l.padEnd(40)}: ${v}`);
 const root = mkdtempSync(join(tmpdir(), 'reeve-git-'));
@@ -154,6 +154,49 @@ write('logs/keep.txt', 'listed, but not ignored\n');
   } finally {
     chmodSync(join(repo, '.worktreeinclude'), 0o644);
   }
+
+  // --- Setup a start can wait for ---------------------------------------------
+  // `setupSettled` is what `startStage` awaits before Claude goes in; driven
+  // here directly, since `startStage` would launch a real run.
+  const ran = (path: string) => existsSync(join(path, '.setup-ran'));
+  const withSetup = (setupCommand: string | null) => updateRepo(db, dbRepo.id, { setupCommand })!;
+
+  // A new tree: the start waits until the setup has finished, not just begun.
+  const slow = startCard('Slow setup');
+  const fresh = await ensureWorktree(db, writer, slow, withSetup('sleep 1 && touch .setup-ran'));
+  check('new tree: setup still running', fresh.setupRunId !== null && !ran(fresh.path));
+  const settled = await setupSettled(slow.id);
+  check('new tree: settled once it had run', settled?.exitCode === 0 && ran(fresh.path));
+  check('nothing running: settles at once', (await setupSettled(slow.id)) === null);
+
+  // #67: a tree made while the repo had no setup command, which gains one.
+  const late = startCard('Setup added later');
+  const bare = await ensureWorktree(db, writer, late, withSetup(null));
+  check('no setup command: nothing run', bare.setupRunId === null);
+  const setUp = withSetup('sleep 1 && touch .setup-ran');
+  const owed = await ensureWorktree(db, writer, getCard(db, late.id)!, setUp);
+  check('reused, never set up: setup run', owed.reused && owed.setupRunId !== null && !ran(owed.path));
+  const beside = await ensureWorktree(db, writer, getCard(db, late.id)!, setUp);
+  check('reused while it runs: the same setup', beside.setupRunId === owed.setupRunId);
+  await setupSettled(late.id);
+  check('reused, never set up: ran', ran(owed.path));
+  const done = await ensureWorktree(db, writer, getCard(db, late.id)!, setUp);
+  check('reused, set up: nothing run', done.setupRunId === null);
+
+  // One that failed is owed again; failing it by hand stands in for a flaky install.
+  setRunStatus(db, owed.setupRunId!, { status: 'failed', exitCode: 1 });
+  const retried = await ensureWorktree(db, writer, getCard(db, late.id)!, setUp);
+  check('reused, setup failed: run again', retried.setupRunId !== null && retried.setupRunId !== owed.setupRunId);
+  await setupSettled(late.id);
+
+  // A setup command changed since is owed where only the old one ran.
+  const changed = await ensureWorktree(db, writer, getCard(db, late.id)!, withSetup('touch .setup-ran'));
+  check('reused, setup command changed: run', changed.setupRunId !== null);
+  await setupSettled(late.id);
+
+  const failing = startCard('Failing setup');
+  await ensureWorktree(db, writer, failing, withSetup('exit 3'));
+  check('failed setup: settles with its exit code', (await setupSettled(failing.id))?.exitCode === 3);
 }
 
 rmSync(root, { recursive: true, force: true });

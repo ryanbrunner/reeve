@@ -6,15 +6,16 @@ import { Code } from './ui.js';
  * what it built — rendered as the Markdown it was written in.
  *
  * A deliberately small subset: paragraphs, lists, fenced code, quotes and
- * rules; code, bold, emphasis and links inline. That covers what Claude and a
- * person actually type into these fields, and it builds elements rather than
- * HTML, so nothing written here can smuggle markup into the page.
+ * rules; images, code, bold, emphasis and links inline. That covers what
+ * Claude and a person actually type into these fields, and it builds elements
+ * rather than HTML, so nothing written here can smuggle markup into the page.
  *
  * Two departures from CommonMark, both on purpose. A single newline stays a
  * line break, because these fields were shown pre-wrapped before they were
  * Markdown and what people wrote leans on that. And a `#` heading is only a
  * bold line: the section already has its heading, and a second, louder one
- * inside it would outrank the eyebrow.
+ * inside it would outrank the eyebrow. The line keeps its level in
+ * `data-heading`, which the brief's editor reads to write the `#`s back.
  */
 export function Markdown({ children, className = '' }: { children: string; className?: string }) {
   return <div className={`flex flex-col gap-2 text-sm/5 text-(--color-text) ${className}`}>{blocks(children)}</div>;
@@ -26,7 +27,7 @@ export function InlineMarkdown({ children }: { children: string }) {
 }
 
 const FENCE = /^\s*(`{3,}|~{3,})/;
-const HEADING = /^\s*#{1,6}\s+(.*?)\s*#*\s*$/;
+const HEADING = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 const ITEM = /^\s*([-*+]|\d{1,9}[.)])\s+(.*)$/;
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
@@ -76,7 +77,11 @@ function blocks(source: string): ReactNode[] {
 
     const heading = HEADING.exec(line);
     if (heading) {
-      out.push(<p key={key} className="font-medium">{inline(heading[1] ?? '')}</p>);
+      out.push(
+        <p key={key} data-heading={heading[1]?.length} className="font-medium">
+          {inline(heading[2] ?? '')}
+        </p>,
+      );
       i++;
       continue;
     }
@@ -140,25 +145,27 @@ function blocks(source: string): ReactNode[] {
 }
 
 /**
- * Code, links, bold, emphasis and bare URLs, earliest match first. Code is
- * taken literally; everything else may hold more of the same. An underscore
- * only emphasises at a word's edge, so `snake_case_names` stay as written.
+ * Images, code, links, bold, emphasis and bare URLs, earliest match first.
+ * Code is taken literally; everything else may hold more of the same. An
+ * underscore only emphasises at a word's edge, so `snake_case_names` stay as
+ * written.
  */
 const INLINE =
-  /`([^`\n]+)`|\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|\*\*(?=\S)(.+?)\*\*|__(?=\S)(.+?)__|\*(?=[^\s*])(.+?)\*|(?<!\w)_(?=[^\s_])(.+?)_(?!\w)|(https?:\/\/[^\s<]*[^\s<.,:;!?"')\]])/g;
+  /!\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|`([^`\n]+)`|\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|\*\*(?=\S)(.+?)\*\*|__(?=\S)(.+?)__|\*(?=[^\s*])(.+?)\*|(?<!\w)_(?=[^\s_])(.+?)_(?!\w)|(https?:\/\/[^\s<]*[^\s<.,:;!?"')\]])/g;
 
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
 
   for (const m of text.matchAll(INLINE)) {
-    const [whole, code, label, href, strong, strongAlt, em, emAlt, url] = m;
+    const [whole, alt, src, code, label, href, strong, strongAlt, em, emAlt, url] = m;
     const at = m.index;
     if (at > last) out.push(text.slice(last, at));
     last = at + whole.length;
     const key = out.length;
 
-    if (code !== undefined) out.push(<Code key={key}>{code}</Code>);
+    if (src !== undefined) out.push(image(key, src, alt ?? ''));
+    else if (code !== undefined) out.push(<Code key={key}>{code}</Code>);
     else if (label !== undefined) out.push(link(key, href ?? '', inline(label)));
     else if (strong !== undefined || strongAlt !== undefined) {
       out.push(<strong key={key} className="font-semibold">{inline(strong ?? strongAlt ?? '')}</strong>);
@@ -169,6 +176,24 @@ function inline(text: string): ReactNode[] {
 
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/**
+ * A picture pasted into the brief, which the server keeps and serves, or one
+ * on the web. Anything else stays text, as a link to nowhere does: a path in
+ * the repo is not something this page can show.
+ */
+function image(key: number, src: string, alt: string): ReactNode {
+  if (!/^(\/api\/assets\/[\w-]+$|https:)/i.test(src)) return <span key={key}>{alt || src}</span>;
+  return (
+    <img
+      key={key}
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className="my-1 block max-h-96 max-w-full rounded-sm border border-(--color-edge)"
+    />
+  );
 }
 
 /** Only somewhere a browser should go: a relative path or a `javascript:` URL stays text. */

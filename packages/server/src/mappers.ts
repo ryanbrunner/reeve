@@ -142,7 +142,7 @@ export function toApiCard(
     ApiCard,
     'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage' | 'implemented'
   >,
-  links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
+  links: Pick<ApiCard, 'dependsOn' | 'dependents' | 'suggestedBy' | 'suggestions'>,
 ): ApiCard {
   return {
     id: c.id,

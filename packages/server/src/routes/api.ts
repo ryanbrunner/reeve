@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { entryRefusal, toBoardCard } from '../board.js';
-import { blockedStart } from '../blockers.js';
+import { blockedMove } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
@@ -13,7 +13,7 @@ import {
   boardProjects,
   createCard,
   createRepo,
-  dependencyLinks,
+  cardLinks,
   discardIfBlank,
   getCard,
   getSettings,
@@ -35,7 +35,7 @@ import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { SERVER_VARS, unknownVars } from '../runs/serverUrl.js';
-import { maybeOpenPullRequest } from '../pullRequest.js';
+import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
@@ -197,7 +197,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.get('/board', (c) => {
     const rows = boardCards(db);
-    const links = dependencyLinks(db);
+    const links = cardLinks(db);
     const body: BoardResponse = {
       repos: listRepos(db).map(toApiRepo),
       projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
@@ -336,6 +336,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
           400,
         );
       }
+      // Once merged, the branch outlives the worktree, and its diff and commits
+      // are read from it in the repo it was cut in. Moved, the card would ask
+      // the new repo for a branch it has never had.
+      if (existing.mergedAt && existing.branchName) {
+        return c.json(
+          { error: 'card has merged', detail: 'its branch stays in the repo it was merged from' },
+          400,
+        );
+      }
       // Without this the foreign key raises, which is a 500 for what is a
       // caller's mistake.
       if (repoId !== null && !listRepos(db).some((p) => p.id === repoId)) {
@@ -374,14 +383,13 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (projectId && !liveProject(db, projectId)) {
       return c.json({ error: 'no such project', detail: projectId }, 400);
     }
-    // Leaving Backlog is starting the card, and a card whose dependencies are
-    // not done may not start. Only leaving it: a reorder within Backlog is
-    // fine, and a card already past it when a dependency was added moves as
-    // it likes, since this rule guards starting and never pulls a card back.
-    if (before.stage === 'backlog' && parsed.data.stage !== 'backlog') {
-      const blocked = blockedStart(db, before);
-      if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
-    }
+    // A card whose dependencies have not cleared may only go back to Backlog,
+    // from wherever it is: every other column runs Claude on code that is not
+    // on main yet, or pushes a branch built without it. A card already past
+    // Backlog when a dependency was added stays where it is — nothing pulls it
+    // back — but can only be moved to Backlog. Reorders are always fine.
+    const blocked = blockedMove(db, before, parsed.data.stage);
+    if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
     // Entering Testing starts a run against the branch and entering Done pushes
     // it, so with nothing built yet one tests nothing and the other opens an
     // empty pull request. Reorders and moves backwards are never refused.
@@ -401,7 +409,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.get('/cards/archived', (c) => {
-    const links = dependencyLinks(db);
+    const links = cardLinks(db);
     return c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)));
   });
 
@@ -445,6 +453,14 @@ export function apiRoutes(db: Db, writer: EventWriter) {
         }, 409);
       }
       const counts = archiveProject(db, id);
+      // The Done cards that went with it lose their worktrees now too, if they
+      // merged, as when each is archived on its own. The sweep only acts on
+      // merged cards, so it costs one query when none of them did.
+      if (counts?.archived) {
+        cleanUpArchivedWorktrees(db, writer).catch((e) => {
+          console.error(`[reeve] removing worktrees of project #${existing.number}'s cards failed: ${String(e)}`);
+        });
+      }
       return c.json({ ok: true, ...counts } satisfies ArchiveCardResponse);
     }
     // Anything still running would carry on out of sight: a Claude run spending
@@ -452,7 +468,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (runRegistry.all().some((r) => r.cardId === id)) {
       return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
     }
-    archiveCard(db, id);
+    const archived = archiveCard(db, id);
+    // A merged card's worktree goes now rather than on the next tick. Not
+    // awaited, the same as the automatic pull request: a teardown command can
+    // take a while, and the card is already off the board.
+    if (archived?.mergedAt && archived.worktreePath) {
+      cleanUpArchivedWorktrees(db, writer).catch((e) => {
+        console.error(`[reeve] removing the worktree of #${archived.number} failed: ${String(e)}`);
+      });
+    }
     return c.json({ ok: true } satisfies ArchiveCardResponse);
   });
 

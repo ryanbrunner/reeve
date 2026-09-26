@@ -3,10 +3,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EffortLevel, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
 import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
+import { absoluteAssetPath } from '../assets/store.js';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
   criteriaFor,
+  getAsset,
   getSettings,
   insertCardEvent,
   insertRun,
@@ -106,6 +108,7 @@ export function stageContextFor(
 ): StageContext {
   return {
     ...base,
+    brief: briefFor(db, base.card),
     // What earlier stages produced, newest first. In Progress reads the plan
     // this way; Planning has nothing before it and ignores the list.
     priorArtifacts: artifactsForCard(db, base.card.id)
@@ -114,6 +117,33 @@ export function stageContextFor(
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
     notes: unreadNotesFor(db, base.card.id),
   };
+}
+
+/** An image the brief's editor pasted in, by the `src` the page was given for it. */
+const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
+
+/**
+ * The card's body as Claude reads it. A pasted image is linked by its route,
+ * which means nothing to a run with no browser, so the brief is followed by
+ * where each one's file is — the same absolute path In Progress is handed a
+ * mockup by, and something Read can open.
+ *
+ * Listed after the body rather than swapped into it: a split copies a
+ * project's brief into its tasks, and what it copies has to be the route, or
+ * the board could no longer show the picture. Looked up by row for the same
+ * reason, since those tasks are not the card whose folder holds the file.
+ */
+function briefFor(db: Db, card: Card): string {
+  const body = card.body.trim();
+  if (!body) return '_No further detail was given._';
+  const files = new Map<string, string>();
+  for (const [, , id] of body.matchAll(PASTED)) {
+    const row = id ? getAsset(db, id) : undefined;
+    if (row) files.set(`/api/assets/${row.id}`, absoluteAssetPath(row.path));
+  }
+  if (!files.size) return body;
+  const list = [...files].map(([src, path]) => `- \`${src}\` is \`${path}\``).join('\n');
+  return `${body}\n\nThe images in this brief are files on this machine, which Read can open:\n\n${list}`;
 }
 
 /**

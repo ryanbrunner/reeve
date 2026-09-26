@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { STAGE_LABELS, type CritReviewResponse, type StopReason } from '@reeve/shared';
+import { blockedMove } from './blockers.js';
 import { cardActivity } from './board.js';
 import type { Db } from './db/client.js';
 import {
@@ -227,6 +228,15 @@ async function finishCritReview(
       if (result.critApproved === false) {
         recordOutcome(db, cardId, planRunId, 'failed',
           'Crit reported unresolved comments, but none could be read back. Nothing was approved.');
+        return;
+      }
+      // The Approve button refuses a card waiting on another, and so does this,
+      // before `approveStage` records a verdict for a move that cannot happen.
+      // Crit is on a Planning card, and approving it moves it to In Progress.
+      const blocked = blockedMove(db, card, 'in_progress');
+      if (blocked) {
+        recordOutcome(db, cardId, planRunId, 'not_applied',
+          `Nothing was approved: the card waits on ${blocked.detail}.`);
         return;
       }
       approveStage(db, writer, card, repo, run, { meta: { via: 'crit' } });

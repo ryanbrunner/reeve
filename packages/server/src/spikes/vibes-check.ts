@@ -132,7 +132,9 @@ const afterOff = getCard(db, parked.id)!.stage;
 
 // --- one card on its own --------------------------------------------------
 // The board's switch stays off. Flagged cards go, and the one beside each of
-// them that nobody flagged waits for a person as it always has.
+// them that nobody flagged waits for a person as it always has. They go the way
+// the whole board does, over Planning: the flag and the switch share
+// `vibesNext`, so a flagged card is not planned either.
 const solo = createCard(db, { title: 'solo', repoId: repo.id, stage: 'backlog' });
 const bystander = createCard(db, { title: 'bystander', repoId: repo.id, stage: 'backlog' });
 const soloWaiting = createCard(db, { title: 'solo waiting', repoId: repo.id, stage: 'planning' });
@@ -158,10 +160,10 @@ const bystanderWaitingStage = getCard(db, bystanderWaiting.id)!.stage;
 const bystanderReviews = actorsOf(bystanderWaiting.id, 'reviewed');
 
 // Turned off again, the card that just moved itself stops where it is, however
-// many sweeps go by — with a plan waiting that the next sweep would otherwise
-// approve.
+// many sweeps go by — with its implementation waiting for review, which the
+// next sweep would otherwise approve into Testing.
 updateCard(db, solo.id, { vibes: false });
-succeeded(solo.id, 'planning');
+succeeded(solo.id, 'in_progress');
 await vibesSweep(db, writer);
 await vibesSweep(db, writer);
 const soloStageAfterOff = getCard(db, solo.id)!.stage;
@@ -197,8 +199,14 @@ await vibesSweep(db, writer);
 const laneLaterStage = getCard(db, laneLater.id)!.stage;
 const laneLaterReviews = actorsOf(laneLater.id, 'reviewed');
 
-const ok = (label: string, got: unknown, want: unknown) =>
-  console.log(`${JSON.stringify(got) === JSON.stringify(want) ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}`);
+// Counted, not just printed: two ✗ lines in the single-card section went
+// unnoticed across several merges while this always exited 0.
+let failed = 0;
+const ok = (label: string, got: unknown, want: unknown) => {
+  const pass = JSON.stringify(got) === JSON.stringify(want);
+  if (!pass) failed++;
+  console.log(`${pass ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}${pass ? '' : ` (wanted ${JSON.stringify(want)})`}`);
+};
 
 console.log('\n--- with the switch off ---');
 ok('a backlog card is left alone', stayedPut, 'backlog');
@@ -217,7 +225,7 @@ ok('a question is answered with Claude’s own first suggestion', answers, ['Lef
 ok('and the answer is recorded as Claude', answeredBy, ['claude']);
 
 console.log('\n--- one card on its own, with the switch off ---');
-ok('a flagged backlog card moves itself into planning', soloStage, 'planning');
+ok('a flagged backlog card moves itself over planning into in progress', soloStage, 'in_progress');
 ok('and the move is recorded as Claude', soloMovedBy, ['claude']);
 ok('the unflagged backlog card beside it stays put', bystanderStage, 'backlog');
 ok('and so does the one parked earlier', parkedStage, 'backlog');
@@ -228,8 +236,8 @@ ok('a flagged plan waiting for review is approved without being read', soloRevie
 ok('and the card advances', soloWaitingStage, 'in_progress');
 ok('an unflagged plan waiting for review is not approved', bystanderReviews, []);
 ok('and stays in planning', bystanderWaitingStage, 'planning');
-ok('unflagged, its waiting plan is not approved', soloReviewsAfterOff, []);
-ok('and it stays in planning', soloStageAfterOff, 'planning');
+ok('unflagged, its waiting implementation is not approved', soloReviewsAfterOff, []);
+ok('and it stays in progress', soloStageAfterOff, 'in_progress');
 
 console.log('\n--- a project, with the switch off ---');
 ok('an unflagged backlog task in the lane moves itself over planning', laneTaskStage, 'in_progress');
@@ -251,4 +259,5 @@ ok('tokens count the runs since, without cache reads', state.spendTokens, 66_200
 console.log('log:');
 for (const line of state.log) console.log(`  ◆ ${line}`);
 
-process.exit(0);
+console.log(failed === 0 ? '\nall VIBES MODE checks pass' : `\n${failed} FAILED`);
+process.exit(failed === 0 ? 0 : 1);

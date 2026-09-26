@@ -2,12 +2,23 @@
  * Seeds one card in each activity state, carrying every surface the detail
  * modal renders: a brief, criteria with verdicts, questions half answered, a
  * plan with steps, an implementation with commits, checks, a mockup beside the
- * screenshot of it, and a full timeline.
+ * screenshot of it, and a full timeline. And two merged in Done: one archived
+ * with its worktree removed, for what a card looks like once only its branch
+ * is left, and one still on the board, for how the board shows a merged card.
  *
  * The point is to be able to drive the whole modal without spending a penny of
  * API credit. Run it, open the board, click the cards.
  *
  *   REEVE_DB=data/reeve.db npx tsx packages/server/src/spikes/seed-card-detail.ts
+ *
+ * The merged card on the board merged hours ago, so a server with the default
+ * REEVE_AUTO_ARCHIVE_MS archives it on its first merge-sync tick, which runs
+ * as it starts, and removes its worktree on the same tick. Start the server
+ * with a large one, a year here, to keep it there. Leave REEVE_DB unset: npm
+ * runs the server from packages/server, so a relative one would open an empty
+ * database there, and the default is already the data/reeve.db seeded above.
+ *
+ *   REEVE_AUTO_ARCHIVE_MS=31536000000 npm run dev
  */
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -281,7 +292,9 @@ const IMPL = {
   // truth agree here the way they would in a real run.
   files_changed: ['src/checkout-summary.ts', 'src/cart/billableLines.ts', 'src/cart/SavedList.tsx'],
   deviations_from_plan: ['Totals come from billableLines() rather than a filter at each call site, so checkout cannot miss it.'],
-  follow_ups: ['e2e tests for guest persistence'],
+  suggested_tasks: [
+    { title: 'Cover guest saved items with an e2e test', body: 'Only the signed-in path has one. Guests keep theirs in localStorage, which no test reaches.' },
+  ],
 };
 
 // Sized so the board shows each shape the formatter has: "840", "1.4 k", and
@@ -315,6 +328,10 @@ for (const t of PLAN.acceptance_criteria.slice(0, 4)) addCriterion(db, working.i
 const broken = card('Fix tax rounding on refunds', 'Partial refunds are a cent out when the order had a discount.', 'testing', 60 * 30);
 pastRun({ cardId: broken.id, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.031, tokens: PLANNED, startedMinsAgo: 300, ranMins: 9 });
 pastRun({ cardId: broken.id, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.094, tokens: BUILT, startedMinsAgo: 240, ranMins: 39 });
+// What that run's suggestion became, so the rail has both ends to show.
+for (const t of IMPL.suggested_tasks) {
+  createCard(db, { title: t.title, body: t.body, repoId: storefront.id, suggestedById: broken.id, actor: 'claude' });
+}
 pastRun({
   cardId: broken.id, stage: 'testing', status: 'failed', usd: 0.002, tokens: STALLED,
   startedMinsAgo: 14, ranMins: 0.2,
@@ -383,6 +400,78 @@ addCriterion(db, ready.id, 'Saved list shows at most 50 items');
 const readyServer = insertRun(db, {
   id: crypto.randomUUID(), cardId: ready.id, kind: 'server', stage: 'testing',
   status: 'running', cwd: '/tmp/x', port: 5174, createdAt: ago(18), startedAt: ago(18),
+});
+
+// 6. Done, merged on GitHub, archived, and its worktree removed: the branch is
+// all that is left, and the Diff tab and commit list read from it. Archived,
+// so it is not on the board. The fixed id is what makes it reachable anyway,
+// at /?card=<id>, and the same link after every re-seed.
+const LANDED_ID = 'c1ea0000-0000-4000-8000-000000000001';
+db.$client.prepare('DELETE FROM card WHERE id = ?').run(LANDED_ID);
+const landed = card('Keep saved lines out of totals', 'Saved-for-later items are still counted in the cart subtotal. Leave them out.', 'done', 60 * 48);
+// Nothing but its own events points at it yet, so they are all that has to follow.
+db.$client.transaction(() => {
+  db.$client.pragma('defer_foreign_keys = ON');
+  db.$client.prepare('UPDATE card SET id = ? WHERE id = ?').run(LANDED_ID, landed.id);
+  db.$client.prepare('UPDATE card_event SET card_id = ? WHERE card_id = ?').run(LANDED_ID, landed.id);
+})();
+pastRun({ cardId: LANDED_ID, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.029, startedMinsAgo: 60 * 46, ranMins: 9 });
+pastRun({ cardId: LANDED_ID, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.088, startedMinsAgo: 60 * 40, ranMins: 34 });
+pastRun({ cardId: LANDED_ID, stage: 'testing', status: 'succeeded', usd: 0.041, startedMinsAgo: 60 * 30, ranMins: 7 });
+
+const landedPath = join(repo, '..', `reeve-seed-wt-${landed.number}`);
+const landedBranch = git(landedPath, 'rev-parse', '--abbrev-ref', 'HEAD');
+git(repo, 'worktree', 'remove', '--force', landedPath);
+const prUrl = 'https://github.com/example/storefront/pull/41';
+db.run(
+  `UPDATE card SET worktree_path=NULL, pr_url='${prUrl}', pr_number=41, pr_opened_at=${ago(60 * 24).getTime()},
+   merged_at=${ago(60 * 3).getTime()}, archived_at=${ago(60 * 3 - 10).getTime()} WHERE id='${LANDED_ID}'` as never,
+);
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'pr_opened', stage: 'done', createdAt: ago(60 * 24),
+  meta: { url: prUrl, number: 41, branch: landedBranch, into: 'main', reused: false },
+});
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'merged', stage: 'done', createdAt: ago(60 * 3),
+  meta: { url: prUrl, number: 41, sha: null, into: 'main' },
+});
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'archived', stage: 'done', createdAt: ago(60 * 3 - 10),
+  meta: { reason: 'merged' },
+});
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'worktree_removed', stage: 'done', createdAt: ago(60 * 3 - 10),
+  meta: { reason: 'archived', path: landedPath, branch: landedBranch, forced: false },
+});
+
+// 7. Done and merged, but not yet archived: the one merged card on the board,
+// with its worktree still in place as it is until the archive. The auto-archive
+// takes it on the server's first tick unless held off; see the header.
+const MERGED_ID = 'c1ea0000-0000-4000-8000-000000000002';
+db.$client.prepare('DELETE FROM card WHERE id = ?').run(MERGED_ID);
+const merged = card('Leave saved items out of the cart badge', 'The cart badge counts saved-for-later items as if they were in the cart. Count only what will be charged.', 'done', 60 * 20);
+db.$client.transaction(() => {
+  db.$client.pragma('defer_foreign_keys = ON');
+  db.$client.prepare('UPDATE card SET id = ? WHERE id = ?').run(MERGED_ID, merged.id);
+  db.$client.prepare('UPDATE card_event SET card_id = ? WHERE card_id = ?').run(MERGED_ID, merged.id);
+})();
+pastRun({ cardId: MERGED_ID, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.027, tokens: PLANNED, startedMinsAgo: 60 * 18, ranMins: 8 });
+pastRun({ cardId: MERGED_ID, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.081, tokens: BUILT, startedMinsAgo: 60 * 14, ranMins: 31 });
+pastRun({ cardId: MERGED_ID, stage: 'testing', status: 'succeeded', usd: 0.044, tokens: TESTED, startedMinsAgo: 60 * 9, ranMins: 6 });
+
+const mergedBranch = git(join(repo, '..', `reeve-seed-wt-${merged.number}`), 'rev-parse', '--abbrev-ref', 'HEAD');
+const mergedPrUrl = 'https://github.com/example/storefront/pull/44';
+db.run(
+  `UPDATE card SET pr_url='${mergedPrUrl}', pr_number=44, pr_opened_at=${ago(60 * 5).getTime()},
+   merged_at=${ago(60 * 2).getTime()} WHERE id='${MERGED_ID}'` as never,
+);
+insertCardEvent(db, {
+  cardId: MERGED_ID, actor: 'human', kind: 'pr_opened', stage: 'done', createdAt: ago(60 * 5),
+  meta: { url: mergedPrUrl, number: 44, branch: mergedBranch, into: 'main', reused: false },
+});
+insertCardEvent(db, {
+  cardId: MERGED_ID, actor: 'human', kind: 'merged', stage: 'done', createdAt: ago(60 * 2),
+  meta: { url: mergedPrUrl, number: 44, sha: null, into: 'main' },
 });
 
 // --- the pictures ------------------------------------------------------------
@@ -473,8 +562,11 @@ if (shot.unavailable) {
   }
 }
 
-console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state`);
+console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state, and one of them suggested`);
 console.log('  idle · needs_input · running · error · needs_review');
+console.log(`  and one merged, archived and cleaned up: /?card=${LANDED_ID}`);
+console.log(`  and one merged and still in Done: /?card=${MERGED_ID}`);
+console.log('  (it stays only if the server has a large REEVE_AUTO_ARCHIVE_MS; see the header)');
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');
 process.exit(0);

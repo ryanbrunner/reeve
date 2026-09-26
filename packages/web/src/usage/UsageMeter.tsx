@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { UsageLevel, UsageState, UsageWindow } from '@reeve/shared';
 import { duration } from '../card/format.js';
 
@@ -27,9 +27,22 @@ const FIGURE: Record<UsageLevel, string> = {
   rejected: 'font-semibold text-(--color-activity-error-mark)',
 };
 
+// Green while it is fine, then the board's own amber and red. Off the
+// server's level rather than a band of our own, so a bar never turns before
+// the strip under the header has anything to say.
+const BAR: Record<UsageLevel, string> = {
+  ok: 'bg-(--color-activity-review-mark)',
+  warning: 'bg-(--color-activity-input-mark)',
+  rejected: 'bg-(--color-activity-error-mark)',
+};
+
 const pct = (w: UsageWindow) => `${Math.round(w.utilization * 100)}%`;
 
-/** `5H 93% · 7D 23%`, beside the card count. Only the window that is close takes the colour. */
+/**
+ * `5H ▰▱ 93% · 7D ▰▱ 23%`, beside the card count: a bar per window, filled to
+ * its utilization and coloured by its own level, with the figure beside it
+ * since the bar alone is too small to read a number off.
+ */
 export function UsageMeter({ usage }: { usage: UsageState | null }) {
   if (!usage) return null;
   const shown = WINDOWS.flatMap((d) => {
@@ -38,7 +51,7 @@ export function UsageMeter({ usage }: { usage: UsageState | null }) {
   });
   return (
     <span
-      className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted) ${PILL[usage.level]}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-1.5 py-0.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted) ${PILL[usage.level]}`}
       title={shown
         .map(({ long, w }) =>
           // A window past its reset is shown at 0%; a reset time in the past would contradict it.
@@ -47,10 +60,20 @@ export function UsageMeter({ usage }: { usage: UsageState | null }) {
         .join(' · ')}
     >
       {shown.map(({ key, short, w }, i) => (
-        <span key={key}>
-          {i > 0 && ' · '}
-          {short} <span className={FIGURE[w.level]}>{pct(w)}</span>
-        </span>
+        <Fragment key={key}>
+          {i > 0 && <span>·</span>}
+          <span className="inline-flex items-center gap-1">
+            {short}
+            <span aria-hidden="true" className="h-1 w-8 overflow-hidden rounded-full bg-(--color-edge)">
+              {/* A spent window can report past 1. */}
+              <span
+                className={`block h-full rounded-full ${BAR[w.level]}`}
+                style={{ width: `${Math.min(100, Math.max(0, w.utilization * 100))}%` }}
+              />
+            </span>
+            <span className={FIGURE[w.level]}>{pct(w)}</span>
+          </span>
+        </Fragment>
       ))}
     </span>
   );

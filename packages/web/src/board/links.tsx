@@ -7,10 +7,12 @@ import type { ApiCard } from '@reeve/shared';
  * `upstream` is everything the focused card waits on, however far back;
  * `downstream` is everything waiting on it. The whole chain rather than the
  * nearest link, because the point is to follow it across columns and lanes
- * without hovering each card along the way. `unlinked` is the rest of the
- * board, which steps back so the chain reads.
+ * without hovering each card along the way. `origin` and `offshoot` are the
+ * same two directions for suggestions: the card whose run suggested the
+ * focused one, and the cards it suggested in turn. `unlinked` is the rest of
+ * the board, which steps back so the chain reads.
  */
-export type LinkRole = 'focus' | 'upstream' | 'downstream' | 'unlinked';
+export type LinkRole = 'focus' | 'upstream' | 'downstream' | 'origin' | 'offshoot' | 'unlinked';
 
 interface Links {
   /** Null while nothing linked is focused, which is nearly always: the board is drawn as it is. */
@@ -18,9 +20,19 @@ interface Links {
   enter: (id: string) => void;
   /** Only clears the card it names, so leaving one card after entering the next cannot undo the entry. */
   leave: (id: string) => void;
+  /**
+   * A live card by id. For a face naming cards it only holds the ids of —
+   * what it suggested — which the board already has in full.
+   */
+  card: (id: string) => ApiCard | undefined;
 }
 
-const LinksContext = createContext<Links>({ role: () => null, enter: () => {}, leave: () => {} });
+const LinksContext = createContext<Links>({
+  role: () => null,
+  enter: () => {},
+  leave: () => {},
+  card: () => undefined,
+});
 
 export const useLinks = () => useContext(LinksContext);
 
@@ -40,13 +52,19 @@ export function LinksProvider({ cards, paused, children }: {
   children: React.ReactNode;
 }) {
   const [focused, setFocused] = useState<string | null>(null);
-  const roles = useMemo(() => (focused && !paused ? chainOf(cards, focused) : null), [cards, focused, paused]);
+  const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+  const roles = useMemo(() => (focused && !paused ? chainOf(byId, focused) : null), [byId, focused, paused]);
 
   const enter = useCallback((id: string) => setFocused(id), []);
   const leave = useCallback((id: string) => setFocused((cur) => (cur === id ? null : cur)), []);
   const value = useMemo<Links>(
-    () => ({ role: (id) => (roles ? (roles.get(id) ?? 'unlinked') : null), enter, leave }),
-    [roles, enter, leave],
+    () => ({
+      role: (id) => (roles ? (roles.get(id) ?? 'unlinked') : null),
+      enter,
+      leave,
+      card: (id) => byId.get(id),
+    }),
+    [roles, enter, leave, byId],
   );
   return <LinksContext.Provider value={value}>{children}</LinksContext.Provider>;
 }
@@ -59,11 +77,14 @@ export function LinksProvider({ cards, paused, children }: {
  * Nothing stops two cards waiting on each other, so the walk keeps a visited
  * set and a cycle ends it. A dependency that has been archived is not on the
  * board and is not walked through, which only matters for the cards beyond it.
+ *
+ * Suggestions are walked after dependencies, and a card already lit as one
+ * keeps that role: waiting on a card says more about it than having been
+ * suggested by it.
  */
-function chainOf(cards: ApiCard[], id: string): Map<string, LinkRole> | null {
-  const byId = new Map(cards.map((c) => [c.id, c]));
+function chainOf(byId: Map<string, ApiCard>, id: string): Map<string, LinkRole> | null {
   const roles = new Map<string, LinkRole>([[id, 'focus']]);
-  const walk = (role: 'upstream' | 'downstream', next: (c: ApiCard) => string[]) => {
+  const walk = (role: Exclude<LinkRole, 'focus' | 'unlinked'>, next: (c: ApiCard) => string[]) => {
     const stack = [id];
     while (stack.length) {
       const card = byId.get(stack.pop()!);
@@ -77,5 +98,7 @@ function chainOf(cards: ApiCard[], id: string): Map<string, LinkRole> | null {
   };
   walk('upstream', (c) => c.dependsOn.map((d) => d.id));
   walk('downstream', (c) => c.dependents);
+  walk('origin', (c) => (c.suggestedBy ? [c.suggestedBy.id] : []));
+  walk('offshoot', (c) => c.suggestions);
   return roles.size > 1 ? roles : null;
 }

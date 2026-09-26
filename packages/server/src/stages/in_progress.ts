@@ -1,7 +1,8 @@
 import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
-import { blockquote, renderNotes, renderPrompt } from './template.js';
+import { recordSuggestions } from '../suggestions.js';
+import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
@@ -50,12 +51,13 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
     return renderPrompt('in_progress', {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
-      body: ctx.card.body.trim() || '_No further detail was given._',
+      body: ctx.brief,
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
       mockups: prepared?.['mockups'] ?? '',
       testCommand: ctx.repo.testCommand
         ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
         : 'This repo defines no test command, so there is nothing to run.',
+      suggesting: renderSuggesting(),
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });
@@ -63,6 +65,12 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
 
   onComplete(_ctx, output) {
     return [{ kind: 'summary', content: composeNotes(output), path: '.reeve/implementation.md' }];
+  },
+
+  // The only rows this stage writes: what it noticed, or deliberately left
+  // out of scope, as cards of their own.
+  onPersist(db, ctx, output) {
+    recordSuggestions(db, ctx, output.suggested_tasks);
   },
 
   // Implementation reports; it does not ask. Anything it could not decide should
@@ -85,9 +93,11 @@ function composeNotes(output: ImplementationOutput): string {
     for (const d of output.deviations_from_plan) out.push(`- ${d}`);
     out.push('');
   }
-  if (output.follow_ups.length) {
-    out.push('## Left undone', '');
-    for (const f of output.follow_ups) out.push(`- ${f}`);
+  // Testing reads this, and work left out on purpose is worth it knowing about
+  // before it fails a criterion for it.
+  if (output.suggested_tasks.length) {
+    out.push('## Suggested as separate cards', '');
+    for (const t of output.suggested_tasks) out.push(`- ${t.title}`);
     out.push('');
   }
   if (output.commits.length) {

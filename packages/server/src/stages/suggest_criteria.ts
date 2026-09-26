@@ -35,7 +35,7 @@ export const suggestCriteriaTask: ClaudeTask<CriteriaOutput> = {
     return renderPrompt('suggest_criteria', {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
-      body: ctx.card.body.trim() || '_No further detail was given._',
+      body: ctx.brief,
       existing,
     });
   },

@@ -1,7 +1,14 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { config } from './config.js';
 import type { Db } from './db/client.js';
-import { archiveCard, cardsAwaitingMerge, insertCardEvent, listRepos, mergedCardsDueForArchive } from './db/queries.js';
+import {
+  archiveCard,
+  archivedMergedWorktrees,
+  cardsAwaitingMerge,
+  insertCardEvent,
+  listRepos,
+  mergedCardsDueForArchive,
+} from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import {
   createPullRequest,
@@ -13,7 +20,9 @@ import {
   type PullRequestState,
 } from './git/github.js';
 import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
+import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
+import { removeCardWorktree } from './startStage.js';
 
 /**
  * Cards with a push under way. Two quick drags into Done, or a retry pressed
@@ -97,6 +106,23 @@ export type PullRequestResult =
   | { ok: false; status: 400 | 409 | 502; error: string; detail: string };
 
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
+
+/** An image the brief's editor pasted in, by the `src` the page was given for it. */
+const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
+
+/**
+ * The card's body as a pull request description. A pasted image is linked by
+ * its route on this server, which GitHub cannot reach and would show as a
+ * broken picture, so each is left as its alt text instead: the reader learns
+ * there was one, and the card still has it. Not uploaded, because `gh` has no
+ * way to attach an image to a pull request, and not dropped, because a
+ * sentence that says "like this:" should not then point at nothing.
+ *
+ * Parentheses rather than emphasis, since the alt may be a file name, and a
+ * `_` or `*` in one would unbalance it.
+ */
+const prDescription = (body: string) =>
+  body.trim().replace(PASTED, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
 
 /**
  * Push a Done card's branch to `origin` and open a pull request for it against
@@ -183,7 +209,7 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
         branch,
         base,
         title: card.title,
-        body: [card.body.trim(), `Reeve #${card.number}`].filter(Boolean).join('\n\n'),
+        body: [prDescription(card.body), `Reeve #${card.number}`].filter(Boolean).join('\n\n'),
       });
     } catch (e) {
       return failed(502, 'could not open the pull request', reason(e));
@@ -358,8 +384,9 @@ let syncing = false;
  * Only `merged_at` is written. `merged_sha` means the card squash-landed and
  * its worktree is gone, and the Changes tab reads it from the local repo —
  * where GitHub's merge commit is not until someone fetches it. The sha goes on
- * the `merged` event instead. The worktree and branch are left alone: the
- * person may still be sitting in them.
+ * the `merged` event instead. The worktree is left alone, since the person
+ * may still be sitting in it: it goes once the card is archived, by
+ * `cleanUpArchivedWorktrees`, and the branch stays for good.
  *
  * The same answer says whether GitHub could merge an open one as it stands,
  * which is what offers a Done card's conflicts for resolving, or its Merge
@@ -447,4 +474,53 @@ export function archiveMergedCards(db: Db, now = new Date()): Card[] {
     if (done) archived.push(done);
   }
   return archived;
+}
+
+let cleaning = false;
+/** Asked for while a pass was under way, which may have read the cards too early. */
+let cleanAgain = false;
+
+/**
+ * Delete the worktrees of merged cards once they are archived, by hand or by
+ * the sweep above. Merged is when the work has landed; archived is when a
+ * person, or ten quiet minutes, says nobody is sitting in the tree any more.
+ * Until both, every checkout stayed on disk for good, `node_modules` and all.
+ *
+ * Always forced, so anything left uncommitted goes with it. The event says so
+ * when it happens, and the branch is kept, so every commit is still there and
+ * the Diff tab reads from it.
+ *
+ * One card and one pass at a time, since a teardown command can take a while.
+ * A call made during a pass runs another once it is done rather than being
+ * dropped, so a hand archive is not left waiting a whole tick. A card with
+ * anything running, or whose conflicts are being resolved, is left for a later
+ * pass, although an archived card should have neither. So is one whose removal
+ * failed, and nothing that goes wrong with one card stops the rest.
+ */
+export async function cleanUpArchivedWorktrees(db: Db, writer: EventWriter): Promise<void> {
+  if (cleaning) {
+    cleanAgain = true;
+    return;
+  }
+  cleaning = true;
+  const inUse = (cardId: string) => busy(cardId) || runRegistry.all().some((r) => r.cardId === cardId);
+  try {
+    do {
+      cleanAgain = false;
+      for (const { card, repo } of archivedMergedWorktrees(db)) {
+        if (inUse(card.id)) continue;
+        try {
+          await removeCardWorktree(db, writer, card, repo, {
+            reason: 'archived',
+            // A person may have restored it while its teardown ran.
+            stillWanted: (fresh) => fresh.archivedAt !== null && !inUse(fresh.id),
+          });
+        } catch (e) {
+          console.error(`[reeve] could not remove the worktree of #${card.number}: ${reason(e)}`);
+        }
+      }
+    } while (cleanAgain);
+  } finally {
+    cleaning = false;
+  }
 }

@@ -35,8 +35,12 @@ export type CardEventActor = (typeof CARD_EVENT_ACTORS)[number];
 export const CRITERION_VERDICTS = ['pass', 'fail'] as const;
 export type CriterionVerdict = (typeof CRITERION_VERDICTS)[number];
 
-/** A picture of the work: one drawn beforehand, or one taken of the build. */
-export const ASSET_KINDS = ['mockup', 'screenshot'] as const;
+/**
+ * A picture of the work: one drawn beforehand, or one taken of the build. Or
+ * one pasted into the brief, which is part of what the card says rather than a
+ * picture of the work, and which only the brief's own body points at.
+ */
+export const ASSET_KINDS = ['mockup', 'screenshot', 'pasted'] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /** What a piece of context points at: a path in the repo, another card, a link. */
@@ -71,6 +75,9 @@ export const CARD_EVENT_KINDS = [
   // `gh` refused to merge the pull request: from the Done band's Merge, or
   // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
+  // The card's worktree deleted from disk, by hand or once a merged card was
+  // archived. The branch stays; `meta.forced` says uncommitted work went with it.
+  'worktree_removed',
   // An open card moved to No project because its project was archived. `meta`
   // names the project, which the card no longer points at.
   'left_project',
@@ -113,6 +120,14 @@ export const card = sqliteTable(
     // The project this card belongs to, if any. A project's own repo is its
     // default: the one its split reads, and the one its tasks fall back to.
     projectId: text('project_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
+    /**
+     * The card whose run suggested this one, if a run did. A column rather than
+     * a pair table like `card_dependency`: a card is suggested by one card at
+     * most, the link is made once when the run lands and never changes, and it
+     * cannot loop, since this card did not exist when its suggester ran. Only
+     * `recordSuggestions` in `../suggestions.ts` writes it; no route takes it.
+     */
+    suggestedById: text('suggested_by_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
@@ -177,6 +192,7 @@ export const card = sqliteTable(
     index('card_repo').on(t.repoId, t.stage, t.position),
     index('card_number').on(t.repoId, t.number),
     index('card_project').on(t.projectId, t.stage, t.position),
+    index('card_suggested_by').on(t.suggestedById),
   ],
 );
 

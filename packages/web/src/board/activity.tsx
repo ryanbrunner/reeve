@@ -1,4 +1,4 @@
-import type { CardActivity } from '@reeve/shared';
+import type { ApiCard, CardActivity } from '@reeve/shared';
 
 /**
  * The card's sub-state, as light. The column is where the human put the card;
@@ -42,6 +42,32 @@ export const ACTIVITY_MARKS: Partial<Record<CardActivity, React.ReactNode>> = {
     </Mark>
   ),
 };
+
+/**
+ * A card whose pull request has landed, in Done, is finished, and wears it:
+ * green, with a check in a circle. Not a `CardActivity`, which is read from
+ * the card's runs and which `reeve card wait` turns into exit codes; this is a
+ * fact about the card, and Done has no runs to colour it anyway. Only in Done,
+ * because a merged card dragged back for another round is running again, and
+ * its activity is what matters there.
+ *
+ * The circle is what keeps it apart from `needs_review`'s bare check, which is
+ * also green and means the opposite: that a person still has something to do.
+ */
+export function isMerged(card: Pick<ApiCard, 'stage' | 'mergedAt'>): boolean {
+  return card.stage === 'done' && card.mergedAt != null;
+}
+
+export const MERGED_STYLE = 'card-glow card-glow-merged';
+
+export const MERGED_MARK = (
+  <Mark>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 12.5l2.75 2.75L16 9.75" />
+  </Mark>
+);
+
+export const MERGED_LABEL = 'Merged';
 
 export function Mark({ children }: { children: React.ReactNode }) {
   return (
