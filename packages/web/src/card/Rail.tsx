@@ -424,10 +424,14 @@ function Worktree({ detail }: { detail: CardDetail }) {
           because opening the preview is what it is for. */}
       <div className="flex flex-col">
         <Fact label="URL">
+          {/* Only an address something vouched for. A server that has not
+              printed one yet is not at the port Reeve offered it, necessarily. */}
           {server?.running && server.url ? (
             <a href={server.url} target="_blank" rel="noreferrer" className="text-sky-300 no-underline">
               {server.url.replace(/^https?:\/\//, '')}
             </a>
+          ) : server?.running ? (
+            <span className="text-(--color-muted)">waiting for the server to print its URL</span>
           ) : (
             '—'
           )}
@@ -455,7 +459,11 @@ function Worktree({ detail }: { detail: CardDetail }) {
       <div className="flex flex-wrap gap-1.5">
         {server?.running ? (
           <>
-            <SmallButton tone="sky" onClick={() => server.url && window.open(server.url, '_blank')}>
+            <SmallButton
+              tone="sky"
+              disabled={!server.url}
+              onClick={() => server.url && window.open(server.url, '_blank')}
+            >
               Open preview
             </SmallButton>
             <SmallButton disabled={stop.isPending} onClick={() => stop.mutate()}>

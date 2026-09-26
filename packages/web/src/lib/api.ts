@@ -10,6 +10,8 @@ import type {
   ApiQuestion,
   ApiRepo,
   ApiSettings,
+  ArchiveCardBody,
+  ArchiveCardResponse,
   BoardResponse,
   CardDetail,
   CreateCardBody,
@@ -62,7 +64,8 @@ export const api = {
   createCard: (body: CreateCardBody) => post('/api/cards', body).then(json<ApiCard>),
   moveCard: (id: string, body: MoveCardBody) => post(`/api/cards/${id}/move`, body).then(json<ApiCard>),
   /** Soft: the card leaves the board, and everything it owns stays where it is. */
-  archiveCard: (id: string) => post(`/api/cards/${id}/archive`, {}).then(json<{ ok: true }>),
+  archiveCard: (id: string, body: ArchiveCardBody = {}) =>
+    post(`/api/cards/${id}/archive`, body).then(json<ArchiveCardResponse>),
   restoreCard: (id: string) => post(`/api/cards/${id}/restore`, {}).then(json<ApiCard>),
   /** Hard, but only for a card nobody touched: the server says whether it went. */
   discardCard: (id: string) => post(`/api/cards/${id}/discard`, {}).then(json<{ deleted: boolean }>),
@@ -82,7 +85,7 @@ export const api = {
       model?: string | null;
       effort?: EffortLevel | null;
       generateMockups?: boolean;
-      sicko?: boolean;
+      vibes?: boolean;
     },
   ) => patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
@@ -135,7 +138,7 @@ export const api = {
 
   // --- the worktree ---
   startServer: (id: string) =>
-    post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number; url: string }>),
+    post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number | null; url: string | null }>),
   stopServer: (id: string) => del(`/api/cards/${id}/server`).then(json<{ ok: true }>),
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
   /**

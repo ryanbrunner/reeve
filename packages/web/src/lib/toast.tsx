@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
  * A line at the bottom of the window that says something small just happened
  * — "Copied branch reeve/12-some-slug" — and then goes away.
  *
- * Not SICKO MODE's `sk-toast`. That one is inline in the header, lasts seven
+ * Not VIBES MODE's `sk-toast`. That one is inline in the header, lasts seven
  * seconds and reports what the sweep did while you were away. This one only
  * confirms the thing you just did, so it is brief and does not stack. A second
  * message replaces the first and restarts the clock, because two "Copied"
@@ -43,7 +43,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ShowToast.Provider value={show}>
       {children}
-      {/* On the body, like every modal, and for the same reason: SICKO MODE
+      {/* On the body, like every modal, and for the same reason: VIBES MODE
           transforms the stage, and a fixed element inside a transformed
           ancestor is no longer fixed to the window. z-[70] clears the card
           modal (50) and the Lightbox over it (60).

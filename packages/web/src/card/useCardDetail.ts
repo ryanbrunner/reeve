@@ -29,6 +29,9 @@ export function useCardDetail(cardId: string | null) {
       // A resolution checks and pushes after its run has ended, so it is
       // watched by the card's own flag rather than the run's.
       if (data?.card.openingPr || data?.card.resolvingConflicts || data?.card.mergingPr) return 1_500;
+      // A dev server says where it is in its output, a second or two after it
+      // starts, and nothing pushes that to the Rail.
+      if (data?.worktree.server?.running && !data.worktree.server.url) return 1_500;
       if (data?.runs.some((r) => r.task !== null && !isTerminal(r.status))) return 2_000;
       if (data?.card.activity === 'running') return 5_000;
       return data?.card.prUrl && data.card.mergedAt == null ? 15_000 : false;

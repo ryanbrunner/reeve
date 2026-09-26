@@ -8,7 +8,7 @@ import type { Card } from './db/schema.js';
  * on is done.
  *
  * One function, because three places have to refuse the same cards for the
- * same reason — the move route, `startStage` and the SICKO MODE sweep — and a
+ * same reason — the move route, `startStage` and the VIBES MODE sweep — and a
  * second copy of "done" would drift the first time either grew a case.
  */
 

@@ -9,7 +9,7 @@ import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { reapOrphanedRuns } from './db/queries.js';
 import { archiveMergedCards, cleanUpArchivedWorktrees, syncMergedPullRequests } from './pullRequest.js';
-import { sickoSweep } from './sicko/engine.js';
+import { vibesSweep } from './vibes/engine.js';
 import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
 import { assetRoutes } from './routes/assets.js';
@@ -119,16 +119,16 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
         cleanUpWorktrees();
       }, config.mergeSyncMs);
 
-      // The other half of SICKO MODE. Out here for the same reason: the sweep
+      // The other half of VIBES MODE. Out here for the same reason: the sweep
       // starts Claude runs and talks to GitHub, and a spike that builds an app
       // should do neither. It reads the switch itself and, while it is off, looks
       // only at cards flagged on their own — a cheap settings read and one small
       // select every couple of seconds, and the price of the switches being rows
       // rather than a process that has to be restarted.
       const sweep = () => {
-        sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
+        vibesSweep(db, writer).catch((e) => console.error(`[reeve] vibes sweep failed: ${String(e)}`));
       };
-      setInterval(sweep, config.sickoSweepMs);
+      setInterval(sweep, config.vibesSweepMs);
 
       resolve(url);
     });

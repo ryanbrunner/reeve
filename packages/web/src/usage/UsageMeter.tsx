@@ -57,7 +57,7 @@ export function UsageMeter({ usage }: { usage: UsageState | null }) {
 }
 
 // Laid over the board's ink rather than straight onto whatever is behind: in
-// SICKO MODE that is the lights, and the warning is the one thing on the board
+// VIBES MODE that is the lights, and the warning is the one thing on the board
 // that has to stay legible.
 const STRIP = {
   warning: {
@@ -79,7 +79,7 @@ const STRIP = {
  * line or past it.
  *
  * Rejected says outright that runs will fail. Nothing stops them being started
- * — SICKO MODE keeps starting them — so this is the only thing that says why
+ * — VIBES MODE keeps starting them — so this is the only thing that says why
  * each one dies on arrival.
  */
 export function UsageWarning({ usage }: { usage: UsageState | null }) {

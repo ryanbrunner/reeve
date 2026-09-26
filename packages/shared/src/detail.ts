@@ -37,7 +37,8 @@ export type CardEventKind =
   | 'conflicts_resolved'
   | 'conflicts_failed'
   | 'merge_failed'
-  | 'worktree_removed';
+  | 'worktree_removed'
+  | 'left_project';
 
 export interface ApiCardEvent {
   id: string;
@@ -225,6 +226,16 @@ export interface ApiChecks {
 // --- The worktree -----------------------------------------------------------
 
 /**
+ * How Reeve knows where a dev server is, in the order it asks: the repo's URL
+ * template, a `{{port}}` the server command was given, or the first local
+ * address the server printed. There is no guess after those. A server that
+ * ignores `PORT` is not at the port Reeve offered, so offering one proves
+ * nothing.
+ */
+export const DEV_SERVER_URL_SOURCES = ['repo', 'command', 'announced'] as const;
+export type DevServerUrlSource = (typeof DEV_SERVER_URL_SOURCES)[number];
+
+/**
  * Read from the persisted run row, never from the in-memory registry.
  *
  * A restart empties the registry and kills every child process, but the boot
@@ -236,8 +247,11 @@ export interface ApiDevServer {
   runId: string;
   /** `running` only while the row says so; anything terminal reads as stopped. */
   running: boolean;
+  /** The port Reeve offered in `PORT`. Not where the server is unless it listened. */
   port: number | null;
+  /** Where it can be reached, once something has said. Null means nobody has. */
   url: string | null;
+  urlSource: DevServerUrlSource | null;
   since: number | null;
   /** Set when it stopped badly, e.g. a port already in use. */
   errorMessage: string | null;
