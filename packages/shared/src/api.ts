@@ -207,8 +207,16 @@ export interface ApiCardLink {
   /** `#142` is per repo, so a card in another repo needs this to say which #142. */
   repoName: string | null;
   title: string;
-  /** It has stopped holding anything up: in Done, or merged. */
+  /**
+   * It has stopped holding anything up: in Done with its pull request merged or
+   * with none, or archived. Worked out on the server; nothing else decides it.
+   */
   done: boolean;
+  /**
+   * In Done, and not `done` only because its pull request has not merged. Lets
+   * a chip say "PR not merged" rather than suggest the work is still going on.
+   */
+  awaitingMerge: boolean;
 }
 
 /**

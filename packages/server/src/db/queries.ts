@@ -926,7 +926,12 @@ export function deleteRef(db: Db, id: string) {
 export function stillBlocking(c: Card): boolean {
   if (c.archivedAt) return false;
   if (c.stage !== 'done') return true;
-  return c.prUrl !== null && c.mergedAt === null;
+  return awaitingMerge(c);
+}
+
+/** Blocking only for its pull request: in Done, on the board, and not merged yet. */
+export function awaitingMerge(c: Card): boolean {
+  return c.stage === 'done' && !c.archivedAt && c.prUrl !== null && c.mergedAt === null;
 }
 
 /** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
@@ -975,6 +980,7 @@ export function dependencyLinks(db: Db, cardId?: string): (id: string) => Depend
             // One rule for whether a dependency still holds a card up, in
             // `blockers.ts`, so the chip and the refusal cannot disagree.
             done: !stillBlocking(r.card),
+            awaitingMerge: awaitingMerge(r.card),
           },
         ] as const,
     ),
