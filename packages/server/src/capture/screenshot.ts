@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
 import { imageSize } from '../assets/store.js';
 
 /**
@@ -62,7 +62,9 @@ export async function captureTargets(opts: {
   targets: CaptureTarget[];
 }): Promise<CaptureResult> {
   const { baseUrl, targets } = opts;
-  return photograph(targets, {}, async (page, target) => {
+  // A `https://…test` dev host is usually signed by a local authority this
+  // browser has never heard of. It is the card's own server, so it is trusted.
+  return photograph(targets, { ignoreHTTPSErrors: true }, async (page, target) => {
     await page.goto(new URL(target.path, baseUrl).toString(), {
       waitUntil: 'networkidle',
       timeout: NAVIGATION_TIMEOUT_MS,
@@ -96,7 +98,7 @@ export async function renderMockups(mockups: MockupSource[]): Promise<CaptureRes
  */
 async function photograph<T extends CaptureTarget>(
   targets: T[],
-  contextOptions: { javaScriptEnabled?: boolean },
+  contextOptions: Pick<BrowserContextOptions, 'javaScriptEnabled' | 'ignoreHTTPSErrors'>,
   load: (page: Page, target: T) => Promise<void>,
 ): Promise<CaptureResult> {
   if (targets.length === 0) return { captures: [], failures: [], unavailable: null };

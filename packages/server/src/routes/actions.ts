@@ -115,6 +115,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (server.state === 'unavailable') return c.json({ error: server.reason }, 400);
     // Pressing start twice is not an error, but it is worth saying which it was.
     if (!server.started) return c.json({ error: 'server already running', detail: server.runId }, 409);
+    // `url` is null for a server that has yet to print where it is; the card's
+    // detail picks it up from the run once it does.
     return c.json({ ok: true, runId: server.runId, port: server.port, url: server.url }, 201);
   });
 

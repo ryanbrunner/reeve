@@ -125,7 +125,7 @@ export const api = {
 
   // --- the worktree ---
   startServer: (id: string) =>
-    post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number; url: string }>),
+    post(`/api/cards/${id}/server`, {}).then(json<{ ok: true; runId: string; port: number | null; url: string | null }>),
   stopServer: (id: string) => del(`/api/cards/${id}/server`).then(json<{ ok: true }>),
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
   /**
