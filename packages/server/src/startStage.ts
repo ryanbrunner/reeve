@@ -1,10 +1,11 @@
+import { existsSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { canStartRun, isRunnable, type Stage } from '@reeve/shared';
 import { cardActivity } from './board.js';
 import type { Db } from './db/client.js';
-import { getCard, getSettings, liveStageRun } from './db/queries.js';
+import { getCard, getSettings, insertCardEvent, liveStageRun } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
-import { GitError, checkWorktree, createWorktree } from './git/worktree.js';
+import { GitError, checkWorktree, createWorktree, isDirty, removeWorktree } from './git/worktree.js';
 import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -55,6 +56,63 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     setupRunId = handle.runId;
   }
   return { reused: false as const, path: created.path, branch: created.branch, setupRunId };
+}
+
+export type WorktreeRemoval =
+  | { removed: true; forced: boolean }
+  | { removed: false };
+
+/**
+ * Take the card's worktree off disk: stop its dev servers, run the repo's
+ * teardown command, then remove the tree and forget its path. Ordered so a
+ * failed teardown never strands the tree. The branch is kept, so the Diff tab
+ * and the commit list can still read what the card did from the main checkout.
+ *
+ * Always `--force`. `.reeve/` is untracked in every card's worktree, so git
+ * would refuse to remove any of them without it. The event's `forced` is the
+ * narrower question worth recording: whether work other than `.reeve/` went
+ * with it. A directory already gone skips the teardown, which would only fail
+ * for want of somewhere to run, and prunes git's record of it.
+ *
+ * `stillWanted` is asked of the card as it stands once the teardown is done,
+ * since that can take a while and the card may have been restored in it.
+ */
+export async function removeCardWorktree(
+  db: Db,
+  writer: EventWriter,
+  card: Card,
+  repo: Repo,
+  opts: { reason: 'archived' | 'by_hand'; stillWanted?: (fresh: Card) => boolean },
+): Promise<WorktreeRemoval> {
+  const path = card.worktreePath;
+  if (!path) return { removed: false };
+  for (const run of runRegistry.all().filter((r) => r.cardId === card.id && r.kind === 'server')) {
+    await run.stop('cancelled_by_user');
+  }
+  const present = existsSync(path);
+  if (present && repo.teardownCommand) {
+    const handle = startShellRun({
+      db, writer, cardId: card.id, stage: card.stage,
+      command: repo.teardownCommand, cwd: path,
+    });
+    await handle.done;
+  }
+
+  const fresh = getCard(db, card.id);
+  if (!fresh || fresh.worktreePath !== path || (opts.stillWanted && !opts.stillWanted(fresh))) {
+    return { removed: false };
+  }
+  const forced = present && await isDirty(path, { ignore: ['.reeve'] }).catch(() => true);
+  await removeWorktree(repo.repoPath, path, true);
+  db.update(cardTable)
+    .set({ worktreePath: null, updatedAt: new Date() })
+    .where(eq(cardTable.id, card.id))
+    .run();
+  insertCardEvent(db, {
+    cardId: card.id, actor: 'human', kind: 'worktree_removed', stage: fresh.stage,
+    meta: { reason: opts.reason, path, branch: card.branchName, forced },
+  });
+  return { removed: true, forced };
 }
 
 /**
