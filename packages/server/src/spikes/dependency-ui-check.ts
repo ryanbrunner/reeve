@@ -43,7 +43,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return (await res.json()) as T;
 }
 const make = (title: string) => call<ApiCard>('POST', '/api/cards', { title, repoId: repo.id });
-const dependsOn = async (id: string) => (await call<CardDetail>('GET', `/api/cards/${id}/detail`)).card.dependsOn;
+// Ids: the card's `dependsOn` names each dependency now, and what these
+// assertions are about is which ones are linked.
+const dependsOn = async (id: string) =>
+  (await call<CardDetail>('GET', `/api/cards/${id}/detail`)).card.dependsOn.map((d) => d.id);
 
 const a = await make('Card A');
 const b = await make('Card B');

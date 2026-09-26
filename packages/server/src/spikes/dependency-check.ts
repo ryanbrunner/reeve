@@ -129,7 +129,10 @@ assert.equal(rows(), 1);
 db.$client.close();
 ({ app, db } = createApp());
 let aDetail = await detail(a.id);
-assert.deepEqual(aDetail.card.dependsOn, [b.id]);
+assert.deepEqual(
+  aDetail.card.dependsOn.map((d) => d.id),
+  [b.id],
+);
 
 // C2: both directions, with a number and title to show.
 assert.deepEqual(
@@ -143,7 +146,10 @@ assert.deepEqual(
   [[a.number, 'Card A']],
 );
 let onBoard = await board();
-assert.deepEqual(onBoard.cards.find((x) => x.id === a.id)?.dependsOn, [b.id]);
+assert.deepEqual(
+  onBoard.cards.find((x) => x.id === a.id)?.dependsOn.map((d) => d.id),
+  [b.id],
+);
 assert.deepEqual(onBoard.cards.find((x) => x.id === b.id)?.dependents, [a.id]);
 
 // C4: a card on itself, and closing a loop, are refused with why and save nothing.
@@ -214,7 +220,7 @@ assert.equal(
 assert.deepEqual((await detail(e.id)).card.dependsOn, []);
 assert.deepEqual((await detail(b.id)).card.dependents, [a.id]);
 onBoard = await board();
-assert.ok(!onBoard.cards.some((x) => x.dependsOn.includes(d.id) || x.dependents.includes(d.id)));
+assert.ok(!onBoard.cards.some((x) => x.dependsOn.some((dep) => dep.id === d.id) || x.dependents.includes(d.id)));
 
 db.$client.close();
 rmSync(scratch, { recursive: true, force: true });

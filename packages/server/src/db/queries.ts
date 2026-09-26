@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or,
 import {
   RUNNABLE_STAGES,
   type ApiCard,
+  type ApiCardLink,
   type ApiSettings,
   type StageRunDefaults,
   type UpdateSettingsBody,
@@ -839,6 +840,27 @@ export function deleteRef(db: Db, id: string) {
 // What a card waits on, and what waits on it
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a dependency is still holding up whatever waits on it: not in Done,
+ * and not archived.
+ *
+ * Done is the column, not the merge. A card is finished when a person has put
+ * it there, the same as everywhere else on the board; waiting for GitHub as
+ * well would make a repository's review rules part of this one.
+ *
+ * An archived dependency does not hold anything up. Archiving is how a card is
+ * taken off the board on purpose — dropped, superseded, or merged and swept
+ * away by the auto-archive — and a card still waiting on it would wait for ever
+ * on something the board no longer shows, with nothing to press to clear it.
+ *
+ * Here rather than in `blockers.ts`, which is the module about it, only because
+ * that one reads this file and the board's chips need the same answer: one rule,
+ * and no import cycle to get at it.
+ */
+export function stillBlocking(c: Card): boolean {
+  return c.stage !== 'done' && !c.archivedAt;
+}
+
 /** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
 export function dependenciesOf(db: Db, cardId: string): Card[] {
   return db
@@ -858,6 +880,12 @@ export type DependencyLinks = Pick<ApiCard, 'dependsOn' | 'dependents'>;
  * rows that touch it are read. The board reads the whole table once instead,
  * rather than twice for every card on it, and so does the cycle check, which
  * has to be able to walk every link there is.
+ *
+ * `dependsOn` is named — the board draws a chip per dependency, and one that
+ * has been archived or swept off after merging is not in the board's `cards` to
+ * be looked up there. That costs one more query for the whole set, not one a
+ * card. `dependents` stays ids: they are live cards the board already has, and
+ * it only lights them up.
  */
 export function dependencyLinks(db: Db, cardId?: string): (id: string) => DependencyLinks {
   const rows = db
@@ -866,10 +894,28 @@ export function dependencyLinks(db: Db, cardId?: string): (id: string) => Depend
     .where(cardId ? or(eq(cardDependency.cardId, cardId), eq(cardDependency.dependsOnId, cardId)) : undefined)
     .orderBy(asc(cardDependency.createdAt))
     .all();
-  const dependsOn = new Map<string, string[]>();
+  const named = new Map(
+    cardsWithRepo(db, [...new Set(rows.map((r) => r.dependsOnId))]).map(
+      (r) =>
+        [
+          r.card.id,
+          {
+            id: r.card.id,
+            number: r.card.number,
+            repoName: r.repoName,
+            title: r.card.title,
+            // One rule for whether a dependency still holds a card up, in
+            // `blockers.ts`, so the chip and the refusal cannot disagree.
+            done: !stillBlocking(r.card),
+          },
+        ] as const,
+    ),
+  );
+  const dependsOn = new Map<string, ApiCardLink[]>();
   const dependents = new Map<string, string[]>();
   for (const r of rows) {
-    dependsOn.set(r.cardId, [...(dependsOn.get(r.cardId) ?? []), r.dependsOnId]);
+    const link = named.get(r.dependsOnId);
+    if (link) dependsOn.set(r.cardId, [...(dependsOn.get(r.cardId) ?? []), link]);
     dependents.set(r.dependsOnId, [...(dependents.get(r.dependsOnId) ?? []), r.cardId]);
   }
   return (id) => ({ dependsOn: dependsOn.get(id) ?? [], dependents: dependents.get(id) ?? [] });

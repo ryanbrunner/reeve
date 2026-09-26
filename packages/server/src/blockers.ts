@@ -1,6 +1,6 @@
 import { STAGE_LABELS, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { dependenciesOf } from './db/queries.js';
+import { dependenciesOf, stillBlocking } from './db/queries.js';
 import type { Card } from './db/schema.js';
 
 /**
@@ -13,19 +13,12 @@ import type { Card } from './db/schema.js';
  */
 
 /**
- * The dependencies still standing in the way: every one not in Done.
- *
- * Done is the column, not the merge. A card is finished when a person has put
- * it there, the same as everywhere else on the board; waiting for GitHub as
- * well would make a repository's review rules part of this one.
- *
- * An archived dependency does not block. Archiving is how a card is taken off
- * the board on purpose — dropped, superseded, or merged and swept away by the
- * auto-archive — and a card still waiting on it would wait for ever on
- * something the board no longer shows, with nothing to press to clear it.
+ * The dependencies still standing in the way. What counts as standing in the
+ * way is `stillBlocking`, in `db/queries.ts` — the board's chips read the same
+ * rule, so a chip cannot say done while a drag is still refused for it.
  */
 export function blockersOf(db: Db, cardId: string): Card[] {
-  return dependenciesOf(db, cardId).filter((d) => d.stage !== 'done' && !d.archivedAt);
+  return dependenciesOf(db, cardId).filter(stillBlocking);
 }
 
 export type Blocked = { status: 409; error: string; detail: string };

@@ -63,7 +63,7 @@ function chain(links: (id: string) => DependencyLinks, from: string, to: string)
       for (let at: string | null | undefined = id; at; at = reachedFrom.get(at)) path.unshift(at);
       return path;
     }
-    for (const next of links(id).dependsOn) {
+    for (const { id: next } of links(id).dependsOn) {
       if (reachedFrom.has(next)) continue;
       reachedFrom.set(next, id);
       queue.push(next);

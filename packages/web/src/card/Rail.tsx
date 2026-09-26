@@ -256,7 +256,7 @@ function LinkedCard({ card, onOpen, onRemove }: {
  */
 function pickable(cards: ApiCard[], card: ApiCard): ApiCard[] {
   const byId = new Map(cards.map((c) => [c.id, c]));
-  const excluded = new Set([card.id, ...card.dependsOn]);
+  const excluded = new Set([card.id, ...card.dependsOn.map((d) => d.id)]);
   // A for-of visits what is pushed onto the array mid-loop, so it is the queue too.
   const waiting = [...card.dependents];
   for (const id of waiting) {

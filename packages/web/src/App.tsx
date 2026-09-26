@@ -24,6 +24,7 @@ import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/Column.js';
 import { Glyph } from './board/Glyph.js';
 import { LaneHeader } from './board/LaneHeader.js';
+import { LinksProvider } from './board/links.js';
 import { useCollapsedLanes } from './board/useCollapsedLanes.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
@@ -309,6 +310,12 @@ export function App() {
       })}
     </div>
   );
+  // Around every lane at once, because a dependency does not keep to its own.
+  const board = (
+    <LinksProvider cards={cards} paused={dragging !== null}>
+      {lanesInner}
+    </LinksProvider>
+  );
 
   return (
     <div className={`relative flex h-full flex-col ${sicko.sick ? 'sicko' : ''}`}>
@@ -342,7 +349,7 @@ export function App() {
               out entirely rather than made inert around an overlay it would
               fight with. */}
           {sicko.sick ?
-            lanesInner
+            board
           : <DndContext
               sensors={sensors}
               collisionDetection={columnCollisions}
@@ -350,7 +357,7 @@ export function App() {
               onDragEnd={onDragEnd}
               onDragCancel={onDragCancel}
             >
-              {lanesInner}
+              {board}
               <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
             </DndContext>
           }

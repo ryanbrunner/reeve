@@ -66,7 +66,7 @@ export async function cardDetail(
     criteria: criteriaFor(db, card.id).map(toApiCriterion),
     refs: refsFor(db, card.id).map(toApiCardRef),
     dependencies: {
-      dependsOn: linkedCards(db, board.dependsOn),
+      dependsOn: linkedCards(db, board.dependsOn.map((d) => d.id)),
       dependents: linkedCards(db, board.dependents),
     },
     questions: current ? questionsForRun(db, current.id).map(toApiQuestion) : [],
