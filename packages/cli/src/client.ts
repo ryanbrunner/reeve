@@ -244,7 +244,13 @@ export const api = {
     write<ResolveConflictsResponse>('POST', `/api/cards/${enc(id)}/resolve-conflicts`, {}),
   mergePr: (id: string) => write<MergePullRequestResponse>('POST', `/api/cards/${enc(id)}/merge`, {}),
   startServer: (id: string) =>
-    write<{ ok: true; runId: string; port: number; url: string }>('POST', `/api/cards/${enc(id)}/server`, {}),
+    // `url` is null until the server has said where it is, unless the repo's
+    // template or a `{{port}}` in its command already did.
+    write<{ ok: true; runId: string; port: number | null; url: string | null }>(
+      'POST',
+      `/api/cards/${enc(id)}/server`,
+      {},
+    ),
   stopServer: (id: string) => write<{ ok: true }>('DELETE', `/api/cards/${enc(id)}/server`),
   diff: (id: string) => request<ApiDiff>(`/api/cards/${enc(id)}/diff`),
   commits: (id: string) => request<ApiCommit[]>(`/api/cards/${enc(id)}/commits`),

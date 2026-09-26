@@ -183,18 +183,28 @@ async function server(args: string[]): Promise<void> {
     return print(`Stopped ${cardRef(card)}'s dev server`);
   }
 
+  // A running server with no URL yet is still running: starting it again would
+  // only be refused.
   const running = (await api.detail(card.id)).worktree.server;
-  if (running?.running && running.url) {
+  if (running?.running) {
     if (values.json) return printJson({ ok: true, runId: running.runId, port: running.port, url: running.url });
     note(`${cardRef(card)}'s dev server was already running.`);
-    return print(running.url);
+    return running.url ? print(running.url) : note(NO_URL_YET);
   }
 
   const started = await api.startServer(card.id);
   if (values.json) return printJson(started);
-  note(`Started ${cardRef(card)}'s dev server on port ${started.port} (run ${started.runId}).`);
-  print(started.url);
+  const on = started.port === null ? '' : ` on port ${started.port}`;
+  note(`Started ${cardRef(card)}'s dev server${on} (run ${started.runId}).`);
+  if (started.url) print(started.url);
+  else note(NO_URL_YET);
 }
+
+/**
+ * The URL is only ever one the server announced, the repo's template, or a
+ * `{{port}}` in the command, so a server that has not printed one yet has none.
+ */
+const NO_URL_YET = "It hasn't said where it is serving yet; run this again once it has to get its URL.";
 
 /**
  * The diff as git would print it, rebuilt from the parsed files the Diff tab

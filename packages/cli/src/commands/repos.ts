@@ -29,6 +29,7 @@ const FIELDS = {
   setup: { type: 'string' },
   test: { type: 'string' },
   server: { type: 'string' },
+  'server-url': { type: 'string' },
   teardown: { type: 'string' },
   finish: { type: 'string' },
   color: { type: 'string' },
@@ -73,6 +74,7 @@ function body(fields: Fields): UpdateRepoBody {
   if (fields.setup !== undefined) out.setupCommand = blankIsNull(fields.setup);
   if (fields.test !== undefined) out.testCommand = blankIsNull(fields.test);
   if (fields.server !== undefined) out.serverCommand = blankIsNull(fields.server);
+  if (fields['server-url'] !== undefined) out.serverUrl = blankIsNull(fields['server-url']);
   if (fields.teardown !== undefined) out.teardownCommand = blankIsNull(fields.teardown);
   if (fields.finish !== undefined) out.finishCommand = blankIsNull(fields.finish);
   if (fields.color !== undefined) out.laneColor = blankIsNull(fields.color);
@@ -90,6 +92,7 @@ function render(repo: ApiRepo): string {
     ['Setup', repo.setupCommand ?? '-'],
     ['Test', repo.testCommand ?? '-'],
     ['Server', repo.serverCommand ?? '-'],
+    ['Server URL', repo.serverUrl ?? '-'],
     ['Teardown', repo.teardownCommand ?? '-'],
     ['Finish', repo.finishCommand ?? '-'],
     ['Lane colour', repo.laneColor ?? '-'],

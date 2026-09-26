@@ -34,6 +34,7 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
+import { SERVER_VARS, unknownVars } from '../runs/serverUrl.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
 import { sickoState } from '../sicko/state.js';
 import { maybeStartStage } from '../startStage.js';
@@ -96,12 +97,43 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
-  serverCommand: z.string().nullable().optional(),
+  serverCommand: z.string().nullable().optional().superRefine(knownVarsOnly('Server command')),
+  serverUrl: z
+    .string()
+    .nullable()
+    .optional()
+    .superRefine(knownVarsOnly('Server URL'))
+    .refine((v) => !v || /^https?:\/\//.test(v), 'Server URL must start with http:// or https://'),
   teardownCommand: z.string().nullable().optional(),
   finishCommand: z.string().nullable().optional(),
   laneColor: z.string().nullable().optional(),
   syncDefaultBranch: z.boolean().optional(),
 });
+
+/**
+ * Refuses a `{{name}}` that `fillVars` would not fill. Left in, it would reach
+ * the shell or the browser as written, and fail long after the typo that
+ * caused it. On the field rather than the object, so `.partial()` keeps it.
+ */
+function knownVarsOnly(field: string) {
+  return (value: string | null | undefined, ctx: z.RefinementCtx) => {
+    const unknown = value ? unknownVars(value) : [];
+    if (unknown.length === 0) return;
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        `${field} uses ${unknown.map((n) => `{{${n}}}`).join(', ')}, which Reeve does not fill. ` +
+        `It knows ${SERVER_VARS.map((n) => `{{${n}}}`).join(', ')}.`,
+    });
+  };
+}
+
+/**
+ * The sentences zod's issues carry, rather than its JSON dump of them: the
+ * form shows `detail` as written, and an unknown variable should read as one.
+ */
+const issuesText = (error: z.ZodError) =>
+  error.issues.map((i) => (i.code === 'custom' ? i.message : `${i.path.join('.')}: ${i.message}`)).join('; ');
 
 /** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
 const settingsSchema = z.object({
@@ -204,7 +236,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.post('/repos', async (c) => {
     const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
+    if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
 
     const checked = await checkRepo(parsed.data.repoPath, parsed.data.defaultBranch);
     if ('error' in checked) return c.json({ error: 'unusable repository', detail: checked.error }, 400);
@@ -230,7 +262,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.patch('/repos/:id', async (c) => {
     const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
+    if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
     const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
     if (!existing) return c.json({ error: 'not found' }, 404);
 

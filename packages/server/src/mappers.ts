@@ -48,6 +48,7 @@ export function toApiRepo(p: Repo): ApiRepo {
     setupCommand: p.setupCommand,
     testCommand: p.testCommand,
     serverCommand: p.serverCommand,
+    serverUrl: p.serverUrl,
     teardownCommand: p.teardownCommand,
     finishCommand: p.finishCommand,
     laneColor: p.laneColor,
