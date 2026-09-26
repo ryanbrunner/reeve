@@ -141,8 +141,12 @@ export const card = sqliteTable(
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
     // Whether Planning draws its own mockups for the states this card changes.
-    // On by default, including for cards that predate the column: drawing them
-    // is what saves a person having to.
+    // A new card starts with it off, because `createCard` writes false when
+    // it isn't given. The column's default says true only because it was added
+    // that way, which turned it on for the cards that predated it, and SQLite
+    // can't change a default in place: drizzle would rebuild `card`, and that
+    // cascades through every run (see 0015_projects.sql). Anything inserting
+    // into `card` without going through `createCard` gets true.
     generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),

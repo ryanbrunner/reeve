@@ -385,8 +385,9 @@ export function createCard(
       repoId,
       stage,
       position: kind === 'project' ? 0 : last + POSITION_GAP,
-      // Left out when not given, so the column's default decides.
-      ...(values.generateMockups === undefined ? {} : { generateMockups: values.generateMockups }),
+      // Always written, because the column's own default is still on (see
+      // schema.ts) and a new card starts with mockups off.
+      generateMockups: values.generateMockups ?? false,
     })
     .returning()
     .get();
