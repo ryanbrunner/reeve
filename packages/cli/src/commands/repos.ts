@@ -29,13 +29,20 @@ const FIELDS = {
   setup: { type: 'string' },
   test: { type: 'string' },
   server: { type: 'string' },
+  'server-url': { type: 'string' },
   teardown: { type: 'string' },
   finish: { type: 'string' },
   color: { type: 'string' },
+  // The form's checkbox, as a pair like `card edit`'s `--mockups`, so that
+  // leaving both out leaves it as it was.
+  'sync-branch': { type: 'boolean' },
+  'no-sync-branch': { type: 'boolean' },
   json: { type: 'boolean' },
 } as const;
 
-type Fields = Partial<Record<Exclude<keyof typeof FIELDS, 'json'>, string>> & { path?: string };
+type Switches = 'sync-branch' | 'no-sync-branch';
+type Fields = Partial<Record<Exclude<keyof typeof FIELDS, 'json' | Switches>, string>> &
+  Partial<Record<Switches, boolean>> & { path?: string };
 
 /**
  * Relative to where the command was run, not to the server's cwd, which is
@@ -67,9 +74,12 @@ function body(fields: Fields): UpdateRepoBody {
   if (fields.setup !== undefined) out.setupCommand = blankIsNull(fields.setup);
   if (fields.test !== undefined) out.testCommand = blankIsNull(fields.test);
   if (fields.server !== undefined) out.serverCommand = blankIsNull(fields.server);
+  if (fields['server-url'] !== undefined) out.serverUrl = blankIsNull(fields['server-url']);
   if (fields.teardown !== undefined) out.teardownCommand = blankIsNull(fields.teardown);
   if (fields.finish !== undefined) out.finishCommand = blankIsNull(fields.finish);
   if (fields.color !== undefined) out.laneColor = blankIsNull(fields.color);
+  if (fields['sync-branch'] && fields['no-sync-branch']) throw usageError('give --sync-branch or --no-sync-branch, not both');
+  if (fields['sync-branch'] || fields['no-sync-branch']) out.syncDefaultBranch = fields['sync-branch'] === true;
   return out;
 }
 
@@ -77,10 +87,12 @@ function render(repo: ApiRepo): string {
   const rows: Array<[string, string]> = [
     ['Path', repo.repoPath],
     ['Branch', repo.defaultBranch],
+    ['Kept up to date', repo.syncDefaultBranch ? 'yes, when a card merges' : 'no'],
     ['Worktrees', repo.worktreeRoot],
     ['Setup', repo.setupCommand ?? '-'],
     ['Test', repo.testCommand ?? '-'],
     ['Server', repo.serverCommand ?? '-'],
+    ['Server URL', repo.serverUrl ?? '-'],
     ['Teardown', repo.teardownCommand ?? '-'],
     ['Finish', repo.finishCommand ?? '-'],
     ['Lane colour', repo.laneColor ?? '-'],

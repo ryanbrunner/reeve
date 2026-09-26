@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7fa7c85a-c84e-443f-8ee4-07f68f055cba",
-  "prevId": "94da1173-dfdd-4ca0-85a6-adc9d5e7dd3d",
+  "id": "7ba6dd34-90bf-4024-97c7-6fe24452365c",
+  "prevId": "e4c26659-fc00-467e-8d2d-2d850644c96b",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -382,6 +382,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "suggested_by_id": {
+          "name": "suggested_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "repo_id": {
           "name": "repo_id",
           "type": "text",
@@ -592,6 +599,13 @@
             "position"
           ],
           "isUnique": false
+        },
+        "card_suggested_by": {
+          "name": "card_suggested_by",
+          "columns": [
+            "suggested_by_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -601,6 +615,19 @@
           "tableTo": "card",
           "columnsFrom": [
             "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "card_suggested_by_id_card_id_fk": {
+          "name": "card_suggested_by_id_card_id_fk",
+          "tableFrom": "card",
+          "tableTo": "card",
+          "columnsFrom": [
+            "suggested_by_id"
           ],
           "columnsTo": [
             "id"
@@ -1229,6 +1256,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "server_url": {
+          "name": "server_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "teardown_command": {
           "name": "teardown_command",
           "type": "text",
@@ -1621,6 +1655,20 @@
         "port": {
           "name": "port",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "url_source": {
+          "name": "url_source",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

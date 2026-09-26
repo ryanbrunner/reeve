@@ -11,6 +11,8 @@ import {
   type ApiRepo,
   type ApiSettings,
   type ApiRunSummary,
+  type ArchiveCardBody,
+  type ArchiveCardResponse,
   type BoardResponse,
   type CardDetail,
   type CreateCardBody,
@@ -213,7 +215,8 @@ export const api = {
   updateCard: (id: string, body: UpdateCardBody) => write<ApiCard>('PATCH', `/api/cards/${enc(id)}`, body),
   /** The card it answers with has `repoName: null`; take that from the board. */
   moveCard: (id: string, body: MoveCardBody) => write<ApiCard>('POST', `/api/cards/${enc(id)}/move`, body),
-  archiveCard: (id: string) => write<{ ok: true }>('POST', `/api/cards/${enc(id)}/archive`),
+  archiveCard: (id: string, body?: ArchiveCardBody) =>
+    write<ArchiveCardResponse>('POST', `/api/cards/${enc(id)}/archive`, body),
   restoreCard: (id: string) => write<ApiCard>('POST', `/api/cards/${enc(id)}/restore`),
   splitProject: (id: string) => write<{ ok: true; runId: string }>('POST', `/api/cards/${enc(id)}/split`),
 
@@ -241,7 +244,13 @@ export const api = {
     write<ResolveConflictsResponse>('POST', `/api/cards/${enc(id)}/resolve-conflicts`, {}),
   mergePr: (id: string) => write<MergePullRequestResponse>('POST', `/api/cards/${enc(id)}/merge`, {}),
   startServer: (id: string) =>
-    write<{ ok: true; runId: string; port: number; url: string }>('POST', `/api/cards/${enc(id)}/server`, {}),
+    // `url` is null until the server has said where it is, unless the repo's
+    // template or a `{{port}}` in its command already did.
+    write<{ ok: true; runId: string; port: number | null; url: string | null }>(
+      'POST',
+      `/api/cards/${enc(id)}/server`,
+      {},
+    ),
   stopServer: (id: string) => write<{ ok: true }>('DELETE', `/api/cards/${enc(id)}/server`),
   diff: (id: string) => request<ApiDiff>(`/api/cards/${enc(id)}/diff`),
   commits: (id: string) => request<ApiCommit[]>(`/api/cards/${enc(id)}/commits`),

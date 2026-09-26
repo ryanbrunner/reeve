@@ -69,18 +69,18 @@ export function boardCards(db: Db) {
 }
 
 /**
- * The live cards in SICKO MODE on their own, in `boardCards`' shape. What the
+ * The live cards in VIBES MODE on their own, in `boardCards`' shape. What the
  * sweep reads while the board's switch is off, which is nearly always, so it
  * costs one small select every couple of seconds rather than the whole board.
  *
  * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
  * and a project swept into Planning is a project being run as a stage.
  */
-export function sickoCards(db: Db) {
+export function vibesCards(db: Db) {
   return db
     .select({ card })
     .from(card)
-    .where(and(isTask, eq(card.sicko, true), isNull(card.archivedAt)))
+    .where(and(isTask, eq(card.vibes, true), isNull(card.archivedAt)))
     .orderBy(asc(card.stage), asc(card.position))
     .all();
 }
@@ -365,7 +365,7 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
  */
 /**
  * `actor` is all but always the human it defaults to — a drag, or an approval
- * they gave. SICKO MODE is the exception, and it matters that the event says
+ * they gave. VIBES MODE is the exception, and it matters that the event says
  * so: the board's own scoreboard counts human approvals, and an automatic move
  * filed under `human` would make that number a lie.
  *
@@ -488,7 +488,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'sicko'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'vibes'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -545,6 +545,68 @@ export function restoreCard(db: Db, id: string) {
   insertCardEvent(db, { cardId: id, actor: 'human', kind: 'restored', stage });
   renormaliseIfNeeded(db, stage);
   return restored;
+}
+
+/**
+ * A project's tasks still on the board, split by whether they are finished.
+ * What archiving the project does to each, and what the route asks before it
+ * lets that happen.
+ */
+export function liveTasksInProject(db: Db, projectId: string): { done: Card[]; open: Card[] } {
+  const live = tasksInProject(db, projectId).filter((t) => !t.archivedAt);
+  return { done: live.filter((t) => t.stage === 'done'), open: live.filter((t) => t.stage !== 'done') };
+}
+
+/**
+ * A project off the board, and its finished work with it. Its Done cards are
+ * archived as `reason: 'project'` and keep their `projectId`, which is how
+ * `restoreProject` knows to bring them back. Its open cards are still work,
+ * so they stay on the board under No project, each with a `left_project`
+ * event saying where it came from, since the card itself no longer says.
+ *
+ * Moves the open cards unasked: the route is what refuses when nobody has
+ * confirmed that, and nothing is awaited between its check and this.
+ */
+export function archiveProject(db: Db, id: string) {
+  const project = getCard(db, id);
+  if (!project || project.kind !== 'project' || project.archivedAt) return undefined;
+  return db.transaction(() => {
+    const { done, open } = liveTasksInProject(db, id);
+    for (const t of done) archiveCard(db, t.id, { reason: 'project', projectId: id });
+    const now = new Date();
+    for (const t of open) {
+      db.update(card).set({ projectId: null, updatedAt: now }).where(eq(card.id, t.id)).run();
+      insertCardEvent(db, {
+        cardId: t.id,
+        actor: 'human',
+        kind: 'left_project',
+        stage: t.stage,
+        meta: { projectId: id, projectTitle: project.title },
+      });
+    }
+    archiveCard(db, id);
+    return { archived: done.length, detached: open.length };
+  });
+}
+
+/**
+ * The project back as a lane, with the Done cards that went when it did.
+ * Only those: a card archived on its own, before or since, is left in the
+ * Archive, and a card moved to No project is left there, since it may have
+ * joined another project in the meantime. Which cards went with it is read
+ * off each one's latest `archived` event, the only record there is.
+ */
+export function restoreProject(db: Db, id: string) {
+  return db.transaction(() => {
+    const restored = restoreCard(db, id);
+    if (!restored) return undefined;
+    for (const t of tasksInProject(db, id)) {
+      if (!t.archivedAt) continue;
+      const last = cardEventsFor(db, t.id).find((e) => e.kind === 'archived');
+      if (last?.meta?.['reason'] === 'project' && last.meta['projectId'] === id) restoreCard(db, t.id);
+    }
+    return restored;
+  });
 }
 
 /**
@@ -619,7 +681,7 @@ export function getSettings(db: Db): ApiSettings {
   const stored = row?.stageDefaults ?? {};
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
-    sickoSince: row?.sickoSince?.getTime() ?? null,
+    vibesSince: row?.vibesSince?.getTime() ?? null,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,
@@ -629,7 +691,7 @@ export function getSettings(db: Db): ApiSettings {
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, sicko, ...rest } = patch;
+  const { stageDefaults, vibes, ...rest } = patch;
   const current = getSettings(db);
   const values = {
     ...rest,
@@ -638,9 +700,9 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
-    ...(sicko === undefined ? {}
-      : sicko ? (current.sickoSince === null ? { sickoSince: new Date() } : {})
-      : { sickoSince: null }),
+    ...(vibes === undefined ? {}
+      : vibes ? (current.vibesSince === null ? { vibesSince: new Date() } : {})
+      : { vibesSince: null }),
   };
   if (Object.keys(values).length === 0) return current;
   db.insert(settings)
@@ -743,7 +805,7 @@ export function cardEventsFor(db: Db, cardId: string) {
 }
 
 /**
- * Everything of consequence that has happened since SICKO MODE went on, newest
+ * Everything of consequence that has happened since VIBES MODE went on, newest
  * first, with the card's title beside each entry.
  *
  * One query serves both the HUD's five numbers and its log lines, because they
@@ -752,7 +814,7 @@ export function cardEventsFor(db: Db, cardId: string) {
  * already the record, and a counter beside them would be a second one to get
  * wrong.
  */
-export function sickoLedger(db: Db, since: Date) {
+export function vibesLedger(db: Db, since: Date) {
   return db
     .select({
       actor: cardEvent.actor,

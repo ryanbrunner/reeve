@@ -13,9 +13,9 @@ type Filter = 'all' | 'runs' | 'human';
  * Deliberately not the run transcript — that is thousands of SDK messages in
  * Claude's vocabulary. This is the handful of moments that would appear in a
  * changelog, in the terms a person tells them: who did what, and when. In
- * SICKO MODE, only that it happened: no run's status, time or tokens.
+ * VIBES MODE, only that it happened: no run's status, time or tokens.
  */
-export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sicko?: boolean }) {
+export function ActivityTab({ detail, vibes = false }: { detail: CardDetail; vibes?: boolean }) {
   const [filter, setFilter] = useState<Filter>('all');
   const events = detail.events.filter((e) => matches(e, filter));
 
@@ -53,7 +53,7 @@ export function ActivityTab({ detail, sicko = false }: { detail: CardDetail; sic
                 <p className="text-sm/5 text-(--color-text)">
                   <span className="font-medium">{e.actor === 'human' ? 'You' : 'Claude'}</span> {sentence(e, detail)}
                 </p>
-                {e.kind === 'run_finished' && !sicko && <RunFacts event={e} detail={detail} />}
+                {e.kind === 'run_finished' && !vibes && <RunFacts event={e} detail={detail} />}
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
@@ -249,7 +249,14 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'pr_failed':
       return 'could not open a pull request';
     case 'archived':
-      return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged' : 'archived the card';
+      return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged'
+        : e.meta?.['reason'] === 'project' ? 'archived the card with its project'
+        : 'archived the card';
+    case 'left_project': {
+      // Named from the event: the card no longer points at the project.
+      const title = e.meta?.['projectTitle'];
+      return `moved the card to No project when ${typeof title === 'string' ? title : 'its project'} was archived`;
+    }
     case 'restored':
       return `restored the card to ${stage(e.stage)}`;
     case 'handed_off':

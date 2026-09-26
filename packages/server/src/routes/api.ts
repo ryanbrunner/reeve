@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
-import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
+import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedStart } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
+  archiveProject,
   archivedCards,
   boardCards,
   boardProjects,
@@ -18,8 +19,10 @@ import {
   getSettings,
   listRepos,
   liveProject,
+  liveTasksInProject,
   moveCard,
   restoreCard,
+  restoreProject,
   runsForCard,
   tasksInProject,
   updateCard,
@@ -31,8 +34,9 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
+import { SERVER_VARS, unknownVars } from '../runs/serverUrl.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
-import { sickoState } from '../sicko/state.js';
+import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
@@ -65,13 +69,17 @@ const updateCardSchema = z.object({
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
   generateMockups: z.boolean().optional(),
-  sicko: z.boolean().optional(),
+  vibes: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({
   stage: stageSchema,
   index: z.number().int().min(0),
   projectId: z.string().nullable().optional(),
+});
+
+const archiveCardSchema = z.object({
+  detachOpen: z.boolean().optional(),
 });
 
 /**
@@ -89,16 +97,48 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
-  serverCommand: z.string().nullable().optional(),
+  serverCommand: z.string().nullable().optional().superRefine(knownVarsOnly('Server command')),
+  serverUrl: z
+    .string()
+    .nullable()
+    .optional()
+    .superRefine(knownVarsOnly('Server URL'))
+    .refine((v) => !v || /^https?:\/\//.test(v), 'Server URL must start with http:// or https://'),
   teardownCommand: z.string().nullable().optional(),
   finishCommand: z.string().nullable().optional(),
   laneColor: z.string().nullable().optional(),
+  syncDefaultBranch: z.boolean().optional(),
 });
+
+/**
+ * Refuses a `{{name}}` that `fillVars` would not fill. Left in, it would reach
+ * the shell or the browser as written, and fail long after the typo that
+ * caused it. On the field rather than the object, so `.partial()` keeps it.
+ */
+function knownVarsOnly(field: string) {
+  return (value: string | null | undefined, ctx: z.RefinementCtx) => {
+    const unknown = value ? unknownVars(value) : [];
+    if (unknown.length === 0) return;
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        `${field} uses ${unknown.map((n) => `{{${n}}}`).join(', ')}, which Reeve does not fill. ` +
+        `It knows ${SERVER_VARS.map((n) => `{{${n}}}`).join(', ')}.`,
+    });
+  };
+}
+
+/**
+ * The sentences zod's issues carry, rather than its JSON dump of them: the
+ * form shows `detail` as written, and an unknown variable should read as one.
+ */
+const issuesText = (error: z.ZodError) =>
+  error.issues.map((i) => (i.code === 'custom' ? i.message : `${i.path.join('.')}: ${i.message}`)).join('; ');
 
 /** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
 const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
-  sicko: z.boolean().optional(),
+  vibes: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
     .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
@@ -164,7 +204,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)),
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
-      sicko: sickoState(db),
+      vibes: vibesState(db),
       // Here for the same reason. Read from memory, never the table: see usage.ts.
       usage: usageState(Date.now()),
     };
@@ -196,7 +236,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.post('/repos', async (c) => {
     const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
+    if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
 
     const checked = await checkRepo(parsed.data.repoPath, parsed.data.defaultBranch);
     if ('error' in checked) return c.json({ error: 'unusable repository', detail: checked.error }, 400);
@@ -222,7 +262,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.patch('/repos/:id', async (c) => {
     const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'invalid repo', detail: parsed.error.message }, 400);
+    if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
     const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
     if (!existing) return c.json({ error: 'not found' }, 404);
 
@@ -375,18 +415,45 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, card, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
-  api.post('/cards/:id/archive', (c) => {
+  api.post('/cards/:id/archive', async (c) => {
+    const parsed = archiveCardSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid archive', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
-    if (existing.archivedAt) return c.json({ ok: true });
+    if (existing.archivedAt) return c.json({ ok: true } satisfies ArchiveCardResponse);
+    // Nothing is awaited from here on, so no run can start and no card can
+    // move between these checks and the archive they allow.
+    if (existing.kind === 'project') {
+      const { done, open } = liveTasksInProject(db, id);
+      // Its Done cards leave with it, so they are held to the rule below too.
+      // Its open cards stay on the board, and may keep running there.
+      const leaving = new Set([id, ...done.map((t) => t.id)]);
+      if (runRegistry.all().some((r) => leaving.has(r.cardId))) {
+        return c.json({
+          error: 'card is running',
+          detail: 'stop the runs and servers on the project and its Done cards before archiving',
+        }, 409);
+      }
+      if (open.length > 0 && !parsed.data.detachOpen) {
+        const named = [...open].sort((a, b) => a.number - b.number).slice(0, 3).map((t) => `#${t.number} ${t.title}`);
+        const more = open.length > 3 ? ` and ${open.length - 3} more` : '';
+        return c.json({
+          error: 'project has open cards',
+          detail: `${open.length} ${open.length === 1 ? 'card is' : 'cards are'} not Done (${named.join(', ')}${more}).`
+            + ' Archive with detachOpen (--detach-open) to move them to No project.',
+        }, 409);
+      }
+      const counts = archiveProject(db, id);
+      return c.json({ ok: true, ...counts } satisfies ArchiveCardResponse);
+    }
     // Anything still running would carry on out of sight: a Claude run spending
     // budget, or a dev server holding its port, on a card nobody can see.
     if (runRegistry.all().some((r) => r.cardId === id)) {
       return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
     }
     archiveCard(db, id);
-    return c.json({ ok: true });
+    return c.json({ ok: true } satisfies ArchiveCardResponse);
   });
 
   // Asked whenever a card closes, of every card, and it is the server that
@@ -404,7 +471,9 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const id = c.req.param('id');
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
-    const restored = existing.archivedAt ? (restoreCard(db, id) ?? existing) : existing;
+    // A project brings back the Done cards archived with it.
+    const restored = !existing.archivedAt ? existing
+      : ((existing.kind === 'project' ? restoreProject(db, id) : restoreCard(db, id)) ?? existing);
     const repo = restored.repoId ? listRepos(db).find((p) => p.id === restored.repoId) : undefined;
     return c.json(toBoardCard(db, restored, repo?.name ?? null, repo?.laneColor ?? null));
   });

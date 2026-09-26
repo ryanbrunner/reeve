@@ -3,7 +3,7 @@ import { STAGES, type ApiCard, type Stage } from '@reeve/shared';
 import { CardFace } from '../board/CardFace.js';
 
 /**
- * The board in SICKO MODE: the columns become empty wells and every card lifts
+ * The board in VIBES MODE: the columns become empty wells and every card lifts
  * off them into one absolutely-positioned layer, so a card the server moved
  * FLIES to its new column instead of vanishing from one list and appearing in
  * another.
@@ -62,7 +62,7 @@ interface Motion {
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
-export function useSickoLane(cards: ApiCard[]) {
+export function useVibesLane(cards: ApiCard[]) {
   // Per-card motion, carried across polls. A ref rather than state because
   // writing it must not itself cause a render: it is derived from `cards` and
   // read in the same pass that computes it.
@@ -136,7 +136,7 @@ export function useSickoLane(cards: ApiCard[]) {
   return { placed, height, hot };
 }
 
-export function SickoCards({ placed, justMerged, onOpen }: {
+export function VibesCards({ placed, justMerged, onOpen }: {
   placed: Placed[];
   justMerged: ReadonlySet<string>;
   onOpen?: (id: string) => void;
@@ -160,7 +160,7 @@ export function SickoCards({ placed, justMerged, onOpen }: {
               only way to have all three at once. */}
           <div className={`sk-bounce ${p.bump ? 'sk-slam-a' : 'sk-slam-b'}`}>
             <div className="sk-wob">
-              <CardFace card={p.card} onOpen={onOpen} sicko stamped={justMerged.has(p.card.id)} />
+              <CardFace card={p.card} onOpen={onOpen} vibes stamped={justMerged.has(p.card.id)} />
             </div>
           </div>
         </div>

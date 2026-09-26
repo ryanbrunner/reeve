@@ -20,9 +20,13 @@ export interface ApiRepo {
   setupCommand: string | null;
   testCommand: string | null;
   serverCommand: string | null;
+  /** Where the dev server is, as a template, e.g. `https://{{slug}}.test`. */
+  serverUrl: string | null;
   teardownCommand: string | null;
   finishCommand: string | null;
   laneColor: string | null;
+  /** Fast-forward the repo's own `defaultBranch` when a card's pull request is merged. */
+  syncDefaultBranch: boolean;
 }
 
 /**
@@ -155,11 +159,11 @@ export interface ApiCard {
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
   /**
-   * SICKO MODE for this card alone: approved, answered, started and merged
+   * VIBES MODE for this card alone: approved, answered, started and merged
    * without anyone asked, while the rest of the board stays calm. Beside the
    * board's own switch rather than under it — with that on, every card goes.
    */
-  sicko: boolean;
+  vibes: boolean;
   /**
    * The cards this one waits on, finished ones included, lowest number first.
    * Named rather than listed by id because the board draws a chip for each, and
@@ -241,14 +245,14 @@ export interface BoardResponse {
   projects: ApiProject[];
   /** Tasks only. A project is never one of these. */
   cards: ApiCard[];
-  /** Null while SICKO MODE is off, which is nearly always. */
-  sicko: SickoState | null;
+  /** Null while VIBES MODE is off, which is nearly always. */
+  vibes: VibesState | null;
   /** Null until a run has reported one, and always under API-key auth, which has no such limits. */
   usage: UsageState | null;
 }
 
 /**
- * SICKO MODE, as the board sees it: since when, and what has happened without
+ * VIBES MODE, as the board sees it: since when, and what has happened without
  * anybody being asked.
  *
  * Rides on the board response rather than an endpoint of its own because the
@@ -257,7 +261,7 @@ export interface BoardResponse {
  * log and its runs — nothing here is a counter that a reload could reset or
  * that could disagree with a card's history.
  */
-export interface SickoState {
+export interface VibesState {
   /** When the switch was flipped. */
   since: number;
   /** Cards whose pull request landed on the default branch since then. */
@@ -309,7 +313,7 @@ export interface UsageState {
  *
  * A card is made and opened rather than asked for a title first, because
  * criteria and context can only hang off a card that exists — so for a moment
- * every new card is called this. SICKO MODE has to be able to tell that moment
+ * every new card is called this. VIBES MODE has to be able to tell that moment
  * apart from a card somebody meant, which is why the string is here rather than
  * spelled out twice.
  */
@@ -320,7 +324,7 @@ export const PLACEHOLDER_PROJECT_TITLE = 'Untitled project';
 
 /**
  * Whether nobody has said anything about this card yet: its placeholder title,
- * trimmed, and no brief. SICKO MODE reads it to leave such a card where it is,
+ * trimmed, and no brief. VIBES MODE reads it to leave such a card where it is,
  * and closing one reads it to throw the card away — the two places that need to
  * tell "just made" apart from "meant".
  */
@@ -355,9 +359,11 @@ export interface CreateRepoBody {
   setupCommand?: string | null;
   testCommand?: string | null;
   serverCommand?: string | null;
+  serverUrl?: string | null;
   teardownCommand?: string | null;
   finishCommand?: string | null;
   laneColor?: string | null;
+  syncDefaultBranch?: boolean;
 }
 
 export type UpdateRepoBody = Partial<CreateRepoBody>;
@@ -389,8 +395,8 @@ export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
 export interface ApiSettings {
   /** Claude runs allowed at once, across every card and repo. */
   maxConcurrentRuns: number;
-  /** When SICKO MODE was switched on; null while it is off. */
-  sickoSince: number | null;
+  /** When VIBES MODE was switched on; null while it is off. */
+  vibesSince: number | null;
   /**
    * Every runnable stage is present, so the form can loop over them. A null in
    * one falls through to what the stage's own module asks for.
@@ -403,11 +409,11 @@ export interface UpdateSettingsBody {
   maxConcurrentRuns?: number;
   stageDefaults?: Partial<StageRunDefaults>;
   /**
-   * The SICKO MODE switch. A boolean rather than the timestamp it sets, because
+   * The VIBES MODE switch. A boolean rather than the timestamp it sets, because
    * "on" must not silently restart the clock — flipping it while it is already
    * on would otherwise wipe every number the HUD is showing.
    */
-  sicko?: boolean;
+  vibes?: boolean;
 }
 
 /**
@@ -443,6 +449,23 @@ export interface MoveCardBody {
   stage: Stage;
   index: number;
   projectId?: string | null;
+}
+
+/**
+ * Archiving a project takes its Done cards with it. Its open cards are
+ * refused, not taken: they are work still going on. `detachOpen` is the
+ * caller saying it has seen them, and moves them to No project instead.
+ * Ignored for a task.
+ */
+export interface ArchiveCardBody {
+  detachOpen?: boolean;
+}
+
+/** The counts only for a project: how many Done cards went with it, and how many open ones were moved out. */
+export interface ArchiveCardResponse {
+  ok: true;
+  archived?: number;
+  detached?: number;
 }
 
 /** Make the card this is sent for depend on another task. */

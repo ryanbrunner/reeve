@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isTerminal, type ApiAsset, type ApiCriterion, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
-import { SickoSwitch } from '../../sicko/Switch.js';
+import { VibesSwitch } from '../../vibes/Switch.js';
 import { when } from '../format.js';
 import { Lightbox } from '../Lightbox.js';
 import { Markdown } from '../Markdown.js';
@@ -115,7 +115,7 @@ function Purpose({ detail }: { detail: CardDetail }) {
       {/* A project is never planned, so it has no mockups to draw. */}
       {detail.card.kind === 'task' && <GenerateMockups detail={detail} />}
       {/* Nor is a project ever swept, so it has no switch: the sweep moves tasks. */}
-      {detail.card.kind === 'task' && <CardSicko detail={detail} />}
+      {detail.card.kind === 'task' && <CardVibes detail={detail} />}
     </section>
   );
 }
@@ -212,36 +212,36 @@ function GenerateMockups({ detail }: { detail: CardDetail }) {
 }
 
 /**
- * SICKO MODE for this card alone. The header's switch, worn by one card: the
+ * VIBES MODE for this card alone. The header's switch, worn by one card: the
  * same control, so it reads as the same promise, and the only rainbow the calm
  * board lets through besides the header.
  *
  * Shown on and left alone while the board's own switch is on, because then
  * this card goes whatever it says here.
  */
-function CardSicko({ detail }: { detail: CardDetail }) {
+function CardVibes({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
   const set = useMutation({
-    mutationFn: (sicko: boolean) => api.updateCard(detail.card.id, { sicko }),
+    mutationFn: (vibes: boolean) => api.updateCard(detail.card.id, { vibes }),
     // Returned rather than fired, as in GenerateMockups above.
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['board'] });
       return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
     },
   });
-  const everyone = board?.sicko != null;
-  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.sicko);
+  const everyone = board?.vibes != null;
+  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.vibes);
 
   return (
     <div className="flex flex-col gap-1">
-      <SickoSwitch
+      <VibesSwitch
         on={on}
         onToggle={() => set.mutate(!on)}
         disabled={everyone || set.isPending}
         className="self-start"
         title={
-          everyone ? 'Every card goes while the board is in SICKO MODE'
+          everyone ? 'Every card goes while the board is in VIBES MODE'
           : on ?
             'Put the human back in the loop for this card'
           : 'Claude approves, answers and merges this card to main, with nobody reviewing it'
@@ -249,7 +249,7 @@ function CardSicko({ detail }: { detail: CardDetail }) {
       />
       <span className="font-mono text-[10px]/4 text-(--color-muted)">
         {everyone ?
-          'The whole board is in SICKO MODE already'
+          'The whole board is in VIBES MODE already'
         : detail.card.repoId === null ?
           'Nothing happens until the card has a repo to run in'
         : 'Only this card moves on its own, all the way to a merged pull request'}

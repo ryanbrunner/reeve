@@ -211,7 +211,10 @@ async function worktreeFacts(
           runId: server.id,
           running: server.status === 'running' || server.status === 'queued',
           port: server.port,
-          url: server.port ? `http://localhost:${server.port}` : null,
+          // As recorded, never rebuilt from the port: the port is only what
+          // Reeve offered, and a server may have gone somewhere else.
+          url: server.url,
+          urlSource: server.urlSource,
           since: server.startedAt?.getTime() ?? null,
           errorMessage: server.errorMessage,
         }

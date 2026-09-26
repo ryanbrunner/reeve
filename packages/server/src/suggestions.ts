@@ -8,7 +8,7 @@ export type SuggestedTask = PlanningOutput['suggested_tasks'][number];
 
 /**
  * Enough for a run that genuinely tripped over several things, few enough that
- * a chatty one cannot bury the Backlog. Under board-wide SICKO MODE every one
+ * a chatty one cannot bury the Backlog. Under board-wide VIBES MODE every one
  * of these is built, so this is also what one run can cost.
  */
 const MAX_PER_RUN = 5;
@@ -19,7 +19,7 @@ const MAX_PER_RUN = 5;
  * stage calls this from `onPersist`, so they land only once the run has
  * succeeded, never from one that failed or was stopped halfway.
  *
- * They start nothing, and they do not inherit the suggester's own SICKO flag:
+ * They start nothing, and they do not inherit the suggester's own VIBES flag:
  * a person reads them first, unless the board-wide switch is on, and then the
  * sweep takes them like any other Backlog card.
  *

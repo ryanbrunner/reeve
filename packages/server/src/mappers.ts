@@ -48,9 +48,11 @@ export function toApiRepo(p: Repo): ApiRepo {
     setupCommand: p.setupCommand,
     testCommand: p.testCommand,
     serverCommand: p.serverCommand,
+    serverUrl: p.serverUrl,
     teardownCommand: p.teardownCommand,
     finishCommand: p.finishCommand,
     laneColor: p.laneColor,
+    syncDefaultBranch: p.syncDefaultBranch,
   };
 }
 
@@ -165,7 +167,7 @@ export function toApiCard(
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
-    sicko: c.sicko,
+    vibes: c.vibes,
     ...links,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,

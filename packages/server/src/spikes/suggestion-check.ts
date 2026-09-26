@@ -4,12 +4,12 @@
  * column, repo and project they land in, the dedupe across reruns, the cap,
  * both ends of the link on the board and the detail, that no route can set or
  * change it, that output stored before the contract changed still parses, and
- * that board-wide SICKO MODE sweeps a suggested card on like any other.
+ * that board-wide VIBES MODE sweeps a suggested card on like any other.
  *
  *   REEVE_DB=/tmp/reeve-suggest.db npx tsx packages/server/src/spikes/suggestion-check.ts
  *
  * With no REEVE_DB it makes its own under /tmp rather than opening
- * data/reeve.db. The SICKO MODE half moves every Backlog card on the board it
+ * data/reeve.db. The VIBES MODE half moves every Backlog card on the board it
  * is given, which is one more reason not to point it at a real one.
  */
 import assert from 'node:assert/strict';
@@ -36,12 +36,12 @@ const { cardEventsFor, cardsSuggestedBy, createCard, createRepo, getCard, insert
 const { planningStage } = await import('../stages/planning.js');
 const { inProgressStage } = await import('../stages/in_progress.js');
 const { testingStage } = await import('../stages/testing.js');
-const { sickoSweep } = await import('../sicko/engine.js');
+const { vibesSweep } = await import('../vibes/engine.js');
 
 // --- the migration's place in the journal ----------------------------------
 type Journal = { entries: Array<{ tag: string; when: number }> };
 const journal = JSON.parse(readFileSync(join(config.migrationsFolder, 'meta/_journal.json'), 'utf8')) as Journal;
-const at = journal.entries.findIndex((e) => e.tag === '0019_card_suggested_by');
+const at = journal.entries.findIndex((e) => e.tag === '0021_card_suggested_by');
 assert.notEqual(at, -1, 'card_suggested_by is in the journal');
 assert.ok(journal.entries.slice(0, at).every((e) => e.when < journal.entries[at]!.when), 'the entry would be skipped');
 
@@ -104,7 +104,7 @@ for (const c of made) {
   assert.equal(c.repoId, repo.id);
   assert.equal(c.projectId, project.id, 'under the suggester’s project');
   assert.equal(c.kind, 'task');
-  assert.equal(c.sicko, false, 'the suggester’s own flag is not inherited');
+  assert.equal(c.vibes, false, 'the suggester’s own flag is not inherited');
   assert.deepEqual(cardEventsFor(db, c.id).map((e) => [e.kind, e.actor]), [['created', 'claude']]);
 }
 console.log('[reeve] Planning: two suggestions, two Backlog cards in the same repo and project');
@@ -190,20 +190,20 @@ assert.equal(getCard(db, posted.json.id)!.suggestedById, null, 'POST ignores it 
 assert.equal(posted.json.suggestedBy, null);
 console.log('[reeve] no route sets or changes who suggested a card');
 
-// --- board-wide SICKO MODE takes a suggested card like any other -------------
+// --- board-wide VIBES MODE takes a suggested card like any other -------------
 // No worktree here, so the stage it starts fails at the worktree. What is being
 // checked is that the sweep picked the card up and moved it on.
 const swept = capped[0]!;
-updateSettings(db, { sicko: true });
-await sickoSweep(db, writer);
-updateSettings(db, { sicko: false });
+updateSettings(db, { vibes: true });
+await vibesSweep(db, writer);
+updateSettings(db, { vibes: false });
 const after = getCard(db, swept.id)!;
 assert.equal(after.stage, 'in_progress', 'the sweep moved the suggested card out of Backlog');
 assert.deepEqual(
   cardEventsFor(db, swept.id).filter((e) => e.kind === 'moved').map((e) => [e.toStage, e.actor]),
   [['in_progress', 'claude']],
 );
-console.log('[reeve] board-wide SICKO MODE sweeps a suggested card on from Backlog');
+console.log('[reeve] board-wide VIBES MODE sweeps a suggested card on from Backlog');
 
 console.log('[reeve] suggestion-check passed');
 process.exit(0);

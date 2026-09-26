@@ -1,0 +1,1 @@
+ALTER TABLE `repo` ADD `sync_default_branch` integer DEFAULT false NOT NULL;

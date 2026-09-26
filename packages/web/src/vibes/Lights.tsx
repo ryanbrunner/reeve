@@ -3,7 +3,7 @@
  *
  * Two layers, and which side of the board they fall on is the whole design.
  * Behind: the word walls and the stage lights, which the columns' own
- * translucent fill lets through — that is why a SICKO MODE column is
+ * translucent fill lets through — that is why a VIBES MODE column is
  * `#0a0c12b3` and not solid. In front: the roaming spots, the scanlines and the
  * glitch bars, which land ON the cards, because a light that never touches what
  * it is lighting reads as wallpaper.
@@ -41,13 +41,13 @@ function roamer(cls: string, c: string, from: [string, string], to: [string, str
   );
 }
 
-export function SickoLightsBehind() {
+export function VibesLightsBehind() {
   return (
     <div className="sk-layer" aria-hidden="true" style={{ zIndex: 0 }}>
       {/* Counter-scrolling, at different speeds, so the two never line up. */}
       <div className="sk-words" style={{ top: '21%' }}>
-        <span>SICKO MODE ◆ SICKO MODE ◆&nbsp;</span>
-        <span>SICKO MODE ◆ SICKO MODE ◆&nbsp;</span>
+        <span>VIBES MODE ◆ VIBES MODE ◆&nbsp;</span>
+        <span>VIBES MODE ◆ VIBES MODE ◆&nbsp;</span>
       </div>
       <div className="sk-words sk-words-b" style={{ top: '58%' }}>
         <span>NO HUMAN ◆ NO HUMAN ◆ NO HUMAN ◆&nbsp;</span>
@@ -80,7 +80,7 @@ function glitch(t: string, h: string, c: string, s: string, dl: string) {
   );
 }
 
-export function SickoLightsOver({ flash }: { flash: boolean | null }) {
+export function VibesLightsOver({ flash }: { flash: boolean | null }) {
   return (
     <div className="sk-layer" aria-hidden="true" style={{ zIndex: 30 }}>
       {roamer('sk-spot', '#ff2d95', ['-100px', '120px'], ['1100px', '420px'], '3.8s', '-1.2s')}

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { CardKind, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, DevServerUrlSource, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
@@ -69,8 +69,11 @@ export const CARD_EVENT_KINDS = [
   'conflicts_resolved',
   'conflicts_failed',
   // `gh` refused to merge the pull request: from the Done band's Merge, or
-  // SICKO MODE landing it. Success is `merged`, written once GitHub says so.
+  // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
+  // An open card moved to No project because its project was archived. `meta`
+  // names the project, which the card no longer points at.
+  'left_project',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
@@ -86,10 +89,18 @@ export const repo = sqliteTable('repo', {
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
   serverCommand: text('server_command'),
+  // Where the dev server can be reached when the repo knows better than the
+  // server's own output, e.g. `https://{{slug}}.test` behind a local proxy.
+  // Filled by `fillVars` in runs/serverUrl.ts. Null leaves it to the command.
+  serverUrl: text('server_url'),
   teardownCommand: text('teardown_command'),
   finishCommand: text('finish_command'),
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
+  // Fast-forward the repo's own default branch once one of its cards' pull
+  // requests is merged. Off unless asked for: it moves the person's checkout,
+  // which nothing else in Reeve touches.
+  syncDefaultBranch: integer('sync_default_branch', { mode: 'boolean' }).notNull().default(false),
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
 });
@@ -157,11 +168,13 @@ export const card = sqliteTable(
     // inside drizzle's migration transaction cascades through everything
     // hanging off it.
     generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
-    // SICKO MODE for this card alone: the sweep takes it all the way to a
+    // VIBES MODE for this card alone: the sweep takes it all the way to a
     // merged pull request while the board's own switch is off. A flag rather
-    // than a timestamp like `settings.sickoSince`, which is only there to give
-    // the HUD something to count from, and one card has no HUD.
-    sicko: integer('sicko', { mode: 'boolean' }).notNull().default(false),
+    // than a timestamp like `settings.vibesSince`, which is only there to give
+    // the HUD something to count from, and one card has no HUD. The column
+    // keeps the mode's old name, SICKO MODE: renaming it would be a migration
+    // for a name nobody sees.
+    vibes: integer('sicko', { mode: 'boolean' }).notNull().default(false),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
@@ -222,6 +235,11 @@ export const run = sqliteTable(
     command: text('command'),
     pid: integer('pid'),
     port: integer('port'),
+    // Where a server run can actually be reached, and how Reeve knows. Null
+    // until something says: the port above is only what Reeve offered, and a
+    // server that ignores PORT (Vite does) is somewhere else entirely.
+    url: text('url'),
+    urlSource: text('url_source').$type<DevServerUrlSource>(),
     exitCode: integer('exit_code'),
 
     // --- all runs ---
@@ -515,15 +533,16 @@ export const settings = sqliteTable('settings', {
   id: integer('id').primaryKey(),
   maxConcurrentRuns: integer('max_concurrent_runs'),
   /**
-   * When SICKO MODE was switched on, or null while it is off.
+   * When VIBES MODE was switched on, or null while it is off.
    *
    * A timestamp rather than a flag because every number the HUD shows is
    * counted from it — merges, skipped reviews, self-answered questions, spend —
    * and those are read off `card_event` and `run` rows on demand rather than
    * kept in counters that a reload would reset and that could drift from what
-   * actually happened. One column is both the switch and the epoch.
+   * actually happened. One column is both the switch and the epoch. Its name
+   * is the mode's old one, kept for the same reason as the card's `sicko` column.
    */
-  sickoSince: timestamp('sicko_since'),
+  vibesSince: timestamp('sicko_since'),
   /**
    * The one exception to typed columns: a model and effort per runnable stage.
    * This is a map keyed by stage, not a handful of knobs, and a stage added
