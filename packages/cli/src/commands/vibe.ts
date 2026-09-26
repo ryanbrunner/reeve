@@ -4,7 +4,7 @@ import { api } from '../client.js';
 import { formatTokens, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 
 /**
- * `reeve sicko on|off`: SICKO MODE, from a script.
+ * `reeve vibe on|off`: VIBE MODE, from a script.
  *
  * Its own command rather than a key under `reeve settings set`, because it is
  * not a preference. It takes Reeve's human gates off every card on the board:
@@ -21,7 +21,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /**
  * What the next sweep does to this board, counted from it. The same rules
- * as the sweep in the server's sicko/engine.ts: a card with no repo is left
+ * as the sweep in the server's vibe/engine.ts: a card with no repo is left
  * alone, and so is a Backlog card nobody has written anything on yet.
  */
 function whatComesOff(board: BoardResponse): string[] {
@@ -33,7 +33,7 @@ function whatComesOff(board: BoardResponse): string[] {
   const questions = live.filter((c) => c.activity === 'needs_input').length;
   const done = live.filter((c) => c.stage === 'done' && !c.mergedAt).length;
   return [
-    'SICKO MODE takes you out of the loop. Until `reeve sicko off`:',
+    'VIBE MODE takes you out of the loop. Until `reeve vibe off`:',
     `  Human review    off: plans, work and test reports are approved unread (${reviews} waiting now)`,
     `  Questions       Claude answers its own (${plural(questions, 'card')} asking now)`,
     '  Stage gates     off: approved cards move on, and idle or failed stages are started again',
@@ -56,8 +56,8 @@ function summary(state: VibeState): string {
 async function status(json: boolean): Promise<void> {
   const { vibe } = await api.board();
   if (json) return printJson(vibe);
-  if (!vibe) return print('SICKO MODE is off.');
-  print(`SICKO MODE has been on since ${formatTime(vibe.since)}: ${summary(vibe)}.`);
+  if (!vibe) return print('VIBE MODE is off.');
+  print(`VIBE MODE has been on since ${formatTime(vibe.since)}: ${summary(vibe)}.`);
   for (const line of vibe.log) print(`  ${line}`);
 }
 
@@ -66,30 +66,30 @@ async function on(json: boolean): Promise<void> {
   if (board.vibe) {
     // Saying on again is harmless — the server keeps the clock — but it is
     // not what the caller thought was happening.
-    note(`SICKO MODE was already on, since ${formatTime(board.vibe.since)}.`);
+    note(`VIBE MODE was already on, since ${formatTime(board.vibe.since)}.`);
     if (json) return printJson(await api.settings());
     return;
   }
   for (const line of whatComesOff(board)) note(line);
   const saved = await api.updateSettings({ vibe: true });
   if (json) return printJson(saved);
-  print('SICKO MODE is on.');
+  print('VIBE MODE is on.');
 }
 
 async function off(json: boolean): Promise<void> {
   const { vibe } = await api.board();
   const saved = await api.updateSettings({ vibe: false });
   if (json) return printJson(saved);
-  if (!vibe) return print('SICKO MODE was already off.');
-  print(`SICKO MODE is off. You're back in the loop. While it was on: ${summary(vibe)}.`);
+  if (!vibe) return print('VIBE MODE was already off.');
+  print(`VIBE MODE is off. You're back in the loop. While it was on: ${summary(vibe)}.`);
   note('Runs it started carry on to the end; nothing new starts without you.');
 }
 
-export async function sicko(args: string[]): Promise<void> {
+export async function vibe(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() =>
     parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }),
   );
-  if (positionals.length > 1) throw usageError('sicko takes on, off, or nothing');
+  if (positionals.length > 1) throw usageError('vibe takes on, off, or nothing');
   const [state] = positionals;
   const json = values.json ?? false;
   if (state === undefined) return status(json);

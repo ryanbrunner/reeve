@@ -16,8 +16,8 @@ import { formatTime, note, parseCount, parseOrUsage, print, printJson, usageErro
 import { parseStage } from '../resolve.js';
 
 /**
- * `reeve settings`: what the Settings screen shows and saves. SICKO MODE is
- * in there on the wire, but not here — see ./sicko.ts for why.
+ * `reeve settings`: what the Settings screen shows and saves. VIBE MODE is
+ * in there on the wire, but not here — see ./vibe.ts for why.
  */
 
 const KEYS = 'max-concurrent-runs, or <stage>.model or <stage>.effort for planning, in-progress or testing';
@@ -28,8 +28,8 @@ type Key = { kind: 'maxConcurrentRuns' } | { kind: 'stage'; stage: RunnableStage
 function parseKey(input: string): Key {
   const kebab = (s: string) => s.trim().replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase().replace(/[\s_]+/g, '-');
   if (kebab(input) === 'max-concurrent-runs') return { kind: 'maxConcurrentRuns' };
-  if (kebab(input) === 'sicko' || kebab(input) === 'sicko-mode') {
-    throw usageError('SICKO MODE is not a setting to set in passing. Use `reeve sicko on` or `reeve sicko off`');
+  if (kebab(input) === 'vibe' || kebab(input) === 'vibe-mode') {
+    throw usageError('VIBE MODE is not a setting to set in passing. Use `reeve vibe on` or `reeve vibe off`');
   }
   const dot = input.lastIndexOf('.');
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
@@ -75,7 +75,7 @@ function layered(value: string | null, builtIn: string | null | undefined): stri
 function render(settings: ApiSettings, models: ModelsResponse | null): string {
   const rows: Array<[string, string]> = [
     ['Max concurrent runs', String(settings.maxConcurrentRuns)],
-    ['SICKO MODE', settings.vibeSince === null ? 'off' : `ON since ${formatTime(settings.vibeSince)}`],
+    ['VIBE MODE', settings.vibeSince === null ? 'off' : `ON since ${formatTime(settings.vibeSince)}`],
   ];
   const width = Math.max(...rows.map(([label]) => label.length));
   const stageWidth = Math.max(...RUNNABLE_STAGES.map((s) => STAGE_LABELS[s].length));
