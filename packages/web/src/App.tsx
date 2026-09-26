@@ -42,13 +42,15 @@ import { api, cardsIn } from './lib/api.js';
 
 export function App() {
   const qc = useQueryClient();
-  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveOpen, showArchive] = useArchiveParam();
   // Which pane Settings opens on, or null while it is shut.
   const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
   // Stable, because the modal's focus effect depends on it and the board
   // re-renders this component on every poll: a fresh arrow each time would
   // re-run that effect and yank focus out of whichever field was being typed in.
   const closeSettings = useCallback(() => setSettingsOpen(null), []);
+  // Stable for the same reason: the Archive's focus effect depends on it too.
+  const closeArchive = useCallback(() => showArchive(false), [showArchive]);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
   const [openCard, openAndClose] = useOpenCard();
   const collapsedLanes = useCollapsedLanes();
@@ -370,7 +372,7 @@ export function App() {
             addError={create.error}
             moveError={refusal}
             onOpenSettings={setSettingsOpen}
-            onOpenArchive={() => setArchiveOpen(true)}
+            onOpenArchive={() => showArchive(true)}
             usage={data?.usage ?? null}
             vibes={vibes}
           />
@@ -414,9 +416,11 @@ export function App() {
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
       {archiveOpen && (
         <ArchiveModal
-          onClose={() => setArchiveOpen(false)}
+          onClose={closeArchive}
           onOpen={(id) => {
-            setArchiveOpen(false);
+            // Shut first: `open` pushes the URL as it finds it, and the card's
+            // entry must not carry `?archive` with it.
+            showArchive(false);
             openAndClose.open(id);
           }}
         />
@@ -486,6 +490,24 @@ function useOpenCard() {
   }, []);
 
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
+}
+
+/**
+ * Whether the Archive is open, kept in the URL as `?archive` so it can be
+ * linked to and a reload lands back on it. Replaced rather than pushed, unlike
+ * `?card=`: Back from the Archive leaving the board would be a surprise, and
+ * nobody navigates within it.
+ */
+function useArchiveParam() {
+  const [open, setOpen] = useState(() => new URLSearchParams(window.location.search).has('archive'));
+  const show = useCallback((next: boolean) => {
+    const url = new URL(window.location.href);
+    if (next) url.searchParams.set('archive', '1');
+    else url.searchParams.delete('archive');
+    window.history.replaceState(null, '', url);
+    setOpen(next);
+  }, []);
+  return [open, show] as const;
 }
 
 function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibes }: {

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { CardKind, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, DevServerUrlSource, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
@@ -71,6 +71,9 @@ export const CARD_EVENT_KINDS = [
   // `gh` refused to merge the pull request: from the Done band's Merge, or
   // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
+  // An open card moved to No project because its project was archived. `meta`
+  // names the project, which the card no longer points at.
+  'left_project',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
@@ -86,10 +89,18 @@ export const repo = sqliteTable('repo', {
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
   serverCommand: text('server_command'),
+  // Where the dev server can be reached when the repo knows better than the
+  // server's own output, e.g. `https://{{slug}}.test` behind a local proxy.
+  // Filled by `fillVars` in runs/serverUrl.ts. Null leaves it to the command.
+  serverUrl: text('server_url'),
   teardownCommand: text('teardown_command'),
   finishCommand: text('finish_command'),
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
+  // Fast-forward the repo's own default branch once one of its cards' pull
+  // requests is merged. Off unless asked for: it moves the person's checkout,
+  // which nothing else in Reeve touches.
+  syncDefaultBranch: integer('sync_default_branch', { mode: 'boolean' }).notNull().default(false),
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
 });
@@ -215,6 +226,11 @@ export const run = sqliteTable(
     command: text('command'),
     pid: integer('pid'),
     port: integer('port'),
+    // Where a server run can actually be reached, and how Reeve knows. Null
+    // until something says: the port above is only what Reeve offered, and a
+    // server that ignores PORT (Vite does) is somewhere else entirely.
+    url: text('url'),
+    urlSource: text('url_source').$type<DevServerUrlSource>(),
     exitCode: integer('exit_code'),
 
     // --- all runs ---

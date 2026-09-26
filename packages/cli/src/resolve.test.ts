@@ -17,9 +17,11 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     setupCommand: null,
     testCommand: null,
     serverCommand: null,
+    serverUrl: null,
     teardownCommand: null,
     finishCommand: null,
     laneColor: null,
+    syncDefaultBranch: false,
   };
 }
 

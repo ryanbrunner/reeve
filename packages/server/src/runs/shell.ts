@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import type { StopReason } from '@reeve/shared';
+import type { DevServerUrlSource, StopReason } from '@reeve/shared';
 import type { Db } from '../db/client.js';
 import { insertRun, setRunStatus } from '../db/queries.js';
 import type { CardStage } from '../db/schema.js';
@@ -18,6 +18,9 @@ export interface ShellRunOptions {
   cwd: string;
   env?: Record<string, string>;
   port?: number;
+  /** Where a server can be reached, when that is known before it starts. See `run.url`. */
+  url?: string;
+  urlSource?: DevServerUrlSource;
   /** A server keeps running until stopped; a task is expected to exit. */
   longLived?: boolean;
   /** Work beside the stage, found again by `liveTaskRun`. See the column on `run`. */
@@ -39,7 +42,7 @@ export interface ShellRunHandle {
  * endpoint.
  */
 export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
-  const { db, writer, cardId, stage, command, cwd, env, port, longLived = false, task, onLine } = opts;
+  const { db, writer, cardId, stage, command, cwd, env, port, url, urlSource, longLived = false, task, onLine } = opts;
 
   const run = insertRun(db, {
     id: crypto.randomUUID(),
@@ -51,6 +54,8 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
     command,
     cwd,
     port: port ?? null,
+    url: url ?? null,
+    urlSource: urlSource ?? null,
     startedAt: new Date(),
   });
   const runId = run.id;

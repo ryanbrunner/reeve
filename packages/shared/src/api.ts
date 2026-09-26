@@ -20,9 +20,13 @@ export interface ApiRepo {
   setupCommand: string | null;
   testCommand: string | null;
   serverCommand: string | null;
+  /** Where the dev server is, as a template, e.g. `https://{{slug}}.test`. */
+  serverUrl: string | null;
   teardownCommand: string | null;
   finishCommand: string | null;
   laneColor: string | null;
+  /** Fast-forward the repo's own `defaultBranch` when a card's pull request is merged. */
+  syncDefaultBranch: boolean;
 }
 
 /**
@@ -343,9 +347,11 @@ export interface CreateRepoBody {
   setupCommand?: string | null;
   testCommand?: string | null;
   serverCommand?: string | null;
+  serverUrl?: string | null;
   teardownCommand?: string | null;
   finishCommand?: string | null;
   laneColor?: string | null;
+  syncDefaultBranch?: boolean;
 }
 
 export type UpdateRepoBody = Partial<CreateRepoBody>;
@@ -431,6 +437,23 @@ export interface MoveCardBody {
   stage: Stage;
   index: number;
   projectId?: string | null;
+}
+
+/**
+ * Archiving a project takes its Done cards with it. Its open cards are
+ * refused, not taken: they are work still going on. `detachOpen` is the
+ * caller saying it has seen them, and moves them to No project instead.
+ * Ignored for a task.
+ */
+export interface ArchiveCardBody {
+  detachOpen?: boolean;
+}
+
+/** The counts only for a project: how many Done cards went with it, and how many open ones were moved out. */
+export interface ArchiveCardResponse {
+  ok: true;
+  archived?: number;
+  detached?: number;
 }
 
 /** Make the card this is sent for depend on another task. */

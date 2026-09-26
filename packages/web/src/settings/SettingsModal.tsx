@@ -302,9 +302,10 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   );
 }
 
+/** Every field is its text box's string, bar the one that is a checkbox. */
 type FormState = {
-  [K in keyof CreateRepoBody]-?: string;
-};
+  [K in Exclude<keyof CreateRepoBody, 'syncDefaultBranch'>]-?: string;
+} & { syncDefaultBranch: boolean };
 
 function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): FormState {
   const free = freeLaneColor(takenColors);
@@ -316,9 +317,11 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
+    serverUrl: repo?.serverUrl ?? '',
     teardownCommand: repo?.teardownCommand ?? '',
     finishCommand: repo?.finishCommand ?? '',
     laneColor: repo?.laneColor ?? free,
+    syncDefaultBranch: repo?.syncDefaultBranch ?? false,
   };
 }
 
@@ -334,7 +337,7 @@ function RepoForm({
   const qc = useQueryClient();
   const [form, setForm] = useState<FormState>(() => initialState(repo, takenColors));
   const [saved, setSaved] = useState(false);
-  const set = (k: keyof FormState) => (v: string) => {
+  const set = <K extends keyof FormState>(k: K) => (v: FormState[K]) => {
     setSaved(false);
     setForm((f) => ({ ...f, [k]: v }));
   };
@@ -350,9 +353,11 @@ function RepoForm({
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
         serverCommand: blankIsNull(form.serverCommand),
+        serverUrl: blankIsNull(form.serverUrl),
         teardownCommand: blankIsNull(form.teardownCommand),
         finishCommand: blankIsNull(form.finishCommand),
         laneColor: blankIsNull(form.laneColor),
+        syncDefaultBranch: form.syncDefaultBranch,
         ...(form.worktreeRoot.trim() ? { worktreeRoot: form.worktreeRoot.trim() } : {}),
         ...(form.defaultBranch.trim() ? { defaultBranch: form.defaultBranch.trim() } : {}),
       };
@@ -409,6 +414,22 @@ function RepoForm({
         <Field label="Default branch" hint="Blank asks the repo which branch it is on.">
           <Text value={form.defaultBranch} onChange={set('defaultBranch')} placeholder="main" mono />
         </Field>
+        {/* Not a Field: that is a label around its control, and here the
+            control is the label's own first child, as a checkbox's is. */}
+        <div className="flex flex-col gap-1">
+          <label className="flex w-fit cursor-pointer items-center gap-2 font-mono text-[11px]/4 text-(--color-text)">
+            <input
+              type="checkbox"
+              checked={form.syncDefaultBranch}
+              onChange={(e) => set('syncDefaultBranch')(e.target.checked)}
+              className="accent-sky-600"
+            />
+            Keep {form.defaultBranch.trim() || 'the default branch'} up to date
+          </label>
+          <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+            Fast-forwarded in the repo when a card’s pull request merges. Local changes in its way stop it.
+          </span>
+        </div>
         <Field label="Worktree root" hint="Where per-card worktrees are cut. Blank puts .reeve-worktrees beside the repo.">
           <Text value={form.worktreeRoot} onChange={set('worktreeRoot')} placeholder="beside the repo" mono />
         </Field>
@@ -416,14 +437,28 @@ function RepoForm({
 
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
         <SectionHead>Commands</SectionHead>
-        <Field label="Setup" hint="Once, after a worktree is made.">
+        <Field label="Setup" hint="Once, after a worktree is made. Sees REEVE_WORKTREE and REEVE_SLUG.">
           <Text value={form.setupCommand} onChange={set('setupCommand')} placeholder="npm install" mono />
         </Field>
         <Field label="Test" hint="What Testing runs to check the work.">
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
         </Field>
-        <Field label="Server" hint="The dev server behind Preview.">
-          <Text value={form.serverCommand} onChange={set('serverCommand')} placeholder="npm run dev" mono />
+        <Field
+          label="Server"
+          hint="The dev server behind Preview. Put {{port}} where it takes a port, or Reeve waits for it to print a localhost URL; PORT alone is not proof it listened there."
+        >
+          <Text
+            value={form.serverCommand}
+            onChange={set('serverCommand')}
+            placeholder="npm run dev -- --port {{port}}"
+            mono
+          />
+        </Field>
+        <Field
+          label="Server URL"
+          hint="Where Preview opens, if a local proxy serves it. {{port}}, {{worktree}} and {{slug}} are filled per card; the commands see REEVE_WORKTREE and REEVE_SLUG. Blank uses the command's."
+        >
+          <Text value={form.serverUrl} onChange={set('serverUrl')} placeholder="https://{{slug}}.test" mono />
         </Field>
         <Field label="Teardown" hint="Before a worktree is removed.">
           <Text value={form.teardownCommand} onChange={set('teardownCommand')} mono />
