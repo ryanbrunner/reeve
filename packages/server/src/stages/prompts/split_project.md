@@ -40,5 +40,14 @@ Then propose the tasks:
 - List them in the order they would sensibly be done.
 - Do not repeat anything already listed under the project.
 
+Then say what each task depends on: the titles, exactly as you gave them or as
+listed above, of the tasks that must be finished before it can start. Name one
+only where this task genuinely cannot begin until that one is done — it builds
+on code that does not exist yet, or changes something that one is still
+creating. Coming later in the list, touching the same area, or merely being
+easier afterwards are not reasons. Each link holds a task back until the other
+is finished, so linking freely turns a project that could be worked on in
+parallel into a queue. Most tasks should depend on nothing.
+
 Fewer, larger tasks beat many slivers. Three to eight is usually right. A
 person will read every one of these, so propose only what you would defend.

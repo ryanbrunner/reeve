@@ -30,9 +30,9 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
   if (shots.length === 0 && mockups.length === 0) {
     return (
       <Empty>
-        Nothing to show yet. Attach a mockup in the Plan tab, or leave Generate mockups ticked for
-        Claude to draw them while planning, and Testing will photograph the same page to sit beside
-        it.
+        Nothing to show yet. Attach a mockup in the Plan tab, or tick Generate mockups in the Brief
+        for Claude to draw them while planning, and Testing will photograph the same page to sit
+        beside it.
       </Empty>
     );
   }
