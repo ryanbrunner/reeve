@@ -60,9 +60,9 @@
 
 /*
  * The same card's face, and its modal: a rainbow ring running just inside the
- * border, and the only thing on the calm board that moves without Claude
- * running. It flows because a card that is going to merge itself should not
- * be mistaken for one waiting on you.
+ * border. On the board it is the only card that moves without Claude running,
+ * and it flows because a card that is going to merge itself should not be
+ * mistaken for one waiting on you.
  *
  * A masked pseudo-element rather than a rainbow border, for two reasons. The
  * four glowing skins clip at the padding edge, so anything drawn in the border
