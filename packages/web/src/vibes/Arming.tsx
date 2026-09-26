@@ -13,6 +13,7 @@ const OFF = [
   ['Planning', 'skipped'],
   ['Merge to main', 'automatic'],
   ['New ideas', 'run on arrival'],
+  ['What to build', 'Claude decides'],
   ['You', 'watching'],
 ] as const;
 
