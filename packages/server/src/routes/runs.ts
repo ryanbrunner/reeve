@@ -8,6 +8,8 @@ import { runBus, type EmittedEvent } from '../runs/bus.js';
 import { runRegistry } from '../runs/registry.js';
 
 const PING_MS = 15_000;
+/** How often an open stream checks whether its run has finished. One indexed row read. */
+const STATUS_MS = 1_000;
 
 export function runRoutes(db: Db) {
   const routes = new Hono();
@@ -83,12 +85,20 @@ export function runRoutes(db: Db) {
         }
         live = true;
 
-        // 4. A finished run replays and closes — no hanging connection.
+        // 4. A finished run replays and closes — no hanging connection. The
+        //    status is read far more often than the ping is sent: `reeve run
+        //    follow` exits on `end`, and a script waiting on it should not sit
+        //    out most of a ping interval after the run has stopped.
         let status = (getRun(db, runId)?.status ?? 'failed') as RunStatus;
+        let sincePing = 0;
         while (!isTerminal(status) && !stream.aborted) {
-          await stream.sleep(PING_MS);
+          await stream.sleep(STATUS_MS);
           if (stream.aborted) break;
-          await stream.writeSSE({ event: 'ping', data: '' });
+          sincePing += STATUS_MS;
+          if (sincePing >= PING_MS) {
+            await stream.writeSSE({ event: 'ping', data: '' });
+            sincePing = 0;
+          }
           status = (getRun(db, runId)?.status ?? 'failed') as RunStatus;
         }
         if (!stream.aborted) {

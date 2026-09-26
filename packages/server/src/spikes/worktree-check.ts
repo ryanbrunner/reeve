@@ -27,7 +27,7 @@ g('add', '-A'); g('commit', '-qm', 'base');
 const cardId = crypto.randomUUID();
 note('branch name', branchNameFor(cardId, 'Wire the Planning stage end to end!!'));
 
-const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId, title: 'Wire the Planning stage', baseBranch: 'main' });
+const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId, title: 'Wire the Planning stage', base: 'main' });
 note('worktree created', wt.path.replace(root, '…'));
 note('base sha', wt.baseSha.slice(0, 8));
 note('listed by git', (await listWorktrees(repo)).length + ' worktrees');
@@ -68,7 +68,7 @@ const write = (rel: string, body: string) => {
 
 // Nothing to include yet: exactly what happened before the file existed.
 {
-  const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId: crypto.randomUUID(), title: 'No include', baseBranch: 'main' });
+  const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId: crypto.randomUUID(), title: 'No include', base: 'main' });
   write('.env', 'SECRET=from-main\n');
   write('.gitignore', '.env\n');
   check('no .worktreeinclude, nothing copied', (await copyWorktreeIncludes(repo, wt.path)).length === 0 && !existsSync(join(wt.path, '.env')));
@@ -97,7 +97,7 @@ write('logs/app.log', 'ignored inside a directory that is not\n');
 write('logs/keep.txt', 'listed, but not ignored\n');
 
 {
-  const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId: crypto.randomUUID(), title: 'Include', baseBranch: 'main' });
+  const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId: crypto.randomUUID(), title: 'Include', base: 'main' });
   const copied = await copyWorktreeIncludes(repo, wt.path);
   note('copied', copied.join(', '));
   check('.env copied byte for byte', read(wt.path, '.env') === read(repo, '.env'));
@@ -120,7 +120,7 @@ write('logs/keep.txt', 'listed, but not ignored\n');
   const dbRepo = createRepo(db, {
     name: 'worktree-check', repoPath: repo, worktreeRoot, defaultBranch: 'main',
     setupCommand: 'cat .env', testCommand: null, serverCommand: null,
-    teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+    teardownCommand: null, finishCommand: null, laneColor: null,
   });
   const startCard = (title: string) => getCard(db, createCard(db, { title, repoId: dbRepo.id, stage: 'planning' }).id)!;
   const setupOutput = async (runId: string | null) => {

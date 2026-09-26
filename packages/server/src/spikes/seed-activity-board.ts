@@ -9,7 +9,7 @@ const repo =
   createRepo(db, {
     name: 'reeve', repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
     setupCommand: null, testCommand: null, serverCommand: null,
-    teardownCommand: null, finishCommand: null, laneColor: '#6b7db3', maxBudgetUsd: null,
+    teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
   });
 
 const plan = (questions: string[]) => ({
@@ -25,6 +25,15 @@ function card(title: string, stage: Stage, run?: { status: RunStatus; questions?
   setRunStatus(db, r.id, {
     status: run.status,
     totalCostUsd: run.cost ?? null,
+    // What the card's token count is read off, in proportion to the cost.
+    modelUsageJson: run.cost === undefined ? null : {
+      'claude-opus-5-5': {
+        inputTokens: Math.round(run.cost * 600),
+        outputTokens: Math.round(run.cost * 160_000),
+        cacheCreationInputTokens: Math.round(run.cost * 1_100_000),
+        cacheReadInputTokens: Math.round(run.cost * 7_000_000),
+      },
+    },
     structuredOutput: plan(run.questions ?? []),
   });
 }

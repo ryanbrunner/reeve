@@ -1,12 +1,22 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, sql } from 'drizzle-orm';
-import { RUNNABLE_STAGES, type ApiSettings, type StageRunDefaults, type UpdateSettingsBody } from '@reeve/shared';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql } from 'drizzle-orm';
+import {
+  RUNNABLE_STAGES,
+  isPlaceholderCard,
+  type ApiCard,
+  type ApiCardLink,
+  type ApiSettings,
+  type StageRunDefaults,
+  type UpdateSettingsBody,
+} from '@reeve/shared';
 import { config } from '../config.js';
+import { runTokens } from '../mappers.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
   artifact,
   asset,
   card,
+  cardDependency,
   cardEvent,
   cardRef,
   difference,
@@ -54,6 +64,23 @@ export function boardCards(db: Db) {
     .from(card)
     .leftJoin(repo, eq(card.repoId, repo.id))
     .where(and(isTask, isNull(card.archivedAt)))
+    .orderBy(asc(card.stage), asc(card.position))
+    .all();
+}
+
+/**
+ * The live cards in SICKO MODE on their own, in `boardCards`' shape. What the
+ * sweep reads while the board's switch is off, which is nearly always, so it
+ * costs one small select every couple of seconds rather than the whole board.
+ *
+ * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
+ * and a project swept into Planning is a project being run as a stage.
+ */
+export function sickoCards(db: Db) {
+  return db
+    .select({ card })
+    .from(card)
+    .where(and(isTask, eq(card.sicko, true), isNull(card.archivedAt)))
     .orderBy(asc(card.stage), asc(card.position))
     .all();
 }
@@ -385,8 +412,10 @@ export function createCard(
       repoId,
       stage,
       position: kind === 'project' ? 0 : last + POSITION_GAP,
-      // Left out when not given, so the column's default decides.
-      ...(values.generateMockups === undefined ? {} : { generateMockups: values.generateMockups }),
+      // Opt-in: most cards change nothing worth drawing, and a mockup nobody
+      // needed is Planning's time and budget spent for nothing. Decided here
+      // rather than by the column's default, which still says true.
+      generateMockups: values.generateMockups ?? false,
     })
     .returning()
     .get();
@@ -406,6 +435,9 @@ export function createCard(
  * Next free `#n` for a repo. Counting live rows would reuse an archived
  * card's number, so this reads the high-water mark instead: numbers are handed
  * out once and never again, which is what makes them worth quoting to a person.
+ * The one exception is a card thrown away by `discardIfBlank`. If it held the
+ * top number, the next task gets that number again. Nobody named that card, so
+ * nobody can have quoted its number.
  */
 function nextCardNumber(db: Db, repoId: string | null): number {
   const top = db
@@ -426,7 +458,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'sicko'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -483,6 +515,33 @@ export function restoreCard(db: Db, id: string) {
   insertCardEvent(db, { cardId: id, actor: 'human', kind: 'restored', stage });
   renormaliseIfNeeded(db, stage);
   return restored;
+}
+
+/**
+ * Throw away a card nobody did anything with, and say whether it went.
+ *
+ * A card is made and opened before anyone types into it, so closing it again
+ * untouched would leave an "Untitled" behind every time. Only that card goes:
+ * its placeholder title and no brief, never archived, never given a worktree,
+ * with nothing hanging off it — no run, criterion, reference, picture or note —
+ * and, for a task, still in Backlog, or for a project, with no tasks at all.
+ * Archived tasks count: they were put under it and taken off on purpose. A
+ * change of repo, model or effort alone does not keep it. Those are settings,
+ * and none of them is something anyone would miss.
+ *
+ * Checked and deleted in one synchronous call, so no save can land between the
+ * two. A hard delete, not an archive: the Archive is for work, and every table
+ * that belongs to a card cascades off it.
+ */
+export function discardIfBlank(db: Db, id: string): boolean {
+  const c = getCard(db, id);
+  if (!c || !isPlaceholderCard(c) || c.archivedAt || c.worktreePath) return false;
+  if (c.kind === 'task' ? c.stage !== 'backlog' : tasksInProject(db, id).length > 0) return false;
+  if (runsForCard(db, id).length > 0 || criteriaFor(db, id).length > 0) return false;
+  if (refsFor(db, id).length > 0 || assetsFor(db, id).length > 0) return false;
+  // Its birth is the one entry a blank card has. A note is anything else.
+  if (cardEventsFor(db, id).some((e) => e.kind !== 'created')) return false;
+  return db.delete(card).where(eq(card.id, id)).run().changes > 0;
 }
 
 /**
@@ -685,14 +744,18 @@ export function sickoLedger(db: Db, since: Date) {
     .all();
 }
 
-/** What every run started since a moment has cost. Runs still going have no cost yet. */
-export function spendSince(db: Db, since: Date): number {
-  const row = db
-    .select({ total: sql<number | null>`sum(${run.totalCostUsd})` })
+/**
+ * The tokens every run started since a moment has used. Runs still going have
+ * no count yet. Summed here rather than in SQL because the count lives in the
+ * SDK's JSON, and `runTokens` is the one place that knows how to read it.
+ */
+export function tokensSince(db: Db, since: Date): number {
+  return db
+    .select({ modelUsageJson: run.modelUsageJson })
     .from(run)
     .where(gt(run.createdAt, since))
-    .get();
-  return row?.total ?? 0;
+    .all()
+    .reduce((n, r) => n + (runTokens(r.modelUsageJson)?.total ?? 0), 0);
 }
 
 /**
@@ -807,6 +870,132 @@ export function addRef(db: Db, cardId: string, kind: CardRefKind, value: string,
 
 export function deleteRef(db: Db, id: string) {
   return db.delete(cardRef).where(eq(cardRef.id, id)).returning().get();
+}
+
+// ---------------------------------------------------------------------------
+// What a card waits on, and what waits on it
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a dependency is still holding up whatever waits on it: not in Done,
+ * and not archived.
+ *
+ * Done is the column, not the merge. A card is finished when a person has put
+ * it there, the same as everywhere else on the board; waiting for GitHub as
+ * well would make a repository's review rules part of this one.
+ *
+ * An archived dependency does not hold anything up. Archiving is how a card is
+ * taken off the board on purpose — dropped, superseded, or merged and swept
+ * away by the auto-archive — and a card still waiting on it would wait for ever
+ * on something the board no longer shows, with nothing to press to clear it.
+ *
+ * Here rather than in `blockers.ts`, which is the module about it, only because
+ * that one reads this file and the board's chips need the same answer: one rule,
+ * and no import cycle to get at it.
+ */
+export function stillBlocking(c: Card): boolean {
+  return c.stage !== 'done' && !c.archivedAt;
+}
+
+/** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
+export function dependenciesOf(db: Db, cardId: string): Card[] {
+  return db
+    .select({ card })
+    .from(cardDependency)
+    .innerJoin(card, eq(cardDependency.dependsOnId, card.id))
+    .where(eq(cardDependency.cardId, cardId))
+    .orderBy(asc(cardDependency.createdAt))
+    .all()
+    .map((r) => r.card);
+}
+
+export type DependencyLinks = Pick<ApiCard, 'dependsOn' | 'dependents'>;
+
+/**
+ * Dependencies filed both ways, as a lookup by card id. Given a card, only the
+ * rows that touch it are read. The board reads the whole table once instead,
+ * rather than twice for every card on it, and so does the cycle check, which
+ * has to be able to walk every link there is.
+ *
+ * `dependsOn` is named — the board draws a chip per dependency, and one that
+ * has been archived or swept off after merging is not in the board's `cards` to
+ * be looked up there. That costs one more query for the whole set, not one a
+ * card. `dependents` stays ids: they are live cards the board already has, and
+ * it only lights them up.
+ */
+export function dependencyLinks(db: Db, cardId?: string): (id: string) => DependencyLinks {
+  const rows = db
+    .select({ cardId: cardDependency.cardId, dependsOnId: cardDependency.dependsOnId })
+    .from(cardDependency)
+    .where(cardId ? or(eq(cardDependency.cardId, cardId), eq(cardDependency.dependsOnId, cardId)) : undefined)
+    .orderBy(asc(cardDependency.createdAt))
+    .all();
+  const named = new Map(
+    cardsWithRepo(db, [...new Set(rows.map((r) => r.dependsOnId))]).map(
+      (r) =>
+        [
+          r.card.id,
+          {
+            id: r.card.id,
+            number: r.card.number,
+            repoName: r.repoName,
+            title: r.card.title,
+            // One rule for whether a dependency still holds a card up, in
+            // `blockers.ts`, so the chip and the refusal cannot disagree.
+            done: !stillBlocking(r.card),
+          },
+        ] as const,
+    ),
+  );
+  const dependsOn = new Map<string, ApiCardLink[]>();
+  const dependents = new Map<string, string[]>();
+  for (const r of rows) {
+    const link = named.get(r.dependsOnId);
+    if (link) dependsOn.set(r.cardId, [...(dependsOn.get(r.cardId) ?? []), link]);
+    dependents.set(r.dependsOnId, [...(dependents.get(r.dependsOnId) ?? []), r.cardId]);
+  }
+  return (id) => ({ dependsOn: dependsOn.get(id) ?? [], dependents: dependents.get(id) ?? [] });
+}
+
+/**
+ * Every link on the board, archived cards' included. Read whole rather than
+ * per card because the only question asked of it so far is whether a new link
+ * closes a cycle, and that can run through any card, not just one project's.
+ */
+export function allDependencies(db: Db) {
+  return db.select().from(cardDependency).all();
+}
+
+/**
+ * Says nothing about cycles; the caller checks. A link that is already there
+ * is left as it was, so adding it again is not an error.
+ */
+export function addDependency(db: Db, cardId: string, dependsOnId: string) {
+  db.insert(cardDependency).values({ cardId, dependsOnId }).onConflictDoNothing().run();
+}
+
+export function removeDependency(db: Db, cardId: string, dependsOnId: string) {
+  return db
+    .delete(cardDependency)
+    .where(and(eq(cardDependency.cardId, cardId), eq(cardDependency.dependsOnId, dependsOnId)))
+    .returning()
+    .get();
+}
+
+/**
+ * The cards behind a handful of ids, with their repos, archived ones included:
+ * a dependency that has merged and left the board is still one, and still
+ * needs a number and a title to be shown by.
+ */
+export function cardsWithRepo(db: Db, ids: string[]) {
+  if (ids.length === 0) return [];
+  return db
+    .select({ card, repoName: repo.name, laneColor: repo.laneColor })
+    .from(card)
+    .leftJoin(repo, eq(card.repoId, repo.id))
+    .where(inArray(card.id, ids))
+    .orderBy(asc(repo.name), asc(card.number))
+    .all();
 }
 
 // ---------------------------------------------------------------------------

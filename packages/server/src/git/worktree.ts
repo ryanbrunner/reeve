@@ -173,18 +173,42 @@ export interface CreatedWorktree {
   baseSha: string;
 }
 
+async function branchExists(repoPath: string, branch: string): Promise<boolean> {
+  return git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** `base` is anything `rev-parse` takes: the sha just fetched, or a branch name. */
 export async function createWorktree(opts: {
   repoPath: string;
   worktreeRoot: string;
   cardId: string;
   title: string;
-  baseBranch: string;
+  base: string;
+  /** The branch and base the card had before, if its worktree has been removed since. */
+  previous?: { branch: string; baseSha: string } | null;
 }): Promise<CreatedWorktree> {
-  const { repoPath, worktreeRoot, cardId, title, baseBranch } = opts;
+  const { repoPath, worktreeRoot, cardId, title, base, previous } = opts;
   const path = worktreePathFor(worktreeRoot, cardId);
+
+  // Removing a worktree keeps its branch, and `worktree add -b` refuses a
+  // branch that exists, so a card whose worktree was removed (`reeve card
+  // worktree --remove`, or deleted by hand) could never have one again. Its
+  // branch is checked out afresh instead, with the base it started from, so
+  // its diff and commits still count from where the card began. Pruned first,
+  // because a directory deleted by hand leaves git thinking the branch is
+  // still checked out there.
+  if (previous && (await branchExists(repoPath, previous.branch))) {
+    await git(repoPath, ['worktree', 'prune']);
+    await git(repoPath, ['worktree', 'add', path, previous.branch]);
+    return { path, branch: previous.branch, baseSha: previous.baseSha };
+  }
+
   const branch = branchNameFor(cardId, title);
 
-  const baseSha = (await git(repoPath, ['rev-parse', baseBranch])).trim();
+  const baseSha = (await git(repoPath, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
   await git(repoPath, ['worktree', 'add', '-b', branch, path, baseSha]);
   return { path, branch, baseSha };
 }
@@ -320,10 +344,14 @@ export async function commitAt(repoPath: string, sha: string): Promise<CommitRef
  * How far the base branch has moved on since this worktree started — the rail's
  * "main · 2 behind". Counts commits on the base that the worktree lacks, which
  * is not the same as commits it is missing from its own history.
+ *
+ * Against `origin/<base>`, as last fetched: the local branch is the person's,
+ * and moves only when they pull. Nothing here fetches — a card view stays
+ * offline, and the merge sync keeps the remote-tracking ref current.
  */
 export async function behindBase(worktreePath: string, baseBranch: string): Promise<number | null> {
   try {
-    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..${baseBranch}`]);
+    const out = await git(worktreePath, ['rev-list', '--count', `HEAD..origin/${baseBranch}`]);
     const n = Number.parseInt(out.trim(), 10);
     return Number.isNaN(n) ? null : n;
   } catch {

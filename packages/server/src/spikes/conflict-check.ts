@@ -95,7 +95,7 @@ runMigrations(db);
 const repo = createRepo(db, {
   name: 'conflict-check', repoPath, worktreeRoot, defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const writer = { append: () => {}, finish: () => {} } as unknown as EventWriter;
 
@@ -116,7 +116,7 @@ async function conflicted(title: string, clash = true) {
   const file = `${title.toLowerCase().replace(/\W+/g, '-')}.txt`;
   land(file, 'base\n');
   const c = createCard(db, { title, repoId: repo.id, stage: 'done' });
-  const wt = await createWorktree({ repoPath, worktreeRoot, cardId: c.id, title, baseBranch: 'main' });
+  const wt = await createWorktree({ repoPath, worktreeRoot, cardId: c.id, title, base: 'main' });
   writeFileSync(join(wt.path, file), 'from the card\n');
   run(wt.path, 'add', '-A'); run(wt.path, 'commit', '-qm', `work on ${title}`);
   run(wt.path, 'push', '-q', '-u', 'origin', wt.branch);
