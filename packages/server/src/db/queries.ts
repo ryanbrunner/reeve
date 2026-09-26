@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import {
   RUNNABLE_STAGES,
   isPlaceholderCard,
@@ -68,21 +69,41 @@ export function boardCards(db: Db) {
     .all();
 }
 
+/** A card's project, for the queries that read a task beside the lane it is in. */
+const parent = alias(card, 'parent');
+
 /**
- * The live cards in VIBES MODE on their own, in `boardCards`' shape. What the
- * sweep reads while the board's switch is off, which is nearly always, so it
- * costs one small select every couple of seconds rather than the whole board.
+ * The live cards in VIBES MODE without the board's switch, in `boardCards`'
+ * shape: flagged on their own, or in a live project that is. What the sweep
+ * reads while the board's switch is off, which is nearly always, so it costs
+ * one small select every couple of seconds rather than the whole board.
  *
  * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
- * and a project swept into Planning is a project being run as a stage.
+ * and a project swept into Planning is a project being run as a stage. That
+ * matters more now a project's own row can carry the flag: without it the
+ * project would be the first card its switch moved.
  */
 export function vibesCards(db: Db) {
   return db
     .select({ card })
     .from(card)
-    .where(and(isTask, eq(card.vibes, true), isNull(card.archivedAt)))
+    .leftJoin(parent, eq(card.projectId, parent.id))
+    .where(and(
+      isTask,
+      isNull(card.archivedAt),
+      or(eq(card.vibes, true), and(eq(parent.vibes, true), isNull(parent.archivedAt))),
+    ))
     .orderBy(asc(card.stage), asc(card.position))
     .all();
+}
+
+/**
+ * Whether this card goes without a person, leaving the board's switch aside:
+ * its own flag, or its live project's. Asked of one card at a time, where
+ * `vibesCards` answers for all of them at once.
+ */
+export function inVibes(db: Db, c: Card): boolean {
+  return c.vibes || (c.projectId !== null && liveProject(db, c.projectId)?.vibes === true);
 }
 
 /**

@@ -178,7 +178,7 @@ export function toApiCard(
 }
 
 export function toApiProject(c: Card, laneColor: string | null, taskCount: number): ApiProject {
-  return { id: c.id, title: c.title, repoId: c.repoId, laneColor, taskCount };
+  return { id: c.id, title: c.title, repoId: c.repoId, laneColor, taskCount, vibes: c.vibes };
 }
 
 export function toApiCardEvent(e: CardEvent): ApiCardEvent {

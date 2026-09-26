@@ -162,6 +162,9 @@ export interface ApiCard {
    * VIBES MODE for this card alone: approved, answered, started and merged
    * without anyone asked, while the rest of the board stays calm. Beside the
    * board's own switch rather than under it — with that on, every card goes.
+   * Only this card's own flag: one in a project in VIBES MODE goes too, and
+   * says so on its `ApiProject`. On a project's card it is that project's
+   * switch.
    */
   vibes: boolean;
   /**
@@ -225,6 +228,12 @@ export interface ApiProject {
   laneColor: string | null;
   /** Live tasks under it. */
   taskCount: number;
+  /**
+   * VIBES MODE for every task in this lane, beside each task's own `vibes`
+   * rather than written into it: a task that leaves the lane leaves the mode,
+   * and switching the project off puts back exactly the tasks nobody flagged.
+   */
+  vibes: boolean;
 }
 
 export interface BoardResponse {
