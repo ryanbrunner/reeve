@@ -111,6 +111,13 @@ export interface ApiCard {
    */
   resolvingConflicts: boolean;
   /**
+   * The card's stage run is being started: its worktree is being made, and
+   * `latestRun` does not show the run yet. The card still reads `idle` for
+   * those seconds, which to anything waiting on it looks exactly like a card
+   * nothing will start. In memory like `openingPr`.
+   */
+  startingStage: boolean;
+  /**
    * This card's override for every stage run, above the Settings default for
    * the stage. Null falls through. Suggest ignores both.
    */

@@ -356,6 +356,16 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(archivedCards(db).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)));
   });
 
+  // One card as the board has it. After `/cards/archived`, which it would
+  // otherwise answer for. `reeve card wait` polls this: `/detail` is the whole
+  // card modal and shells out to git, and `/board` is every card there is.
+  api.get('/cards/:id', (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
+    return c.json(toBoardCard(db, card, repo?.name ?? null, repo?.laneColor ?? null));
+  });
+
   api.post('/cards/:id/archive', (c) => {
     const id = c.req.param('id');
     const existing = getCard(db, id);

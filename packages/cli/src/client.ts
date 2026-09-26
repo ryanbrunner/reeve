@@ -2,10 +2,12 @@ import {
   DEFAULT_PORT,
   type ApiCard,
   type ApiError,
+  type ApiQuestion,
   type ApiRepo,
   type ApiRunSummary,
   type BoardResponse,
   type CardDetail,
+  type Stage,
 } from '@reeve/shared';
 import { CliError } from './output.js';
 
@@ -38,11 +40,15 @@ function isRefused(e: unknown): boolean {
 /** fetch says only "fetch failed"; what went wrong is on its cause. */
 const describe = (e: unknown) => String((e as { cause?: unknown })?.cause ?? e);
 
-async function request<T>(path: string): Promise<T> {
+/**
+ * One request, answered or refused. Handed back whole rather than parsed,
+ * because a run's transcript is read as a stream and never as JSON.
+ */
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const url = baseUrl();
   let res: Response;
   try {
-    res = await fetch(`${url}${path}`);
+    res = await fetch(`${url}${path}`, init);
   } catch (e) {
     // `reeve serve` is the launcher the sibling serve card adds; the CLI names
     // it rather than `npm start`, which only works from inside Reeve's checkout.
@@ -55,14 +61,59 @@ async function request<T>(path: string): Promise<T> {
     const message = body.detail ? `${body.error}: ${body.detail}` : body.error;
     throw new CliError(message ?? `HTTP ${res.status} from ${path}`);
   }
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init);
   // Something else on the port, such as Vite's dev server or a Reeve from
   // another checkout, can answer 200 with HTML. That is worth a sentence, not
   // a SyntaxError's stack.
   try {
     return (await res.json()) as T;
   } catch {
-    throw new CliError(`${url}${path} did not answer with JSON — is that Reeve's server?`);
+    throw new CliError(`${baseUrl()}${path} did not answer with JSON — is that Reeve's server?`);
   }
+}
+
+const post = <T>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+const enc = encodeURIComponent;
+
+/** What the routes answer with. Not in @reeve/shared because only the routes and their callers use them. */
+export interface StartRunResponse {
+  ok: true;
+  runId: string;
+  sessionId: string;
+}
+
+export interface ApproveResponse {
+  ok: true;
+  fromStage: Stage;
+  toStage: Stage;
+  /** False only when approving in Done, which has nowhere to go. */
+  moved: boolean;
+}
+
+export interface RejectResponse {
+  ok: true;
+  stage: Stage;
+  revisionRunId: string;
+  forkedFrom: string | null;
+}
+
+/** See `AnswerResult` in the server's answers.ts. */
+export interface AnswerResponse {
+  ok: true;
+  answered: number;
+  of: number;
+  resumed: string | null;
+  blocked?: string;
 }
 
 /**
@@ -76,5 +127,21 @@ export const api = {
   repos: () => request<ApiRepo[]>('/api/repos'),
   detail: (id: string) => request<CardDetail>(`/api/cards/${encodeURIComponent(id)}/detail`),
   /** Newest first, every kind. An unknown id is an empty list rather than a 404, so resolve it first. */
-  runs: (id: string) => request<ApiRunSummary[]>(`/api/cards/${encodeURIComponent(id)}/runs`),
+  runs: (id: string) => request<ApiRunSummary[]>(`/api/cards/${enc(id)}/runs`),
+  card: (id: string) => request<ApiCard>(`/api/cards/${enc(id)}`),
+  run: (id: string) => request<ApiRunSummary>(`/api/runs/${enc(id)}`),
+
+  startRun: (cardId: string) => post<StartRunResponse>(`/api/cards/${enc(cardId)}/run`, {}),
+  approve: (cardId: string, notes?: string) =>
+    post<ApproveResponse>(`/api/cards/${enc(cardId)}/review`, { decision: 'approved', notes }),
+  reject: (cardId: string, notes: string) =>
+    post<RejectResponse>(`/api/cards/${enc(cardId)}/review`, { decision: 'rejected', notes }),
+  questions: (cardId: string) => request<ApiQuestion[]>(`/api/cards/${enc(cardId)}/questions`),
+  answer: (cardId: string, questionId: string, answer: string) =>
+    post<AnswerResponse>(`/api/cards/${enc(cardId)}/questions/${enc(questionId)}/answer`, { answer }),
+  stopRun: (runId: string) => post<ApiRunSummary>(`/api/runs/${enc(runId)}/stop`, {}),
+
+  /** The run's transcript from after `since`, live until the run ends. See ./sse.ts. */
+  events: (runId: string, since: number) =>
+    send(`/api/runs/${enc(runId)}/events?since=${since}`, { headers: { accept: 'text/event-stream' } }),
 };

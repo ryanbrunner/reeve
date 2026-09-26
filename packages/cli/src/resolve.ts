@@ -9,7 +9,7 @@ import {
   type Stage,
 } from '@reeve/shared';
 import { api } from './client.js';
-import { CliError, usageError } from './output.js';
+import { CliError, cardRef, usageError } from './output.js';
 
 /** `in_progress`, `in-progress` and `In Progress` all mean the same column. */
 export function parseStage(input: string): Stage {
@@ -93,4 +93,44 @@ export async function resolveCard(ref: string): Promise<{ card: Addressable; car
   const [board, archived] = await Promise.all([api.board(), api.archived()]);
   const cards = addressable(board, archived);
   return { card: matchCard(cards, ref), cards };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `142`, `#142` or `reeve#142`. */
+const NUMBER = /^(?:([^#\s]*)#)?(\d+)$/;
+
+const ambiguous = (ref: string, cards: ApiCard[]) =>
+  new CliError(`'${ref}' could be ${cards.map((c) => `${cardRef(c)} (${c.id.slice(0, 8)})`).join(' or ')}`);
+
+/**
+ * The card a person or a script named, in full, from the board alone.
+ *
+ * Beside `resolveCard` rather than instead of it: that one reaches archived
+ * cards and projects, and answers with only enough to name them, which is what
+ * `show` and `runs` want. This one answers with the card itself, because the
+ * verbs that drive a run read its stage — and it stays on the board on purpose,
+ * since nothing that drives runs has any business with an archived card.
+ *
+ * A number is per repo, so `142` is only enough while one repo has a #142;
+ * `reeve#142` says which. Digits alone are tried as a number first and then as
+ * the start of an id, since an id can begin with eight of them.
+ */
+export async function resolveCardOnBoard(ref: string): Promise<ApiCard> {
+  if (UUID.test(ref)) return api.card(ref.toLowerCase());
+
+  const { cards } = await api.board();
+  const number = NUMBER.exec(ref);
+  if (number) {
+    const [, repo, digits] = number;
+    const matches = cards.filter((c) => c.number === Number(digits) && (!repo || c.repoName === repo));
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length > 1) throw ambiguous(ref, matches);
+    if (ref.includes('#')) throw new CliError(`no card ${ref} on the board`);
+  }
+
+  const prefix = ref.toLowerCase();
+  const matches = cards.filter((c) => c.id.startsWith(prefix));
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) throw ambiguous(ref, matches);
+  throw new CliError(`no card '${ref}' on the board`);
 }
