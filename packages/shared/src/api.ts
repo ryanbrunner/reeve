@@ -124,6 +124,14 @@ export interface ApiCard {
    * make a card look like Claude is working on it.
    */
   latestRun: ApiRunSummary | null;
+  /**
+   * The card has an In Progress run that finished, which is what Testing and
+   * Done need before a card may enter them (see `stageEntryRefusal`). Derived
+   * from the runs, never stored. `latestRun` cannot answer it: it only ever
+   * holds the current stage's run, and the question is asked of cards that are
+   * not in In Progress.
+   */
+  implemented: boolean;
   /** Set when the card has been taken off the board. Nothing is deleted; restoring clears it. */
   archivedAt: number | null;
   createdAt: number;

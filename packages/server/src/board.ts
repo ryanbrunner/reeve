@@ -1,6 +1,14 @@
-import { deriveActivity, isRunnable, type ApiCard, type CardActivity, type RunnableStage, type Stage } from '@reeve/shared';
+import {
+  deriveActivity,
+  isRunnable,
+  stageEntryRefusal,
+  type ApiCard,
+  type CardActivity,
+  type RunnableStage,
+  type Stage,
+} from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { latestClaudeRunForStage } from './db/queries.js';
+import { hasImplementationRun, latestClaudeRunForStage } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
@@ -36,7 +44,18 @@ export function toBoardCard(
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
     resolvingConflicts: isResolvingConflicts(card.id),
+    implemented: hasImplementationRun(db, card.id),
   });
+}
+
+/**
+ * Why this card may not go to `to`, or null if it may. For anything that would
+ * put a card into a column on a person's behalf — the move route, approval,
+ * SICKO MODE — and not for `moveCard`, which the spikes call directly to set a
+ * card up wherever they need it.
+ */
+export function entryRefusal(db: Db, card: Card, to: Stage): string | null {
+  return stageEntryRefusal(card.stage as Stage, to, hasImplementationRun(db, card.id));
 }
 
 /**
