@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { isTerminal, type CardDetail } from '@reeve/shared';
+import { isTerminal, type ApiCriterion, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
@@ -238,6 +238,11 @@ function Criteria({ detail }: { detail: CardDetail }) {
       ? `Suggest failed: ${last.errorMessage ?? 'the run was interrupted'}`
       : null);
 
+  // Until Testing has judged something, the list stays as it was drawn before
+  // there were verdicts: no mark column, and the footnote saying what's to come.
+  // That covers a new card, and a Testing run in progress, which clears them.
+  const judged = detail.criteria.some((c) => c.verdict);
+
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
@@ -257,25 +262,22 @@ function Criteria({ detail }: { detail: CardDetail }) {
       {detail.criteria.length === 0 && adding === null ? (
         <Empty>Nothing yet. Write what done means, or ask Claude to suggest it.</Empty>
       ) : (
-        <ol className="rounded-md border border-(--color-edge) bg-(--color-ink)">
+        // Clipped, so a failed first or last row's wash keeps to the corners.
+        <ol className="overflow-hidden rounded-md border border-(--color-edge) bg-(--color-ink)">
           {detail.criteria.map((c, i) => (
             <li
               key={c.id}
-              className="group flex gap-3 px-3 py-[7px] not-first:border-t not-first:border-(--color-edge)"
+              className={`group flex items-start gap-3 px-3 py-[7px] not-first:border-t not-first:border-(--color-edge) ${
+                c.verdict === 'fail' ? 'bg-red-500/[0.06]' : ''
+              }`}
             >
               <span className="w-3 shrink-0 font-mono text-[11px]/5 text-(--color-muted)">{i + 1}</span>
-              <span className="grow text-sm/5 text-(--color-text)">{c.text}</span>
-              {/* A verdict, once Testing has reached this one. */}
-              {c.verdict && (
-                <span
-                  title={c.evidence ?? undefined}
-                  className={`shrink-0 font-mono text-[11px]/5 ${
-                    c.verdict === 'pass' ? 'text-emerald-300' : 'text-red-300'
-                  }`}
-                >
-                  {c.verdict === 'pass' ? '✓' : '✕'} {c.evidence}
-                </span>
-              )}
+              {judged && <Mark verdict={c.verdict} />}
+              {/* min-w-0, or the evidence under it would set the row's width. */}
+              <div className="flex min-w-0 grow flex-col">
+                <span className="text-sm/5 text-(--color-text)">{c.text}</span>
+                {judged && <Evidence criterion={c} />}
+              </div>
               <button
                 type="button"
                 aria-label={`Remove criterion ${i + 1}`}
@@ -291,6 +293,8 @@ function Criteria({ detail }: { detail: CardDetail }) {
               <span className="w-3 shrink-0 font-mono text-[11px]/5 text-(--color-muted)">
                 {detail.criteria.length + 1}
               </span>
+              {/* The mark's width, so what is typed lines up with the text above. */}
+              {judged && <span className="w-3 shrink-0" />}
               <form
                 className="flex grow gap-2"
                 onSubmit={(e) => {
@@ -314,11 +318,82 @@ function Criteria({ detail }: { detail: CardDetail }) {
           )}
         </ol>
       )}
-      <span className="font-mono text-[10px]/4 text-(--color-muted)">
-        Claude checks each one in Testing and links the evidence here
-      </span>
+      {judged ? (
+        <Tally criteria={detail.criteria} />
+      ) : (
+        <span className="font-mono text-[10px]/4 text-(--color-muted)">
+          Claude checks each one in Testing and links the evidence here
+        </span>
+      )}
       {failure && <p className="text-sm/5 text-red-300">{failure}</p>}
     </section>
+  );
+}
+
+/** Where a person looks first to see what failed, so it has a column of its own. */
+function Mark({ verdict }: { verdict: ApiCriterion['verdict'] }) {
+  const [glyph, tone, label] =
+    verdict === 'pass'
+      ? ['✓', 'text-emerald-300', 'Passed']
+      : verdict === 'fail'
+        ? ['✕', 'text-red-300', 'Failed']
+        : ['–', 'text-(--color-muted)', 'Not checked'];
+  return (
+    <span title={label} className={`w-3 shrink-0 font-mono text-[11px]/5 ${tone}`}>
+      {glyph}
+    </span>
+  );
+}
+
+/**
+ * What Testing saw, under the criterion rather than beside it. It is free text:
+ * a test name, a path with no spaces in it, or a sentence of output. Beside the
+ * criterion, the long ones squeezed it to a sliver or ran off the modal, so here
+ * it wraps wherever it has to.
+ */
+function Evidence({ criterion: c }: { criterion: ApiCriterion }) {
+  // Criteria are only unjudged beside judged ones when they were added since
+  // the last run, because a run clears every verdict when it starts.
+  if (!c.verdict) {
+    return (
+      <span className="mt-0.5 font-mono text-[11px]/4 text-(--color-muted)">
+        Not checked in the last Testing run
+      </span>
+    );
+  }
+  if (!c.evidence?.trim()) return null;
+  return (
+    <p
+      className={`mt-0.5 font-mono text-[11px]/4 whitespace-pre-wrap [overflow-wrap:anywhere] ${
+        c.verdict === 'pass' ? 'text-(--color-muted)' : 'text-red-300'
+      }`}
+    >
+      {c.evidence.trim()}
+    </p>
+  );
+}
+
+/** The footnote, once there are verdicts to count. A zero is left out rather than coloured. */
+function Tally({ criteria }: { criteria: ApiCriterion[] }) {
+  const passed = criteria.filter((c) => c.verdict === 'pass').length;
+  const failed = criteria.filter((c) => c.verdict === 'fail').length;
+  const unchecked = criteria.length - passed - failed;
+  const parts = [
+    { n: passed, text: 'passed', tone: 'text-emerald-300' },
+    { n: failed, text: 'failed', tone: 'text-red-300' },
+    { n: unchecked, text: 'not checked', tone: 'text-(--color-muted)' },
+  ].filter((p) => p.n > 0);
+  return (
+    <span className="font-mono text-[10px]/4 text-(--color-muted)">
+      {parts.map((p, i) => (
+        <span key={p.text}>
+          {i > 0 && ' · '}
+          <span className={p.tone}>
+            {p.n} {p.text}
+          </span>
+        </span>
+      ))}
+    </span>
   );
 }
 
