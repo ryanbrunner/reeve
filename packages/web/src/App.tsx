@@ -18,6 +18,7 @@ import {
   type BoardResponse,
   type CreateCardBody,
   type MoveCardBody,
+  type UsageState,
 } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/Column.js';
@@ -32,6 +33,7 @@ import { SickoLightsBehind, SickoLightsOver } from './sicko/Lights.js';
 import { SickoSwitch } from './sicko/Switch.js';
 import { SickoTicker } from './sicko/Ticker.js';
 import { useSicko, type Sicko } from './sicko/useSicko.js';
+import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
 
 export function App() {
@@ -295,8 +297,12 @@ export function App() {
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
             cardCount={cards.length}
+            usage={data?.usage ?? null}
             sicko={sicko}
           />
+          {/* Above the ticker, which is decoration: this is not. SICKO MODE does
+              not stop at the limit, so in it this is the only thing that says. */}
+          <UsageWarning usage={data?.usage ?? null} />
           {sicko.sick && <SickoTicker />}
           {/* Nothing is draggable in SICKO MODE, so the drag machinery is left
               out entirely rather than made inert around an overlay it would
@@ -393,7 +399,7 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
+function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, usage, sicko }: {
   repos: ApiRepo[];
   onAddProject: () => void;
   /** SICKO MODE's Ship it: a named card, made without opening it. */
@@ -403,6 +409,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
+  usage: UsageState | null;
   sicko: Sicko;
 }) {
   // Only SICKO MODE's Ship it picks a repo here. On the calm board a card is
@@ -428,6 +435,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
       <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
         {cardCount} cards
       </span>
+      <UsageMeter usage={usage} />
       {/* In SICKO MODE the idea is typed here rather than into a modal: the card
           it makes is named, so the sweep can take it immediately, and nothing
           covers the board while it goes. */}
