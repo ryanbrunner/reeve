@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   DndContext,
   DragOverlay,
@@ -104,6 +104,36 @@ export function App() {
   useEffect(() => {
     if (freshId && openCard !== freshId) setFreshId(null);
   }, [openCard, freshId]);
+
+  // A card closed with nothing said about it is thrown away, so a new card
+  // opened and shut again leaves no "Untitled" behind. Every card is offered
+  // up, not just a fresh one, and the server keeps anything that is not blank.
+  // This watches the open card changing rather than hooking `close`, so it
+  // also catches Back, which never calls it, and opening a different card.
+  //
+  // It waits for every save in flight first. The title and the brief save on
+  // blur, and a click on the scrim or the close button blurs the field on
+  // mousedown, before the click that closes the modal. The rename is already
+  // on its way by the time this runs. Asking straight away would race it, and
+  // a card named a moment ago could lose. Mutations outlive the modal that
+  // started them, so they are still counted once it is gone.
+  const openNow = useRef(openCard);
+  const lastOpen = useRef(openCard);
+  useEffect(() => {
+    openNow.current = openCard;
+    const left = lastOpen.current;
+    lastOpen.current = openCard;
+    if (!left || left === openCard) return;
+    void whenSaved(qc)
+      .then(async () => {
+        // Back, then Forward before the saves landed: it is open again.
+        if (openNow.current === left) return;
+        const { deleted } = await api.discardCard(left);
+        if (deleted) await qc.invalidateQueries({ queryKey: ['board'] });
+      })
+      // Nothing to show for it. At worst a blank card stays on the board.
+      .catch(() => {});
+  }, [openCard, qc]);
 
   /**
    * The ghost card makes a card and opens it, because criteria and context can
@@ -345,6 +375,21 @@ export function App() {
       )}
     </div>
   );
+}
+
+/**
+ * Resolves once no mutation is in flight. A plain promise, not a mutation, so
+ * a discard waiting here is never itself what another one waits on.
+ */
+function whenSaved(qc: QueryClient): Promise<void> {
+  return new Promise((resolve) => {
+    if (qc.isMutating() === 0) return resolve();
+    const stop = qc.getMutationCache().subscribe(() => {
+      if (qc.isMutating() > 0) return;
+      stop();
+      resolve();
+    });
+  });
 }
 
 /**
