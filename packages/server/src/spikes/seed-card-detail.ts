@@ -479,7 +479,7 @@ if (shot.unavailable) {
   }
 }
 
-console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state`);
+console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state, and one of them suggested`);
 console.log('  idle · needs_input · running · error · needs_review');
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');
