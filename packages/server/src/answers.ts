@@ -8,10 +8,9 @@ import {
   questionsForRun,
 } from './db/queries.js';
 import type { Card, CardEventActor, Question } from './db/schema.js';
-import { checkWorktree } from './git/worktree.js';
-import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { stageDefinition } from './stages/index.js';
+import { continueStage } from './startStage.js';
 
 export interface AnswerResult {
   answered: number;
@@ -71,20 +70,20 @@ export async function recordAnswer(
   if (!isRunnable(card.stage as Stage)) return blocked('stage has no Claude work');
   const stage = stageDefinition(card.stage as never);
   if (!stage) return blocked('stage not implemented yet');
-  const health = await checkWorktree(repo.repoPath, card.worktreePath);
-  if (health.state !== 'ok') return blocked('card has no usable worktree');
 
   // Fork the run that ASKED, not simply the latest one: those are the same
   // run today, and would quietly stop being so the moment anything else can
   // start one in between.
   const asked = question.runId ? getRun(db, question.runId) : null;
 
-  const handle = startClaudeRun({
-    db, writer, card, repo, stage,
-    worktreePath: health.path,
+  // Waits for any setup the worktree is owed, the same as a revision: the run
+  // that asked may have started in a tree whose setup failed.
+  const resumed = await continueStage(db, writer, card, repo, {
+    stage,
     answers: siblings.map((q) => ({ question: q.text, answer: q.answer ?? '' })),
     resumeSessionId: asked?.sessionId ?? null,
     parentRunId: asked?.id ?? null,
   });
-  return { answered: siblings.length, of: siblings.length, resumed: handle.runId };
+  if (!resumed.ok) return blocked(resumed.error);
+  return { answered: siblings.length, of: siblings.length, resumed: resumed.runId };
 }
