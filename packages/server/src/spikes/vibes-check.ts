@@ -167,8 +167,14 @@ await vibesSweep(db, writer);
 const soloStageAfterOff = getCard(db, solo.id)!.stage;
 const soloReviewsAfterOff = actorsOf(solo.id, 'reviewed');
 
-const ok = (label: string, got: unknown, want: unknown) =>
-  console.log(`${JSON.stringify(got) === JSON.stringify(want) ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}`);
+// Counted, not just printed: two ✗ lines in the single-card section went
+// unnoticed across several merges while this always exited 0.
+let failed = 0;
+const ok = (label: string, got: unknown, want: unknown) => {
+  const pass = JSON.stringify(got) === JSON.stringify(want);
+  if (!pass) failed++;
+  console.log(`${pass ? '✓' : '✗'} ${label}: ${JSON.stringify(got)}${pass ? '' : ` (wanted ${JSON.stringify(want)})`}`);
+};
 
 console.log('\n--- with the switch off ---');
 ok('a backlog card is left alone', stayedPut, 'backlog');
@@ -210,4 +216,5 @@ ok('tokens count the runs since, without cache reads', state.spendTokens, 66_200
 console.log('log:');
 for (const line of state.log) console.log(`  ◆ ${line}`);
 
-process.exit(0);
+console.log(failed === 0 ? '\nall VIBES MODE checks pass' : `\n${failed} FAILED`);
+process.exit(failed === 0 ? 0 : 1);
