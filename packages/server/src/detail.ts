@@ -15,6 +15,7 @@ import type { Db } from './db/client.js';
 import {
   assetsFor,
   cardEventsFor,
+  cardsSuggestedBy,
   cardsWithRepo,
   criteriaFor,
   differencesFor,
@@ -68,6 +69,12 @@ export async function cardDetail(
     dependencies: {
       dependsOn: linkedCards(db, board.dependsOn.map((d) => d.id)),
       dependents: linkedCards(db, board.dependents),
+    },
+    suggestions: {
+      suggestedBy: board.suggestedBy ? (linkedCards(db, [board.suggestedBy.id])[0] ?? null) : null,
+      // Off the rows rather than `board.suggestions`, which is live cards only:
+      // one archived since was still suggested, and the rail says so.
+      suggested: linkedCards(db, cardsSuggestedBy(db, card.id).map((c) => c.id)),
     },
     questions: current ? questionsForRun(db, current.id).map(toApiQuestion) : [],
     plan: latestPlan(claudeRuns),

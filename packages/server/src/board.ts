@@ -9,10 +9,10 @@ import {
 } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import {
-  dependencyLinks,
+  cardLinks,
   hasImplementationRun,
   latestClaudeRunForStage,
-  type DependencyLinks,
+  type CardLinks,
 } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
@@ -39,15 +39,15 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
 }
 
 /**
- * `links` is for a caller mapping many cards, which reads the dependency table
- * once and hands the lookup to each. Left out, only this card's rows are read.
+ * `links` is for a caller mapping many cards, which reads every link once and
+ * hands the lookup to each. Left out, only this card's rows are read.
  */
 export function toBoardCard(
   db: Db,
   card: Card,
   repoName: string | null,
   laneColor: string | null,
-  links: (id: string) => DependencyLinks = dependencyLinks(db, card.id),
+  links: (id: string) => CardLinks = cardLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
   // Only Done offers a resolution. A card dragged back for another round keeps

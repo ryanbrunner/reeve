@@ -1,5 +1,5 @@
 import type { Db } from './db/client.js';
-import { addDependency, dependencyLinks, getCard, type DependencyLinks } from './db/queries.js';
+import { addDependency, cardLinks, getCard, type CardLinks } from './db/queries.js';
 import type { Card } from './db/schema.js';
 
 /**
@@ -30,7 +30,7 @@ export function linkDependency(db: Db, card: Card, dependsOnId: string): LinkRes
   // Checked against every link, archived cards' included: a loop through a
   // card nobody can see is still a loop. Nothing is awaited between this and
   // the insert, so no other request can close one in between.
-  const loop = chain(dependencyLinks(db), target.id, card.id);
+  const loop = chain(cardLinks(db), target.id, card.id);
   if (loop) {
     const label = (id: string) => `#${getCard(db, id)?.number ?? '?'}`;
     const between = loop.slice(1, -1);
@@ -52,7 +52,7 @@ export function linkDependency(db: Db, card: Card, dependsOnId: string): LinkRes
  * null when `from` does not already wait on `to`. Breadth-first so the path in
  * the refusal is the one a person would find by following the links.
  */
-function chain(links: (id: string) => DependencyLinks, from: string, to: string): string[] | null {
+function chain(links: (id: string) => CardLinks, from: string, to: string): string[] | null {
   const reachedFrom = new Map<string, string | null>([[from, null]]);
   // A for-of over an array visits what is pushed onto it mid-loop, which makes
   // it the queue as well.

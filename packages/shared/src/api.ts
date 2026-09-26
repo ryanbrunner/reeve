@@ -175,6 +175,18 @@ export interface ApiCard {
    * many.
    */
   dependents: string[];
+  /**
+   * The card whose run suggested this one, or null for a card a person made.
+   * Named for the reason `dependsOn` is: the suggester has often merged and
+   * left the board by the time anyone looks. Set by the run and by nothing
+   * else — no route takes it, so it cannot be edited.
+   */
+  suggestedBy: ApiCardLink | null;
+  /**
+   * Live cards this one's runs suggested, by id, for the same reason
+   * `dependents` is: the board lights them up when this card is hovered.
+   */
+  suggestions: string[];
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
