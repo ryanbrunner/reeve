@@ -11,8 +11,13 @@
  *   - a card whose only dependency is in Done: satisfied, not blocked
  *   - a card waiting on five, which names three and says +2
  *   - cards with several dependents
+ *   - cards suggested by another card's run, one of them by the card that
+ *     merged and was archived, beside a suggester that is also a dependency,
+ *     so the pink links can be told from the violet ones on hover
  *
- * Nothing in the app writes dependencies yet, so the rows go straight in.
+ * Nothing in the app writes dependencies yet, so the rows go straight in. A
+ * suggestion is only ever made by a run, so those go through `createCard`
+ * with the link a run would give them.
  * Seed a scratch database rather than your own:
  *
  *   REEVE_DB=/tmp/reeve-deps.db npx tsx packages/server/src/spikes/seed-dependencies.ts
@@ -75,6 +80,17 @@ waits([cdn], lazy);
 
 task('Fix the flaky tax rounding test', 'backlog', api.id);
 
+// What runs suggested along the way, in Backlog beside their suggester as
+// `recordSuggestions` leaves them.
+const suggested = (title: string, by: { id: string; repoId: string | null; projectId: string | null }) =>
+  createCard(db, {
+    title, stage: 'backlog', repoId: by.repoId, projectId: by.projectId, suggestedById: by.id, actor: 'claude',
+    body: `Seeded by seed-dependencies: suggested while working on another card.`,
+  });
+suggested('Index saved_for_later for the cart query', store);
+suggested('Cover the saved items migration with a rollback test', store);
+suggested('Drop the unused wishlist table', schema);
+
 // What the board will say, read back through the route the browser polls.
 const board = (await (await app.request('/api/board')).json()) as BoardResponse;
 for (const c of board.cards) {
@@ -84,5 +100,7 @@ for (const c of board.cards) {
     `#${c.number} ${c.title} [${c.stage}]`,
     on ? `${blocked ? 'BLOCKED on' : 'satisfied:'} ${on}` : '',
     c.dependents.length ? `needed by ${c.dependents.length}` : '',
+    c.suggestedBy ? `suggested by ${c.suggestedBy.repoName}#${c.suggestedBy.number}` : '',
+    c.suggestions.length ? `suggested ${c.suggestions.length}` : '',
   );
 }

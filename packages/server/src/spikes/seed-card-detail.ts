@@ -317,6 +317,10 @@ for (const t of PLAN.acceptance_criteria.slice(0, 4)) addCriterion(db, working.i
 const broken = card('Fix tax rounding on refunds', 'Partial refunds are a cent out when the order had a discount.', 'testing', 60 * 30);
 pastRun({ cardId: broken.id, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.031, tokens: PLANNED, startedMinsAgo: 300, ranMins: 9 });
 pastRun({ cardId: broken.id, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.094, tokens: BUILT, startedMinsAgo: 240, ranMins: 39 });
+// What that run's suggestion became, so the rail has both ends to show.
+for (const t of IMPL.suggested_tasks) {
+  createCard(db, { title: t.title, body: t.body, repoId: storefront.id, suggestedById: broken.id, actor: 'claude' });
+}
 pastRun({
   cardId: broken.id, stage: 'testing', status: 'failed', usd: 0.002, tokens: STALLED,
   startedMinsAgo: 14, ranMins: 0.2,
