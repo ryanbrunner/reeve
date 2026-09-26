@@ -294,7 +294,6 @@ export function App() {
             addError={create.error}
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
-            cardCount={cards.length}
             sicko={sicko}
           />
           {sicko.sick && <SickoTicker />}
@@ -393,7 +392,7 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
+function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, sicko }: {
   repos: ApiRepo[];
   onAddProject: () => void;
   /** SICKO MODE's Ship it: a named card, made without opening it. */
@@ -402,7 +401,6 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
   addError: Error | null;
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
-  cardCount: number;
   sicko: Sicko;
 }) {
   // Only SICKO MODE's Ship it picks a repo here. On the calm board a card is
@@ -425,9 +423,6 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
         <Glyph />
         <span className={sick ? 'sk-wm' : ''}>Reeve</span>
       </h1>
-      <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
-        {cardCount} cards
-      </span>
       {/* In SICKO MODE the idea is typed here rather than into a modal: the card
           it makes is named, so the sweep can take it immediately, and nothing
           covers the board while it goes. */}
