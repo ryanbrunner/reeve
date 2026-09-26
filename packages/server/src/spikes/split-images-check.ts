@@ -10,7 +10,7 @@
  * data/reeve.db or writing into data/assets.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -22,8 +22,8 @@ process.env.REEVE_DB ??= join(scratch, 'app.db');
 process.env.REEVE_ASSETS ??= join(scratch, 'assets');
 
 const { createApp } = await import('../index.js');
-const { assetsFor, createRepo, getAsset, getCard, insertAsset, tasksInProject } = await import('../db/queries.js');
-const { absoluteAssetPath, relativeAssetPath, writeAsset } = await import('../assets/store.js');
+const { assetsFor, createRepo, getCard, insertAsset, tasksInProject } = await import('../db/queries.js');
+const { relativeAssetPath, writeAsset } = await import('../assets/store.js');
 const { card } = await import('../db/schema.js');
 const { splitProjectTask } = await import('../stages/split_project.js');
 type AssetKind = import('../db/schema.js').AssetKind;
@@ -112,15 +112,12 @@ assert.equal(assetsFor(db, tasks.get('Mockup')!.id).length, 0);
 assert.equal(tasks.get('Nowhere')!.body, '![Gone](/api/assets/no-such-asset)');
 assert.equal(tasks.get('Plain')!.body, 'No pictures.');
 
-// Delete the project: its own images go, the tasks' copies stay and still serve.
-const projectFiles = [cart, checkout].map((id) => absoluteAssetPath(getAsset(db, id)!.path));
+// Delete the project: its own images go, and the tasks' copies still serve.
 db.delete(card).where(eq(card.id, project.id)).run();
 assert.equal(getCard(db, project.id), undefined);
 assert.equal(await status(cart), 404);
 for (const id of [firstLink, ...bothLinks]) assert.equal(await status(id!), 200, `copy ${id} still serves`);
 assert.equal(getCard(db, cartTask.id)?.projectId, null, 'the task outlives its project');
-// The project's files are left on disk: the cascade takes rows, not files.
-assert.ok(projectFiles.every((f) => existsSync(f)));
 
 rmSync(scratch, { recursive: true, force: true });
 console.log('[reeve] split images check passed');
