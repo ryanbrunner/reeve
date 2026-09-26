@@ -68,6 +68,9 @@ export const CARD_EVENT_KINDS = [
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
+  // `gh` refused to merge the pull request: from the Done band's Merge, or
+  // SICKO MODE landing it. Success is `merged`, written once GitHub says so.
+  'merge_failed',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

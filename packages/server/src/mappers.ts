@@ -136,7 +136,10 @@ export function toApiCard(
   laneColor: string | null,
   latestRun: Run | null,
   activity: CardActivity,
-  derived: Pick<ApiCard, 'openingPr' | 'prConflicting' | 'resolvingConflicts' | 'startingStage' | 'implemented'>,
+  derived: Pick<
+    ApiCard,
+    'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage' | 'implemented'
+  >,
   links: Pick<ApiCard, 'dependsOn' | 'dependents'>,
 ): ApiCard {
   return {

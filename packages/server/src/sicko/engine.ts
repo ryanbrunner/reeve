@@ -120,7 +120,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     const last = lastLandAttempt.get(card.id) ?? 0;
     if (Date.now() - last < RETRY_LAND_MS) return;
     lastLandAttempt.set(card.id, Date.now());
-    await landPullRequest(db, card, repo);
+    await landPullRequest(db, card, repo, 'claude');
     return;
   }
 
