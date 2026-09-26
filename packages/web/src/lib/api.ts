@@ -1,4 +1,5 @@
 import type {
+  AddDependencyBody,
   ApiAsset,
   ApiCard,
   ApiCardEvent,
@@ -78,6 +79,7 @@ export const api = {
       model?: string | null;
       effort?: EffortLevel | null;
       generateMockups?: boolean;
+      sicko?: boolean;
     },
   ) => patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
@@ -101,6 +103,11 @@ export const api = {
   addRef: (id: string, body: { kind: ApiCardRef['kind']; value: string; label?: string | null }) =>
     post(`/api/cards/${id}/refs`, body).then(json<ApiCardRef>),
   deleteRef: (id: string, refId: string) => del(`/api/cards/${id}/refs/${refId}`).then(json<{ ok: true }>),
+  /** Refused, with the reason, for a project, the card itself, or a link that would close a loop. */
+  addDependency: (id: string, body: AddDependencyBody) =>
+    post(`/api/cards/${id}/dependencies`, body).then(json<{ ok: true }>),
+  removeDependency: (id: string, dependsOnId: string) =>
+    del(`/api/cards/${id}/dependencies/${dependsOnId}`).then(json<{ ok: true }>),
 
   // --- talking back to Claude ---
   /** Answering the last open question resumes the run that asked. */

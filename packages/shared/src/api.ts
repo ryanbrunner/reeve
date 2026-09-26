@@ -8,6 +8,9 @@ import type { EffortLevel, RunKind, RunStatus, StopReason } from './runs.js';
  * never pulls in the ORM. Timestamps are epoch milliseconds.
  */
 
+/** Where the server listens when `REEVE_PORT` does not say, and so where the CLI looks for it. */
+export const DEFAULT_PORT = 4317;
+
 export interface ApiRepo {
   id: string;
   name: string;
@@ -115,6 +118,20 @@ export interface ApiCard {
   effort: EffortLevel | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
+  /**
+   * SICKO MODE for this card alone: approved, answered, started and merged
+   * without anyone asked, while the rest of the board stays calm. Beside the
+   * board's own switch rather than under it — with that on, every card goes.
+   */
+  sicko: boolean;
+  /**
+   * The tasks this one depends on, by id, oldest link first. Archived ones
+   * included, so an id here need not be on the board. Always empty for a
+   * project: only tasks take part.
+   */
+  dependsOn: string[];
+  /** The tasks that depend on this one: the same links, read the other way. */
+  dependents: string[];
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -152,6 +169,8 @@ export interface BoardResponse {
   cards: ApiCard[];
   /** Null while SICKO MODE is off, which is nearly always. */
   sicko: SickoState | null;
+  /** Null until a run has reported one, and always under API-key auth, which has no such limits. */
+  usage: UsageState | null;
 }
 
 /**
@@ -183,6 +202,34 @@ export interface SickoState {
   log: string[];
 }
 
+/** How close a limit is: fine, past the point the server warns at, or spent. */
+export type UsageLevel = 'ok' | 'warning' | 'rejected';
+
+export interface UsageWindow {
+  /** A fraction, 0–1. The stream sends it that way; the experimental usage API's 0–100 is not used. */
+  utilization: number;
+  /** When the window rolls over, in epoch milliseconds. The stream sends seconds; converted on the server. */
+  resetsAt: number;
+  level: UsageLevel;
+}
+
+/**
+ * The subscription's rate limits, as last reported by a Claude run.
+ *
+ * Read off the `rate_limit_event` messages every run streams, so it moves only
+ * while Reeve is running something — and Claude used anywhere else draws on the
+ * same limits. `asOf` is when it was reported, which is what keeps an old
+ * reading honest. A window whose reset has passed comes back at 0 and `ok`
+ * rather than at the number it was left on.
+ */
+export interface UsageState {
+  fiveHour: UsageWindow | null;
+  sevenDay: UsageWindow | null;
+  /** The worse of the two. */
+  level: UsageLevel;
+  asOf: number;
+}
+
 /**
  * The title a card is born with, before anyone has typed one.
  *
@@ -199,7 +246,7 @@ export interface CreateCardBody {
   body?: string;
   repoId?: string | null;
   stage?: Stage;
-  /** Omitted is on. */
+  /** Omitted is off. */
   generateMockups?: boolean;
   /** Defaults to a task. */
   kind?: CardKind;
@@ -294,6 +341,11 @@ export interface MoveCardBody {
   stage: Stage;
   index: number;
   projectId?: string | null;
+}
+
+/** Make the card this is sent for depend on another task. */
+export interface AddDependencyBody {
+  dependsOnId: string;
 }
 
 export interface ApiError {

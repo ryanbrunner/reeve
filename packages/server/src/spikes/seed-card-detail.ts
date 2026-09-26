@@ -198,7 +198,9 @@ function pastRun(opts: {
 }
 
 function card(title: string, body: string, stage: CardStage, minsAgo: number) {
-  const c = createCard(db, { title, body, repoId: storefront.id });
+  // Ticked, as every card was before mockups became opt-in, so the ones
+  // seeded with drawn mockups sit beside a box that asked for them.
+  const c = createCard(db, { title, body, repoId: storefront.id, generateMockups: true });
   if (stage !== 'backlog') {
     for (const s of ['planning', 'in_progress', 'testing', 'done'] as CardStage[]) {
       moveCard(db, c.id, s, 0);
