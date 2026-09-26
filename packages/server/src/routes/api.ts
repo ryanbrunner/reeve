@@ -403,12 +403,12 @@ export function apiRoutes(db: Db, writer: EventWriter) {
         }, 409);
       }
       if (open.length > 0 && !parsed.data.detachOpen) {
-        const named = open.slice(0, 3).map((t) => `#${t.number} ${t.title}`).join(', ');
+        const named = [...open].sort((a, b) => a.number - b.number).slice(0, 3).map((t) => `#${t.number} ${t.title}`);
         const more = open.length > 3 ? ` and ${open.length - 3} more` : '';
         return c.json({
           error: 'project has open cards',
-          detail: `${open.length} ${open.length === 1 ? 'card is' : 'cards are'} not Done (${named}${more}).`
-            + ' Archive with detachOpen to move them to No project.',
+          detail: `${open.length} ${open.length === 1 ? 'card is' : 'cards are'} not Done (${named.join(', ')}${more}).`
+            + ' Archive with detachOpen (--detach-open) to move them to No project.',
         }, 409);
       }
       const counts = archiveProject(db, id);
