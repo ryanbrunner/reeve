@@ -288,12 +288,6 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
     // VIBES that would rerun it every sweep and never start — but the card
     // says so, since the stage's own checks will fail for the same reason.
     const setup = await setupSettled(card.id);
-    if (setup && setup.exitCode !== 0 && setup.stopReason !== 'cancelled_by_user') {
-      insertCardEvent(db, {
-        cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
-        body: `The repo's setup command failed (run ${setup.runId}), so the stage started in a worktree it did not finish setting up.`,
-      });
-    }
 
     // Read again, and nothing awaited from here to the run: the worktree has
     // just been written to the row, and the card may have been dragged on, or
@@ -316,6 +310,13 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
       return { ok: false, status: 429, error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}` };
     }
 
+    // Only once the stage is certain to start, which is what the note says.
+    if (setup && setup.exitCode !== 0 && setup.stopReason !== 'cancelled_by_user') {
+      insertCardEvent(db, {
+        cardId: fresh.id, actor: 'human', kind: 'note', stage: fresh.stage,
+        body: `The repo's setup command failed (run ${setup.runId}), so the stage started in a worktree it did not finish setting up.`,
+      });
+    }
     const handle = startClaudeRun({ db, writer, card: fresh, repo, stage, worktreePath: path });
     return { ok: true, runId: handle.runId, sessionId: handle.sessionId };
   } finally {
