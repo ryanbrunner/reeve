@@ -99,9 +99,10 @@ if (isEntry) {
 
   // The other half of SICKO MODE. Out here for the same reason: the sweep
   // starts Claude runs and talks to GitHub, and a spike that builds an app
-  // should do neither. It reads the switch itself and does nothing while it is
-  // off, which is a cheap settings read every couple of seconds and the price
-  // of the switch being one row rather than a process that has to be restarted.
+  // should do neither. It reads the switch itself and, while it is off, looks
+  // only at cards flagged on their own — a cheap settings read and one small
+  // select every couple of seconds, and the price of the switches being rows
+  // rather than a process that has to be restarted.
   const sweep = () => {
     sickoSweep(db, writer).catch((e) => console.error(`[reeve] sicko sweep failed: ${String(e)}`));
   };

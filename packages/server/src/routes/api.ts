@@ -62,6 +62,7 @@ const updateCardSchema = z.object({
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
   generateMockups: z.boolean().optional(),
+  sicko: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({

@@ -60,6 +60,23 @@ export function boardCards(db: Db) {
 }
 
 /**
+ * The live cards in SICKO MODE on their own, in `boardCards`' shape. What the
+ * sweep reads while the board's switch is off, which is nearly always, so it
+ * costs one small select every couple of seconds rather than the whole board.
+ *
+ * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
+ * and a project swept into Planning is a project being run as a stage.
+ */
+export function sickoCards(db: Db) {
+  return db
+    .select({ card })
+    .from(card)
+    .where(and(isTask, eq(card.sicko, true), isNull(card.archivedAt)))
+    .orderBy(asc(card.stage), asc(card.position))
+    .all();
+}
+
+/**
  * The board's lanes: every live project, oldest first, with its default repo's
  * colour and how many live tasks it has.
  */
@@ -429,7 +446,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'sicko'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
