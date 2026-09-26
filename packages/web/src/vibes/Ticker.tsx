@@ -1,5 +1,5 @@
 /**
- * The strip under the header: what VIBE MODE is doing, and what it has
+ * The strip under the header: what VIBES MODE is doing, and what it has
  * crossed out.
  *
  * The struck-through entries are the point of it. A list of things that are ON
@@ -21,7 +21,7 @@ const WORDS: ReadonlyArray<readonly [string, boolean]> = [
   ['Ship it ship it ship it', false],
 ];
 
-export function VibeTicker() {
+export function VibesTicker() {
   return (
     <div className="sk-ticker" aria-hidden="true">
       {/* Twice, because the marquee scrolls by exactly half its own width: at

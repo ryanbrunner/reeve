@@ -13,9 +13,9 @@ type Filter = 'all' | 'runs' | 'human';
  * Deliberately not the run transcript — that is thousands of SDK messages in
  * Claude's vocabulary. This is the handful of moments that would appear in a
  * changelog, in the terms a person tells them: who did what, and when. In
- * VIBE MODE, only that it happened: no run's status, time or tokens.
+ * VIBES MODE, only that it happened: no run's status, time or tokens.
  */
-export function ActivityTab({ detail, vibe = false }: { detail: CardDetail; vibe?: boolean }) {
+export function ActivityTab({ detail, vibes = false }: { detail: CardDetail; vibes?: boolean }) {
   const [filter, setFilter] = useState<Filter>('all');
   const events = detail.events.filter((e) => matches(e, filter));
 
@@ -53,7 +53,7 @@ export function ActivityTab({ detail, vibe = false }: { detail: CardDetail; vibe
                 <p className="text-sm/5 text-(--color-text)">
                   <span className="font-medium">{e.actor === 'human' ? 'You' : 'Claude'}</span> {sentence(e, detail)}
                 </p>
-                {e.kind === 'run_finished' && !vibe && <RunFacts event={e} detail={detail} />}
+                {e.kind === 'run_finished' && !vibes && <RunFacts event={e} detail={detail} />}
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}

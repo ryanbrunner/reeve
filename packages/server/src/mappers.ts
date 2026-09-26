@@ -165,7 +165,7 @@ export function toApiCard(
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
-    vibe: c.vibe,
+    vibes: c.vibes,
     ...links,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,

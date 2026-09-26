@@ -76,7 +76,7 @@ export async function board(args: string[]): Promise<void> {
   if (values.json) return printJson({ ...response, cards, projects: lanes });
 
   const sections: string[] = [];
-  if (response.vibe) sections.push(`VIBE MODE since ${formatTime(response.vibe.since)}`);
+  if (response.vibes) sections.push(`VIBES MODE since ${formatTime(response.vibes.since)}`);
   sections.push(renderColumns(cards, stage ? [stage] : STAGES, titles));
   if (!stage && lanes.length > 0) {
     const repoName = (id: string | null) => response.repos.find((r) => r.id === id)?.name ?? '-';

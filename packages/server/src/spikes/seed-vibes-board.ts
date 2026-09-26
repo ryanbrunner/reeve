@@ -1,11 +1,11 @@
 /**
- * Throwaway: a board with a card in every state, switched into VIBE MODE, for
+ * Throwaway: a board with a card in every state, switched into VIBES MODE, for
  * eyeballing the lights.
  *
- * Point it at a scratch database, because VIBE MODE moves real cards:
+ * Point it at a scratch database, because VIBES MODE moves real cards:
  *
- *   REEVE_DB=/tmp/vibe.db tsx src/spikes/seed-vibe-board.ts
- *   REEVE_DB=/tmp/vibe.db REEVE_VIBE_SWEEP_MS=3600000 REEVE_PORT=4399 npm start
+ *   REEVE_DB=/tmp/vibes.db tsx src/spikes/seed-vibes-board.ts
+ *   REEVE_DB=/tmp/vibes.db REEVE_VIBES_SWEEP_MS=3600000 REEVE_PORT=4399 npm start
  *
  * The long sweep interval is the point of the second line: it leaves the board
  * holding still in every state at once, which is what you want to look at. Drop
@@ -96,7 +96,7 @@ card('Gift notes at checkout', 'backlog', 'idle');
 card('Size guide drawer on product pages', 'backlog', 'idle');
 card('Filter order history by status', 'backlog', 'idle');
 // Planning keeps only a card left over from before the switch, asking a
-// question: VIBE MODE never starts a plan, so the sign under it has to show.
+// question: VIBES MODE never starts a plan, so the sign under it has to show.
 card('Rate-limit the checkout API', 'planning', 'input', 0.012);
 card('Reorder from a past order', 'in_progress', 'running', 0.031);
 card('Email me when it’s back in stock', 'in_progress', 'running', 0.048);
@@ -109,6 +109,6 @@ card('Cart page redesign', 'done', 'merged', 1.6);
 card('Apple Pay on mobile', 'done', 'merged', 0.141);
 card('Make the logo bigger', 'done', 'idle', 0.09);
 
-updateSettings(db, { vibe: true });
-console.log('seeded, and VIBE MODE is on');
+updateSettings(db, { vibes: true });
+console.log('seeded, and VIBES MODE is on');
 process.exit(0);

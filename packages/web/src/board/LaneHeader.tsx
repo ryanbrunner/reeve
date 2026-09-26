@@ -12,7 +12,7 @@ import { ACTIVITY_DOTS, ACTIVITY_LABELS } from './activity.js';
  * touched. A shut lane must never hide a card waiting on a person, because
  * nothing on the board moves until one acts. Open, the columns say it already.
  */
-export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, onOpen, bodyId, vibe }: {
+export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, onOpen, bodyId, vibes }: {
   /** The lane's project; null is No project, which has nothing to open. */
   laneId: string | null;
   name: string;
@@ -24,7 +24,7 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
   onOpen: (id: string) => void;
   /** The lane body's id, for the chevron's aria-controls. */
   bodyId: string;
-  vibe: boolean;
+  vibes: boolean;
 }) {
   return (
     <h2
@@ -38,7 +38,7 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
         aria-expanded={!collapsed}
         aria-controls={bodyId}
         aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${name}`}
-        className={`-ml-0.5 flex h-4 w-4 items-center justify-center hover:text-(--color-text) ${vibe ? 'sk-lane-name' : ''}`}
+        className={`-ml-0.5 flex h-4 w-4 items-center justify-center hover:text-(--color-text) ${vibes ? 'sk-lane-name' : ''}`}
       >
         <svg
           viewBox="0 0 12 12"
@@ -54,7 +54,7 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
         </svg>
       </button>
       <span
-        className={`h-2 w-2 rounded-full ${vibe ? 'sk-lane-dot' : ''}`}
+        className={`h-2 w-2 rounded-full ${vibes ? 'sk-lane-dot' : ''}`}
         style={{ background: color ?? '#3f4754' }}
       />
       {/* The lane is the project, and its header is the way into it. */}
@@ -63,11 +63,11 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
           type="button"
           onClick={() => onOpen(laneId)}
           title="Open the project"
-          className={`uppercase hover:text-(--color-text) ${vibe ? 'sk-lane-name' : ''}`}
+          className={`uppercase hover:text-(--color-text) ${vibes ? 'sk-lane-name' : ''}`}
         >
           {name}
         </button>
-      : <span className={vibe ? 'sk-lane-name' : ''}>{name}</span>}
+      : <span className={vibes ? 'sk-lane-name' : ''}>{name}</span>}
       {collapsed && <Summary cards={cards} />}
     </h2>
   );

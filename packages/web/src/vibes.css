@@ -1,8 +1,8 @@
 /*
- * VIBE MODE.
+ * VIBES MODE.
  *
  * Everything the board wears once the human is out of the loop, kept in one
- * file and behind one class. `.vibe` on the app root is the only switch: no
+ * file and behind one class. `.vibes` on the app root is the only switch: no
  * rule in here fires without it, so the calm board carries none of this weight
  * and nothing below can leak into it.
  *
@@ -15,7 +15,7 @@
  * Nothing calm may use these tokens.
  */
 
-.vibe {
+.vibes {
   --sk-r1: #ff2d95;
   --sk-r2: #ff8a00;
   --sk-r3: #ffe600;
@@ -28,7 +28,7 @@
 }
 
 /* The switch is the one part of this that also has to work on the calm board,
-   so it carries the rainbow itself rather than reading it off `.vibe`. */
+   so it carries the rainbow itself rather than reading it off `.vibes`. */
 .sk-sw {
   --sk-rainbow: linear-gradient(90deg, #ff2d95, #ff8a00, #ffe600, #2dff7a, #00d1ff, #9b5cff, #ff2d95);
   /* slate-600 and sky-600, written out: Tailwind's palette reaches the page as
@@ -37,7 +37,7 @@
   --sk-edge-focus: oklch(58.8% 0.158 241.966);
 }
 
-/* A card in VIBE MODE on its own, on the calm board — so, like the switch, it
+/* A card in VIBES MODE on its own, on the calm board — so, like the switch, it
    carries the rainbow itself. The chip names it; the ring below dresses it.
    Two spans: the rainbow border is this one's background and the rainbow text
    is the inner one's, and one element cannot clip a background both ways. */
@@ -69,7 +69,7 @@
  * itself would vanish on all of them; and the skin's border, tint and mark are
  * what say the card's activity, so they are left exactly as they are rather
  * than recomposed with a rainbow layer — or hue-rotated, as the cards in full
- * VIBE MODE are, which would turn a card awaiting review the colour of one
+ * VIBES MODE are, which would turn a card awaiting review the colour of one
  * that failed. Above the content, but only its outer two pixels, and inert.
  */
 .sk-solo-ring::before {
@@ -103,7 +103,7 @@
 
 .sk-shake-a { animation: sk-shake-a 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
 .sk-shake-b { animation: sk-shake-b 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
-.vibe .sk-stage-in { animation: sk-jolt 3.4s linear infinite; }
+.vibes .sk-stage-in { animation: sk-jolt 3.4s linear infinite; }
 
 /* Behind the board, and over it. Both inert to the pointer: the board still works. */
 .sk-layer {
@@ -115,7 +115,7 @@
 
 /* ---------------------------------------------------------------- header --- */
 
-.vibe .sk-hdr {
+.vibes .sk-hdr {
   position: relative;
   /* Over the ticker, which is opaque black and would otherwise clip the
      rainbow seam the header hangs off its own bottom edge. */
@@ -124,7 +124,7 @@
   border-bottom-color: transparent;
 }
 
-.vibe .sk-hdr::after {
+.vibes .sk-hdr::after {
   content: "";
   position: absolute;
   left: 0;
@@ -137,25 +137,25 @@
   box-shadow: 0 0 14px #ff2d95;
 }
 
-.vibe .sk-dia {
+.vibes .sk-dia {
   transform-box: fill-box;
   transform-origin: center;
   animation: sk-dspin 1s linear infinite, sk-rainfill 1.5s linear infinite;
 }
 
-.vibe .sk-wm { animation: sk-rgbsplit 1.3s steps(1) infinite; }
+.vibes .sk-wm { animation: sk-rgbsplit 1.3s steps(1) infinite; }
 
-.vibe .sk-field {
+.vibes .sk-field {
   border-color: #ffffff38;
   background: #0d0f16;
 }
 
-.vibe .sk-field:focus {
+.vibes .sk-field:focus {
   border-color: #fff;
   box-shadow: 0 0 0 1px #ff2d95, 0 0 18px -4px #00d1ff;
 }
 
-.vibe .sk-add {
+.vibes .sk-add {
   background: var(--sk-rainbow);
   background-size: 300% 100%;
   animation: sk-flow 1.6s linear infinite;
@@ -328,12 +328,12 @@
 
 /* ----------------------------------------------------------------- lanes --- */
 
-.vibe .sk-lane-dot {
+.vibes .sk-lane-dot {
   box-shadow: 0 0 10px 2px #ff2d95;
   animation: sk-rainbowbg 1.2s linear infinite;
 }
 
-.vibe .sk-lane-name { color: #fff; }
+.vibes .sk-lane-name { color: #fff; }
 
 /* Tall enough to hold its deepest column, and the frame the flying cards are
    positioned inside. `min-width` matches the grid's so the two agree on what
@@ -347,7 +347,7 @@
 
 /* ---------------------------------------------------------------- column --- */
 
-/* A well, not a list: in VIBE MODE the cards are an overlay above these. */
+/* A well, not a list: in VIBES MODE the cards are an overlay above these. */
 .sk-col {
   height: 100%;
   background: #0a0c12b3;
@@ -526,7 +526,7 @@
 .sk-slam-b { animation: sk-slam-b 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); }
 
 /* Every card breathing on its own offset, so the board never pulses in unison. */
-.vibe .sk-wob {
+.vibes .sk-wob {
   animation: sk-wob 1.1s ease-in-out infinite alternate;
   animation-delay: var(--sk-d);
 }
@@ -562,10 +562,10 @@
   white-space: nowrap;
 }
 
-.vibe .sk-cost { color: var(--sk-r3); }
+.vibes .sk-cost { color: var(--sk-r3); }
 
 /* The blocked chip, bordered like the chip beside it so the two read as a pair
-   on the one footer line a VIBE card has. */
+   on the one footer line a VIBES card has. */
 .sk-dep {
   border: 1px solid var(--color-dep-ring);
   padding: 1px 6px;
@@ -583,11 +583,11 @@
   box-shadow: inset 0 0 18px 0 #ff2d9566, inset 0 0 4px 0 #ff2d9577, 0 0 22px -6px #ff2d95;
 }
 
-.vibe .card-mark { opacity: 0.5; animation: sk-markspin 2.2s linear infinite; }
+.vibes .card-mark { opacity: 0.5; animation: sk-markspin 2.2s linear infinite; }
 
-.vibe .card-rail { height: 3px; }
+.vibes .card-rail { height: 3px; }
 
-.vibe .card-rail > span {
+.vibes .card-rail > span {
   animation-duration: 0.45s;
   background: linear-gradient(90deg, transparent, #ff2d95, #fff, #00d1ff, transparent);
   box-shadow: 0 0 10px #ff2d95;
@@ -1098,16 +1098,16 @@
  *
  * Part of the spec, not a courtesy. Everything in here that strobes, swings,
  * scrolls or shakes is off; the rainbow, the glows and the layout are exactly
- * as they were, so VIBE MODE still looks like VIBE MODE.
+ * as they were, so VIBES MODE still looks like VIBES MODE.
  */
 @media (prefers-reduced-motion: reduce) {
   .sk-beams, .sk-beam, .sk-pool, .sk-spot, .sk-words, .sk-ticker, .sk-ticker-run, .sk-tk-d,
-  .sk-scan::after, .vibe .sk-stage-in, .sk-shake-a, .sk-shake-b, .sk-slam-a, .sk-slam-b,
-  .vibe .sk-wob, .sk-card, .vibe .card-mark, .sk-runs, .vibe .sk-dia, .vibe .sk-wm,
+  .sk-scan::after, .vibes .sk-stage-in, .sk-shake-a, .sk-shake-b, .sk-slam-a, .sk-slam-b,
+  .vibes .sk-wob, .sk-card, .vibes .card-mark, .sk-runs, .vibes .sk-dia, .vibes .sk-wm,
   .sk-sw.sk-on, .sk-sw.sk-on .sk-sw-knob, .sk-sw.sk-on .sk-sw-track, .sk-sw.sk-on .sk-sw-label,
-  .sk-sw:hover .sk-sw-label, .sk-stat-n, .sk-pop-a, .sk-pop-b, .vibe .sk-add,
-  .vibe .sk-hdr::after, .sk-hud, .sk-hud::before, .sk-stamp, .sk-arm-title, .sk-g-2, .sk-g-3,
-  .sk-v, .vibe .sk-lane-dot, .sk-tape-run, .sk-sign, .sk-solo-ring::before {
+  .sk-sw:hover .sk-sw-label, .sk-stat-n, .sk-pop-a, .sk-pop-b, .vibes .sk-add,
+  .vibes .sk-hdr::after, .sk-hud, .sk-hud::before, .sk-stamp, .sk-arm-title, .sk-g-2, .sk-g-3,
+  .sk-v, .vibes .sk-lane-dot, .sk-tape-run, .sk-sign, .sk-solo-ring::before {
     animation: none !important;
   }
 

@@ -67,7 +67,7 @@ export function toBoardCard(
 /**
  * Why this card may not go to `to`, or null if it may. For anything that would
  * put a card into a column on a person's behalf — the move route, approval,
- * VIBE MODE — and not for `moveCard`, which the spikes call directly to set a
+ * VIBES MODE — and not for `moveCard`, which the spikes call directly to set a
  * card up wherever they need it.
  */
 export function entryRefusal(db: Db, card: Card, to: Stage): string | null {

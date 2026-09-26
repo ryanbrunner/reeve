@@ -6,7 +6,7 @@ import { STAGES, STAGE_LABELS, type Stage } from './stages.js';
  *
  * A finished In Progress run, and not "the branch has commits ahead of base",
  * which would be the truer answer and costs a git call per card on a board that
- * polls every second in VIBE MODE — and has no answer at all for a card whose
+ * polls every second in VIBES MODE — and has no answer at all for a card whose
  * worktree has gone. The price is that a run which succeeded and changed
  * nothing still counts.
  *

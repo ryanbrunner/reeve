@@ -44,7 +44,7 @@ export const releaseResolving = (cardId: string) => void resolving.delete(cardId
 
 /**
  * Cards whose pull request `gh` is merging right now: two presses of Merge, or
- * a press while VIBE MODE's sweep lands the same one. Refused by a push and a
+ * a press while VIBES MODE's sweep lands the same one. Refused by a push and a
  * resolution as well, since either would change the branch mid-merge.
  */
 const landing = new Set<string>();
@@ -247,9 +247,9 @@ export type LandResult =
  * Land the card's pull request on the default branch.
  *
  * Two callers. A person pressing Merge on a Done card, having read the pull
- * request or decided not to; and VIBE MODE, which is the mode where nobody
+ * request or decided not to; and VIBES MODE, which is the mode where nobody
  * reads it. Either way the decision is a human's — made on the button, or made
- * once by switching VIBE MODE on — and never Claude's own.
+ * once by switching VIBES MODE on — and never Claude's own.
  *
  * It refuses exactly what opening one refuses, and it does not reach past the
  * repository's own rules: a branch that requires a review still requires one,
@@ -259,7 +259,7 @@ export type LandResult =
  * request somebody merged on GitHub. `merged` is false if that answer did not
  * come; the next sync marks it.
  *
- * GitHub's mergeable verdict is the route's to check, not this: VIBE MODE
+ * GitHub's mergeable verdict is the route's to check, not this: VIBES MODE
  * lands a pull request as soon as it has one, and lets `gh` refuse.
  */
 export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'human' | 'claude'): Promise<LandResult> {

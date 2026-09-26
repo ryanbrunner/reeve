@@ -1,12 +1,12 @@
-import { STAGE_LABELS, type Stage, type VibeState } from '@reeve/shared';
+import { STAGE_LABELS, type Stage, type VibesState } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getSettings, vibeLedger, tokensSince } from '../db/queries.js';
+import { getSettings, vibesLedger, tokensSince } from '../db/queries.js';
 
 /** How many log lines the HUD is given. It shows two; the rest are headroom. */
 const LOG_LINES = 4;
 
 /**
- * VIBE MODE as the board should see it, or null while the switch is off.
+ * VIBES MODE as the board should see it, or null while the switch is off.
  *
  * Every number is counted from the moment the switch was flipped, off the
  * cards' own event log. Nothing is tallied as it happens: the events already
@@ -18,17 +18,17 @@ const LOG_LINES = 4;
  * does walk over and approve a card by hand while this is on, the HUD should
  * say so rather than quietly claim otherwise.
  */
-export function vibeState(db: Db): VibeState | null {
-  const { vibeSince } = getSettings(db);
-  if (vibeSince === null) return null;
-  const since = new Date(vibeSince);
-  const ledger = vibeLedger(db, since);
+export function vibesState(db: Db): VibesState | null {
+  const { vibesSince } = getSettings(db);
+  if (vibesSince === null) return null;
+  const since = new Date(vibesSince);
+  const ledger = vibesLedger(db, since);
 
   const byClaude = (kind: string) =>
     ledger.filter((e) => e.kind === kind && e.actor === 'claude').length;
 
   return {
-    since: vibeSince,
+    since: vibesSince,
     merged: ledger.filter((e) => e.kind === 'merged').length,
     humanApprovals: ledger.filter((e) => e.kind === 'reviewed' && e.actor === 'human').length,
     reviewsSkipped: byClaude('reviewed'),
@@ -42,7 +42,7 @@ export function vibeState(db: Db): VibeState | null {
   };
 }
 
-type Entry = ReturnType<typeof vibeLedger>[number];
+type Entry = ReturnType<typeof vibesLedger>[number];
 
 /**
  * One event as a line of the HUD's log, or null for the ones not worth saying.

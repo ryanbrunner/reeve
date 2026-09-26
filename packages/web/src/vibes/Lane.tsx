@@ -1,10 +1,10 @@
 import { STAGES, type ApiCard } from '@reeve/shared';
 import { Column } from '../board/Column.js';
-import { VibeCards, useVibeLane } from './Cards.js';
+import { VibesCards, useVibesLane } from './Cards.js';
 import { cardsIn } from '../lib/api.js';
 
 /**
- * One swim lane in VIBE MODE: five wells, one of them closed, and the lane's
+ * One swim lane in VIBES MODE: five wells, one of them closed, and the lane's
  * cards flying over them.
  *
  * A component of its own because the motion bookkeeping is a hook, and the
@@ -12,13 +12,13 @@ import { cardsIn } from '../lib/api.js';
  * The lane grows only when a column is deep enough to need it, so on an
  * ordinary board it is exactly the height the calm one was.
  */
-export function VibeLane({ cards, laneId, justMerged, onOpen }: {
+export function VibesLane({ cards, laneId, justMerged, onOpen }: {
   cards: ApiCard[];
   laneId: string | null | undefined;
   justMerged: ReadonlySet<string>;
   onOpen?: (id: string) => void;
 }) {
-  const { placed, height, hot } = useVibeLane(cards);
+  const { placed, height, hot } = useVibesLane(cards);
   return (
     <div className="sk-lane-body" style={{ height }}>
       <div className="sk-cols grid w-full grid-cols-5 gap-3">
@@ -29,7 +29,7 @@ export function VibeLane({ cards, laneId, justMerged, onOpen }: {
             laneId={laneId}
             cards={cardsIn(cards, stage)}
             onOpen={onOpen}
-            vibe
+            vibes
             hot={hot.has(i)}
             skipped={stage === 'planning'}
           >
@@ -37,7 +37,7 @@ export function VibeLane({ cards, laneId, justMerged, onOpen }: {
           </Column>
         ))}
       </div>
-      <VibeCards placed={placed} justMerged={justMerged} onOpen={onOpen} />
+      <VibesCards placed={placed} justMerged={justMerged} onOpen={onOpen} />
     </div>
   );
 }
@@ -55,7 +55,7 @@ function NoPlanning() {
   const tape = 'Do not plan · '.repeat(8);
   return (
     <>
-      <span className="sr-only">Planning is skipped in VIBE MODE</span>
+      <span className="sr-only">Planning is skipped in VIBES MODE</span>
       <div className="sk-tape sk-tape-a" aria-hidden="true">
         <span className="sk-tape-run">{tape}{tape}</span>
       </div>

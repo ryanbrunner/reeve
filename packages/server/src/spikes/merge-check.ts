@@ -174,16 +174,16 @@ const board = (id: string) => toBoardCard(db, getCard(db, id)!, null, null);
   check('card not merged', getCard(db, wt.id)!.mergedAt === null);
   check('still offered, still mergeable', board(wt.id).prMergeable && !board(wt.id).mergingPr);
 
-  // VIBE MODE's path, which checks no verdict and records itself as Claude.
+  // VIBES MODE's path, which checks no verdict and records itself as Claude.
   process.env.FAKE_GH_MERGE_FAIL = 'still no review';
-  const vibe = await landPullRequest(db, getCard(db, wt.id)!, repo, 'claude');
+  const vibes = await landPullRequest(db, getCard(db, wt.id)!, repo, 'claude');
   delete process.env.FAKE_GH_MERGE_FAIL;
-  check('VIBE’s refusal is Claude’s merge_failed', !vibe.ok && events(wt.id, 'merge_failed')[0]?.actor === 'claude');
+  check('VIBES MODE’s refusal is Claude’s merge_failed', !vibes.ok && events(wt.id, 'merge_failed')[0]?.actor === 'claude');
 }
 
-// --- VIBE MODE lands one GitHub has not ruled on ----------------------------------
+// --- VIBES MODE lands one GitHub has not ruled on ---------------------------------
 {
-  const wt = done('Vibe', 'UNKNOWN');
+  const wt = done('Vibes', 'UNKNOWN');
   const res = await landPullRequest(db, getCard(db, wt.id)!, repo, 'claude');
   check('landPullRequest itself needs no verdict', res.ok && res.merged && getCard(db, wt.id)!.mergedAt !== null);
 }

@@ -1,4 +1,4 @@
-import type { VibeState } from '@reeve/shared';
+import type { VibesState } from '@reeve/shared';
 import { tokens } from '../card/format.js';
 
 /**
@@ -13,7 +13,7 @@ import { tokens } from '../card/format.js';
  * here: a plain white nought while every other figure churns through the
  * rainbow.
  */
-export function VibeHud({ state, pop }: { state: VibeState; pop: boolean }) {
+export function VibesHud({ state, pop }: { state: VibesState; pop: boolean }) {
   return (
     <div className="sk-hud">
       {/* Only the merge count pops, and it alternates class so two merges in a

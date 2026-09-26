@@ -16,8 +16,8 @@ import { formatTime, note, parseCount, parseOrUsage, print, printJson, usageErro
 import { parseStage } from '../resolve.js';
 
 /**
- * `reeve settings`: what the Settings screen shows and saves. VIBE MODE is
- * in there on the wire, but not here — see ./vibe.ts for why.
+ * `reeve settings`: what the Settings screen shows and saves. VIBES MODE is
+ * in there on the wire, but not here — see ./vibes.ts for why.
  */
 
 const KEYS = 'max-concurrent-runs, or <stage>.model or <stage>.effort for planning, in-progress or testing';
@@ -28,8 +28,8 @@ type Key = { kind: 'maxConcurrentRuns' } | { kind: 'stage'; stage: RunnableStage
 function parseKey(input: string): Key {
   const kebab = (s: string) => s.trim().replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase().replace(/[\s_]+/g, '-');
   if (kebab(input) === 'max-concurrent-runs') return { kind: 'maxConcurrentRuns' };
-  if (kebab(input) === 'vibe' || kebab(input) === 'vibe-mode') {
-    throw usageError('VIBE MODE is not a setting to set in passing. Use `reeve vibe on` or `reeve vibe off`');
+  if (kebab(input) === 'vibes' || kebab(input) === 'vibes-mode') {
+    throw usageError('VIBES MODE is not a setting to set in passing. Use `reeve vibes on` or `reeve vibes off`');
   }
   const dot = input.lastIndexOf('.');
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
@@ -75,7 +75,7 @@ function layered(value: string | null, builtIn: string | null | undefined): stri
 function render(settings: ApiSettings, models: ModelsResponse | null): string {
   const rows: Array<[string, string]> = [
     ['Max concurrent runs', String(settings.maxConcurrentRuns)],
-    ['VIBE MODE', settings.vibeSince === null ? 'off' : `ON since ${formatTime(settings.vibeSince)}`],
+    ['VIBES MODE', settings.vibesSince === null ? 'off' : `ON since ${formatTime(settings.vibesSince)}`],
   ];
   const width = Math.max(...rows.map(([label]) => label.length));
   const stageWidth = Math.max(...RUNNABLE_STAGES.map((s) => STAGE_LABELS[s].length));

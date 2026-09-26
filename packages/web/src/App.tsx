@@ -30,13 +30,13 @@ import { useCollapsedLanes } from './board/useCollapsedLanes.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
-import { VibeArming } from './vibe/Arming.js';
-import { VibeHud } from './vibe/Hud.js';
-import { VibeLane } from './vibe/Lane.js';
-import { VibeLightsBehind, VibeLightsOver } from './vibe/Lights.js';
-import { VibeSwitch } from './vibe/Switch.js';
-import { VibeTicker } from './vibe/Ticker.js';
-import { useVibe, type Vibe } from './vibe/useVibe.js';
+import { VibesArming } from './vibes/Arming.js';
+import { VibesHud } from './vibes/Hud.js';
+import { VibesLane } from './vibes/Lane.js';
+import { VibesLightsBehind, VibesLightsOver } from './vibes/Lights.js';
+import { VibesSwitch } from './vibes/Switch.js';
+import { VibesTicker } from './vibes/Ticker.js';
+import { useVibes, type Vibes } from './vibes/useVibes.js';
 import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
 
@@ -106,16 +106,16 @@ export function App() {
     staleTime: 0,
     refetchInterval: (q) =>
       held ? false
-      // VIBE MODE moves cards on its own every couple of seconds, and a card
+      // VIBES MODE moves cards on its own every couple of seconds, and a card
       // that flew while the board was not looking would land without the
       // flight. Kept brisk whatever the cards are doing.
-      : q.state.data?.vibe ? 1_000
-      // A card in VIBE MODE on its own moves with nobody touching it too, and
+      : q.state.data?.vibes ? 1_000
+      // A card in VIBES MODE on its own moves with nobody touching it too, and
       // at the idle rate it would jump a column without anyone seeing it go.
       : q.state.data?.cards.some(
           (c) =>
             c.activity === 'running' || c.openingPr || c.resolvingConflicts || c.mergingPr ||
-            (c.vibe && c.mergedAt == null),
+            (c.vibes && c.mergedAt == null),
         ) ? 1_500
       : 5_000,
   });
@@ -163,7 +163,7 @@ export function App() {
    * only hang off a card that exists, and a card needs a title typed into it.
    * Add Project the same way, since a project's brief is what it is for.
    *
-   * Ship it, in VIBE MODE, does not open anything: the title came with the
+   * Ship it, in VIBES MODE, does not open anything: the title came with the
    * request and the card is already on its way, so putting a modal over the
    * board would hide the one thing worth watching.
    */
@@ -203,7 +203,7 @@ export function App() {
   };
   const addProject = () =>
     create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
-  // VIBE MODE's Ship it: named already, so it is not opened, and under no
+  // VIBES MODE's Ship it: named already, so it is not opened, and under no
   // project, since the header has no lane to file it in.
   const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
     create.mutate({ title, repoId, stage: 'backlog' });
@@ -214,7 +214,7 @@ export function App() {
   // on.
   const mergedKey = cards.filter((c) => c.mergedAt != null).map((c) => c.id).sort().join(',');
   const mergedIds = useMemo(() => (mergedKey ? mergedKey.split(',') : []), [mergedKey]);
-  const vibe = useVibe(data?.vibe ?? null, mergedIds, data !== undefined);
+  const vibes = useVibes(data?.vibes ?? null, mergedIds, data !== undefined);
 
   function onDragStart(e: DragStartEvent) {
     setDragging(byId.get(String(e.active.id)) ?? null);
@@ -278,9 +278,9 @@ export function App() {
   ];
 
   /*
-   * In VIBE MODE the whole app is dressed differently, so the frame goes on
-   * here rather than in a dozen places: the root carries `.vibe`, which is the
-   * only thing every rule in vibe.css hangs off, and the lights go in front of
+   * In VIBES MODE the whole app is dressed differently, so the frame goes on
+   * here rather than in a dozen places: the root carries `.vibes`, which is the
+   * only thing every rule in vibes.css hangs off, and the lights go in front of
    * and behind the two shake wrappers.
    *
    * Those wrappers are also why the modals are siblings of the stage rather than
@@ -289,7 +289,7 @@ export function App() {
    * the window.
    */
   const lanesInner = (
-    <div className={`flex-1 overflow-auto p-4 ${vibe.on ? 'pb-20' : ''}`}>
+    <div className={`flex-1 overflow-auto p-4 ${vibes.on ? 'pb-20' : ''}`}>
       {lanes.map((lane) => {
         const key = lane.id ?? 'none';
         const bodyId = `lane-${key}`;
@@ -306,7 +306,7 @@ export function App() {
               onToggle={() => collapsedLanes.toggle(key)}
               onOpen={openAndClose.open}
               bodyId={bodyId}
-              vibe={vibe.on}
+              vibes={vibes.on}
             />
             {/* Always there, so the chevron's aria-controls has something to
                 point at. What is inside is unmounted when the lane is shut,
@@ -317,11 +317,11 @@ export function App() {
             <div id={bodyId}>
               {collapsed ?
                 null
-              : vibe.on ?
-                <VibeLane
+              : vibes.on ?
+                <VibesLane
                   cards={laneCards}
                   laneId={lane.id}
-                  justMerged={vibe.justMerged}
+                  justMerged={vibes.justMerged}
                   onOpen={openAndClose.open}
                 />
               : <div className="grid grid-cols-5 gap-3 min-w-[920px]">
@@ -352,13 +352,13 @@ export function App() {
   );
 
   return (
-    <div className={`relative flex h-full flex-col ${vibe.on ? 'vibe' : ''}`}>
-      {vibe.on && <VibeLightsBehind />}
+    <div className={`relative flex h-full flex-col ${vibes.on ? 'vibes' : ''}`}>
+      {vibes.on && <VibesLightsBehind />}
       {/* Two wrappers, one transform each: the outer jumps when a card lands on
           main, the inner glitches on its own clock. */}
       <div
         className={`sk-stage relative z-10 flex min-h-0 flex-1 flex-col ${
-          vibe.live ? (vibe.shake ? 'sk-shake-a' : 'sk-shake-b') : ''
+          vibes.live ? (vibes.shake ? 'sk-shake-a' : 'sk-shake-b') : ''
         }`}
       >
         <div className="sk-stage-in flex min-h-0 flex-1 flex-col">
@@ -372,16 +372,16 @@ export function App() {
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
             usage={data?.usage ?? null}
-            vibe={vibe}
+            vibes={vibes}
           />
-          {/* Above the ticker, which is decoration: this is not. VIBE MODE does
+          {/* Above the ticker, which is decoration: this is not. VIBES MODE does
               not stop at the limit, so in it this is the only thing that says. */}
           <UsageWarning usage={data?.usage ?? null} />
-          {vibe.on && <VibeTicker />}
-          {/* Nothing is draggable in VIBE MODE, so the drag machinery is left
+          {vibes.on && <VibesTicker />}
+          {/* Nothing is draggable in VIBES MODE, so the drag machinery is left
               out entirely rather than made inert around an overlay it would
               fight with. */}
-          {vibe.on ?
+          {vibes.on ?
             board
           : <DndContext
               sensors={sensors}
@@ -394,11 +394,11 @@ export function App() {
               <DragOverlay>{dragging ? <CardFace card={dragging} dragging /> : null}</DragOverlay>
             </DndContext>
           }
-          {vibe.state && <VibeHud state={vibe.state} pop={vibe.pop} />}
+          {vibes.state && <VibesHud state={vibes.state} pop={vibes.pop} />}
         </div>
       </div>
-      {vibe.on && <VibeLightsOver flash={vibe.flash} />}
-      {vibe.phase === 'arming' && <VibeArming />}
+      {vibes.on && <VibesLightsOver flash={vibes.flash} />}
+      {vibes.phase === 'arming' && <VibesArming />}
       {/* Keyed, so opening a task from its project's modal starts it afresh on
           its own tabs rather than on whichever tab the project was showing. */}
       {openCard && (
@@ -408,7 +408,7 @@ export function App() {
           onClose={openAndClose.close}
           onOpen={openAndClose.open}
           editTitle={openCard === freshId}
-          vibe={vibe.on}
+          vibes={vibes.on}
         />
       )}
       {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
@@ -488,10 +488,10 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibe }: {
+function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibes }: {
   repos: ApiRepo[];
   onAddProject: () => void;
-  /** VIBE MODE's Ship it: a named card, made without opening it. */
+  /** VIBES MODE's Ship it: a named card, made without opening it. */
   onShip: (v: { repoId: string | null; title: string }) => void;
   adding: boolean;
   addError: Error | null;
@@ -500,9 +500,9 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   usage: UsageState | null;
-  vibe: Vibe;
+  vibes: Vibes;
 }) {
-  // Only VIBE MODE's Ship it picks a repo here. On the calm board a card is
+  // Only VIBES MODE's Ship it picks a repo here. On the calm board a card is
   // added from the ghost in its lane and its repo picked in the card's header,
   // but a shipped card is never opened, so this is its only chance.
   // Filed under the first repo unless told otherwise, because an unfiled
@@ -515,7 +515,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   const [idea, setIdea] = useState('');
   const chosen = repoId === '' || repos.some((p) => p.id === repoId);
   const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
-  const on = vibe.on;
+  const on = vibes.on;
   return (
     <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
       <h1 className="flex shrink-0 items-center gap-2.5 text-lg font-semibold tracking-[-0.02em]">
@@ -530,7 +530,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
         </p>
       )}
       <UsageMeter usage={usage} />
-      {/* In VIBE MODE the idea is typed here rather than into a modal: the card
+      {/* In VIBES MODE the idea is typed here rather than into a modal: the card
           it makes is named, so the sweep can take it immediately, and nothing
           covers the board while it goes. */}
       <form
@@ -609,10 +609,10 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
       </button>
       {/* What happened while you were not being asked. Said once, on the way
           out, and then gone. */}
-      {vibe.toast && <span className="sk-toast" role="status">{vibe.toast}</span>}
+      {vibes.toast && <span className="sk-toast" role="status">{vibes.toast}</span>}
       {/* Quiet until it is hovered: the one control here that changes what
           Reeve IS rather than what it shows. */}
-      <VibeSwitch on={on} onToggle={vibe.toggle} disabled={vibe.pending} />
+      <VibesSwitch on={on} onToggle={vibes.toggle} disabled={vibes.pending} />
     </header>
   );
 }

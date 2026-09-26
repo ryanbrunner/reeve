@@ -69,18 +69,18 @@ export function boardCards(db: Db) {
 }
 
 /**
- * The live cards in VIBE MODE on their own, in `boardCards`' shape. What the
+ * The live cards in VIBES MODE on their own, in `boardCards`' shape. What the
  * sweep reads while the board's switch is off, which is nearly always, so it
  * costs one small select every couple of seconds rather than the whole board.
  *
  * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
  * and a project swept into Planning is a project being run as a stage.
  */
-export function vibeCards(db: Db) {
+export function vibesCards(db: Db) {
   return db
     .select({ card })
     .from(card)
-    .where(and(isTask, eq(card.vibe, true), isNull(card.archivedAt)))
+    .where(and(isTask, eq(card.vibes, true), isNull(card.archivedAt)))
     .orderBy(asc(card.stage), asc(card.position))
     .all();
 }
@@ -360,7 +360,7 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
  */
 /**
  * `actor` is all but always the human it defaults to — a drag, or an approval
- * they gave. VIBE MODE is the exception, and it matters that the event says
+ * they gave. VIBES MODE is the exception, and it matters that the event says
  * so: the board's own scoreboard counts human approvals, and an automatic move
  * filed under `human` would make that number a lie.
  *
@@ -477,7 +477,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'vibe'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'vibes'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -608,7 +608,7 @@ export function getSettings(db: Db): ApiSettings {
   const stored = row?.stageDefaults ?? {};
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
-    vibeSince: row?.vibeSince?.getTime() ?? null,
+    vibesSince: row?.vibesSince?.getTime() ?? null,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,
@@ -618,7 +618,7 @@ export function getSettings(db: Db): ApiSettings {
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, vibe, ...rest } = patch;
+  const { stageDefaults, vibes, ...rest } = patch;
   const current = getSettings(db);
   const values = {
     ...rest,
@@ -627,9 +627,9 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
-    ...(vibe === undefined ? {}
-      : vibe ? (current.vibeSince === null ? { vibeSince: new Date() } : {})
-      : { vibeSince: null }),
+    ...(vibes === undefined ? {}
+      : vibes ? (current.vibesSince === null ? { vibesSince: new Date() } : {})
+      : { vibesSince: null }),
   };
   if (Object.keys(values).length === 0) return current;
   db.insert(settings)
@@ -732,7 +732,7 @@ export function cardEventsFor(db: Db, cardId: string) {
 }
 
 /**
- * Everything of consequence that has happened since VIBE MODE went on, newest
+ * Everything of consequence that has happened since VIBES MODE went on, newest
  * first, with the card's title beside each entry.
  *
  * One query serves both the HUD's five numbers and its log lines, because they
@@ -741,7 +741,7 @@ export function cardEventsFor(db: Db, cardId: string) {
  * already the record, and a counter beside them would be a second one to get
  * wrong.
  */
-export function vibeLedger(db: Db, since: Date) {
+export function vibesLedger(db: Db, since: Date) {
   return db
     .select({
       actor: cardEvent.actor,

@@ -1,7 +1,7 @@
 @import "tailwindcss";
-/* VIBE MODE, in its own file and behind its own class. Nothing in it applies
-   until `.vibe` is on the app root. */
-@import "./vibe.css";
+/* VIBES MODE, in its own file and behind its own class. Nothing in it applies
+   until `.vibes` is on the app root. */
+@import "./vibes.css";
 
 /*
  * The board's tokens, from the Reeve design system. Values that are plain

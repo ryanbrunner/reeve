@@ -26,15 +26,15 @@ const GLOW: Record<CardActivity, string> = {
   error: 'card-glow card-glow-error modal-glow-error',
 };
 
-export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibe = false }: {
+export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = false }: {
   cardId: string;
   onClose: () => void;
   /** Open another card in this one's place: a project's task, or one of a task's dependencies. */
   onOpen: (id: string) => void;
   /** Open with the title selected for typing over: a card just made. */
   editTitle?: boolean;
-  /** VIBE MODE: the work happens, but you do not get to see how. */
-  vibe?: boolean;
+  /** VIBES MODE: the work happens, but you do not get to see how. */
+  vibes?: boolean;
 }) {
   const { data, isLoading, error } = useCardDetail(cardId);
   const panel = useRef<HTMLDivElement>(null);
@@ -78,10 +78,10 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibe = f
   }, [onClose]);
 
   const activity = data?.card.activity ?? 'idle';
-  // The ring the card wears on the calm board when it is in VIBE MODE alone,
-  // at this size too: it is the same card. Not in the board's VIBE MODE, which
+  // The ring the card wears on the calm board when it is in VIBES MODE alone,
+  // at this size too: it is the same card. Not in the board's VIBES MODE, which
   // dresses every card the same and so has nothing to single this one out for.
-  const solo = !vibe && data?.card.vibe === true && data.card.mergedAt == null;
+  const solo = !vibes && data?.card.vibes === true && data.card.mergedAt == null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
@@ -100,12 +100,12 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibe = f
           <>
             <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
             <div className="flex min-h-0 grow">
-              <Tabs detail={data} onOpen={onOpen} vibe={vibe} />
+              <Tabs detail={data} onOpen={onOpen} vibes={vibes} />
               {/* The rail is the card's way through the stages, and a project
-                  has none. In VIBE MODE the whole rail goes rather than parts
+                  has none. In VIBES MODE the whole rail goes rather than parts
                   of it: every control and fact on it is a lever or a look under
                   the hood. */}
-              {data.card.kind === 'task' && !vibe && <Rail detail={data} onOpen={onOpen} />}
+              {data.card.kind === 'task' && !vibes && <Rail detail={data} onOpen={onOpen} />}
             </div>
             {/* The same rail of light the board card carries while Claude works. */}
             {activity === 'running' && (

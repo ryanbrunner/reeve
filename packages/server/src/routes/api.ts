@@ -32,7 +32,7 @@ import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
-import { vibeState } from '../vibe/state.js';
+import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
@@ -65,7 +65,7 @@ const updateCardSchema = z.object({
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
   generateMockups: z.boolean().optional(),
-  vibe: z.boolean().optional(),
+  vibes: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({
@@ -98,7 +98,7 @@ const repoSchema = z.object({
 /** At least one: a cap of zero would refuse every run, which is a switch, not a limit. */
 const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
-  vibe: z.boolean().optional(),
+  vibes: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
     .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
@@ -164,7 +164,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)),
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
-      vibe: vibeState(db),
+      vibes: vibesState(db),
       // Here for the same reason. Read from memory, never the table: see usage.ts.
       usage: usageState(Date.now()),
     };
