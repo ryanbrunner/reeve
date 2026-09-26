@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import { cp, lstat, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -210,6 +211,52 @@ export async function createWorktree(opts: {
   const baseSha = (await git(repoPath, ['rev-parse', '--verify', `${base}^{commit}`])).trim();
   await git(repoPath, ['worktree', 'add', '-b', branch, path, baseSha]);
   return { path, branch, baseSha };
+}
+
+/**
+ * Copy what a repo's `.worktreeinclude` names from the main checkout into a new
+ * worktree: the `.env` and local config a fresh checkout never has. Claude
+ * Code's rule, so a repo set up for its worktrees works in Reeve's too. The
+ * file uses `.gitignore` syntax, and only files that match it AND are
+ * gitignored are copied, so a tracked file is never duplicated. Returns the
+ * paths copied, relative to the repo.
+ *
+ * Two listings rather than one. The first uses the include patterns alone, so
+ * its answer is small. The ignored set is collapsed with `--directory`,
+ * because listed in full it is every file in `node_modules`, and that can
+ * overflow `git()`'s buffer. A match counts as ignored if it is in that set or
+ * under a directory the set names whole.
+ *
+ * Nothing already in the worktree is overwritten: with the main checkout on
+ * another branch, a file ignored there can be tracked at the card's base, and
+ * the checked-out copy is the right one. Symlinks are copied as symlinks, and
+ * nothing is ever linked back to the main checkout.
+ */
+export async function copyWorktreeIncludes(repoPath: string, worktreePath: string): Promise<string[]> {
+  const includeFile = join(repoPath, '.worktreeinclude');
+  if (!existsSync(includeFile)) return [];
+
+  const listed = async (args: string[]) =>
+    (await git(repoPath, ['ls-files', '-z', '--others', '--ignored', ...args])).split('\0').filter(Boolean);
+  // A nested repository is listed as its directory even without `--directory`,
+  // and there is no one file there to copy.
+  const matched = (await listed([`--exclude-from=${includeFile}`])).filter((p) => !p.endsWith('/'));
+  if (!matched.length) return [];
+  const ignored = await listed(['--exclude-standard', '--directory']);
+  const ignoredFiles = new Set(ignored);
+  const ignoredDirs = ignored.filter((p) => p.endsWith('/'));
+
+  const copied: string[] = [];
+  for (const rel of matched) {
+    if (!ignoredFiles.has(rel) && !ignoredDirs.some((dir) => rel.startsWith(dir))) continue;
+    const dest = join(worktreePath, rel);
+    // lstat rather than existsSync, which follows a link and calls a dangling one absent.
+    if (await lstat(dest).then(() => true, () => false)) continue;
+    await mkdir(dirname(dest), { recursive: true });
+    await cp(join(repoPath, rel), dest, { force: false, errorOnExist: false, verbatimSymlinks: true, preserveTimestamps: true });
+    copied.push(rel);
+  }
+  return copied;
 }
 
 export async function removeWorktree(repoPath: string, path: string, force = false): Promise<void> {

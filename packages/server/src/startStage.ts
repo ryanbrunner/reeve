@@ -6,7 +6,7 @@ import type { Db } from './db/client.js';
 import { getCard, getSettings, insertCardEvent, liveStageRun } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import { fetchBranch } from './git/github.js';
-import { GitError, checkWorktree, createWorktree } from './git/worktree.js';
+import { GitError, checkWorktree, copyWorktreeIncludes, createWorktree } from './git/worktree.js';
 import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -35,10 +35,11 @@ export type StartStageResult =
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
 
 /**
- * The card's worktree, made if it is not there yet. If it is made and the repo
- * defines a setup command, that is kicked off as a background shell run and
- * not awaited: it is a different run kind, so it counts against neither the
- * card's active run nor the concurrency cap.
+ * The card's worktree, made if it is not there yet. A new one is given the
+ * files the repo's `.worktreeinclude` names, and if the repo defines a setup
+ * command, that is kicked off as a background shell run and not awaited: it is
+ * a different run kind, so it counts against neither the card's active run nor
+ * the concurrency cap.
  */
 export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, repo: Repo) {
   const health = await checkWorktree(repo.repoPath, card.worktreePath);
@@ -75,6 +76,16 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     });
   }
 
+  // Awaited before the setup command, which may well need the `.env` this
+  // brings over. Only a new worktree gets them: a reused one keeps whatever it
+  // has been given since. A copy that fails costs the card a file, not its start.
+  let included: string[] = [];
+  try {
+    included = await copyWorktreeIncludes(repo.repoPath, created.path);
+  } catch (e) {
+    console.warn(`[reeve] #${card.number} .worktreeinclude not copied: ${reason(e)}`);
+  }
+
   let setupRunId: string | null = null;
   if (repo.setupCommand) {
     const handle = startShellRun({
@@ -83,7 +94,7 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     });
     setupRunId = handle.runId;
   }
-  return { reused: false as const, path: created.path, branch: created.branch, setupRunId };
+  return { reused: false as const, path: created.path, branch: created.branch, setupRunId, included };
 }
 
 /**
