@@ -132,6 +132,13 @@ export const api = {
   // --- pictures ---
   uploadMockup: (id: string, form: FormData) =>
     fetch(`/api/cards/${id}/assets`, { method: 'POST', body: form }).then(json<ApiAsset>),
+  /** An image pasted into the brief. The body links it by the `src` this returns. */
+  uploadPasted: (id: string, file: File) => {
+    const form = new FormData();
+    form.set('file', file);
+    form.set('kind', 'pasted');
+    return fetch(`/api/cards/${id}/assets`, { method: 'POST', body: form }).then(json<ApiAsset>);
+  },
   deleteAsset: (id: string, assetId: string) =>
     del(`/api/cards/${id}/assets/${assetId}`).then(json<{ ok: true }>),
   listQuestions: (id: string) => fetch(`/api/cards/${id}/questions`).then(json<ApiQuestion[]>),
