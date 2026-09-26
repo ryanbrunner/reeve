@@ -36,6 +36,7 @@ const { cardEventsFor, cardsSuggestedBy, createCard, createRepo, getCard, insert
 const { planningStage } = await import('../stages/planning.js');
 const { inProgressStage } = await import('../stages/in_progress.js');
 const { testingStage } = await import('../stages/testing.js');
+const { stageContextFor } = await import('../runs/claude.js');
 const { vibesSweep } = await import('../vibes/engine.js');
 
 // --- the migration's place in the journal ----------------------------------
@@ -66,7 +67,7 @@ const onBoard = async (id: string) => (await board()).cards.find((c) => c.id ===
 const detail = async (id: string) => (await call<CardDetail>('GET', `/api/cards/${id}/detail`)).json;
 
 /** The context a stage's hooks get, for a card made the way the board makes one. */
-const ctxFor = (id: string) => ({ card: getCard(db, id)!, repo, worktreePath: '/tmp/suggest-check' });
+const ctxFor = (id: string) => stageContextFor(db, { card: getCard(db, id)!, repo, worktreePath: '/tmp/suggest-check' });
 const runFor = (cardId: string, stage: 'planning' | 'in_progress' | 'testing') =>
   insertRun(db, { id: crypto.randomUUID(), cardId, kind: 'claude', stage, status: 'succeeded', cwd: '/tmp/x' }).id;
 const tasks = (...titles: string[]) => titles.map((title) => ({ title, body: `Noticed while checking: ${title}.` }));

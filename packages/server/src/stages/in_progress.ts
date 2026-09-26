@@ -51,7 +51,7 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
     return renderPrompt('in_progress', {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
-      body: ctx.card.body.trim() || '_No further detail was given._',
+      body: ctx.brief,
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
       mockups: prepared?.['mockups'] ?? '',
       testCommand: ctx.repo.testCommand

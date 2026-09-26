@@ -44,7 +44,7 @@ export const splitProjectTask: ClaudeTask<ProjectSplitOutput> = {
       worktreePath: ctx.worktreePath,
       defaultRepo: ctx.repo.name,
       title: ctx.card.title,
-      body: ctx.card.body.trim() || '_No further detail was given._',
+      body: ctx.brief,
     });
   },
 

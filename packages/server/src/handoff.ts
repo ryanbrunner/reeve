@@ -50,7 +50,7 @@ export function writeHandoff(db: Db, card: Card, repo: Repo, worktreePath: strin
 
   const content = renderPrompt('handoff', {
     title: card.title,
-    body: card.body.trim() || '_No further detail was given._',
+    body: ctx.brief,
     stage: STAGE_LABELS[card.stage],
     worktreePath,
     branch: card.branchName ?? '(unknown)',
