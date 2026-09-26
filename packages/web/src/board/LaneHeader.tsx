@@ -86,7 +86,7 @@ function Summary({ cards }: { cards: ApiCard[] }) {
         return (
           <span key={activity} title={label} className="flex items-center gap-1.5 text-(--color-muted)">
             <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-            {count}
+            {count}{' '}
             <span className="sr-only">{label}</span>
           </span>
         );
