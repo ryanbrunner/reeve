@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7fa7c85a-c84e-443f-8ee4-07f68f055cba",
-  "prevId": "94da1173-dfdd-4ca0-85a6-adc9d5e7dd3d",
+  "id": "e4c26659-fc00-467e-8d2d-2d850644c96b",
+  "prevId": "7fa7c85a-c84e-443f-8ee4-07f68f055cba",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -1229,6 +1229,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "server_url": {
+          "name": "server_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "teardown_command": {
           "name": "teardown_command",
           "type": "text",
@@ -1621,6 +1628,20 @@
         "port": {
           "name": "port",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "url_source": {
+          "name": "url_source",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

@@ -33,10 +33,16 @@ const FIELDS = {
   teardown: { type: 'string' },
   finish: { type: 'string' },
   color: { type: 'string' },
+  // The form's checkbox, as a pair like `card edit`'s `--mockups`, so that
+  // leaving both out leaves it as it was.
+  'sync-branch': { type: 'boolean' },
+  'no-sync-branch': { type: 'boolean' },
   json: { type: 'boolean' },
 } as const;
 
-type Fields = Partial<Record<Exclude<keyof typeof FIELDS, 'json'>, string>> & { path?: string };
+type Switches = 'sync-branch' | 'no-sync-branch';
+type Fields = Partial<Record<Exclude<keyof typeof FIELDS, 'json' | Switches>, string>> &
+  Partial<Record<Switches, boolean>> & { path?: string };
 
 /**
  * Relative to where the command was run, not to the server's cwd, which is
@@ -72,6 +78,8 @@ function body(fields: Fields): UpdateRepoBody {
   if (fields.teardown !== undefined) out.teardownCommand = blankIsNull(fields.teardown);
   if (fields.finish !== undefined) out.finishCommand = blankIsNull(fields.finish);
   if (fields.color !== undefined) out.laneColor = blankIsNull(fields.color);
+  if (fields['sync-branch'] && fields['no-sync-branch']) throw usageError('give --sync-branch or --no-sync-branch, not both');
+  if (fields['sync-branch'] || fields['no-sync-branch']) out.syncDefaultBranch = fields['sync-branch'] === true;
   return out;
 }
 
@@ -79,6 +87,7 @@ function render(repo: ApiRepo): string {
   const rows: Array<[string, string]> = [
     ['Path', repo.repoPath],
     ['Branch', repo.defaultBranch],
+    ['Kept up to date', repo.syncDefaultBranch ? 'yes, when a card merges' : 'no'],
     ['Worktrees', repo.worktreeRoot],
     ['Setup', repo.setupCommand ?? '-'],
     ['Test', repo.testCommand ?? '-'],

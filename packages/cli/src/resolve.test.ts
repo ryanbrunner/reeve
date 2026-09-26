@@ -21,6 +21,7 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     teardownCommand: null,
     finishCommand: null,
     laneColor: null,
+    syncDefaultBranch: false,
   };
 }
 
@@ -44,7 +45,9 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     prOpenedAt: null,
     openingPr: false,
     prConflicting: false,
+    prMergeable: false,
     resolvingConflicts: false,
+    mergingPr: false,
     startingStage: false,
     implemented: false,
     sicko: false,

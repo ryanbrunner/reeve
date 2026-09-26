@@ -37,10 +37,11 @@ const USAGE = `Usage: reeve <command> [options]
       Block until the card's run wants a person, and say which by exit status.
   reeve runs <card> [--json]
       Every run a card has had, newest first.
-  reeve card worktree|pr|server|diff|commits|resolve-conflicts [<card>]
+  reeve card worktree|pr|server|diff|commits|resolve-conflicts|merge [<card>]
       A card's work, for a caller not looking at its rail: the worktree's path,
       the pull request, the dev server's URL, the diff, the commits. With no
-      card, the one whose worktree you are in.
+      card, the one whose worktree you are in. merge lands a Done card's pull
+      request on GitHub once GitHub says it merges cleanly.
   reeve serve [--port N] [--no-open] [--db F] [--assets D] [--max-concurrent N]
       Open the board, starting Reeve first if nothing is listening. Each
       option past --no-open sets the environment variable beside it, which

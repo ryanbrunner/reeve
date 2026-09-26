@@ -155,6 +155,22 @@ async function resolveConflicts(args: string[]): Promise<void> {
 }
 
 /**
+ * Merges a Done card's pull request on GitHub, as the Merge button does, and
+ * only when the board would offer that button: GitHub has said the pull
+ * request merges cleanly. Asked for by a person or their script, like
+ * `approve`; nothing here merges on its own.
+ */
+async function merge(args: string[]): Promise<void> {
+  const { values, card } = await target('merge', args);
+  if (card.prNumber !== null) note(`Merging pull request #${card.prNumber}…`);
+  const result = await api.mergePr(card.id);
+  if (values.json) return printJson(result);
+  print(result.merged
+    ? `Merged ${cardRef(card)}'s pull request.`
+    : `GitHub merged ${cardRef(card)}'s pull request; the card is marked merged on the next sync.`);
+}
+
+/**
  * Starts the repo's dev server in the card's worktree and prints its URL. One
  * already running is not an error: its URL is the answer either way.
  */
@@ -574,6 +590,7 @@ const VERBS: Record<string, Command> = {
   worktree: { usage: '', run: worktree },
   pr: { usage: '', run: pr },
   'resolve-conflicts': { usage: '', run: resolveConflicts },
+  merge: { usage: '', run: merge },
   server: { usage: '', run: server },
   diff: { usage: '', run: diff },
   commits: { usage: '', run: commits },
