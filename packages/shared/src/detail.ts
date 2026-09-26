@@ -314,6 +314,11 @@ export interface CardDetail {
   repo: ApiRepo | null;
   criteria: ApiCriterion[];
   refs: ApiCardRef[];
+  /**
+   * The cards behind `card.dependsOn` and `card.dependents`, in full. Here
+   * rather than looked up on the board, which has no archived cards on it.
+   */
+  dependencies: { dependsOn: ApiCard[]; dependents: ApiCard[] };
   /** The questions the card's current run asked. Empty when it asked none. */
   questions: ApiQuestion[];
   plan: ApiPlan | null;

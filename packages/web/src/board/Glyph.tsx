@@ -14,3 +14,48 @@ export function Glyph() {
     </svg>
   );
 }
+
+/**
+ * The card-face marks for dependencies, sized to sit inside a 10px mono chip
+ * and drawn in `currentColor` so the chip decides what they mean.
+ */
+function Mini({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      className="h-2.5 w-2.5 shrink-0"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+/**
+ * A padlock: shut while something this card waits on is unfinished, sprung
+ * once it all is. The same shape both ways so the satisfied chip reads as the
+ * blocked one having let go, rather than as some other fact about the card.
+ */
+export function WaitsGlyph({ open = false }: { open?: boolean }) {
+  return (
+    <Mini>
+      <rect x="3" y="7" width="10" height="7" rx="1.5" />
+      <path d={open ? 'M5.5 7V4.5a2.5 2.5 0 0 1 4.9-.7' : 'M5.5 7V5a2.5 2.5 0 0 1 5 0v2'} />
+    </Mini>
+  );
+}
+
+/** A line forking in two: other cards carry on from this one. */
+export function NeededByGlyph() {
+  return (
+    <Mini>
+      <path d="M2.5 8H7l4-4.5M7 8l4 4.5" />
+      <path d="M11 3.5h2.5M11 12.5h2.5" />
+    </Mini>
+  );
+}

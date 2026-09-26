@@ -2,6 +2,7 @@ import {
   implementationOutput,
   planningOutput,
   testingOutput,
+  type ApiCard,
   type ApiChecks,
   type ApiImplementation,
   type ApiPlan,
@@ -14,6 +15,7 @@ import type { Db } from './db/client.js';
 import {
   assetsFor,
   cardEventsFor,
+  cardsWithRepo,
   criteriaFor,
   differencesFor,
   latestClaudeRunForStage,
@@ -63,6 +65,10 @@ export async function cardDetail(
     repo: repo ? toApiRepo(repo) : null,
     criteria: criteriaFor(db, card.id).map(toApiCriterion),
     refs: refsFor(db, card.id).map(toApiCardRef),
+    dependencies: {
+      dependsOn: linkedCards(db, board.dependsOn.map((d) => d.id)),
+      dependents: linkedCards(db, board.dependents),
+    },
     questions: current ? questionsForRun(db, current.id).map(toApiQuestion) : [],
     plan: latestPlan(claudeRuns),
     implementation: latestImplementation(claudeRuns),
@@ -75,6 +81,10 @@ export async function cardDetail(
     assets: assetsFor(db, card.id).map(toApiAsset),
     differences: differencesFor(db, card.id).map(toApiDifference),
   };
+}
+
+function linkedCards(db: Db, ids: string[]): ApiCard[] {
+  return cardsWithRepo(db, ids).map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor));
 }
 
 /**

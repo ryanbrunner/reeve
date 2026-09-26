@@ -5,14 +5,17 @@ import {
   STAGE_LABELS,
   isRunnable,
   needsWorktree,
+  stageEntryRefusal,
+  type ApiCard,
   type ApiRunSummary,
   type CardDetail,
   type EffortLevel,
   type Stage,
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
+import { copyText } from '../lib/clipboard.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
-import { cost, duration, when } from './format.js';
+import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
 /**
@@ -22,13 +25,14 @@ import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
  * these are things the system knows rather than things a person wrote, and
  * they should read as reference rather than as prose.
  */
-export function Rail({ detail }: { detail: CardDetail }) {
+export function Rail({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
   return (
     <aside
       aria-label="Card facts"
       className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
     >
       <Repo detail={detail} />
+      <Dependencies detail={detail} onOpen={onOpen} />
       <Model detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
@@ -123,6 +127,162 @@ const SELECT =
   'w-full rounded-sm border border-(--color-edge) bg-(--color-ink) px-1.5 py-1 font-mono text-[11px]/[18px] text-(--color-text) outline-none focus:border-sky-600 disabled:opacity-50';
 
 /**
+ * The tasks this card depends on, and the ones that depend on it.
+ *
+ * Each opens in this card's place, the way a project's tasks do. The linked
+ * cards come off the detail rather than the board because the board has no
+ * archived cards, and a dependency that merged and left is still one. The
+ * picker is the board's cards, though: something to start depending on now
+ * has to be live.
+ */
+function Dependencies({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const invalidate = () => {
+    // Every card detail rather than this one's: the card at the other end of
+    // the link has just gained or lost a dependent.
+    void qc.invalidateQueries({ queryKey: ['card'] });
+    void qc.invalidateQueries({ queryKey: ['board'] });
+  };
+  const add = useMutation({
+    mutationFn: (dependsOnId: string) => api.addDependency(detail.card.id, { dependsOnId }),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (dependsOnId: string) => api.removeDependency(detail.card.id, dependsOnId),
+    onSuccess: invalidate,
+  });
+
+  const { dependsOn, dependents } = detail.dependencies;
+  const groups = byRepo(pickable(data?.cards ?? [], detail.card));
+  const error = add.error ?? remove.error;
+
+  return (
+    <>
+      <section className="flex flex-col gap-2">
+        <SectionHead count={dependsOn.length || undefined}>Depends on</SectionHead>
+        {dependsOn.length > 0 && (
+          <div className="-mx-1.5 flex flex-col">
+            {dependsOn.map((c) => (
+              <LinkedCard
+                key={c.id}
+                card={c}
+                onOpen={onOpen}
+                onRemove={() => !remove.isPending && remove.mutate(c.id)}
+              />
+            ))}
+          </div>
+        )}
+        <select
+          aria-label="Add a card this one depends on"
+          value=""
+          disabled={add.isPending || groups.length === 0}
+          onChange={(e) => {
+            if (e.target.value) add.mutate(e.target.value);
+          }}
+          className={SELECT}
+        >
+          <option value="">{groups.length ? 'Add a dependency…' : 'No other cards to depend on'}</option>
+          {groups.map(([repo, cards]) => (
+            <optgroup key={repo} label={repo}>
+              {cards.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.number} {c.title}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {error && <p className="font-mono text-[10px]/4 text-red-300">{error.message}</p>}
+      </section>
+      {dependents.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <SectionHead count={dependents.length}>Needed by</SectionHead>
+          <div className="-mx-1.5 flex flex-col">
+            {dependents.map((c) => (
+              <LinkedCard key={c.id} card={c} onOpen={onOpen} />
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+/** One linked card: its repo's colour, `#number`, title, and where it has got to. */
+function LinkedCard({ card, onOpen, onRemove }: {
+  card: ApiCard;
+  onOpen: (id: string) => void;
+  /** Only on this card's own dependencies. A dependent's link is removed from that card. */
+  onRemove?: () => void;
+}) {
+  return (
+    <div className="group flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => onOpen(card.id)}
+        title={card.repoName ? `${card.repoName} #${card.number}` : undefined}
+        className="flex min-w-0 grow items-center gap-2 rounded-sm border border-transparent px-1.5 py-0.5 text-left font-mono text-[11px]/[18px] hover:border-(--color-edge) hover:bg-white/4"
+      >
+        <span
+          aria-hidden="true"
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: card.laneColor ?? '#3f4754' }}
+        />
+        <span className="shrink-0 text-(--color-muted)">#{card.number}</span>
+        <span className="min-w-0 grow truncate text-(--color-text)">{card.title}</span>
+        <span className="shrink-0 text-(--color-muted)">
+          {card.archivedAt ? 'archived' : STAGE_LABELS[card.stage]}
+        </span>
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={`Stop depending on #${card.number}`}
+          onClick={onRemove}
+          className="shrink-0 px-1 font-mono text-[11px]/[18px] text-(--color-muted) opacity-0 group-hover:opacity-100 hover:text-red-300 focus:opacity-100"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What this card could depend on: every task on the board but itself and the
+ * ones it already depends on, less any that already depend on it however
+ * indirectly. The server would refuse those as a cycle, so they are not
+ * offered. The board only knows live cards, so a loop through an archived one
+ * is left to that refusal, which says why.
+ */
+function pickable(cards: ApiCard[], card: ApiCard): ApiCard[] {
+  const byId = new Map(cards.map((c) => [c.id, c]));
+  const excluded = new Set([card.id, ...card.dependsOn.map((d) => d.id)]);
+  // A for-of visits what is pushed onto the array mid-loop, so it is the queue too.
+  const waiting = [...card.dependents];
+  for (const id of waiting) {
+    if (excluded.has(id)) continue;
+    excluded.add(id);
+    waiting.push(...(byId.get(id)?.dependents ?? []));
+  }
+  return cards.filter((c) => !excluded.has(c.id));
+}
+
+/** Grouped under their repo's name, since `#number` only means something within one. */
+function byRepo(cards: ApiCard[]): Array<[string, ApiCard[]]> {
+  const groups = new Map<string, ApiCard[]>();
+  const sorted = [...cards].sort(
+    (a, b) => (a.repoName ?? '').localeCompare(b.repoName ?? '') || a.number - b.number,
+  );
+  for (const c of sorted) {
+    const repo = c.repoName ?? 'No repo';
+    groups.set(repo, [...(groups.get(repo) ?? []), c]);
+  }
+  return [...groups];
+}
+
+/**
  * Which model this card's runs use, and how hard they think.
  *
  * One override for every stage, above the Settings default for each: a card
@@ -205,8 +365,12 @@ function Worktree({ detail }: { detail: CardDetail }) {
         <SectionHead>Worktree</SectionHead>
         {merged ? (
           <div className="flex flex-col">
-            <Fact label="Merged as">{merged.slice(0, 7)}</Fact>
-            <Fact label="Into">{worktree.baseBranch}</Fact>
+            <Fact label="Merged as" copy={merged} copyLabel="commit">
+              {merged.slice(0, 7)}
+            </Fact>
+            <Fact label="Into" copy={worktree.baseBranch} copyLabel="base branch">
+              {worktree.baseBranch}
+            </Fact>
           </div>
         ) : (
           <Empty>None yet</Empty>
@@ -231,6 +395,10 @@ function Worktree({ detail }: { detail: CardDetail }) {
         )}
       </div>
 
+      {/* Each copies what a person would paste, not what fits in the rail: the
+          whole path, since `~` means nothing to half the tools it lands in,
+          and the base without how far behind it is. The URL stays a link,
+          because opening the preview is what it is for. */}
       <div className="flex flex-col">
         <Fact label="URL">
           {/* Only an address something vouched for. A server that has not
@@ -245,12 +413,16 @@ function Worktree({ detail }: { detail: CardDetail }) {
             '—'
           )}
         </Fact>
-        <Fact label="Branch">{worktree.branch ?? '—'}</Fact>
-        <Fact label="Base">
+        <Fact label="Branch" copy={worktree.branch ?? undefined}>
+          {worktree.branch ?? '—'}
+        </Fact>
+        <Fact label="Base" copy={worktree.baseBranch} copyLabel="base branch">
           {worktree.baseBranch}
           {worktree.behind ? ` · ${worktree.behind} behind` : worktree.behind === 0 ? ' · up to date' : ''}
         </Fact>
-        <Fact label="Path">{worktree.path.replace(/^\/Users\/[^/]+/, '~')}</Fact>
+        <Fact label="Path" copy={worktree.path}>
+          {worktree.path.replace(/^\/Users\/[^/]+/, '~')}
+        </Fact>
       </div>
 
       {/* The server's error is the one thing here that is worth its own space:
@@ -306,7 +478,7 @@ function Handoff({ detail }: { detail: CardDetail }) {
     onSuccess: ({ command }) => {
       // In `onSuccess` rather than the mutation: the file and the event exist by
       // now, and a refused clipboard must not read as a failed handoff.
-      navigator.clipboard?.writeText(command).then(() => setCopied(true), () => {});
+      void copyText(command).then((ok) => ok && setCopied(true));
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
     },
   });
@@ -393,11 +565,18 @@ function Runs({ detail }: { detail: CardDetail }) {
   const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
   const models = data?.models ?? [];
   const runs = detail.runs.filter((r) => r.kind === 'claude');
-  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
+  // The same sum the header shows, so the two totals can never disagree.
+  const spent = sumTokens(runs);
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
-        aside={runs.length ? <span className="font-mono text-[11px]/4 text-(--color-muted)">{cost(spent)}</span> : null}
+        aside={
+          spent ? (
+            <span title={tokenTitle(spent.breakdown)} className="font-mono text-[11px]/4 text-(--color-muted)">
+              {tok(spent.total)}
+            </span>
+          ) : null
+        }
       >
         Runs
       </SectionHead>
@@ -427,7 +606,9 @@ function Runs({ detail }: { detail: CardDetail }) {
               <span className="text-(--color-muted)">
                 {duration(r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null)}
               </span>
-              <span className="min-w-[40px] text-right text-(--color-muted)">{cost(r.totalCostUsd)}</span>
+              <span title={tokenTitle(r.tokenBreakdown)} className="min-w-[40px] text-right whitespace-nowrap text-(--color-muted)">
+                {tok(r.totalTokens)}
+              </span>
             </div>
           ))}
         </div>
@@ -441,7 +622,8 @@ function Runs({ detail }: { detail: CardDetail }) {
  *
  * Clicking a stage moves the card, which is the same human action as a drag —
  * appended to the end of that column, because the choice being made here is
- * the column and not the slot within it.
+ * the column and not the slot within it. Testing and Done stay shut until the
+ * card has been implemented, which the server enforces too.
  */
 function StageList({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -465,17 +647,20 @@ function StageList({ detail }: { detail: CardDetail }) {
         {STAGES.map((stage) => {
           const here = stage === detail.card.stage;
           const entered = detail.stageHistory[stage];
-          return (
+          // The server's own sentence, so the button never offers a move that
+          // would come back as an error.
+          const refusal = stageEntryRefusal(detail.card.stage, stage, detail.card.implemented);
+          const button = (
             <button
               key={stage}
               type="button"
-              disabled={here || move.isPending}
+              disabled={here || refusal !== null || move.isPending}
               aria-current={here ? 'step' : undefined}
               onClick={() => move.mutate(stage)}
               className={`flex w-full items-center justify-between gap-2 rounded-sm border px-1.5 py-0.5 text-left font-mono text-[11px]/[18px] ${
-                here
-                  ? 'border-(--color-edge) bg-white/4 text-(--color-text)'
-                  : 'border-transparent text-(--color-muted) hover:border-(--color-edge) hover:bg-white/4'
+                here ? 'border-(--color-edge) bg-white/4 text-(--color-text)'
+                : refusal ? 'pointer-events-none cursor-not-allowed border-transparent text-(--color-muted) opacity-50'
+                : 'border-transparent text-(--color-muted) hover:border-(--color-edge) hover:bg-white/4'
               }`}
             >
               <span className={here ? 'font-medium' : ''}>
@@ -485,6 +670,13 @@ function StageList({ detail }: { detail: CardDetail }) {
               <span>{entered ? (here ? `since ${when(entered)}` : when(entered)) : ''}</span>
             </button>
           );
+          // A disabled button does not reliably get hover in every browser, so
+          // the reason sits on a wrapper that does.
+          return refusal ?
+              <div key={stage} title={refusal} className="cursor-not-allowed">
+                {button}
+              </div>
+            : button;
         })}
       </div>
       {move.error && <p className="font-mono text-[10px]/4 text-red-300">{move.error.message}</p>}

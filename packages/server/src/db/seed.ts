@@ -14,7 +14,6 @@ if (listRepos(db).length === 0) {
     teardownCommand: null,
     finishCommand: null,
     laneColor: '#6b7db3',
-    maxBudgetUsd: 5,
   });
   createCard(db, { title: 'Wire the Planning stage end to end', repoId: p.id, stage: 'planning', body: 'First runnable stage.' });
   createCard(db, { title: 'Server supervisor: port allocation + start/stop', repoId: p.id, stage: 'backlog' });

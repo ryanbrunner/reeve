@@ -227,8 +227,8 @@ function Designs({ detail }: { detail: CardDetail }) {
         <Empty>
           None attached. A mockup with a page and a width is what tells Testing which screen to
           photograph.
-          {detail.card.generateMockups &&
-            ' With Generate mockups ticked in the Brief, Claude draws its own while planning.'}
+          {!detail.card.generateMockups &&
+            ' Tick Generate mockups in the Brief for Claude to draw its own while planning.'}
         </Empty>
       ) : (
         <div className="flex flex-wrap gap-3">

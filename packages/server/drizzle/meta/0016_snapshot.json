@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c9c82abf-606b-475e-9c7e-c7492446a6a1",
+  "id": "4539117f-c559-46bc-8a7f-2cfb124360a2",
   "prevId": "b9a006fb-c4ed-4112-af47-e868dd905f91",
   "tables": {
     "acceptance_criterion": {
@@ -618,6 +618,81 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "card_dependency": {
+      "name": "card_dependency",
+      "columns": {
+        "card_id": {
+          "name": "card_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "depends_on_id": {
+          "name": "depends_on_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "card_dependency_on": {
+          "name": "card_dependency_on",
+          "columns": [
+            "depends_on_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "card_dependency_card_id_card_id_fk": {
+          "name": "card_dependency_card_id_card_id_fk",
+          "tableFrom": "card_dependency",
+          "tableTo": "card",
+          "columnsFrom": [
+            "card_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "card_dependency_depends_on_id_card_id_fk": {
+          "name": "card_dependency_depends_on_id_card_id_fk",
+          "tableFrom": "card_dependency",
+          "tableTo": "card",
+          "columnsFrom": [
+            "depends_on_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "card_dependency_card_id_depends_on_id_pk": {
+          "columns": [
+            "card_id",
+            "depends_on_id"
+          ],
+          "name": "card_dependency_card_id_depends_on_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "card_event": {
       "name": "card_event",
       "columns": {
@@ -1146,13 +1221,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "server_url": {
-          "name": "server_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "teardown_command": {
           "name": "teardown_command",
           "type": "text",
@@ -1544,20 +1612,6 @@
         "port": {
           "name": "port",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "url_source": {
-          "name": "url_source",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  LANE_COLORS,
   RUNNABLE_STAGES,
   STAGE_LABELS,
+  freeLaneColor,
   type ApiRepo,
   type ApiSettings,
   type CreateRepoBody,
@@ -300,21 +302,12 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   );
 }
 
-/**
- * Lane colours, as a fixed set rather than a colour input.
- *
- * These are the board's swim lane dots and the chips on every card face, so
- * they have to sit on a dark panel without shouting — a free picker produces a
- * neon lane on the first try. Muted, evenly spaced, and picked for you.
- */
-const LANE_COLORS = ['#6b7db3', '#7fa38a', '#b3866b', '#8f7fb3', '#b36b81', '#6ba3b3'] as const;
-
 type FormState = {
   [K in keyof CreateRepoBody]-?: string;
 };
 
 function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): FormState {
-  const free = LANE_COLORS.find((c) => !takenColors.includes(c)) ?? LANE_COLORS[0];
+  const free = freeLaneColor(takenColors);
   return {
     name: repo?.name ?? '',
     repoPath: repo?.repoPath ?? '',
@@ -327,7 +320,6 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     teardownCommand: repo?.teardownCommand ?? '',
     finishCommand: repo?.finishCommand ?? '',
     laneColor: repo?.laneColor ?? free,
-    maxBudgetUsd: repo?.maxBudgetUsd == null ? '' : String(repo.maxBudgetUsd),
   };
 }
 
@@ -363,7 +355,6 @@ function RepoForm({
         teardownCommand: blankIsNull(form.teardownCommand),
         finishCommand: blankIsNull(form.finishCommand),
         laneColor: blankIsNull(form.laneColor),
-        maxBudgetUsd: form.maxBudgetUsd.trim() ? Number(form.maxBudgetUsd) : null,
         ...(form.worktreeRoot.trim() ? { worktreeRoot: form.worktreeRoot.trim() } : {}),
         ...(form.defaultBranch.trim() ? { defaultBranch: form.defaultBranch.trim() } : {}),
       };
@@ -378,8 +369,7 @@ function RepoForm({
     },
   });
 
-  const budgetIsNumber = !form.maxBudgetUsd.trim() || Number.isFinite(Number(form.maxBudgetUsd));
-  const ready = form.name.trim() !== '' && form.repoPath.trim() !== '' && budgetIsNumber;
+  const ready = form.name.trim() !== '' && form.repoPath.trim() !== '';
 
   return (
     <form
@@ -459,13 +449,6 @@ function RepoForm({
         </Field>
       </section>
 
-      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
-        <SectionHead>Budget</SectionHead>
-        <Field label="Max spend" hint="US dollars across a card's runs. Blank means no cap.">
-          <Text value={form.maxBudgetUsd} onChange={set('maxBudgetUsd')} placeholder="5" mono />
-        </Field>
-      </section>
-
       <div className="flex items-center gap-3 border-t border-(--color-edge) pt-4">
         <Button tone="sky" type="submit" disabled={!ready || save.isPending}>
           {save.isPending ? 'Saving…'
@@ -474,9 +457,6 @@ function RepoForm({
         </Button>
         {saved && !save.isPending && (
           <span className="font-mono text-[11px]/4 text-(--color-muted)">Saved</span>
-        )}
-        {!budgetIsNumber && (
-          <span className="font-mono text-[11px]/4 text-red-300">Max spend must be a number.</span>
         )}
       </div>
       {save.error && (

@@ -1,10 +1,26 @@
-import { deriveActivity, isRunnable, type ApiCard, type CardActivity, type RunnableStage, type Stage } from '@reeve/shared';
+import {
+  deriveActivity,
+  isRunnable,
+  stageEntryRefusal,
+  type ApiCard,
+  type CardActivity,
+  type RunnableStage,
+  type Stage,
+} from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { latestClaudeRunForStage } from './db/queries.js';
+import {
+  dependencyLinks,
+  hasImplementationRun,
+  latestClaudeRunForStage,
+  type DependencyLinks,
+} from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { stageDefinition } from './stages/index.js';
+// A cycle, as startStage reads cardActivity from here. Harmless: neither side
+// calls the other while the modules are still loading.
+import { isStartingStage } from './startStage.js';
 
 /**
  * How a card is presented on the board: which column it sits in is the human's
@@ -22,11 +38,16 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
   return { activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run) }), run };
 }
 
+/**
+ * `links` is for a caller mapping many cards, which reads the dependency table
+ * once and hands the lookup to each. Left out, only this card's rows are read.
+ */
 export function toBoardCard(
   db: Db,
   card: Card,
   repoName: string | null,
   laneColor: string | null,
+  links: (id: string) => DependencyLinks = dependencyLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
   // Only Done offers a resolution. A card dragged back for another round keeps
@@ -36,7 +57,19 @@ export function toBoardCard(
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
     resolvingConflicts: isResolvingConflicts(card.id),
-  });
+    startingStage: isStartingStage(card.id),
+    implemented: hasImplementationRun(db, card.id),
+  }, links(card.id));
+}
+
+/**
+ * Why this card may not go to `to`, or null if it may. For anything that would
+ * put a card into a column on a person's behalf — the move route, approval,
+ * SICKO MODE — and not for `moveCard`, which the spikes call directly to set a
+ * card up wherever they need it.
+ */
+export function entryRefusal(db: Db, card: Card, to: Stage): string | null {
+  return stageEntryRefusal(card.stage as Stage, to, hasImplementationRun(db, card.id));
 }
 
 /**

@@ -32,6 +32,8 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
    * The card's mockups, as files Claude can Read: the pictures Testing will
    * hold the build up against, handed over before the build rather than after.
    */
+  // Annotated because TypeScript 7 widens the early `{}` to `{ mockups?: undefined }`,
+  // which the hook's `Record<string, string>` refuses.
   async prepare(db, _writer, ctx): Promise<Record<string, string>> {
     const mockups = assetsFor(db, ctx.card.id).filter((a) => a.kind === 'mockup');
     if (mockups.length === 0) return {};

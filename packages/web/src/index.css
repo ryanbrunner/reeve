@@ -45,6 +45,13 @@
   --color-btn-error-hover-border: #f87171;
   --color-btn-error-hover-fill: #fb2c3633;
 
+  /* Dependencies. Violet because every other hue a card can wear already says
+     something: sky is running, emerald review, amber input, red error. A
+     blocked card is none of those, and must not be mistaken for one. */
+  --color-dep: #c4b5fd;
+  --color-dep-fill: #8b5cf626;
+  --color-dep-ring: #a78bfa;
+
   --shadow-card-glow-running: inset 0 0 18px 0 #00a6f459, inset 0 0 4px 0 #00a6f466, 0 0 18px -8px #00a6f48c;
   --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
@@ -164,6 +171,22 @@ body { background: var(--color-ink); color: var(--color-text); }
     filter: drop-shadow(0 0 2px var(--color-activity-error-mark)) drop-shadow(0 0 8px var(--color-activity-error-mark));
   }
 
+  /*
+   * A dependency chain, traced from the hovered or focused card. Outlines
+   * rather than borders or shadows, because those are the activity glow's and
+   * a card must keep saying what state it is in while it is lit. Solid is what
+   * the focused card waits on, dashed is what waits on it.
+   */
+  .card-link-up,
+  .card-link-down {
+    outline: 1.5px solid var(--color-dep-ring);
+    outline-offset: 2px;
+  }
+
+  .card-link-down { outline-style: dashed; }
+
+  .card-link-dim { opacity: 0.35; }
+
   /* The only thing on a card that animates: a light travelling along the
      bottom edge while Claude works. A running card carries this instead of a
      mark. */
@@ -210,6 +233,18 @@ body { background: var(--color-ink); color: var(--color-text); }
       box-shadow: 0 0 8px -2px var(--color-activity-running-mark);
     }
   }
+
+  /* A toast rises a few pixels as it fades in, so it reads as having just
+     arrived rather than as something that was always there. */
+  .toast-in {
+    animation: toast-in 150ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast-in {
+      animation: none;
+    }
+  }
 }
 
 @keyframes card-rail {
@@ -220,4 +255,9 @@ body { background: var(--color-ink); color: var(--color-text); }
 @keyframes btn-busy {
   0%, 100% { box-shadow: 0 0 0 0 transparent; }
   50% { box-shadow: 0 0 8px -2px var(--color-activity-running-mark); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }

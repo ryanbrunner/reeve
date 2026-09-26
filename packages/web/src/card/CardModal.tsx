@@ -29,7 +29,7 @@ const GLOW: Record<CardActivity, string> = {
 export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = false }: {
   cardId: string;
   onClose: () => void;
-  /** Open another card in this one's place: a project's task, from its Tasks tab. */
+  /** Open another card in this one's place: a project's task, or one of a task's dependencies. */
   onOpen: (id: string) => void;
   /** Open with the title selected for typing over: a card just made. */
   editTitle?: boolean;
@@ -78,6 +78,10 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
   }, [onClose]);
 
   const activity = data?.card.activity ?? 'idle';
+  // The ring the card wears on the calm board when it is in SICKO MODE alone,
+  // at this size too: it is the same card. Not in the board's SICKO MODE, which
+  // dresses every card the same and so has nothing to single this one out for.
+  const solo = !sicko && data?.card.sicko === true && data.card.mergedAt == null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
@@ -88,7 +92,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
         aria-modal="true"
         aria-labelledby="card-title"
         tabIndex={-1}
-        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${GLOW[activity]}`}
+        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
       >
         {isLoading && <Middle>Loading card…</Middle>}
         {error && <Middle>Could not load this card. {error.message}</Middle>}
@@ -101,7 +105,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
                   has none. In SICKO MODE the whole rail goes rather than parts
                   of it: every control and fact on it is a lever or a look under
                   the hood. */}
-              {data.card.kind === 'task' && !sicko && <Rail detail={data} />}
+              {data.card.kind === 'task' && !sicko && <Rail detail={data} onOpen={onOpen} />}
             </div>
             {/* The same rail of light the board card carries while Claude works. */}
             {activity === 'running' && (
