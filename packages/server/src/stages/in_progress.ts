@@ -1,6 +1,7 @@
 import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
+import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
 import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
@@ -63,6 +64,12 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
 
   onComplete(_ctx, output) {
     return [{ kind: 'summary', content: composeNotes(output), path: '.reeve/implementation.md' }];
+  },
+
+  // The only rows this stage writes: what it noticed, or deliberately left
+  // out of scope, as cards of their own.
+  onPersist(db, ctx, output) {
+    recordSuggestions(db, ctx, output.suggested_tasks);
   },
 
   // Implementation reports; it does not ask. Anything it could not decide should

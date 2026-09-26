@@ -125,6 +125,11 @@ export function tasksInProject(db: Db, projectId: string): Card[] {
     .all();
 }
 
+/** The cards a card's runs have suggested, archived ones included, as `tasksInProject` does. */
+export function cardsSuggestedBy(db: Db, cardId: string): Card[] {
+  return db.select().from(card).where(eq(card.suggestedById, cardId)).orderBy(asc(card.createdAt)).all();
+}
+
 /**
  * Every live card with a pull request GitHub might yet merge, beside the repo
  * to ask from. Not filtered on stage: a card dragged back out of Done for
@@ -400,6 +405,10 @@ export function moveCard(
 /**
  * A project takes no number and no place in a column: it is in none, and a
  * `#n` spent on it would be one the repo's next task never gets.
+ *
+ * `suggestedById` is for `recordSuggestions` alone. The route that creates a
+ * card validates its body with a schema that does not name it, which is what
+ * keeps the link something only a run can make.
  */
 export function createCard(
   db: Db,
@@ -411,6 +420,7 @@ export function createCard(
     generateMockups?: boolean;
     kind?: CardKind;
     projectId?: string | null;
+    suggestedById?: string | null;
     actor?: CardEventActor;
   },
 ) {
@@ -425,6 +435,7 @@ export function createCard(
       id: crypto.randomUUID(),
       kind,
       projectId: values.projectId ?? null,
+      suggestedById: values.suggestedById ?? null,
       number: kind === 'project' ? 0 : nextCardNumber(db, repoId),
       title: values.title,
       body: values.body ?? '',

@@ -11,6 +11,7 @@ import {
   replaceScreenshots,
 } from '../db/queries.js';
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
+import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
 import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
@@ -141,6 +142,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
         screenshotAssetId: byLabel('screenshot', d.capture_label),
       })),
     );
+    recordSuggestions(db, ctx, output.suggested_tasks);
   },
 
   summarise(output) {

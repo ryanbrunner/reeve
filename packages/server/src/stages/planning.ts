@@ -11,6 +11,7 @@ import {
   replaceGeneratedMockups,
   replaceQuestions,
 } from '../db/queries.js';
+import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt } from './template.js';
 import { GIT_READ } from './tools.js';
 import type { StageDefinition } from './types.js';
@@ -90,6 +91,9 @@ export const planningStage: StageDefinition<PlanningOutput> = {
    * Criteria are only seeded when the card has none: after the first plan the
    * list is the human's, and a revision must not quietly rewrite what they
    * decided done means.
+   *
+   * Suggestions become cards even from a plan still asking questions: what
+   * Claude noticed while reading does not wait on the answers.
    */
   onPersist(db, ctx, output, runId) {
     replaceQuestions(db, ctx.card.id, runId, 'planning', output.open_questions);
@@ -98,6 +102,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
         addCriterion(db, ctx.card.id, text, 'claude');
       }
     }
+    recordSuggestions(db, ctx, output.suggested_tasks);
   },
 
   /**
