@@ -14,9 +14,11 @@
  * The merged card on the board merged hours ago, so a server with the default
  * REEVE_AUTO_ARCHIVE_MS archives it on its first merge-sync tick, which runs
  * as it starts, and removes its worktree on the same tick. Start the server
- * with a large one, a year here, to keep it there:
+ * with a large one, a year here, to keep it there. Leave REEVE_DB unset: npm
+ * runs the server from packages/server, so a relative one would open an empty
+ * database there, and the default is already the data/reeve.db seeded above.
  *
- *   REEVE_DB=data/reeve.db REEVE_AUTO_ARCHIVE_MS=31536000000 npm run dev
+ *   REEVE_AUTO_ARCHIVE_MS=31536000000 npm run dev
  */
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
