@@ -55,6 +55,9 @@ export function writeHandoff(db: Db, card: Card, repo: Repo, worktreePath: strin
     worktreePath,
     branch: card.branchName ?? '(unknown)',
     baseBranch: repo.defaultBranch,
+    // Where the branch was cut, so the log is the card's commits alone: the
+    // local default branch may never have heard of what the card started from.
+    baseRef: card.baseSha ?? `origin/${repo.defaultBranch}`,
     lastRun: last
       ? `${last.status}${last.stopReason && last.stopReason !== 'completed' ? ` (${last.stopReason})` : ''}`
       : 'none yet',

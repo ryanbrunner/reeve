@@ -55,8 +55,9 @@ const project = (await call<ApiCard>('POST', '/api/cards', { title: 'Project', k
 const ctx = { card: getCard(db, project.id)!, repo, worktreePath: repo.repoPath } as StageContext;
 splitProjectTask.onPersist!(db, ctx, {
   tasks: [
-    { title: 'One', body: 'b', repo: null, criteria: [] },
-    { title: 'Two', body: 'b', repo: null, criteria: [] },
+    // `dependsOn` since the split began proposing links between its tasks.
+    { title: 'One', body: 'b', repo: null, criteria: [], dependsOn: [] },
+    { title: 'Two', body: 'b', repo: null, criteria: [], dependsOn: [] },
   ],
 }, 'run');
 const made = tasksInProject(db, project.id);
