@@ -977,11 +977,22 @@ export function deleteRef(db: Db, id: string) {
 
 /**
  * Whether a dependency is still holding up whatever waits on it: not in Done,
- * and not archived.
+ * or in Done with a pull request that has not merged — and never once archived.
  *
- * Done is the column, not the merge. A card is finished when a person has put
- * it there, the same as everywhere else on the board; waiting for GitHub as
- * well would make a repository's review rules part of this one.
+ * Done is not enough while the pull request is open. What waits on a card
+ * builds on its code, and a worktree is cut from main: start the dependent
+ * before the merge and it is built without the very thing it waited for. A
+ * Done card with no pull request has nothing still to land, so it clears. The
+ * column is read first, so a merged card dragged back out of Done blocks again.
+ *
+ * A pull request closed without merging keeps blocking, because nothing here
+ * records a close — only `mergedAt`. Archiving the dependency is the way out.
+ * One merged on GitHub rather than with the Merge button clears at the next
+ * merge sync, which is when `mergedAt` is set.
+ *
+ * `blockersOf` adds the few seconds after a card enters Done and before its
+ * pull request exists, which read as "no pull request" here. That is in-memory
+ * state in `pullRequest.ts`, which this file does not import.
  *
  * An archived dependency does not hold anything up. Archiving is how a card is
  * taken off the board on purpose — dropped, superseded, or merged and swept
@@ -993,7 +1004,14 @@ export function deleteRef(db: Db, id: string) {
  * and no import cycle to get at it.
  */
 export function stillBlocking(c: Card): boolean {
-  return c.stage !== 'done' && !c.archivedAt;
+  if (c.archivedAt) return false;
+  if (c.stage !== 'done') return true;
+  return awaitingMerge(c);
+}
+
+/** Blocking only for its pull request: in Done, on the board, and not merged yet. */
+export function awaitingMerge(c: Card): boolean {
+  return c.stage === 'done' && !c.archivedAt && c.prUrl !== null && c.mergedAt === null;
 }
 
 /** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
@@ -1042,6 +1060,7 @@ export function dependencyLinks(db: Db, cardId?: string): (id: string) => Depend
             // One rule for whether a dependency still holds a card up, in
             // `blockers.ts`, so the chip and the refusal cannot disagree.
             done: !stillBlocking(r.card),
+            awaitingMerge: awaitingMerge(r.card),
           },
         ] as const,
     ),

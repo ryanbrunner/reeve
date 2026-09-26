@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGES,
   STAGE_LABELS,
+  blockedMoveRefusal,
   isRunnable,
   needsWorktree,
   stageEntryRefusal,
@@ -650,7 +651,8 @@ function Runs({ detail }: { detail: CardDetail }) {
  * Clicking a stage moves the card, which is the same human action as a drag —
  * appended to the end of that column, because the choice being made here is
  * the column and not the slot within it. Testing and Done stay shut until the
- * card has been implemented, which the server enforces too.
+ * card has been implemented, and every stage but Backlog while it waits on a
+ * card that has not cleared, both of which the server enforces too.
  */
 function StageList({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -674,9 +676,12 @@ function StageList({ detail }: { detail: CardDetail }) {
         {STAGES.map((stage) => {
           const here = stage === detail.card.stage;
           const entered = detail.stageHistory[stage];
-          // The server's own sentence, so the button never offers a move that
-          // would come back as an error.
-          const refusal = stageEntryRefusal(detail.card.stage, stage, detail.card.implemented);
+          // The server's own sentences, so the button never offers a move that
+          // would come back as an error. `detail.card.dependsOn`, not
+          // `detail.dependencies`: only the links carry the server's `done`.
+          const refusal =
+            stageEntryRefusal(detail.card.stage, stage, detail.card.implemented) ??
+            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn);
           const button = (
             <button
               key={stage}

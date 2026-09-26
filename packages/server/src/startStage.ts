@@ -198,11 +198,11 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
   if (!stage) return { ok: false, status: 501, error: 'stage not implemented yet', detail: card.stage };
   const merged = refuseMergedWorktree(card);
   if (merged) return { ok: false, status: 409, ...merged };
-  // The move route already keeps a blocked card in Backlog, so this is for
-  // the one that got past it first: a dependency added, or put back out of
-  // Done, after the card had left. It keeps its column and does not run until
-  // the dependency is done. Before the worktree, so a card that may not start
-  // is not given one.
+  // The move route and approval already keep a blocked card from moving on,
+  // so this is for the one that got past Backlog first: a dependency added, or
+  // put back out of Done, after the card had left. It keeps its column, can
+  // only be moved back to Backlog, and does not run until the dependency
+  // clears. Before the worktree, so a card that may not start is not given one.
   const blocked = blockedStart(db, card);
   if (blocked) return { ok: false, ...blocked };
   // Taken before the first await, so no second start can slip in between
