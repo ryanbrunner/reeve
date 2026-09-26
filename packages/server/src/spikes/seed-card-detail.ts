@@ -2,7 +2,9 @@
  * Seeds one card in each activity state, carrying every surface the detail
  * modal renders: a brief, criteria with verdicts, questions half answered, a
  * plan with steps, an implementation with commits, checks, a mockup beside the
- * screenshot of it, and a full timeline.
+ * screenshot of it, and a full timeline. And one more, merged and archived
+ * with its worktree removed, for what a card looks like once only its branch
+ * is left.
  *
  * The point is to be able to drive the whole modal without spending a penny of
  * API credit. Run it, open the board, click the cards.
@@ -342,6 +344,48 @@ const readyServer = insertRun(db, {
   status: 'running', cwd: '/tmp/x', port: 5174, createdAt: ago(18), startedAt: ago(18),
 });
 
+// 6. Done, merged on GitHub, archived, and its worktree removed: the branch is
+// all that is left, and the Diff tab and commit list read from it. Archived,
+// so it is not on the board. The fixed id is what makes it reachable anyway,
+// at /?card=<id>, and the same link after every re-seed.
+const LANDED_ID = 'c1ea0000-0000-4000-8000-000000000001';
+db.$client.prepare('DELETE FROM card WHERE id = ?').run(LANDED_ID);
+const landed = card('Keep saved lines out of totals', 'Saved-for-later items are still counted in the cart subtotal. Leave them out.', 'done', 60 * 48);
+// Nothing but its own events points at it yet, so they are all that has to follow.
+db.$client.transaction(() => {
+  db.$client.pragma('defer_foreign_keys = ON');
+  db.$client.prepare('UPDATE card SET id = ? WHERE id = ?').run(LANDED_ID, landed.id);
+  db.$client.prepare('UPDATE card_event SET card_id = ? WHERE card_id = ?').run(LANDED_ID, landed.id);
+})();
+pastRun({ cardId: LANDED_ID, stage: 'planning', status: 'succeeded', output: PLAN, usd: 0.029, startedMinsAgo: 60 * 46, ranMins: 9 });
+pastRun({ cardId: LANDED_ID, stage: 'in_progress', status: 'succeeded', output: IMPL, usd: 0.088, startedMinsAgo: 60 * 40, ranMins: 34 });
+pastRun({ cardId: LANDED_ID, stage: 'testing', status: 'succeeded', usd: 0.041, startedMinsAgo: 60 * 30, ranMins: 7 });
+
+const landedPath = join(repo, '..', `reeve-seed-wt-${landed.number}`);
+const landedBranch = git(landedPath, 'rev-parse', '--abbrev-ref', 'HEAD');
+git(repo, 'worktree', 'remove', '--force', landedPath);
+const prUrl = 'https://github.com/example/storefront/pull/41';
+db.run(
+  `UPDATE card SET worktree_path=NULL, pr_url='${prUrl}', pr_number=41, pr_opened_at=${ago(60 * 24).getTime()},
+   merged_at=${ago(60 * 3).getTime()}, archived_at=${ago(60 * 3 - 10).getTime()} WHERE id='${LANDED_ID}'` as never,
+);
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'pr_opened', stage: 'done', createdAt: ago(60 * 24),
+  meta: { url: prUrl, number: 41, branch: landedBranch, into: 'main', reused: false },
+});
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'merged', stage: 'done', createdAt: ago(60 * 3),
+  meta: { url: prUrl, number: 41, sha: null, into: 'main' },
+});
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'archived', stage: 'done', createdAt: ago(60 * 3 - 10),
+  meta: { reason: 'merged' },
+});
+insertCardEvent(db, {
+  cardId: LANDED_ID, actor: 'human', kind: 'worktree_removed', stage: 'done', createdAt: ago(60 * 3 - 10),
+  meta: { reason: 'archived', path: landedPath, branch: landedBranch, forced: false },
+});
+
 // --- the pictures ------------------------------------------------------------
 
 /**
@@ -432,6 +476,7 @@ if (shot.unavailable) {
 
 console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state`);
 console.log('  idle · needs_input · running · error · needs_review');
+console.log(`  and one merged, archived and cleaned up: /?card=${LANDED_ID}`);
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');
 process.exit(0);
