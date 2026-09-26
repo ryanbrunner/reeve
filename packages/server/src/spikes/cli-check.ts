@@ -242,5 +242,17 @@ const restored = await ok('card', 'restore', `${web.name}#${getCard(db, thirdId)
 assert.match(restored.stdout, /Restored .* to Backlog/);
 assert.equal(getCard(db, thirdId)?.archivedAt, null);
 
+// A project with a card not yet Done is refused, naming it, until the flag
+// says to move that card to No project. The flag is archive's alone.
+const openProject = await reeve('card', 'archive', projectId);
+assert.equal(openProject.code, 1, openProject.stderr);
+assert.match(openProject.stderr, /project has open cards: 1 card is not Done \(#\d+ Filed\)/);
+assert.equal(getCard(db, projectId)?.archivedAt, null);
+const detached = await ok('card', 'archive', projectId, '--detach-open');
+assert.match(detached.stdout, /Archived .*\. Moved 1 card to No project\./);
+assert.ok(getCard(db, projectId)?.archivedAt);
+assert.equal(getCard(db, filed.id)?.projectId, null);
+assert.equal((await reeve('card', 'restore', projectId, '--detach-open')).code, 2);
+
 console.log(`cli-check: every assertion passed against ${url}`);
 server.close();
