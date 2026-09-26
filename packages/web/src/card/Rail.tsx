@@ -5,6 +5,7 @@ import {
   STAGE_LABELS,
   isRunnable,
   needsWorktree,
+  stageEntryRefusal,
   type ApiRunSummary,
   type CardDetail,
   type EffortLevel,
@@ -433,7 +434,8 @@ function Runs({ detail }: { detail: CardDetail }) {
  *
  * Clicking a stage moves the card, which is the same human action as a drag —
  * appended to the end of that column, because the choice being made here is
- * the column and not the slot within it.
+ * the column and not the slot within it. Testing and Done stay shut until the
+ * card has been implemented, which the server enforces too.
  */
 function StageList({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -457,17 +459,20 @@ function StageList({ detail }: { detail: CardDetail }) {
         {STAGES.map((stage) => {
           const here = stage === detail.card.stage;
           const entered = detail.stageHistory[stage];
-          return (
+          // The server's own sentence, so the button never offers a move that
+          // would come back as an error.
+          const refusal = stageEntryRefusal(detail.card.stage, stage, detail.card.implemented);
+          const button = (
             <button
               key={stage}
               type="button"
-              disabled={here || move.isPending}
+              disabled={here || refusal !== null || move.isPending}
               aria-current={here ? 'step' : undefined}
               onClick={() => move.mutate(stage)}
               className={`flex w-full items-center justify-between gap-2 rounded-sm border px-1.5 py-0.5 text-left font-mono text-[11px]/[18px] ${
-                here
-                  ? 'border-(--color-edge) bg-white/4 text-(--color-text)'
-                  : 'border-transparent text-(--color-muted) hover:border-(--color-edge) hover:bg-white/4'
+                here ? 'border-(--color-edge) bg-white/4 text-(--color-text)'
+                : refusal ? 'pointer-events-none cursor-not-allowed border-transparent text-(--color-muted) opacity-50'
+                : 'border-transparent text-(--color-muted) hover:border-(--color-edge) hover:bg-white/4'
               }`}
             >
               <span className={here ? 'font-medium' : ''}>
@@ -477,6 +482,13 @@ function StageList({ detail }: { detail: CardDetail }) {
               <span>{entered ? (here ? `since ${when(entered)}` : when(entered)) : ''}</span>
             </button>
           );
+          // A disabled button does not reliably get hover in every browser, so
+          // the reason sits on a wrapper that does.
+          return refusal ?
+              <div key={stage} title={refusal} className="cursor-not-allowed">
+                {button}
+              </div>
+            : button;
         })}
       </div>
       {move.error && <p className="font-mono text-[10px]/4 text-red-300">{move.error.message}</p>}
