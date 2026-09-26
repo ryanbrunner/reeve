@@ -224,6 +224,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     sessionId,
     permissionMode: stage.permissionMode,
     allowedTools: stage.allowedTools,
+    ...(stage.directories ? { additionalDirectories: stage.directories(db) } : {}),
     // Nobody is watching to approve anything, and a run that parks on its first
     // unmatched tool call parks forever — so something must answer immediately.
     // This does, synchronously, and its answer is a better one than the SDK's

@@ -3,18 +3,19 @@
  * crossed out.
  *
  * The struck-through entries are the point of it. A list of things that are ON
- * would read as a feature list; a list with "code review", "guardrails" and
- * "staging" scored out in magenta reads as what it is.
+ * would read as a feature list; a list with "planning", "code review",
+ * "guardrails" and "staging" scored out in magenta reads as what it is.
  */
 const WORDS: ReadonlyArray<readonly [string, boolean]> = [
   ['No human in the loop', false],
   ['Auto-merging to main', false],
+  ['Planning', true],
+  ['Plan: none. Vibes: immaculate', false],
   ['Code review', true],
   ['Tests: vibes', false],
   ['Backlog → Done, no stops', false],
   ['Claude answered its own question', false],
   ['Guardrails', true],
-  ['Every column runs Claude', false],
   ['You are a spectator now', false],
   ['Staging', true],
   ['Ship it ship it ship it', false],

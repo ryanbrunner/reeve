@@ -10,6 +10,7 @@
 const OFF = [
   ['Human review', 'off'],
   ['Stage gates', 'off'],
+  ['Planning', 'skipped'],
   ['Merge to main', 'automatic'],
   ['New ideas', 'run on arrival'],
   ['You', 'watching'],
