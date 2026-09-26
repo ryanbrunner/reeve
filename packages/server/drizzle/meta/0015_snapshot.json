@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dad9b334-43f4-41a9-83f9-10e92e20e7bc",
+  "id": "b9a006fb-c4ed-4112-af47-e868dd905f91",
   "prevId": "120b8a46-6f32-43a4-bee8-ace941948b28",
   "tables": {
     "acceptance_criterion": {
@@ -367,6 +367,21 @@
           "notNull": true,
           "autoincrement": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'task'"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "repo_id": {
           "name": "repo_id",
           "type": "text",
@@ -511,14 +526,6 @@
           "autoincrement": false,
           "default": true
         },
-        "sicko": {
-          "name": "sicko",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
         "archived_at": {
           "name": "archived_at",
           "type": "integer",
@@ -568,9 +575,31 @@
             "number"
           ],
           "isUnique": false
+        },
+        "card_project": {
+          "name": "card_project",
+          "columns": [
+            "project_id",
+            "stage",
+            "position"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
+        "card_project_id_card_id_fk": {
+          "name": "card_project_id_card_id_fk",
+          "tableFrom": "card",
+          "tableTo": "card",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "card_repo_id_repo_id_fk": {
           "name": "card_repo_id_repo_id_fk",
           "tableFrom": "card",

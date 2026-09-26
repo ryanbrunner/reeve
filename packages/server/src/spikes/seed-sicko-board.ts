@@ -75,8 +75,10 @@ function card(title: string, stage: Stage, face: Face, cost?: number) {
 card('Gift notes at checkout', 'backlog', 'idle');
 card('Size guide drawer on product pages', 'backlog', 'idle');
 card('Filter order history by status', 'backlog', 'idle');
+// Planning keeps only a card left over from before the switch, asking a
+// question: SICKO MODE never starts a plan, so the sign under it has to show.
 card('Rate-limit the checkout API', 'planning', 'input', 0.012);
-card('Reorder from a past order', 'planning', 'running', 0.031);
+card('Reorder from a past order', 'in_progress', 'running', 0.031);
 card('Email me when it’s back in stock', 'in_progress', 'running', 0.048);
 card('Fix tax rounding on refunds', 'in_progress', 'error', 0.009);
 card('Rewrite checkout in Rust', 'in_progress', 'running', 0.096);

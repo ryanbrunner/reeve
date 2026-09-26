@@ -5,11 +5,13 @@ import type {
   ApiAsset,
   ApiCriterion,
   ApiDifference,
+  ApiProject,
   ApiQuestion,
   ApiRepo,
   ApiRunSummary,
   ApiToolDenial,
   CardActivity,
+  CardKind,
   CardEventActor,
   CardEventKind,
   AssetKind,
@@ -106,6 +108,8 @@ export function toApiCard(
 ): ApiCard {
   return {
     id: c.id,
+    kind: c.kind as CardKind,
+    projectId: c.projectId,
     number: c.number,
     repoId: c.repoId,
     repoName,
@@ -132,6 +136,10 @@ export function toApiCard(
     createdAt: ms(c.createdAt) ?? 0,
     updatedAt: ms(c.updatedAt) ?? 0,
   };
+}
+
+export function toApiProject(c: Card, laneColor: string | null, taskCount: number): ApiProject {
+  return { id: c.id, title: c.title, repoId: c.repoId, laneColor, taskCount };
 }
 
 export function toApiCardEvent(e: CardEvent): ApiCardEvent {

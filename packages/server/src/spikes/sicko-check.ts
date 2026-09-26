@@ -20,6 +20,7 @@ import {
   insertRun,
   questionsForRun,
   replaceQuestions,
+  runsForCard,
   setRunStatus,
   updateCard,
   updateSettings,
@@ -56,16 +57,26 @@ const actorsOf = (cardId: string, kind: string) =>
 // --- off ------------------------------------------------------------------
 // Nothing happens while the switch is off, however ready the card looks.
 const asleep = createCard(db, { title: 'asleep', repoId: repo.id, stage: 'backlog' });
+// Made now, before anything else is in Planning: the questions case below
+// leaves its card there with a failed run, and a later sweep would move that
+// on too.
+const stranded = createCard(db, { title: 'stranded', repoId: repo.id, stage: 'planning' });
 await sickoSweep(db, writer);
 const stayedPut = getCard(db, asleep.id)!.stage;
 
 updateSettings(db, { sicko: true });
 
 // --- backlog --------------------------------------------------------------
-// Nobody is going to drag this.
+// Nobody is going to drag this, and nobody is going to plan it either.
 await sickoSweep(db, writer);
 const movedTo = getCard(db, asleep.id)!.stage;
 const movedBy = actorsOf(asleep.id, 'moved');
+
+// --- planning, with nothing in it -----------------------------------------
+// A card already in Planning when the switch went on, with no plan started, is
+// moved on without one rather than planned.
+const strandedTo = getCard(db, stranded.id)!.stage;
+const plansStarted = [asleep, stranded].flatMap((c) => runsForCard(db, c.id)).filter((r) => r.stage === 'planning');
 
 // --- the card nobody has named yet ----------------------------------------
 // Add makes a card called "Untitled" and opens it for the details. Planning
@@ -155,10 +166,12 @@ ok('a backlog card is left alone', stayedPut, 'backlog');
 ok('and is still left alone after it has been on and off', afterOff, 'backlog');
 
 console.log('\n--- with the switch on ---');
-ok('backlog moves itself into planning', movedTo, 'planning');
-ok('and the move is recorded as Claude, not as you', movedBy, ['claude']);
+ok('backlog moves itself over planning into in progress', movedTo, 'in_progress');
+ok('in one move, recorded as Claude, not as you', movedBy, ['claude']);
+ok('a planning card with no plan is moved on', strandedTo, 'in_progress');
+ok('and no planning run is started for either', plansStarted.length, 0);
 ok('a card nobody has named yet is left where it is', unnamedStage, 'backlog');
-ok('and goes the moment it is named', namedStage, 'planning');
+ok('and goes the moment it is named', namedStage, 'in_progress');
 ok('a plan waiting for review is approved', reviewedBy, ['claude']);
 ok('and the card advances', afterReview, 'in_progress');
 ok('a question is answered with Claude’s own first suggestion', answers, ['Left']);
@@ -183,7 +196,7 @@ console.log('\n--- the scoreboard ---');
 ok('human approvals', state.humanApprovals, 0);
 ok('reviews skipped', state.reviewsSkipped, 1);
 ok('questions self-answered', state.questionsSelfAnswered, 1);
-ok('moves', state.moves, 3);
+ok('moves', state.moves, 4);
 ok('spend counts the runs since', state.spendUsd, 0.5);
 console.log('log:');
 for (const line of state.log) console.log(`  ◆ ${line}`);

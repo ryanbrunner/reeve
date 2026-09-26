@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isTerminal, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
@@ -13,10 +13,12 @@ import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
  * it is the only one that is editable throughout.
  */
 export function BriefTab({ detail }: { detail: CardDetail }) {
+  // A project is done when its tasks are, so it has no criteria of its own:
+  // its brief is what they are split from.
   return (
     <>
       <Purpose detail={detail} />
-      <Criteria detail={detail} />
+      {detail.card.kind === 'project' ? <Split detail={detail} /> : <Criteria detail={detail} />}
       <Context detail={detail} />
     </>
   );
@@ -30,11 +32,11 @@ export function BriefTab({ detail }: { detail: CardDetail }) {
 const FIELD =
   'max-w-[40rem] rounded-md border border-(--color-edge) bg-(--color-ink) p-3 text-sm/5 outline-none focus:border-sky-600';
 
-const PROMPT = 'What is this card for?';
-
 function Purpose({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
+  const noun = detail.card.kind === 'project' ? 'project' : 'card';
+  const prompt = `What is this ${noun} for?`;
   const save = useMutation({
     mutationFn: (body: string) => api.updateCard(detail.card.id, { body }),
     onSuccess: async () => {
@@ -72,10 +74,10 @@ function Purpose({ detail }: { detail: CardDetail }) {
           rows={4}
           value={draft}
           disabled={save.isPending}
-          placeholder={PROMPT}
+          placeholder={prompt}
           // The heading used to name this field. Nothing else does now, and a
           // placeholder stops naming it the moment there is something in it.
-          aria-label="What this card is for"
+          aria-label={`What this ${noun} is for`}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           className={`${FIELD} resize-y placeholder:text-(--color-muted)`}
@@ -104,12 +106,66 @@ function Purpose({ detail }: { detail: CardDetail }) {
           // box does not change height the moment it becomes one.
           className={`${FIELD} min-h-[6.625rem] cursor-text text-(--color-muted) hover:border-slate-600`}
         >
-          {PROMPT}
+          {prompt}
         </div>
       )}
       {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
-      <GenerateMockups detail={detail} />
-      <CardSicko detail={detail} />
+      {/* A project is never planned, so it has no mockups to draw. */}
+      {detail.card.kind === 'task' && <GenerateMockups detail={detail} />}
+      {/* Nor is a project ever swept, so it has no switch: the sweep moves tasks. */}
+      {detail.card.kind === 'task' && <CardSicko detail={detail} />}
+    </section>
+  );
+}
+
+/**
+ * A project's brief, broken into cards. The first split starts on its own when
+ * the brief is first saved; this is how to ask again, after the brief has grown.
+ * Wired as Suggest is, and busy and failed off the latest run for the same reason.
+ */
+function Split({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const split = useMutation({
+    mutationFn: () => api.splitProject(detail.card.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] }),
+  });
+
+  const last = detail.runs.find((r) => r.task === 'split_project');
+  const splitting = split.isPending || (last !== undefined && !isTerminal(last.status));
+  const failure =
+    split.error?.message ??
+    (!splitting && (last?.status === 'failed' || last?.status === 'interrupted')
+      ? `Split failed: ${last.errorMessage ?? 'the run was interrupted'}`
+      : null);
+
+  // The cards it made are the board's, which polls lazily when nothing on it
+  // is running — and nothing on it is: the split is the project's.
+  const landed = last?.status === 'succeeded' ? last.id : null;
+  useEffect(() => {
+    if (landed) void qc.invalidateQueries({ queryKey: ['board'] });
+  }, [landed, qc]);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead
+        aside={
+          <SmallButton
+            tone="sky"
+            busy={splitting}
+            disabled={!detail.card.body.trim()}
+            title={detail.card.body.trim() ? undefined : 'Write the brief first'}
+            onClick={() => split.mutate()}
+          >
+            {splitting ? 'Splitting…' : 'Split into tasks'}
+          </SmallButton>
+        }
+      >
+        Tasks
+      </SectionHead>
+      <span className="font-mono text-[10px]/4 text-(--color-muted)">
+        Claude breaks the brief into Backlog cards under this project, skipping any it already has
+      </span>
+      {failure && <p className="text-sm/5 text-red-300">{failure}</p>}
     </section>
   );
 }

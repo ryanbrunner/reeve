@@ -32,7 +32,7 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * was not ready and the `gh` call that timed out without one line of code
  * knowing that is what it is doing.
  *
- * Exactly the five things the arming overlay promises, and nothing else. Reeve's
+ * Exactly the six things the arming overlay promises, and nothing else. Reeve's
  * own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
  * of those is a human in the loop — they are limits on what a run may do, and
@@ -122,8 +122,8 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     return;
   }
 
-  // Backlog. Nobody is going to drag this, so it goes, and then starts the way
-  // a card dragged into Planning starts.
+  // Backlog. Nobody is going to drag this, so it goes — over Planning, straight
+  // into In Progress — and then starts the way a card dragged there starts.
   if (!isRunnable(stage)) {
     // Except a card nobody has said anything about yet. A card is made with a
     // placeholder title and an empty brief and opened for the details to be
@@ -133,10 +133,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
     if (card.title.trim() === PLACEHOLDER_TITLE && card.body.trim() === '') return;
-    const to = nextStage(stage);
-    if (!to) return;
-    const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
-    if (moved) maybeStartStage(db, writer, moved, repo);
+    moveOn(db, writer, card, repo);
     return;
   }
 
@@ -153,14 +150,43 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
       return;
 
     // Started, restarted, or picked up after the cap refused it last time.
+    // Except in Planning, where nothing is ever started in here: a card that
+    // was sitting there when the switch went on, with no plan in flight, is
+    // moved on without one. A plan already written or already asking is left to
+    // finish through the two cases above, because it is paid for.
     case 'idle':
     case 'error':
+      if (stage === 'planning') {
+        moveOn(db, writer, card, repo);
+        return;
+      }
       if (canStartRun({ stage, activity })) await startStage(db, writer, card, repo);
       return;
 
     case 'running':
       return;
   }
+}
+
+/**
+ * The column after this one, with Planning stepped over.
+ *
+ * Here and not in `nextStage`, because the calm board, the review gate and the
+ * card's own buttons all advance through Planning, and SICKO MODE is a layer
+ * over that product rather than a fork of it. Nothing after it needs a plan:
+ * In Progress works from the card itself when none was recorded.
+ */
+function sickoNext(stage: Stage): Stage | null {
+  const to = nextStage(stage);
+  return to === 'planning' ? nextStage(to) : to;
+}
+
+/** Into the next column as Claude, and started there, as a drag would have. */
+function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
+  const to = sickoNext(card.stage as Stage);
+  if (!to) return;
+  const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
+  if (moved) maybeStartStage(db, writer, moved, repo);
 }
 
 /**
