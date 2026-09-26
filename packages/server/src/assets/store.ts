@@ -19,6 +19,22 @@ export const CONTENT_TYPES: Record<string, string> = {
 /** Generous for a screenshot, small enough that a stray upload can't fill a disk. */
 export const MAX_ASSET_BYTES = 12 * 1024 * 1024;
 
+/** The route the page is given for an asset; its path on disk never leaves the server. */
+export const assetSrc = (assetId: string) => `/api/assets/${assetId}`;
+
+/**
+ * An image the brief's editor pasted in, by the `src` the page was given for
+ * it: `![alt](/api/assets/<id>)`, with the alt and the id captured. Beside
+ * `assetSrc` so the route and the pattern that reads it back change together,
+ * and one constant so Claude's brief and the pull request's description cannot
+ * disagree about which links are images.
+ *
+ * Global, so it is for `matchAll` and `replace`, which start from the top
+ * every time; `test` or `exec` on it would carry `lastIndex` from one call to
+ * the next.
+ */
+export const PASTED_IMAGE = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
+
 export function relativeAssetPath(cardId: string, assetId: string, contentType: string): string {
   return join(cardId, `${assetId}.${CONTENT_TYPES[contentType] ?? 'bin'}`);
 }

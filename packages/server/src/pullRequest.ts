@@ -1,4 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
+import { PASTED_IMAGE } from './assets/store.js';
 import { config } from './config.js';
 import type { Db } from './db/client.js';
 import {
@@ -107,9 +108,6 @@ export type PullRequestResult =
 
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
 
-/** An image the brief's editor pasted in, by the `src` the page was given for it. */
-const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
-
 /**
  * The card's body as a pull request description. A pasted image is linked by
  * its route on this server, which GitHub cannot reach and would show as a
@@ -122,7 +120,7 @@ const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
  * `_` or `*` in one would unbalance it.
  */
 const prDescription = (body: string) =>
-  body.trim().replace(PASTED, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
+  body.trim().replace(PASTED_IMAGE,(_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
 
 /**
  * Push a Done card's branch to `origin` and open a pull request for it against
