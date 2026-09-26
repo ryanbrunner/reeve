@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
@@ -38,14 +38,18 @@ export function CardHeader({
     void qc.invalidateQueries({ queryKey: ['archived'] });
   };
   // Closes on success: the card has left the board, and the archive is where
-  // it can be found again — which is also why there is no "are you sure".
+  // it can be found again — which is also why there is no "are you sure". The
+  // one exception is a project with cards not yet Done: those do not go to the
+  // Archive but to No project, and restoring the project does not bring them
+  // back, so that is asked first.
   const archive = useMutation({
-    mutationFn: () => api.archiveCard(card.id),
+    mutationFn: (detachOpen: boolean) => api.archiveCard(card.id, detachOpen ? { detachOpen } : undefined),
     onSuccess: () => {
       invalidate();
       onClose();
     },
   });
+  const [confirming, setConfirming] = useState(false);
   const restore = useMutation({ mutationFn: () => api.restoreCard(card.id), onSuccess: invalidate });
   const rename = useMutation({
     mutationFn: (title: string) => api.updateCard(card.id, { title }),
@@ -56,8 +60,14 @@ export function CardHeader({
     onSuccess: invalidate,
   });
   const failed = archive.error ?? restore.error ?? rename.error ?? refile.error;
-  // Every repo, for the picker. The board already has them.
-  const repos = useQuery({ queryKey: ['board'], queryFn: api.board }).data?.repos ?? [];
+  // Every repo, for the picker, and a project's cards, for the confirm. The
+  // board already has them. The server checks again, so a card added since
+  // the last poll is refused rather than moved unasked.
+  const board = useQuery({ queryKey: ['board'], queryFn: api.board }).data;
+  const repos = board?.repos ?? [];
+  const tasks = card.kind === 'project' ? (board?.cards ?? []).filter((c) => c.projectId === card.id) : [];
+  const open = tasks.filter((c) => c.stage !== 'done');
+  const done = tasks.length - open.length;
 
   // The heading is the field. It is left to the DOM while it is being typed in,
   // so everything that ends an edit without saving one — an empty title, no
@@ -154,13 +164,25 @@ export function CardHeader({
           </>
         : <>
             <span className="font-mono text-[10px]/4 text-(--color-muted)">Updated {when(card.updatedAt)}</span>
-            <SmallButton
-              disabled={running || archive.isPending}
-              title={running ? 'Stop the run before deleting' : 'Take the card off the board. The Archive can restore it.'}
-              onClick={() => archive.mutate()}
-            >
-              {archive.isPending ? 'Deleting…' : 'Delete'}
-            </SmallButton>
+            {card.kind === 'project' ?
+              <SmallButton
+                disabled={running || archive.isPending || confirming}
+                title={
+                  running ? 'Stop the run before archiving'
+                  : 'Take the project off the board, with its Done cards. The Archive can restore them.'
+                }
+                onClick={() => (open.length > 0 ? setConfirming(true) : archive.mutate(false))}
+              >
+                {archive.isPending ? 'Archiving…' : 'Archive'}
+              </SmallButton>
+            : <SmallButton
+                disabled={running || archive.isPending}
+                title={running ? 'Stop the run before deleting' : 'Take the card off the board. The Archive can restore it.'}
+                onClick={() => archive.mutate(false)}
+              >
+                {archive.isPending ? 'Deleting…' : 'Delete'}
+              </SmallButton>
+            }
           </>
         }
         <button
@@ -212,6 +234,41 @@ export function CardHeader({
         {running && runs.length > 0 && ' so far'}
       </div>
       {failed && <p className="relative mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}
+
+      {/* Gone by itself if the last open card finishes while it is up: the
+          button then archives straight away, as for any project. */}
+      {confirming && open.length > 0 && (
+        <div role="group" aria-labelledby="archive-confirm" className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+          <div id="archive-confirm" className="text-sm/5 font-medium text-(--color-text)">
+            {open.length === 1 ? '1 card is' : `${open.length} cards are`} not Done
+          </div>
+          <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+            {open.length === 1 ?
+              'It moves to No project, in the column it is in, and stays there if the project is restored.'
+            : 'They move to No project, in the columns they are in, and stay there if the project is restored.'}{' '}
+            {done === 0 ? 'The project has no Done cards to archive.'
+            : done === 1 ? 'Its one Done card goes to the Archive with it.'
+            : `Its ${done} Done cards go to the Archive with it.`}
+          </p>
+          <ul className="mt-2 flex max-h-40 flex-col gap-1 overflow-y-auto">
+            {open.map((c) => (
+              <li key={c.id} className="flex items-baseline gap-2 text-sm/5">
+                <span className="shrink-0 font-mono text-[11px]/4 text-(--color-muted)">#{c.number}</span>
+                <span className="min-w-0 truncate text-(--color-text)">{c.title}</span>
+                <span className="shrink-0 font-mono text-[10px]/4 text-(--color-muted)">{STAGE_LABELS[c.stage]}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex gap-2">
+            <SmallButton tone="sky" busy={archive.isPending} onClick={() => archive.mutate(true)}>
+              {archive.isPending ? 'Archiving…' : `Archive and move ${open.length} to No project`}
+            </SmallButton>
+            <SmallButton disabled={archive.isPending} onClick={() => setConfirming(false)}>
+              Cancel
+            </SmallButton>
+          </div>
+        </div>
+      )}
 
       <AttentionBand detail={detail} live={live} />
     </header>

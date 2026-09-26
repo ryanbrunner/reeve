@@ -249,7 +249,14 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'pr_failed':
       return 'could not open a pull request';
     case 'archived':
-      return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged' : 'archived the card';
+      return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged'
+        : e.meta?.['reason'] === 'project' ? 'archived the card with its project'
+        : 'archived the card';
+    case 'left_project': {
+      // Named from the event: the card no longer points at the project.
+      const title = e.meta?.['projectTitle'];
+      return `moved the card to No project when ${typeof title === 'string' ? title : 'its project'} was archived`;
+    }
     case 'restored':
       return `restored the card to ${stage(e.stage)}`;
     case 'handed_off':
