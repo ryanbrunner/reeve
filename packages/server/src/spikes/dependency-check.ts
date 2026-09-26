@@ -95,7 +95,7 @@ const repo =
   createRepo(db, {
     name: 'deps-check', repoPath: '/tmp/deps-check', worktreeRoot: '/tmp/deps-check-worktrees', defaultBranch: 'main',
     setupCommand: null, testCommand: null, serverCommand: null,
-    teardownCommand: null, finishCommand: null, laneColor: '#6b7db3', maxBudgetUsd: null,
+    teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
   });
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> {

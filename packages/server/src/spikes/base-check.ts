@@ -69,7 +69,7 @@ runMigrations(db);
 const repo = createRepo(db, {
   name: 'base-check', repoPath, worktreeRoot, defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const writer = {} as never; // only reached for a setup command, and there is none
 

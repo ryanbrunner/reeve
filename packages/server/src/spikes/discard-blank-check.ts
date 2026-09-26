@@ -39,7 +39,7 @@ runMigrations(db);
 const makeRepo = (name: string) => createRepo(db, {
   name, repoPath: join(root, name), worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const repo = makeRepo('discard-check');
 const other = makeRepo('discard-check-other');

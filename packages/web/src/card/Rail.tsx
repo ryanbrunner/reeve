@@ -13,7 +13,7 @@ import {
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
-import { cost, duration, when } from './format.js';
+import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
 /**
@@ -543,11 +543,18 @@ function Runs({ detail }: { detail: CardDetail }) {
   const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
   const models = data?.models ?? [];
   const runs = detail.runs.filter((r) => r.kind === 'claude');
-  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
+  // The same sum the header shows, so the two totals can never disagree.
+  const spent = sumTokens(runs);
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
-        aside={runs.length ? <span className="font-mono text-[11px]/4 text-(--color-muted)">{cost(spent)}</span> : null}
+        aside={
+          spent ? (
+            <span title={tokenTitle(spent.breakdown)} className="font-mono text-[11px]/4 text-(--color-muted)">
+              {tok(spent.total)}
+            </span>
+          ) : null
+        }
       >
         Runs
       </SectionHead>
@@ -577,7 +584,9 @@ function Runs({ detail }: { detail: CardDetail }) {
               <span className="text-(--color-muted)">
                 {duration(r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null)}
               </span>
-              <span className="min-w-[40px] text-right text-(--color-muted)">{cost(r.totalCostUsd)}</span>
+              <span title={tokenTitle(r.tokenBreakdown)} className="min-w-[40px] text-right whitespace-nowrap text-(--color-muted)">
+                {tok(r.totalTokens)}
+              </span>
             </div>
           ))}
         </div>

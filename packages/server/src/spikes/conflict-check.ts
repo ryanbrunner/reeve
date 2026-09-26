@@ -95,7 +95,7 @@ runMigrations(db);
 const repo = createRepo(db, {
   name: 'conflict-check', repoPath, worktreeRoot, defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const writer = { append: () => {}, finish: () => {} } as unknown as EventWriter;
 

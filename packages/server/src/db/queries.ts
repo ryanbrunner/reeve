@@ -9,6 +9,7 @@ import {
   type UpdateSettingsBody,
 } from '@reeve/shared';
 import { config } from '../config.js';
+import { runTokens } from '../mappers.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -743,14 +744,18 @@ export function sickoLedger(db: Db, since: Date) {
     .all();
 }
 
-/** What every run started since a moment has cost. Runs still going have no cost yet. */
-export function spendSince(db: Db, since: Date): number {
-  const row = db
-    .select({ total: sql<number | null>`sum(${run.totalCostUsd})` })
+/**
+ * The tokens every run started since a moment has used. Runs still going have
+ * no count yet. Summed here rather than in SQL because the count lives in the
+ * SDK's JSON, and `runTokens` is the one place that knows how to read it.
+ */
+export function tokensSince(db: Db, since: Date): number {
+  return db
+    .select({ modelUsageJson: run.modelUsageJson })
     .from(run)
     .where(gt(run.createdAt, since))
-    .get();
-  return row?.total ?? 0;
+    .all()
+    .reduce((n, r) => n + (runTokens(r.modelUsageJson)?.total ?? 0), 0);
 }
 
 /**

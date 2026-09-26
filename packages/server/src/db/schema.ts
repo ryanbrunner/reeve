@@ -87,7 +87,6 @@ export const repo = sqliteTable('repo', {
   finishCommand: text('finish_command'),
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
-  maxBudgetUsd: real('max_budget_usd'),
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
 });

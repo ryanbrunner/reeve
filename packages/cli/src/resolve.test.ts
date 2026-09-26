@@ -20,7 +20,6 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     teardownCommand: null,
     finishCommand: null,
     laneColor: null,
-    maxBudgetUsd: null,
   };
 }
 

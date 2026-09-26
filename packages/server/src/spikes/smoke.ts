@@ -21,8 +21,7 @@ db.insert(card).values({
 const sessionId = crypto.randomUUID();
 const created = insertRun(db, {
   id: 'r1', cardId: 'c1', kind: 'claude', stage: 'planning', status: 'running',
-  sessionId, model: 'claude-opus-5', effort: 'high', permissionMode: 'plan',
-  maxBudgetUsd: 2.0, cwd: '/tmp/worktree', startedAt: new Date(),
+  sessionId, model: 'claude-opus-5', effort: 'high', permissionMode: 'plan', cwd: '/tmp/worktree', startedAt: new Date(),
 });
 console.log('run inserted   :', created.id, created.status, created.sessionId === sessionId ? '(session id round-tripped)' : '(MISMATCH)');
 

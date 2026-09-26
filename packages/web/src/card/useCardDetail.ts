@@ -9,8 +9,7 @@ import { api } from '../lib/api.js';
  * The board polls because nothing pushes a card's activity to it. The modal is
  * looking at exactly one run, so it can do better: while that run is live it
  * opens the per-run SSE stream the server has always had and nothing consumed,
- * and reads the elapsed time, the cost and what Claude is doing right now off
- * it. The detail query itself stays on a slow poll underneath, because the
+ * and reads the elapsed time and what Claude is doing right now off it. The detail query itself stays on a slow poll underneath, because the
  * stream carries the run and not the card around it.
  */
 export function useCardDetail(cardId: string | null) {

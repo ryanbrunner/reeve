@@ -32,7 +32,6 @@ const FIELDS = {
   teardown: { type: 'string' },
   finish: { type: 'string' },
   color: { type: 'string' },
-  budget: { type: 'string' },
   json: { type: 'boolean' },
 } as const;
 
@@ -53,15 +52,8 @@ function required(flag: string, value: string): string {
   return trimmed;
 }
 
-/** A blank command, colour or budget is "none", which is null on the wire — the same as a blank field on the form. */
+/** A blank command or colour is "none", which is null on the wire — the same as a blank field on the form. */
 const blankIsNull = (value: string) => (value.trim() ? value.trim() : null);
-
-function parseBudget(value: string): number | null {
-  if (!value.trim()) return null;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) throw usageError(`--budget must be an amount in dollars, not '${value}'`);
-  return n;
-}
 
 /** The fields given, as the body the server takes. A flag left out is absent, so it stays as it was. */
 function body(fields: Fields): UpdateRepoBody {
@@ -78,7 +70,6 @@ function body(fields: Fields): UpdateRepoBody {
   if (fields.teardown !== undefined) out.teardownCommand = blankIsNull(fields.teardown);
   if (fields.finish !== undefined) out.finishCommand = blankIsNull(fields.finish);
   if (fields.color !== undefined) out.laneColor = blankIsNull(fields.color);
-  if (fields.budget !== undefined) out.maxBudgetUsd = parseBudget(fields.budget);
   return out;
 }
 
@@ -93,7 +84,6 @@ function render(repo: ApiRepo): string {
     ['Teardown', repo.teardownCommand ?? '-'],
     ['Finish', repo.finishCommand ?? '-'],
     ['Lane colour', repo.laneColor ?? '-'],
-    ['Max spend', repo.maxBudgetUsd === null ? 'no cap' : `$${repo.maxBudgetUsd.toFixed(2)}`],
   ];
   const width = Math.max(...rows.map(([label]) => label.length));
   return [repo.name, ...rows.map(([label, value]) => `  ${label.padEnd(width)}  ${value}`)].join('\n');

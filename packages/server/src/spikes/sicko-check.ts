@@ -35,7 +35,7 @@ const repo = createRepo(db, {
   name: `sicko-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 
 const PLAN = {
@@ -43,11 +43,20 @@ const PLAN = {
   open_questions: [], acceptance_criteria: [], captures: [],
 };
 
+/**
+ * Two models, as a run with a subagent has, and a heap of cache reads. A run
+ * counts 33,100: input, output and cache writes across both, reads left out.
+ */
+const USAGE = {
+  'claude-opus-5-5': { inputTokens: 100, outputTokens: 2_000, cacheCreationInputTokens: 30_000, cacheReadInputTokens: 500_000 },
+  'claude-haiku-4-5': { inputTokens: 900, outputTokens: 100, cacheCreationInputTokens: 0, cacheReadInputTokens: 4_000 },
+};
+
 const succeeded = (cardId: string, stage: 'planning' | 'in_progress' | 'testing') => {
   const run = insertRun(db, {
     id: crypto.randomUUID(), cardId, kind: 'claude', stage, status: 'running', cwd: '/tmp/x',
   });
-  setRunStatus(db, run.id, { status: 'succeeded', structuredOutput: PLAN, totalCostUsd: 0.25 });
+  setRunStatus(db, run.id, { status: 'succeeded', structuredOutput: PLAN, totalCostUsd: 0.25, modelUsageJson: USAGE });
   return run;
 };
 
@@ -197,7 +206,7 @@ ok('human approvals', state.humanApprovals, 0);
 ok('reviews skipped', state.reviewsSkipped, 1);
 ok('questions self-answered', state.questionsSelfAnswered, 1);
 ok('moves', state.moves, 4);
-ok('spend counts the runs since', state.spendUsd, 0.5);
+ok('tokens count the runs since, without cache reads', state.spendTokens, 66_200);
 console.log('log:');
 for (const line of state.log) console.log(`  ◆ ${line}`);
 

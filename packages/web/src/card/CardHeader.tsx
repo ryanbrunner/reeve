@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { AttentionBand } from './AttentionBand.js';
-import { cost, plural, when } from './format.js';
+import { plural, sumTokens, tok, tokenTitle, when } from './format.js';
 import { SmallButton } from './ui.js';
 import type { LiveRun } from './useCardDetail.js';
 
@@ -27,7 +27,7 @@ export function CardHeader({
 }) {
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
-  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
+  const spent = sumTokens(runs);
   const running = card.activity === 'running';
   const createdBy = detail.events.find((e) => e.kind === 'created')?.actor;
 
@@ -201,7 +201,14 @@ export function CardHeader({
             there are two this is the line that changes. Claude is the other
             author, of the tasks a project was split into. */}
         Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
-        {runs.length === 0 ? 'No runs yet' : `${plural(runs.length, 'run')} · ${cost(spent)}`}
+        {runs.length === 0 ? 'No runs yet' : plural(runs.length, 'run')}
+        {/* Left off while no run has a count yet, rather than "· —". */}
+        {spent && (
+          <>
+            {' · '}
+            <span title={tokenTitle(spent.breakdown)}>{tok(spent.total)}</span>
+          </>
+        )}
         {running && runs.length > 0 && ' so far'}
       </div>
       {failed && <p className="relative mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}

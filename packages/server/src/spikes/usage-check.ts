@@ -27,7 +27,7 @@ runMigrations(db);
 const repo = createRepo(db, {
   name: 'usage-check', repoPath: join(root, 'repo'), worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const card = createCard(db, { title: 'Uses the limits', repoId: repo.id, stage: 'planning' });
 const run = insertRun(db, { id: crypto.randomUUID(), cardId: card.id, kind: 'claude', stage: 'planning', status: 'succeeded', cwd: root });

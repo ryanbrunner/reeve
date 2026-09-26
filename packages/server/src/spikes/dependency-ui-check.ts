@@ -32,7 +32,7 @@ const { app, db } = createApp();
 const repo = createRepo(db, {
   name: `deps-ui-${Date.now()}`, repoPath: '/tmp/deps-ui', worktreeRoot: '/tmp/deps-ui-worktrees', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: '#b36b6b', maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: '#b36b6b',
 });
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await app.request(path, {

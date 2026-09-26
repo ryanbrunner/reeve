@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { PLACEHOLDER_TITLE, type BoardResponse, type SickoState } from '@reeve/shared';
 import { api } from '../client.js';
-import { formatCost, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
+import { formatTokens, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 
 /**
  * `reeve sicko on|off`: SICKO MODE, from a script.
@@ -49,7 +49,7 @@ function summary(state: SickoState): string {
     `${plural(state.moves, 'move')}, ${plural(state.merged, 'merge')}`,
     `${plural(state.reviewsSkipped, 'review')} skipped`,
     `${plural(state.questionsSelfAnswered, 'question')} self-answered`,
-    `${formatCost(state.spendUsd)} spent`,
+    `${formatTokens(state.spendTokens)} spent`,
   ].join(', ');
 }
 

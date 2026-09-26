@@ -42,7 +42,7 @@ const repo = createRepo(db, {
   name: `model-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
-  teardownCommand: null, finishCommand: null, laneColor: null, maxBudgetUsd: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const card = createCard(db, { title: 'probe', repoId: repo.id, stage: 'planning' });
 const before = getSettings(db).stageDefaults;
