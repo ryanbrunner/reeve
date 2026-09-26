@@ -29,7 +29,7 @@ const GLOW: Record<CardActivity, string> = {
 export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = false }: {
   cardId: string;
   onClose: () => void;
-  /** Open another card in this one's place: a project's task, from its Tasks tab. */
+  /** Open another card in this one's place: a project's task, or one of a task's dependencies. */
   onOpen: (id: string) => void;
   /** Open with the title selected for typing over: a card just made. */
   editTitle?: boolean;
@@ -101,7 +101,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, sicko = 
                   has none. In SICKO MODE the whole rail goes rather than parts
                   of it: every control and fact on it is a lever or a look under
                   the hood. */}
-              {data.card.kind === 'task' && !sicko && <Rail detail={data} />}
+              {data.card.kind === 'task' && !sicko && <Rail detail={data} onOpen={onOpen} />}
             </div>
             {/* The same rail of light the board card carries while Claude works. */}
             {activity === 'running' && (

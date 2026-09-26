@@ -1,7 +1,6 @@
 import type {
   ApiCard,
   ApiCardEvent,
-  ApiCardLink,
   ApiCardRef,
   ApiAsset,
   ApiCriterion,
@@ -97,8 +96,7 @@ function toApiToolDenials(stored: unknown): ApiToolDenial[] {
 /**
  * Pure on purpose: `latestRun` and `activity` are handed in already agreed with
  * each other (see ./board.ts), which keeps this module free of the stage
- * definitions and the database. The dependencies come in already read for the
- * same reason.
+ * definitions and the database.
  */
 export function toApiCard(
   c: Card,
@@ -132,6 +130,7 @@ export function toApiCard(
     model: c.model,
     effort: c.effort,
     generateMockups: c.generateMockups,
+    sicko: c.sicko,
     ...links,
     activity,
     latestRun: latestRun ? toApiRunSummary(latestRun) : null,
@@ -139,10 +138,6 @@ export function toApiCard(
     createdAt: ms(c.createdAt) ?? 0,
     updatedAt: ms(c.updatedAt) ?? 0,
   };
-}
-
-export function toApiCardLink(c: Card, repoName: string | null, done: boolean): ApiCardLink {
-  return { id: c.id, number: c.number, repoName, title: c.title, done };
 }
 
 export function toApiProject(c: Card, laneColor: string | null, taskCount: number): ApiProject {

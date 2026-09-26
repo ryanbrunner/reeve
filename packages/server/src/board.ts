@@ -1,8 +1,8 @@
 import { deriveActivity, isRunnable, type ApiCard, type CardActivity, type RunnableStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { dependenciesOf, dependentsOf, latestClaudeRunForStage } from './db/queries.js';
+import { dependencyLinks, latestClaudeRunForStage, type DependencyLinks } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
-import { toApiCard, toApiCardLink } from './mappers.js';
+import { toApiCard } from './mappers.js';
 import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { stageDefinition } from './stages/index.js';
 
@@ -22,49 +22,26 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
   return { activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run) }), run };
 }
 
+/**
+ * `links` is for a caller mapping many cards, which reads the dependency table
+ * once and hands the lookup to each. Left out, only this card's rows are read.
+ */
 export function toBoardCard(
   db: Db,
   card: Card,
   repoName: string | null,
   laneColor: string | null,
+  links: (id: string) => DependencyLinks = dependencyLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
   // Only Done offers a resolution. A card dragged back for another round keeps
   // its pull request, and its conflicts wait until it returns.
   const openInDone = card.stage === 'done' && card.prUrl !== null && card.mergedAt === null;
-  return toApiCard(
-    card,
-    repoName,
-    laneColor,
-    run,
-    activity,
-    {
-      openingPr: isOpeningPr(card.id),
-      prConflicting: openInDone && isPrConflicting(card),
-      resolvingConflicts: isResolvingConflicts(card.id),
-    },
-    // Two indexed lookups a card, on the same footing as its latest run above.
-    // A board is tens of cards, not thousands.
-    {
-      dependsOn: dependenciesOf(db, card.id).map((d) => toApiCardLink(d.card, d.repoName, dependencyDone(d.card))),
-      dependents: dependentsOf(db, card.id),
-    },
-  );
-}
-
-/**
- * Whether a card has stopped holding up the cards that wait on it: it reached
- * Done, or its pull request merged. The one place that says so, so the board's
- * marker and anything that later refuses to start a waiting card cannot
- * disagree.
- *
- * Merged counts even outside Done, because a card dragged back for another
- * round after landing has still landed. Archived does not count on its own: a
- * card taken off the board unfinished was abandoned, and whatever waited on it
- * is still waiting — which the board should go on saying, not quietly drop.
- */
-export function dependencyDone(card: Card): boolean {
-  return card.stage === 'done' || card.mergedAt !== null;
+  return toApiCard(card, repoName, laneColor, run, activity, {
+    openingPr: isOpeningPr(card.id),
+    prConflicting: openInDone && isPrConflicting(card),
+    resolvingConflicts: isResolvingConflicts(card.id),
+  }, links(card.id));
 }
 
 /**
