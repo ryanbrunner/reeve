@@ -572,8 +572,9 @@
   letter-spacing: 0.04em;
 }
 
-/* The sixth card state, and the only one that exists solely in here: landed on
-   main. Built like the four calm glows so it sits in the same family. */
+/* Landed on main, louder than the calm board's green: here nobody put it
+   there, so the board makes a noise about it. Built like the calm glows so it
+   sits in the same family, and without their mark. */
 .sk-merged {
   border-color: #ff2d95b3;
   background:

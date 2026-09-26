@@ -39,6 +39,13 @@
   --color-activity-error-fill: #fb2c361f;
   --color-activity-error-mark: #f87171;
 
+  /* Not an activity but a card fact: its pull request has landed. Green, a
+     shade off review's emerald, and with its own mark, so a finished card and
+     one waiting on a person never read as the same thing. */
+  --color-merged-border: #22c55e99;
+  --color-merged-fill: #22c55e1f;
+  --color-merged-mark: #4ade80;
+
   /* A button on a tinted card takes its card's colour. Retry is the only one. */
   --color-btn-error-border: #f8717199;
   --color-btn-error-fill: #fb2c361f;
@@ -46,7 +53,8 @@
   --color-btn-error-hover-fill: #fb2c3633;
 
   /* Dependencies. Violet because every other hue a card can wear already says
-     something: sky is running, emerald review, amber input, red error. A
+     something: sky is running, emerald review, amber input, red error, green
+     merged. A
      blocked card is none of those, and must not be mistaken for one. */
   --color-dep: #c4b5fd;
   --color-dep-fill: #8b5cf626;
@@ -63,6 +71,7 @@
   --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
   --shadow-card-glow-error: inset 0 0 18px 0 #fb2c3659, inset 0 0 4px 0 #fb2c3666, 0 0 18px -8px #fb2c368c;
+  --shadow-card-glow-merged: inset 0 0 18px 0 #22c55e59, inset 0 0 4px 0 #22c55e66, 0 0 18px -8px #22c55e8c;
   --shadow-btn-error-glow: 0 0 10px -4px #fb2c3680;
 
   /* The modal wears a card's glow at ten times the size, so it also throws a
@@ -72,6 +81,7 @@
   --shadow-modal-bloom-review: 0 0 60px -20px #00bc7d40;
   --shadow-modal-bloom-input: 0 0 60px -20px #fe9a0040;
   --shadow-modal-bloom-error: 0 0 60px -20px #fb2c3640;
+  --shadow-modal-bloom-merged: 0 0 60px -20px #22c55e40;
 }
 
 html, body, #root { height: 100%; }
@@ -83,7 +93,8 @@ body { background: var(--color-ink); color: var(--color-text); }
    * it, and a radial of the core on top that darkens the middle. With the glow
    * shadow that is light rising from all four borders and fading inward — which
    * no utility can say, so the four states live here and ACTIVITY_STYLE points
-   * at them. `overflow: hidden` is what clips the mark and the rail.
+   * at them, with merged beside them as MERGED_STYLE. `overflow: hidden` is
+   * what clips the mark and the rail.
    */
   .card-glow { overflow: hidden; }
 
@@ -123,8 +134,17 @@ body { background: var(--color-ink); color: var(--color-text); }
     box-shadow: var(--shadow-card-glow-error);
   }
 
+  .card-glow-merged {
+    border-color: var(--color-merged-border);
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 50%, var(--color-card-core) 0%, transparent 100%),
+      linear-gradient(var(--color-merged-fill), var(--color-merged-fill)),
+      var(--color-card-core);
+    box-shadow: var(--shadow-card-glow-merged);
+  }
+
   /*
-   * The detail modal is a card that got bigger, so it takes the same four
+   * The detail modal is a card that got bigger, so it takes the same five
    * skins and adds the outer bloom. Composed rather than redefined: if the
    * glow changes, the modal changes with it, which is the whole point of
    * opening a card feeling like the card rather than like somewhere else.
@@ -133,6 +153,7 @@ body { background: var(--color-ink); color: var(--color-text); }
   .modal-glow-review { box-shadow: var(--shadow-card-glow-review), var(--shadow-modal-bloom-review); }
   .modal-glow-input { box-shadow: var(--shadow-card-glow-input), var(--shadow-modal-bloom-input); }
   .modal-glow-error { box-shadow: var(--shadow-card-glow-error), var(--shadow-modal-bloom-error); }
+  .modal-glow-merged { box-shadow: var(--shadow-card-glow-merged), var(--shadow-modal-bloom-merged); }
 
   /*
    * The mark sits behind the header rather than the whole panel: centred in
@@ -142,7 +163,8 @@ body { background: var(--color-ink); color: var(--color-text); }
   .modal-glow-running .card-mark,
   .modal-glow-review .card-mark,
   .modal-glow-input .card-mark,
-  .modal-glow-error .card-mark {
+  .modal-glow-error .card-mark,
+  .modal-glow-merged .card-mark {
     top: 50px;
   }
 
@@ -176,6 +198,11 @@ body { background: var(--color-ink); color: var(--color-text); }
   .card-glow-error .card-mark {
     stroke: var(--color-activity-error-mark);
     filter: drop-shadow(0 0 2px var(--color-activity-error-mark)) drop-shadow(0 0 8px var(--color-activity-error-mark));
+  }
+
+  .card-glow-merged .card-mark {
+    stroke: var(--color-merged-mark);
+    filter: drop-shadow(0 0 2px var(--color-merged-mark)) drop-shadow(0 0 8px var(--color-merged-mark));
   }
 
   /*
