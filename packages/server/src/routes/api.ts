@@ -35,7 +35,7 @@ import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { SERVER_VARS, unknownVars } from '../runs/serverUrl.js';
-import { maybeOpenPullRequest } from '../pullRequest.js';
+import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
@@ -336,6 +336,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
           400,
         );
       }
+      // Once merged, the branch outlives the worktree, and its diff and commits
+      // are read from it in the repo it was cut in. Moved, the card would ask
+      // the new repo for a branch it has never had.
+      if (existing.mergedAt && existing.branchName) {
+        return c.json(
+          { error: 'card has merged', detail: 'its branch stays in the repo it was merged from' },
+          400,
+        );
+      }
       // Without this the foreign key raises, which is a 500 for what is a
       // caller's mistake.
       if (repoId !== null && !listRepos(db).some((p) => p.id === repoId)) {
@@ -444,6 +453,14 @@ export function apiRoutes(db: Db, writer: EventWriter) {
         }, 409);
       }
       const counts = archiveProject(db, id);
+      // The Done cards that went with it lose their worktrees now too, if they
+      // merged, as when each is archived on its own. The sweep only acts on
+      // merged cards, so it costs one query when none of them did.
+      if (counts?.archived) {
+        cleanUpArchivedWorktrees(db, writer).catch((e) => {
+          console.error(`[reeve] removing worktrees of project #${existing.number}'s cards failed: ${String(e)}`);
+        });
+      }
       return c.json({ ok: true, ...counts } satisfies ArchiveCardResponse);
     }
     // Anything still running would carry on out of sight: a Claude run spending
@@ -451,7 +468,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (runRegistry.all().some((r) => r.cardId === id)) {
       return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
     }
-    archiveCard(db, id);
+    const archived = archiveCard(db, id);
+    // A merged card's worktree goes now rather than on the next tick. Not
+    // awaited, the same as the automatic pull request: a teardown command can
+    // take a while, and the card is already off the board.
+    if (archived?.mergedAt && archived.worktreePath) {
+      cleanUpArchivedWorktrees(db, writer).catch((e) => {
+        console.error(`[reeve] removing the worktree of #${archived.number} failed: ${String(e)}`);
+      });
+    }
     return c.json({ ok: true } satisfies ArchiveCardResponse);
   });
 

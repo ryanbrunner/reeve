@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { reapOrphanedRuns } from './db/queries.js';
-import { archiveMergedCards, syncMergedPullRequests } from './pullRequest.js';
+import { archiveMergedCards, cleanUpArchivedWorktrees, syncMergedPullRequests } from './pullRequest.js';
 import { vibesSweep } from './vibes/engine.js';
 import { actionRoutes } from './routes/actions.js';
 import { apiRoutes } from './routes/api.js';
@@ -101,11 +101,22 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
           console.error(`[reeve] archiving merged cards failed: ${String(e)}`);
         }
       };
+      // Straight after archiving, so a card taken off the board just now loses
+      // its worktree on the same tick. Each tick also retries a removal that
+      // failed, or one a restart cut short: the archive route starts one too,
+      // and nothing remembers it across a restart.
+      const cleanUpWorktrees = () => {
+        cleanUpArchivedWorktrees(db, writer).catch((e) =>
+          console.error(`[reeve] worktree clean-up failed: ${String(e)}`),
+        );
+      };
       syncMerges();
       archiveMerged();
+      cleanUpWorktrees();
       setInterval(() => {
         syncMerges();
         archiveMerged();
+        cleanUpWorktrees();
       }, config.mergeSyncMs);
 
       // The other half of VIBES MODE. Out here for the same reason: the sweep

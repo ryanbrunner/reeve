@@ -37,6 +37,7 @@ export type CardEventKind =
   | 'conflicts_resolved'
   | 'conflicts_failed'
   | 'merge_failed'
+  | 'worktree_removed'
   | 'left_project';
 
 export interface ApiCardEvent {

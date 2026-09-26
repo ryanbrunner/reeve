@@ -71,6 +71,9 @@ export const CARD_EVENT_KINDS = [
   // `gh` refused to merge the pull request: from the Done band's Merge, or
   // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
+  // The card's worktree deleted from disk, by hand or once a merged card was
+  // archived. The branch stays; `meta.forced` says uncommitted work went with it.
+  'worktree_removed',
   // An open card moved to No project because its project was archived. `meta`
   // names the project, which the card no longer points at.
   'left_project',

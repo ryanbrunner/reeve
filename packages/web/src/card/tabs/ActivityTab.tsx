@@ -282,6 +282,11 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       const number = e.meta?.['number'];
       return `could not merge ${typeof number === 'number' ? `pull request #${number}` : 'the pull request'}`;
     }
+    case 'worktree_removed':
+      // Forced means work nobody committed went with it, which is worth saying
+      // where someone looking for it would look.
+      return (e.meta?.['reason'] === 'archived' ? 'removed the worktree once the card was archived' : 'removed the worktree') +
+        (e.meta?.['forced'] ? ' with uncommitted changes' : '');
   }
 }
 

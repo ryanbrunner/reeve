@@ -26,6 +26,10 @@ export function DiffTab({
   const [selected, setSelected] = useState<string | null>(null);
   const files = diff?.files ?? [];
   const current = files.find((f) => f.path === selected) ?? files[0] ?? null;
+  // The same test Tabs fetches on: a worktree, or failing that the branch it
+  // left behind, or an old card's squash commit.
+  const { worktree } = detail;
+  const readable = Boolean(worktree.path || (worktree.branch && worktree.base) || detail.card.mergedSha);
 
   return (
     <section className="flex min-h-0 grow flex-col gap-2">
@@ -44,9 +48,10 @@ export function DiffTab({
       </SectionHead>
 
       {loading && <Empty>Reading the worktree…</Empty>}
-      {!loading && !detail.worktree.path && <Empty>This card has no worktree yet, so nothing has changed.</Empty>}
-      {!loading && detail.worktree.path && files.length === 0 && (
-        <Empty>Nothing has changed against {diff?.baseBranch ?? 'the base branch'} yet.</Empty>
+      {!loading && !readable && <Empty>This card has no worktree yet, so nothing has changed.</Empty>}
+      {!loading && readable && files.length === 0 && (
+        // No "yet" once the worktree is gone: nothing more is coming.
+        <Empty>Nothing has changed against {diff?.baseBranch ?? 'the base branch'}{worktree.path ? ' yet' : ''}.</Empty>
       )}
 
       {files.length > 0 && current && (
