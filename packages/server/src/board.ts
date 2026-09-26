@@ -16,7 +16,7 @@ import {
 } from './db/queries.js';
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
-import { isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
+import { canMergePr, isMergingPr, isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { stageDefinition } from './stages/index.js';
 // A cycle, as startStage reads cardActivity from here. Harmless: neither side
 // calls the other while the modules are still loading.
@@ -56,7 +56,9 @@ export function toBoardCard(
   return toApiCard(card, repoName, laneColor, run, activity, {
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
+    prMergeable: canMergePr(card),
     resolvingConflicts: isResolvingConflicts(card.id),
+    mergingPr: isMergingPr(card.id),
     startingStage: isStartingStage(card.id),
     implemented: hasImplementationRun(db, card.id),
   }, links(card.id));

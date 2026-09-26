@@ -77,6 +77,10 @@ a Claude column, and `project add --split`. The command waits a few seconds and
 says on stderr what it set off: the run's id, the pull request's link, or why
 nothing started. Reeve records these as your actions, whoever ran the command.
 
+`card merge` is the board's Merge button: it lands a Done card's pull request
+on GitHub, and only once GitHub has said it merges cleanly. Branch protection
+still applies, and a refusal says what `gh` said.
+
 Criteria are numbered from 1, as `criteria list` shows them. There is no
 `criteria check`: a verdict is Testing's, and belongs to the run that reached it.
 

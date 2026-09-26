@@ -28,7 +28,7 @@ export function useCardDetail(cardId: string | null) {
       const data = q.state.data;
       // A resolution checks and pushes after its run has ended, so it is
       // watched by the card's own flag rather than the run's.
-      if (data?.card.openingPr || data?.card.resolvingConflicts) return 1_500;
+      if (data?.card.openingPr || data?.card.resolvingConflicts || data?.card.mergingPr) return 1_500;
       if (data?.runs.some((r) => r.task !== null && !isTerminal(r.status))) return 2_000;
       if (data?.card.activity === 'running') return 5_000;
       return data?.card.prUrl && data.card.mergedAt == null ? 15_000 : false;
