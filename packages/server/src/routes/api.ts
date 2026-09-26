@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
-import type { ApiSettings, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
+import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedStart } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
+  archiveProject,
   archivedCards,
   boardCards,
   boardProjects,
@@ -18,8 +19,10 @@ import {
   getSettings,
   listRepos,
   liveProject,
+  liveTasksInProject,
   moveCard,
   restoreCard,
+  restoreProject,
   runsForCard,
   tasksInProject,
   updateCard,
@@ -72,6 +75,10 @@ const moveCardSchema = z.object({
   stage: stageSchema,
   index: z.number().int().min(0),
   projectId: z.string().nullable().optional(),
+});
+
+const archiveCardSchema = z.object({
+  detachOpen: z.boolean().optional(),
 });
 
 /**
@@ -375,18 +382,45 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, card, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
-  api.post('/cards/:id/archive', (c) => {
+  api.post('/cards/:id/archive', async (c) => {
+    const parsed = archiveCardSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid archive', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
-    if (existing.archivedAt) return c.json({ ok: true });
+    if (existing.archivedAt) return c.json({ ok: true } satisfies ArchiveCardResponse);
+    // Nothing is awaited from here on, so no run can start and no card can
+    // move between these checks and the archive they allow.
+    if (existing.kind === 'project') {
+      const { done, open } = liveTasksInProject(db, id);
+      // Its Done cards leave with it, so they are held to the rule below too.
+      // Its open cards stay on the board, and may keep running there.
+      const leaving = new Set([id, ...done.map((t) => t.id)]);
+      if (runRegistry.all().some((r) => leaving.has(r.cardId))) {
+        return c.json({
+          error: 'card is running',
+          detail: 'stop the runs and servers on the project and its Done cards before archiving',
+        }, 409);
+      }
+      if (open.length > 0 && !parsed.data.detachOpen) {
+        const named = open.slice(0, 3).map((t) => `#${t.number} ${t.title}`).join(', ');
+        const more = open.length > 3 ? ` and ${open.length - 3} more` : '';
+        return c.json({
+          error: 'project has open cards',
+          detail: `${open.length} ${open.length === 1 ? 'card is' : 'cards are'} not Done (${named}${more}).`
+            + ' Archive with detachOpen to move them to No project.',
+        }, 409);
+      }
+      const counts = archiveProject(db, id);
+      return c.json({ ok: true, ...counts } satisfies ArchiveCardResponse);
+    }
     // Anything still running would carry on out of sight: a Claude run spending
     // budget, or a dev server holding its port, on a card nobody can see.
     if (runRegistry.all().some((r) => r.cardId === id)) {
       return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
     }
     archiveCard(db, id);
-    return c.json({ ok: true });
+    return c.json({ ok: true } satisfies ArchiveCardResponse);
   });
 
   // Asked whenever a card closes, of every card, and it is the server that
@@ -404,7 +438,9 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const id = c.req.param('id');
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
-    const restored = existing.archivedAt ? (restoreCard(db, id) ?? existing) : existing;
+    // A project brings back the Done cards archived with it.
+    const restored = !existing.archivedAt ? existing
+      : ((existing.kind === 'project' ? restoreProject(db, id) : restoreCard(db, id)) ?? existing);
     const repo = restored.repoId ? listRepos(db).find((p) => p.id === restored.repoId) : undefined;
     return c.json(toBoardCard(db, restored, repo?.name ?? null, repo?.laneColor ?? null));
   });

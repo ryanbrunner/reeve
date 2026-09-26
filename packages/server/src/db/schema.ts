@@ -68,6 +68,9 @@ export const CARD_EVENT_KINDS = [
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
+  // An open card moved to No project because its project was archived. `meta`
+  // names the project, which the card no longer points at.
+  'left_project',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 

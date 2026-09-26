@@ -537,6 +537,68 @@ export function restoreCard(db: Db, id: string) {
 }
 
 /**
+ * A project's tasks still on the board, split by whether they are finished.
+ * What archiving the project does to each, and what the route asks before it
+ * lets that happen.
+ */
+export function liveTasksInProject(db: Db, projectId: string): { done: Card[]; open: Card[] } {
+  const live = tasksInProject(db, projectId).filter((t) => !t.archivedAt);
+  return { done: live.filter((t) => t.stage === 'done'), open: live.filter((t) => t.stage !== 'done') };
+}
+
+/**
+ * A project off the board, and its finished work with it. Its Done cards are
+ * archived as `reason: 'project'` and keep their `projectId`, which is how
+ * `restoreProject` knows to bring them back. Its open cards are still work,
+ * so they stay on the board under No project, each with a `left_project`
+ * event saying where it came from, since the card itself no longer says.
+ *
+ * Moves the open cards unasked: the route is what refuses when nobody has
+ * confirmed that, and nothing is awaited between its check and this.
+ */
+export function archiveProject(db: Db, id: string) {
+  const project = getCard(db, id);
+  if (!project || project.kind !== 'project' || project.archivedAt) return undefined;
+  return db.transaction(() => {
+    const { done, open } = liveTasksInProject(db, id);
+    for (const t of done) archiveCard(db, t.id, { reason: 'project', projectId: id });
+    const now = new Date();
+    for (const t of open) {
+      db.update(card).set({ projectId: null, updatedAt: now }).where(eq(card.id, t.id)).run();
+      insertCardEvent(db, {
+        cardId: t.id,
+        actor: 'human',
+        kind: 'left_project',
+        stage: t.stage,
+        meta: { projectId: id, projectTitle: project.title },
+      });
+    }
+    archiveCard(db, id);
+    return { archived: done.length, detached: open.length };
+  });
+}
+
+/**
+ * The project back as a lane, with the Done cards that went when it did.
+ * Only those: a card archived on its own, before or since, is left in the
+ * Archive, and a card moved to No project is left there, since it may have
+ * joined another project in the meantime. Which cards went with it is read
+ * off each one's latest `archived` event, the only record there is.
+ */
+export function restoreProject(db: Db, id: string) {
+  return db.transaction(() => {
+    const restored = restoreCard(db, id);
+    if (!restored) return undefined;
+    for (const t of tasksInProject(db, id)) {
+      if (!t.archivedAt) continue;
+      const last = cardEventsFor(db, t.id).find((e) => e.kind === 'archived');
+      if (last?.meta?.['reason'] === 'project' && last.meta['projectId'] === id) restoreCard(db, t.id);
+    }
+    return restored;
+  });
+}
+
+/**
  * Throw away a card nobody did anything with, and say whether it went.
  *
  * A card is made and opened before anyone types into it, so closing it again
