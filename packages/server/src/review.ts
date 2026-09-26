@@ -5,7 +5,7 @@ import type { Card, CardEventActor, Repo, Run } from './db/schema.js';
 import { maybeOpenPullRequest } from './pullRequest.js';
 import type { EventWriter } from './runs/events.js';
 import { stageDefinition } from './stages/index.js';
-import { continueStage, maybeStartStage } from './startStage.js';
+import { continueStage, isStartingStage, maybeStartStage } from './startStage.js';
 
 /**
  * The two verdicts the human gate can reach, whoever reaches them.
@@ -76,6 +76,11 @@ export async function sendBackForRevision(
   notes: string,
   meta: Record<string, unknown> = {},
 ): Promise<Revision> {
+  // A revision already waiting on the tree's setup still reads as needing
+  // review, so a second Reject can land in that time. Refused before it is
+  // recorded: `continueStage` would refuse it anyway, and the notes would sit
+  // in the history as a verdict nothing ever acted on.
+  if (isStartingStage(card.id)) return { ok: false, error: 'the stage is already starting', status: 409 };
   insertReview(db, {
     id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
     stage: card.stage, decision: 'rejected', notes,

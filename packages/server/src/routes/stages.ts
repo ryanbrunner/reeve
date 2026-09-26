@@ -17,7 +17,7 @@ import { approveStage, sendBackForRevision } from '../review.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
-import { maybeStartStage, startStage } from '../startStage.js';
+import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
 
 const reviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
@@ -71,6 +71,13 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
+      // A revision waiting on the tree's setup still reads as needing review.
+      // Approving then would move the card on while that start holds it, so
+      // the next column's start is refused and the revision finds the card
+      // gone: an approved card that sits idle with nothing started.
+      if (isStartingStage(card.id)) {
+        return c.json({ error: 'the stage is already starting', detail: 'wait for its run to begin' }, 409);
+      }
       const to = nextStage(card.stage) ?? card.stage;
       // Approving is a move, and a card waiting on another may only move back
       // to Backlog. Refused before anything is recorded, so there is no
