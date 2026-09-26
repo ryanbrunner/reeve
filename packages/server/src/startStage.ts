@@ -26,6 +26,20 @@ export type StartStageResult =
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
 
 /**
+ * A merged card whose worktree has been removed cannot have one made again:
+ * its branch is kept, and `worktree add -b` refuses a branch that exists. Its
+ * work has landed anyway, so anything more is a new card. Asked by the two
+ * ways a worktree is made, so both say the same sentence rather than git's.
+ */
+export function refuseMergedWorktree(card: Card): { error: string; detail: string } | null {
+  if (!card.mergedAt || card.worktreePath) return null;
+  return {
+    error: 'already merged',
+    detail: 'its worktree was removed once it merged and its branch is kept; start a new card for more work',
+  };
+}
+
+/**
  * The card's worktree, made if it is not there yet. If it is made and the repo
  * defines a setup command, that is kicked off as a background shell run and
  * not awaited: it is a different run kind, so it counts against neither the
@@ -129,6 +143,8 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
   }
   const stage = stageDefinition(card.stage as never);
   if (!stage) return { ok: false, status: 501, error: 'stage not implemented yet', detail: card.stage };
+  const merged = refuseMergedWorktree(card);
+  if (merged) return { ok: false, status: 409, ...merged };
   // Taken before the first await, so no second start can slip in between
   // looking for a worktree and making one.
   if (starting.has(card.id)) {

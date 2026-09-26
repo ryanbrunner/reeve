@@ -13,7 +13,7 @@ import type { EventWriter } from '../runs/events.js';
 import { ensureDevServer } from '../runs/devServer.js';
 import { runRegistry } from '../runs/registry.js';
 import { startShellRun } from '../runs/shell.js';
-import { ensureWorktree, removeCardWorktree } from '../startStage.js';
+import { ensureWorktree, refuseMergedWorktree, removeCardWorktree } from '../startStage.js';
 
 export function actionRoutes(db: Db, writer: EventWriter) {
   const routes = new Hono();
@@ -32,6 +32,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!needsWorktree(card.stage)) {
       return c.json({ error: 'stage does not need a worktree', detail: card.stage }, 400);
     }
+    const merged = refuseMergedWorktree(card);
+    if (merged) return c.json(merged, 409);
 
     const worktree = await ensureWorktree(db, writer, card, repo);
     return c.json({ ok: true, ...worktree }, worktree.reused ? 200 : 201);

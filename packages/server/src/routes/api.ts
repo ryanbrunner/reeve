@@ -285,6 +285,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
           400,
         );
       }
+      // Once merged, the branch outlives the worktree, and its diff and commits
+      // are read from it in the repo it was cut in. Moved, the card would ask
+      // the new repo for a branch it has never had.
+      if (existing.mergedAt && existing.branchName) {
+        return c.json(
+          { error: 'card has merged', detail: 'its branch stays in the repo it was merged from' },
+          400,
+        );
+      }
       // Without this the foreign key raises, which is a 500 for what is a
       // caller's mistake.
       if (repoId !== null && !listRepos(db).some((p) => p.id === repoId)) {
