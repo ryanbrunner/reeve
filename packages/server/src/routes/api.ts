@@ -28,7 +28,7 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
-import { maybeOpenPullRequest } from '../pullRequest.js';
+import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { sickoState } from '../sicko/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
@@ -350,7 +350,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (runRegistry.all().some((r) => r.cardId === id)) {
       return c.json({ error: 'card is running', detail: 'stop the run and the server before archiving' }, 409);
     }
-    archiveCard(db, id);
+    const archived = archiveCard(db, id);
+    // A merged card's worktree goes now rather than on the next tick. Not
+    // awaited, the same as the automatic pull request: a teardown command can
+    // take a while, and the card is already off the board.
+    if (archived?.mergedAt && archived.worktreePath) {
+      cleanUpArchivedWorktrees(db, writer).catch((e) => {
+        console.error(`[reeve] removing the worktree of #${archived.number} failed: ${String(e)}`);
+      });
+    }
     return c.json({ ok: true });
   });
 
