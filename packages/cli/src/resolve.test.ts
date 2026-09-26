@@ -17,6 +17,7 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     setupCommand: null,
     testCommand: null,
     serverCommand: null,
+    serverUrl: null,
     teardownCommand: null,
     finishCommand: null,
     laneColor: null,
@@ -49,7 +50,7 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     mergingPr: false,
     startingStage: false,
     implemented: false,
-    sicko: false,
+    vibes: false,
     dependsOn: [],
     dependents: [],
     model: null,
@@ -72,7 +73,7 @@ const inBeta = { repoId: beta.id, repoName: beta.name };
 const board: BoardResponse = {
   repos: [alpha, beta],
   projects: [],
-  sicko: null,
+  vibes: null,
   usage: null,
   cards: [
     card({ id: 'aaaa1111-0000-4000-8000-000000000001', number: 12, ...inAlpha, stage: 'planning' }),
@@ -145,7 +146,7 @@ describe('whereAmI', () => {
     const linked: BoardResponse = {
       repos: [alpha],
       projects: [],
-      sicko: null,
+      vibes: null,
       usage: null,
       cards: [card({ id: 'dddd', number: 3, ...inAlpha, worktreePath: join(tmp, 'real', 'wt') })],
     };

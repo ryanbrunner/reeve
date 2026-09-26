@@ -33,7 +33,7 @@ export function approveStage(
   opts: { notes?: string | null; meta?: Record<string, unknown>; actor?: CardEventActor } = {},
 ): { fromStage: Stage; toStage: Stage; moved: boolean } {
   const notes = opts.notes ?? null;
-  // Almost always the person who pressed Approve. SICKO MODE approves as
+  // Almost always the person who pressed Approve. VIBES MODE approves as
   // `claude`, so the card's history — and the count of approvals a human
   // actually gave — stays true.
   const actor = opts.actor ?? 'human';

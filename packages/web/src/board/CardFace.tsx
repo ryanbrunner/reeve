@@ -22,33 +22,33 @@ export function CardFace({
   card,
   dragging = false,
   onOpen,
-  sicko = false,
+  vibes = false,
   stamped = false,
 }: {
   card: ApiCard;
   dragging?: boolean;
   onOpen?: (id: string) => void;
   /**
-   * The card as SICKO MODE wears it: a fixed size so it can fly between
+   * The card as VIBES MODE wears it: a fixed size so it can fly between
    * columns, and a chip naming the guardrail its column is not applying.
    */
-  sicko?: boolean;
+  vibes?: boolean;
   /** Just landed on main. The stamp slams on for a couple of seconds and goes. */
   stamped?: boolean;
 }) {
   const run = card.latestRun;
   const label = ACTIVITY_LABELS[card.activity];
-  // A merged card gets a skin of its own, which exists only in SICKO MODE:
+  // A merged card gets a skin of its own, which exists only in VIBES MODE:
   // there is no calm state for "this is on main now", because on the calm board
   // a person put it there and knows.
-  const skin = sicko && card.mergedAt != null ? 'sk-merged' : ACTIVITY_STYLE[card.activity];
+  const skin = vibes && card.mergedAt != null ? 'sk-merged' : ACTIVITY_STYLE[card.activity];
   const links = useLinks();
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.
   const role = dragging ? null : links.role(card.id);
-  // In SICKO MODE on its own, on the calm board. Not once merged: after that
+  // In VIBES MODE on its own, on the calm board. Not once merged: after that
   // there is nothing left for it to do.
-  const solo = !sicko && card.sicko && card.mergedAt == null;
+  const solo = !vibes && card.vibes && card.mergedAt == null;
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.
@@ -59,29 +59,29 @@ export function CardFace({
       onMouseLeave={dragging ? undefined : () => links.leave(card.id)}
       className={`relative cursor-grab rounded-md border p-2.5 transition-opacity duration-150 ${skin} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
-      } ${sicko ? 'sk-card' : ''} ${solo ? 'sk-solo-ring' : ''} ${role ? LINK_STYLE[role] : ''}`}
+      } ${vibes ? 'sk-card' : ''} ${solo ? 'sk-solo-ring' : ''} ${role ? LINK_STYLE[role] : ''}`}
     >
       {ACTIVITY_MARKS[card.activity]}
       {/* The title and footer are positioned so they read above the mark. */}
-      <p className={`relative text-sm leading-snug font-medium tracking-[-0.01em] ${sicko ? 'sk-card-title' : ''}`}>
+      <p className={`relative text-sm leading-snug font-medium tracking-[-0.01em] ${vibes ? 'sk-card-title' : ''}`}>
         {card.title}
       </p>
-      <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${sicko ? 'sk-card-foot' : ''}`}>
+      <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${vibes ? 'sk-card-foot' : ''}`}>
         {/* The ring dresses the card; this names why, so it is not left to
             colour alone. */}
         {solo && (
           <span
             className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold"
-            title="In SICKO MODE: Claude approves and merges this card with nobody reviewing it"
+            title="In VIBES MODE: Claude approves and merges this card with nobody reviewing it"
           >
-            <span>sicko</span>
+            <span>vibes</span>
           </span>
         )}
-        {/* In SICKO MODE the repo chip, the Run button and the PR link all give
+        {/* In VIBES MODE the repo chip, the Run button and the PR link all give
             way to one chip: at 88px there is room for the state and the bill,
             and nothing on the card is pressable any more anyway. */}
-        {sicko ?
-          <span className="sk-chip rounded font-mono text-[10px]/4">{sickChip(card)}</span>
+        {vibes ?
+          <span className="sk-chip rounded font-mono text-[10px]/4">{vibesChip(card)}</span>
         : card.repoName && (
             <span
               className="rounded px-1.5 py-0.5 font-mono text-[10px]/4"
@@ -91,11 +91,11 @@ export function CardFace({
             </span>
           )
         }
-        <Dependencies card={card} sicko={sicko} />
+        <Dependencies card={card} vibes={vibes} />
         {label && <span className="sr-only">{label}</span>}
         {/* Only an idle card shows a status chip, and only to surface the run
             status the glow cannot say — a cancelled run. */}
-        {!sicko && card.activity === 'idle' && run && (
+        {!vibes && card.activity === 'idle' && run && (
           <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
             {run.status}
           </span>
@@ -103,17 +103,17 @@ export function CardFace({
         {run?.totalTokens != null && (
           <span
             title={tokenTitle(run.tokenBreakdown)}
-            className={`font-mono text-[10px] leading-snug whitespace-nowrap text-(--color-muted) ${sicko ? 'sk-cost' : ''}`}
+            className={`font-mono text-[10px] leading-snug whitespace-nowrap text-(--color-muted) ${vibes ? 'sk-cost' : ''}`}
           >
             {tok(run.totalTokens)}
           </span>
         )}
-        {!sicko && card.mergedAt != null && (
+        {!vibes && card.mergedAt != null && (
           <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-emerald-300">
             merged
           </span>
         )}
-        {!sicko && card.prUrl && (
+        {!vibes && card.prUrl && (
           <a
             href={card.prUrl}
             target="_blank"
@@ -129,21 +129,21 @@ export function CardFace({
           </a>
         )}
         {/* GitHub's verdict, which the server only has for a Done card's open pull request. */}
-        {!sicko && (card.prConflicting || card.resolvingConflicts) && (
+        {!vibes && (card.prConflicting || card.resolvingConflicts) && (
           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-amber-300">
             {card.resolvingConflicts ? 'resolving…' : 'conflicts'}
           </span>
         )}
-        {!sicko && card.openingPr && !card.prUrl && (
+        {!vibes && card.openingPr && !card.prUrl && (
           <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
             opening PR…
           </span>
         )}
-        {!sicko && !dragging && canStartRun(card) && <RunButton card={card} />}
+        {!vibes && !dragging && canStartRun(card) && <RunButton card={card} />}
         {/* Never beside Run: that is for a column Claude works in, and this is
             Done's alone. Gone while a push or a resolution is changing the
             branch GitHub's verdict was about. */}
-        {!sicko && !dragging && (card.prMergeable || card.mergingPr) && !card.openingPr && !card.resolvingConflicts && (
+        {!vibes && !dragging && (card.prMergeable || card.mergingPr) && !card.openingPr && !card.resolvingConflicts && (
           <MergeButton card={card} />
         )}
       </div>
@@ -172,10 +172,10 @@ const NAMED = 3;
  * The other direction is lighter on purpose: being needed is not a problem,
  * so it is a glyph and a count, with the names in the tooltip.
  *
- * SICKO MODE's card has one footer line and no room to spare, so there it is
+ * VIBES MODE's card has one footer line and no room to spare, so there it is
  * the blocked chip alone: the first number and how many more.
  */
-function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
+function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
   const open = card.dependsOn.filter((d) => !d.done);
   // `#142` is per repo, so one from another repo says which.
   const ref = (d: ApiCardLink) => `${d.repoName && d.repoName !== card.repoName ? d.repoName : ''}#${d.number}`;
@@ -184,22 +184,22 @@ function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
   const status = (d: ApiCardLink) => (d.done ? ' (done)' : d.awaitingMerge ? ' (PR not merged)' : '');
   const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${status(d)}`).join('\n');
   // Free to wrap: a column can be 136px wide, and three refs from another repo
-  // are wider than that. SICKO's one footer line cannot wrap, so it names one.
+  // are wider than that. VIBES's one footer line cannot wrap, so it names one.
   const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]/4';
-  const named = sicko ? 1 : NAMED;
+  const named = vibes ? 1 : NAMED;
   return (
     <>
       {open.length > 0 ?
         <span
           title={`Waits on\n${list}`}
-          className={`${chip} bg-(--color-dep-fill) text-(--color-dep) ${sicko ? 'sk-dep whitespace-nowrap' : ''}`}
+          className={`${chip} bg-(--color-dep-fill) text-(--color-dep) ${vibes ? 'sk-dep whitespace-nowrap' : ''}`}
         >
           <WaitsGlyph />
           <span className="sr-only">Blocked:</span>
-          {!sicko && 'waits on'} {open.slice(0, named).map(ref).join(' ')}
+          {!vibes && 'waits on'} {open.slice(0, named).map(ref).join(' ')}
           {open.length > named && ` +${open.length - named}`}
         </span>
-      : !sicko && card.dependsOn.length > 0 && (
+      : !vibes && card.dependsOn.length > 0 && (
           <span title={`Waited on, all done\n${list}`} className={`${chip} bg-slate-500/15 text-(--color-muted)`}>
             <WaitsGlyph open />
             <span className="sr-only">Dependencies done:</span>
@@ -208,7 +208,7 @@ function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
           </span>
         )
       }
-      {!sicko && card.dependents.length > 0 && (
+      {!vibes && card.dependents.length > 0 && (
         <span
           title={`${card.dependents.length} ${card.dependents.length === 1 ? 'card waits' : 'cards wait'} on this`}
           className="inline-flex items-center gap-1 font-mono text-[10px]/4 text-(--color-muted)"
@@ -228,7 +228,7 @@ function Dependencies({ card, sicko }: { card: ApiCard; sicko: boolean }) {
  * Each one names the guardrail that column applies on the calm board and does
  * not apply here — the chip is the card telling you what it got away with.
  */
-function sickChip(card: ApiCard): string {
+function vibesChip(card: ApiCard): string {
   if (card.activity === 'error') return 'error ignored';
   switch (card.stage) {
     case 'backlog':

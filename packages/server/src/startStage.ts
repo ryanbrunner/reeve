@@ -10,6 +10,7 @@ import { GitError, checkWorktree, copyWorktreeIncludes, createWorktree } from '.
 import { startClaudeRun } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
+import { serverEnv, serverVars } from './runs/serverUrl.js';
 import { startShellRun } from './runs/shell.js';
 import { stageDefinition } from './stages/index.js';
 
@@ -88,9 +89,13 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
 
   let setupRunId: string | null = null;
   if (repo.setupCommand) {
+    // The names a Server URL template can use, so a setup script can register
+    // the same host with a local proxy. From `created`: `card` predates the
+    // branch. There is no port yet; each server start picks its own.
     const handle = startShellRun({
       db, writer, cardId: card.id, stage: card.stage,
       command: repo.setupCommand, cwd: created.path,
+      env: serverEnv(serverVars(card.id, created.branch)),
     });
     setupRunId = handle.runId;
   }

@@ -55,11 +55,22 @@ export const testingStage: StageDefinition<TestingOutput> = {
     if (server.state === 'unavailable') {
       return { screenshots: `No screenshots: the dev server could not be started (${server.reason}).` };
     }
-    if (!(await waitForServer(server.url))) {
-      return { screenshots: `No screenshots: the dev server at ${server.url} never answered.` };
+    const answer = await waitForServer(db, server.runId);
+    if (answer.state === 'no-url') {
+      return {
+        screenshots:
+          'No screenshots: the dev server never said where it was serving. It printed no local URL, and the ' +
+          'repo gives it no `{{port}}` in its command and no Server URL in its settings.',
+      };
+    }
+    if (answer.state === 'no-answer') {
+      return { screenshots: `No screenshots: the dev server at ${answer.url} never answered.` };
+    }
+    if (answer.state === 'stopped') {
+      return { screenshots: `No screenshots: the dev server stopped before it answered${answer.reason ? ` (${answer.reason})` : ''}.` };
     }
 
-    const result = await captureTargets({ baseUrl: server.url, targets });
+    const result = await captureTargets({ baseUrl: answer.url, targets });
     if (result.unavailable) return { screenshots: `No screenshots: ${result.unavailable}` };
 
     // This run's pictures replace the last run's, so the tab never shows two

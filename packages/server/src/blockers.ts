@@ -9,7 +9,7 @@ import { isOpeningPr } from './pullRequest.js';
  * it depends on is done.
  *
  * One module, because four places have to refuse the same cards for the same
- * reason — the move route, approval, `startStage` and the SICKO MODE sweep —
+ * reason — the move route, approval, `startStage` and the VIBES MODE sweep —
  * and a second copy of "done" would drift the first time either grew a case.
  * The board and the card modal refuse through `blockedMoveRefusal` in shared,
  * which reads the same answer off `ApiCardLink.done`.
@@ -22,7 +22,7 @@ import { isOpeningPr } from './pullRequest.js';
  *
  * With one addition the chips do not see: a card in Done whose pull request is
  * still being opened. It has no `prUrl` yet, so `stillBlocking` reads it as a
- * card with nothing to land, and the SICKO sweep — every couple of seconds —
+ * card with nothing to land, and the VIBES sweep — every couple of seconds —
  * would move its dependents on before the pull request exists. For those few
  * seconds a chip may say done while the server refuses; the refusal says why.
  */
