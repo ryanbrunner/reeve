@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { CardKind, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, DevServerUrlSource, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
@@ -83,6 +83,10 @@ export const repo = sqliteTable('repo', {
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
   serverCommand: text('server_command'),
+  // Where the dev server can be reached when the repo knows better than the
+  // server's own output, e.g. `https://{{slug}}.test` behind a local proxy.
+  // Filled by `fillVars` in runs/serverUrl.ts. Null leaves it to the command.
+  serverUrl: text('server_url'),
   teardownCommand: text('teardown_command'),
   finishCommand: text('finish_command'),
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
@@ -203,6 +207,11 @@ export const run = sqliteTable(
     command: text('command'),
     pid: integer('pid'),
     port: integer('port'),
+    // Where a server run can actually be reached, and how Reeve knows. Null
+    // until something says: the port above is only what Reeve offered, and a
+    // server that ignores PORT (Vite does) is somewhere else entirely.
+    url: text('url'),
+    urlSource: text('url_source').$type<DevServerUrlSource>(),
     exitCode: integer('exit_code'),
 
     // --- all runs ---
