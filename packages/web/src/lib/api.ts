@@ -62,6 +62,8 @@ export const api = {
   /** Soft: the card leaves the board, and everything it owns stays where it is. */
   archiveCard: (id: string) => post(`/api/cards/${id}/archive`, {}).then(json<{ ok: true }>),
   restoreCard: (id: string) => post(`/api/cards/${id}/restore`, {}).then(json<ApiCard>),
+  /** Hard, but only for a card nobody touched: the server says whether it went. */
+  discardCard: (id: string) => post(`/api/cards/${id}/discard`, {}).then(json<{ deleted: boolean }>),
   archivedCards: () => fetch('/api/cards/archived').then(json<ApiCard[]>),
   /**
    * One call: `/run` makes the worktree itself when there isn't one, so a
