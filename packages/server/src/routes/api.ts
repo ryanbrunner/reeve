@@ -32,7 +32,7 @@ import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { maybeOpenPullRequest } from '../pullRequest.js';
-import { sickoState } from '../sicko/state.js';
+import { vibeState } from '../vibe/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
@@ -164,7 +164,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)),
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
-      vibe: sickoState(db),
+      vibe: vibeState(db),
       // Here for the same reason. Read from memory, never the table: see usage.ts.
       usage: usageState(Date.now()),
     };

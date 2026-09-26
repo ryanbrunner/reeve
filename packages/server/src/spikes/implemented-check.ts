@@ -3,7 +3,7 @@
  * first: a forward move there is refused until the card has a finished In
  * Progress run, and nothing else is — not a reorder, not a move backwards.
  *
- * Run it against a scratch database, since the SICKO MODE case at the end
+ * Run it against a scratch database, since the VIBE MODE case at the end
  * sweeps whatever board it is given:
  *
  *   REEVE_DB=/tmp/implemented.db npx tsx packages/server/src/spikes/implemented-check.ts
@@ -23,7 +23,7 @@ import {
   setRunStatus,
   updateSettings,
 } from '../db/queries.js';
-import { sickoSweep } from '../sicko/engine.js';
+import { vibeSweep } from '../vibe/engine.js';
 
 const { app, db, writer } = createApp();
 
@@ -104,13 +104,13 @@ succeeded(builtTesting.id, 'in_progress');
 succeeded(builtTesting.id, 'testing');
 const approveBuilt = await send('POST', `/api/cards/${builtTesting.id}/review`, { decision: 'approved' });
 
-// --- SICKO MODE ----------------------------------------------------------
+// --- VIBE MODE -----------------------------------------------------------
 // The same unbuilt card still reads as waiting for review. With nobody
 // watching, the sweep must leave it for a person rather than push it to Done.
 updateSettings(db, { vibe: true });
-await sickoSweep(db, writer);
+await vibeSweep(db, writer);
 updateSettings(db, { vibe: false });
-const sickoReviews = cardEventsFor(db, unbuiltTesting.id).filter((e) => e.kind === 'reviewed');
+const vibeReviews = cardEventsFor(db, unbuiltTesting.id).filter((e) => e.kind === 'reviewed');
 
 const checks: Array<[string, boolean, string]> = [
   ['backlog -> testing refused', toTesting.status === 409, `HTTP ${toTesting.status}`],
@@ -134,8 +134,8 @@ const checks: Array<[string, boolean, string]> = [
   ['approving unbuilt testing refused', approveUnbuilt.status === 409 && approveUnbuiltBody.error === 'not implemented', `HTTP ${approveUnbuilt.status} ${JSON.stringify(approveUnbuiltBody)}`],
   ['...and it stays in testing', afterApprove === 'testing', afterApprove],
   ['approving built testing moves it to done', approveBuilt.status === 200 && stageOf(builtTesting.id) === 'done', `HTTP ${approveBuilt.status} ${stageOf(builtTesting.id)}`],
-  ['SICKO leaves the unbuilt card in testing', stageOf(unbuiltTesting.id) === 'testing', stageOf(unbuiltTesting.id)],
-  ['...without approving it', sickoReviews.length === 0, `${sickoReviews.length} reviewed events`],
+  ['VIBE leaves the unbuilt card in testing', stageOf(unbuiltTesting.id) === 'testing', stageOf(unbuiltTesting.id)],
+  ['...without approving it', vibeReviews.length === 0, `${vibeReviews.length} reviewed events`],
 ];
 
 let failed = 0;

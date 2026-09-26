@@ -11,7 +11,7 @@ import {
   listRepos,
   moveCard,
   questionsForRun,
-  sickoCards,
+  vibeCards,
 } from '../db/queries.js';
 import type { Card, Question, Repo, Run } from '../db/schema.js';
 import { isOpeningPr, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
@@ -20,7 +20,7 @@ import type { EventWriter } from '../runs/events.js';
 import { maybeStartStage, startStage } from '../startStage.js';
 
 /**
- * SICKO MODE, doing the things a person would otherwise have to.
+ * VIBE MODE, doing the things a person would otherwise have to.
  *
  * A sweep rather than a set of hooks, and that is the whole design. Hanging
  * "approve when a run succeeds" and "start when a card lands" off the moments
@@ -40,7 +40,7 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * taking the person out of the loop is not a reason to widen them. Nor do a
  * card's dependencies, for the same reason: see `blockers.ts`.
  *
- * A card can also be put in SICKO MODE on its own. With the board's switch off
+ * A card can also be put in VIBE MODE on its own. With the board's switch off
  * the sweep looks at those cards and no others, and does the same five things
  * to each — landing its pull request included — while the rest of the board
  * waits for a person as usual. With the board's switch on, every card goes
@@ -48,7 +48,7 @@ import { maybeStartStage, startStage } from '../startStage.js';
  */
 
 /** What the review gate is told, and what the card's history will say for ever. */
-const APPROVAL = 'Approved by SICKO MODE. Nobody read this.';
+const APPROVAL = 'Approved by VIBE MODE. Nobody read this.';
 
 /**
  * What a question gets when Claude asked one and there is no one to ask.
@@ -59,7 +59,7 @@ const APPROVAL = 'Approved by SICKO MODE. Nobody read this.';
  * the record.
  */
 const NO_ONE_HOME =
-  'There is nobody to ask — SICKO MODE is on and you are answering your own questions. ' +
+  'There is nobody to ask — VIBE MODE is on and you are answering your own questions. ' +
   'Make the call yourself, take whichever option keeps the work moving, ' +
   'and say in your output what you chose and why.';
 
@@ -77,11 +77,11 @@ let sweeping = false;
  *
  * Idempotent and safe to call on a timer: each rule reads the card as it is now.
  */
-export async function sickoSweep(db: Db, writer: EventWriter): Promise<void> {
+export async function vibeSweep(db: Db, writer: EventWriter): Promise<void> {
   if (sweeping) return;
   // The whole board with the switch on; otherwise only the cards flagged on
   // their own, and nothing at all when there are none.
-  const cards = getSettings(db).vibeSince !== null ? boardCards(db) : sickoCards(db);
+  const cards = getSettings(db).vibeSince !== null ? boardCards(db) : vibeCards(db);
   if (cards.length === 0) return;
   sweeping = true;
   try {
@@ -183,18 +183,18 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
  * The column after this one, with Planning stepped over.
  *
  * Here and not in `nextStage`, because the calm board, the review gate and the
- * card's own buttons all advance through Planning, and SICKO MODE is a layer
+ * card's own buttons all advance through Planning, and VIBE MODE is a layer
  * over that product rather than a fork of it. Nothing after it needs a plan:
  * In Progress works from the card itself when none was recorded.
  */
-function sickoNext(stage: Stage): Stage | null {
+function vibeNext(stage: Stage): Stage | null {
   const to = nextStage(stage);
   return to === 'planning' ? nextStage(to) : to;
 }
 
 /** Into the next column as Claude, and started there, as a drag would have. */
 function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
-  const to = sickoNext(card.stage as Stage);
+  const to = vibeNext(card.stage as Stage);
   if (!to) return;
   const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
   if (moved) maybeStartStage(db, writer, moved, repo);

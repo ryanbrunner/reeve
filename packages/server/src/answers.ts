@@ -26,7 +26,7 @@ export interface AnswerResult {
  * Record one answer, and when it was the last one, put Claude back to work.
  *
  * Out of the route for the same reason `approveStage` is: more than one thing
- * says it now. A person answering in the card modal and SICKO MODE answering
+ * says it now. A person answering in the card modal and VIBE MODE answering
  * on their behalf must do exactly the same thing, and two copies of "and then
  * resume the run that asked" would drift apart the first time one of them grew
  * a step.

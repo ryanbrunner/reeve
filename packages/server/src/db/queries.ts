@@ -69,14 +69,14 @@ export function boardCards(db: Db) {
 }
 
 /**
- * The live cards in SICKO MODE on their own, in `boardCards`' shape. What the
+ * The live cards in VIBE MODE on their own, in `boardCards`' shape. What the
  * sweep reads while the board's switch is off, which is nearly always, so it
  * costs one small select every couple of seconds rather than the whole board.
  *
  * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
  * and a project swept into Planning is a project being run as a stage.
  */
-export function sickoCards(db: Db) {
+export function vibeCards(db: Db) {
   return db
     .select({ card })
     .from(card)
@@ -360,7 +360,7 @@ export function renormaliseIfNeeded(db: Db, stage: CardStage): boolean {
  */
 /**
  * `actor` is all but always the human it defaults to — a drag, or an approval
- * they gave. SICKO MODE is the exception, and it matters that the event says
+ * they gave. VIBE MODE is the exception, and it matters that the event says
  * so: the board's own scoreboard counts human approvals, and an automatic move
  * filed under `human` would make that number a lie.
  *
@@ -732,7 +732,7 @@ export function cardEventsFor(db: Db, cardId: string) {
 }
 
 /**
- * Everything of consequence that has happened since SICKO MODE went on, newest
+ * Everything of consequence that has happened since VIBE MODE went on, newest
  * first, with the card's title beside each entry.
  *
  * One query serves both the HUD's five numbers and its log lines, because they
@@ -741,7 +741,7 @@ export function cardEventsFor(db: Db, cardId: string) {
  * already the record, and a counter beside them would be a second one to get
  * wrong.
  */
-export function sickoLedger(db: Db, since: Date) {
+export function vibeLedger(db: Db, since: Date) {
   return db
     .select({
       actor: cardEvent.actor,

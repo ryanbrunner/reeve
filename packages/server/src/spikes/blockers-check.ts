@@ -1,15 +1,15 @@
 /**
  * Throwaway check on the rule the board exists for: a card does not start until
- * what it depends on is done. The drag, the Run button and SICKO MODE should all
+ * what it depends on is done. The drag, the Run button and VIBE MODE should all
  * refuse the same card, and let it go the moment its dependency reaches Done.
  *
- * Run it against a scratch database, and a fresh one each time — the SICKO MODE
+ * Run it against a scratch database, and a fresh one each time — the VIBE MODE
  * half sweeps every card on the board it is given:
  *
  *   REEVE_DB=/tmp/reeve-blockers.db npx tsx packages/server/src/spikes/blockers-check.ts
  *
  * No worktree and no GitHub here, so the stages the cards are let into fail at
- * the worktree, as in `sicko-check.ts`. What is being checked is whether they
+ * the worktree, as in `vibe-check.ts`. What is being checked is whether they
  * are let in at all.
  */
 import { createApp } from '../index.js';
@@ -24,7 +24,7 @@ import {
   runsForCard,
   updateSettings,
 } from '../db/queries.js';
-import { sickoSweep } from '../sicko/engine.js';
+import { vibeSweep } from '../vibe/engine.js';
 import { startStage } from '../startStage.js';
 
 const { app, db, writer } = createApp();
@@ -72,16 +72,16 @@ const beforeArchive = await move(orphan.id, 'planning');
 archiveCard(db, dropped.id);
 const afterArchive = await move(orphan.id, 'planning');
 
-// --- SICKO MODE -------------------------------------------------------------
+// --- VIBE MODE --------------------------------------------------------------
 updateSettings(db, { vibe: true });
-await sickoSweep(db, writer);
-await sickoSweep(db, writer);
-const sickoStage = getCard(db, waiter.id)!.stage;
+await vibeSweep(db, writer);
+await vibeSweep(db, writer);
+const vibeStage = getCard(db, waiter.id)!.stage;
 const latecomerRuns = runsForCard(db, latecomer.id).length;
 const latecomerStage = getCard(db, latecomer.id)!.stage;
 
 moveCard(db, dep.id, 'done', 0);
-await sickoSweep(db, writer);
+await vibeSweep(db, writer);
 const releasedStage = getCard(db, waiter.id)!.stage;
 const releasedBy = cardEventsFor(db, waiter.id).filter((e) => e.kind === 'moved').map((e) => e.actor);
 const unblockedRun = await startStage(db, writer, getCard(db, latecomer.id)!, repo);
@@ -104,8 +104,8 @@ console.log('\n--- an archived dependency ---');
 ok('blocks while it is on the board', beforeArchive.status, 409);
 ok('and stops blocking once archived', afterArchive.status, 200);
 
-console.log('\n--- SICKO MODE ---');
-ok('the sweep leaves a blocked card in Backlog', sickoStage, 'backlog');
+console.log('\n--- VIBE MODE ---');
+ok('the sweep leaves a blocked card in Backlog', vibeStage, 'backlog');
 ok('and does not run the one already past it', latecomerRuns, 0);
 ok('which keeps its column', latecomerStage, 'in_progress');
 ok('once the dependency is Done, the next sweep moves the card', releasedStage, 'in_progress');

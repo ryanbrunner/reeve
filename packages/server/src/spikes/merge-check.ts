@@ -174,16 +174,16 @@ const board = (id: string) => toBoardCard(db, getCard(db, id)!, null, null);
   check('card not merged', getCard(db, wt.id)!.mergedAt === null);
   check('still offered, still mergeable', board(wt.id).prMergeable && !board(wt.id).mergingPr);
 
-  // SICKO MODE's path, which checks no verdict and records itself as Claude.
+  // VIBE MODE's path, which checks no verdict and records itself as Claude.
   process.env.FAKE_GH_MERGE_FAIL = 'still no review';
-  const sicko = await landPullRequest(db, getCard(db, wt.id)!, repo, 'claude');
+  const vibe = await landPullRequest(db, getCard(db, wt.id)!, repo, 'claude');
   delete process.env.FAKE_GH_MERGE_FAIL;
-  check('SICKO’s refusal is Claude’s merge_failed', !sicko.ok && events(wt.id, 'merge_failed')[0]?.actor === 'claude');
+  check('VIBE’s refusal is Claude’s merge_failed', !vibe.ok && events(wt.id, 'merge_failed')[0]?.actor === 'claude');
 }
 
-// --- SICKO MODE lands one GitHub has not ruled on ---------------------------------
+// --- VIBE MODE lands one GitHub has not ruled on ----------------------------------
 {
-  const wt = done('Sicko', 'UNKNOWN');
+  const wt = done('Vibe', 'UNKNOWN');
   const res = await landPullRequest(db, getCard(db, wt.id)!, repo, 'claude');
   check('landPullRequest itself needs no verdict', res.ok && res.merged && getCard(db, wt.id)!.mergedAt !== null);
 }

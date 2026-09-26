@@ -1,12 +1,12 @@
 import { STAGE_LABELS, type Stage, type VibeState } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getSettings, sickoLedger, tokensSince } from '../db/queries.js';
+import { getSettings, vibeLedger, tokensSince } from '../db/queries.js';
 
 /** How many log lines the HUD is given. It shows two; the rest are headroom. */
 const LOG_LINES = 4;
 
 /**
- * SICKO MODE as the board should see it, or null while the switch is off.
+ * VIBE MODE as the board should see it, or null while the switch is off.
  *
  * Every number is counted from the moment the switch was flipped, off the
  * cards' own event log. Nothing is tallied as it happens: the events already
@@ -18,11 +18,11 @@ const LOG_LINES = 4;
  * does walk over and approve a card by hand while this is on, the HUD should
  * say so rather than quietly claim otherwise.
  */
-export function sickoState(db: Db): VibeState | null {
+export function vibeState(db: Db): VibeState | null {
   const { vibeSince } = getSettings(db);
   if (vibeSince === null) return null;
   const since = new Date(vibeSince);
-  const ledger = sickoLedger(db, since);
+  const ledger = vibeLedger(db, since);
 
   const byClaude = (kind: string) =>
     ledger.filter((e) => e.kind === kind && e.actor === 'claude').length;
@@ -42,7 +42,7 @@ export function sickoState(db: Db): VibeState | null {
   };
 }
 
-type Entry = ReturnType<typeof sickoLedger>[number];
+type Entry = ReturnType<typeof vibeLedger>[number];
 
 /**
  * One event as a line of the HUD's log, or null for the ones not worth saying.
