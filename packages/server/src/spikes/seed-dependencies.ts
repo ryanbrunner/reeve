@@ -8,7 +8,10 @@
  *     it lights the rest, and one dependency is named `storefront#N`
  *   - a card waiting on one that merged and was archived, which must read as
  *     done rather than as missing or blocked
- *   - a card whose only dependency is in Done: satisfied, not blocked
+ *   - a card whose only dependency is in Done with no pull request: satisfied,
+ *     not blocked
+ *   - a card whose dependency is in Done with a pull request not yet merged:
+ *     blocked, and its tooltip says so
  *   - a card waiting on five, which names three and says +2
  *   - cards with several dependents
  *   - cards suggested by another card's run, one of them by the card that
@@ -78,6 +81,14 @@ const cdn = task('Bump the image CDN client', 'done', web.id);
 const lazy = task('Lazy-load product images', 'backlog', web.id);
 waits([cdn], lazy);
 
+// In Done, but its pull request has not merged, so what builds on it waits:
+// the chip names it and its tooltip says "PR not merged".
+const retries = task('Retry failed payment webhooks', 'done', api.id, checkout.id);
+db.update(card).set({ prUrl: 'https://github.com/example/orders-api/pull/41', prNumber: 41 })
+  .where(eq(card.id, retries.id)).run();
+const receipts = task('Email a receipt once payment settles', 'backlog', api.id, checkout.id);
+waits([retries], receipts);
+
 task('Fix the flaky tax rounding test', 'backlog', api.id);
 
 // What runs suggested along the way, in Backlog beside their suggester as
@@ -94,7 +105,9 @@ suggested('Drop the unused wishlist table', schema);
 // What the board will say, read back through the route the browser polls.
 const board = (await (await app.request('/api/board')).json()) as BoardResponse;
 for (const c of board.cards) {
-  const on = c.dependsOn.map((d) => `${d.repoName}#${d.number}${d.done ? ' done' : ''}`).join(', ');
+  const on = c.dependsOn
+    .map((d) => `${d.repoName}#${d.number}${d.done ? ' done' : d.awaitingMerge ? ' PR not merged' : ''}`)
+    .join(', ');
   const blocked = c.dependsOn.some((d) => !d.done);
   console.log(
     `#${c.number} ${c.title} [${c.stage}]`,

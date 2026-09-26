@@ -1,6 +1,6 @@
 import { canStartRun, isPlaceholderCard, isRunnable, nextStage, type Stage } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
-import { blockedStart } from '../blockers.js';
+import { blockedMove } from '../blockers.js';
 import { cardActivity, entryRefusal } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
@@ -135,11 +135,8 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
     if (isPlaceholderCard(card)) return;
-    // And a card waiting on another that is not done. That is not one of
-    // Reeve's human gates but the order the work has to happen in, and taking
-    // the person out of the loop does not change it. It goes on the first
-    // sweep after its dependency reaches Done.
-    if (blockedStart(db, card)) return;
+    // A card waiting on another is held in `moveOn`, which every move this
+    // sweep makes goes through.
     moveOn(db, writer, card, repo);
     return;
   }
@@ -150,11 +147,15 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // and starts its next stage — the same three things the button does. Not
     // the rule under the gate: a Testing card that was never built is left for
     // a person, as the button would refuse it, rather than pushed empty to Done.
-    case 'needs_review':
-      if (run && !entryRefusal(db, card, nextStage(stage) ?? stage)) {
+    // Nor the order the work has to happen in: a card waiting on another stays,
+    // reviewed or not, until what it waits on has cleared.
+    case 'needs_review': {
+      const to = nextStage(stage) ?? stage;
+      if (run && !blockedMove(db, card, to) && !entryRefusal(db, card, to)) {
         approveStage(db, writer, card, repo, run, { actor: 'claude', notes: APPROVAL });
       }
       return;
+    }
 
     case 'needs_input':
       if (run) await answerEverything(db, writer, card, run);
@@ -196,6 +197,13 @@ function vibesNext(stage: Stage): Stage | null {
 function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
   const to = vibesNext(card.stage as Stage);
   if (!to) return;
+  // Except a card waiting on another that has not cleared. That is not one of
+  // Reeve's human gates but the order the work has to happen in, and taking
+  // the person out of the loop does not change it. It goes on the first sweep
+  // after its dependency's pull request merges — or after it reaches Done, if
+  // it has none. Here rather than beside each caller, so a Planning card left
+  // with no plan in flight is held the same as one in Backlog.
+  if (blockedMove(db, card, to)) return;
   const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
   if (moved) maybeStartStage(db, writer, moved, repo);
 }

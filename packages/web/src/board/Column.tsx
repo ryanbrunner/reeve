@@ -51,6 +51,7 @@ export function Column({
   onOpen,
   onAdd,
   adding = false,
+  refuses = false,
   vibes = false,
   hot = false,
   skipped = false,
@@ -64,6 +65,13 @@ export function Column({
   /** Offered as a ghost card at the foot of the column. Backlog is where new work goes, so only it has one. */
   onAdd?: () => void;
   adding?: boolean;
+  /**
+   * The card being dragged waits on another and may not come in here. Only a
+   * hint, drawn in the dependency colour: the droppable stays enabled, because
+   * a drop onto one of its cards would get through a disabled one anyway, and
+   * `onDragEnd` is what actually refuses it.
+   */
+  refuses?: boolean;
   /**
    * The column as a well: its cards have lifted off it into the flying layer,
    * so it keeps its header and its count and holds nothing. Not a droppable
@@ -85,7 +93,9 @@ export function Column({
     <div
       ref={setNodeRef}
       className={`group flex min-h-32 flex-col rounded-lg border p-2 transition-colors ${
-        lit ? 'border-sky-600 bg-sky-950/20' : 'border-(--color-edge) bg-(--color-panel)/40'
+        lit && refuses ? 'cursor-not-allowed border-(--color-dep) bg-(--color-dep-fill)'
+        : lit ? 'border-sky-600 bg-sky-950/20'
+        : 'border-(--color-edge) bg-(--color-panel)/40'
       } ${vibes ? `sk-col${hot ? ' sk-hot' : ''}${skipped ? ' sk-col-closed' : ''}` : ''}`}
     >
       <div className="mb-2 flex items-baseline gap-2 px-1">
