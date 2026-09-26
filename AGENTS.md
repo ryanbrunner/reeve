@@ -12,8 +12,8 @@ is no second status field.
 
 The rule the whole board is built around: **Claude never moves a card; a human
 action does**, whether a drag or an approval. A run finishing on its own
-changes the card's activity, not its column. VIBE MODE
-(`packages/server/src/vibe/`) is the deliberate exception: a sweep that
+changes the card's activity, not its column. VIBES MODE
+(`packages/server/src/vibes/`) is the deliberate exception: a sweep that
 approves, answers and advances cards with nobody watching. It takes off
 Reeve's own human gates and nothing else.
 
@@ -31,7 +31,7 @@ npm workspaces, four packages:
   Agent SDK, and Playwright for screenshots.
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
-  VIBE MODE's styles are scoped under `.vibe` in `packages/web/src/vibe.css`.
+  VIBES MODE's styles are scoped under `.vibes` in `packages/web/src/vibes.css`.
 - `packages/cli` (`@reeve/cli`) — the `reeve` command. `serve` is the only
   command that imports the server; everything else goes through a running
   server's HTTP API and never its database, because runs live in the server's
@@ -70,7 +70,7 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
-`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBE_SWEEP_MS`. By default the database is
+`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBES_SWEEP_MS`. By default the database is
 `data/reeve.db` and mockups and screenshots go in `data/assets/`; `data/` is
 gitignored and created at runtime. The server binds to 127.0.0.1 only.
 Its default paths, and the built web app's, are resolved from the repo root
@@ -90,17 +90,17 @@ Behaviour is checked by the throwaway scripts in `packages/server/src/spikes/`,
 each a standalone `tsx` file that builds an app, drives it and prints what it
 found. From the repo root:
 
-    REEVE_DB=/tmp/scratch.db npx tsx packages/server/src/spikes/vibe-check.ts
+    REEVE_DB=/tmp/scratch.db npx tsx packages/server/src/spikes/vibes-check.ts
 
 Always give a spike a scratch `REEVE_DB`, never `data/reeve.db`. The spikes
 that call `createApp()` open `data/reeve.db` when `REEVE_DB` is unset, and the
-VIBE MODE spikes move real cards on whatever board they are given.
+VIBES MODE spikes move real cards on whatever board they are given.
 
 For looking at the UI without spending API credit,
 `packages/server/src/spikes/seed-card-detail.ts` seeds a card in every
-activity state and `packages/server/src/spikes/seed-vibe-board.ts` a board in
-VIBE MODE. Either can seed a scratch database, and a server started with the
-same `REEVE_DB` then shows it; the header of `seed-vibe-board.ts` has the
+activity state and `packages/server/src/spikes/seed-vibes-board.ts` a board in
+VIBES MODE. Either can seed a scratch database, and a server started with the
+same `REEVE_DB` then shows it; the header of `seed-vibes-board.ts` has the
 command. The header of `seed-card-detail.ts` names `data/reeve.db`, but a
 scratch database works the same way, since the script creates the repo it
 needs. The same seeded board is how to check `reeve card wait`: its cards give
@@ -146,7 +146,7 @@ made; `wait` keeps waiting through that, because the card says so
 
 Approving is a human gate, and the CLI passes it only when a person or their
 script calls `reeve card approve`. Nothing in the CLI approves, answers or
-advances a card on its own; that is VIBE MODE's job, and only when it is
+advances a card on its own; that is VIBES MODE's job, and only when it is
 switched on.
 
 ## Rules the code depends on
@@ -170,7 +170,7 @@ switched on.
 - **Prompts are files.** `packages/server/src/stages/prompts/*.md`, filled by
   `renderPrompt` in `packages/server/src/stages/template.ts`, which replaces
   `{{name}}` and leaves an empty string for any variable not passed.
-- **Timers, `gh` calls, the VIBE sweep and model listing stay out of
+- **Timers, `gh` calls, the VIBES sweep and model listing stay out of
   `createApp()`.** It checks contracts, migrates, reaps orphaned runs and
   builds routes, and nothing more. The rest starts only in `startServer()`,
   which `packages/server/src/main.ts` and `reeve serve` call, because the
@@ -180,7 +180,7 @@ switched on.
 - **Tool permissions deny by default.** A stage's `allowedTools` is the
   policy; `packages/server/src/runs/permissions.ts` answers everything else,
   and its one allowance is rewriting `git -C <the worktree> …` to plain `git …`,
-  never a widening. VIBE MODE does not widen permissions either.
+  never a widening. VIBES MODE does not widen permissions either.
 
 ## Database migrations
 
