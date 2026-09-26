@@ -1,6 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { projectSplitOutput, type ProjectSplitOutput } from '@reeve/shared';
+import { absoluteAssetPath, relativeAssetPath, writeAsset } from '../assets/store.js';
 import type { Db } from '../db/client.js';
-import { addCriterion, addDependency, allDependencies, createCard, listRepos, tasksInProject } from '../db/queries.js';
+import {
+  addCriterion,
+  addDependency,
+  allDependencies,
+  createCard,
+  getAsset,
+  insertAsset,
+  listRepos,
+  tasksInProject,
+  updateCard,
+} from '../db/queries.js';
 import type { Card } from '../db/schema.js';
 import { renderPrompt } from './template.js';
 import type { ClaudeTask } from './types.js';
@@ -61,6 +73,9 @@ export const splitProjectTask: ClaudeTask<ProjectSplitOutput> = {
    *
    * Every card is made before any link, because a task may depend on one
    * listed after it.
+   *
+   * A task's pasted images are copied to it once it exists, since the copies
+   * live under its id.
    */
   onPersist(db, ctx, output) {
     const repos = new Map(listRepos(db).map((r) => [r.name.toLowerCase(), r.id]));
@@ -78,6 +93,8 @@ export const splitProjectTask: ClaudeTask<ProjectSplitOutput> = {
         projectId: ctx.card.id,
         actor: 'claude',
       });
+      const body = copyPastedImages(db, created.id, task.body);
+      if (body !== task.body) updateCard(db, created.id, { body });
       have.set(key, created);
       made.push({ id: created.id, dependsOn: task.dependsOn });
       for (const text of task.criteria) addCriterion(db, created.id, text, 'claude');
@@ -90,6 +107,58 @@ export const splitProjectTask: ClaudeTask<ProjectSplitOutput> = {
     return `Split into ${n} task${n === 1 ? '' : 's'}`;
   },
 };
+
+/**
+ * An image the brief's editor pasted in, by the `src` the page was given for it.
+ * The same pattern `briefFor` in runs/claude.ts finds them by.
+ */
+const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
+
+/**
+ * A task's brief with each pasted image it links swapped for a copy of its
+ * own, file and row.
+ *
+ * Claude writes a task's brief from the project's, links and all, and a link
+ * left alone points at the project's row. That row cascades off the project,
+ * so deleting the project would break the picture in every task, on the page
+ * and in the files a run is told the brief's images are. A copy belongs to the
+ * task, and goes when the task does.
+ *
+ * A link to anything but a pasted image is left as Claude wrote it, and so is
+ * one whose file has gone: a copy of nothing would only move the break. An
+ * image linked twice is copied once.
+ */
+function copyPastedImages(db: Db, taskId: string, body: string): string {
+  const copies = new Map<string, string>();
+  for (const [, , id] of body.matchAll(PASTED)) {
+    if (!id || copies.has(id)) continue;
+    const row = getAsset(db, id);
+    if (row?.kind !== 'pasted') continue;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(absoluteAssetPath(row.path));
+    } catch {
+      continue;
+    }
+    const rel = relativeAssetPath(taskId, crypto.randomUUID(), row.contentType);
+    writeAsset(rel, bytes);
+    const copy = insertAsset(db, {
+      cardId: taskId,
+      kind: 'pasted',
+      label: row.label,
+      path: rel,
+      contentType: row.contentType,
+      width: row.width,
+      height: row.height,
+    });
+    copies.set(id, copy.id);
+  }
+  if (!copies.size) return body;
+  return body.replace(PASTED, (link, alt: string, id: string) => {
+    const copy = copies.get(id);
+    return copy ? `![${alt}](/api/assets/${copy})` : link;
+  });
+}
 
 /**
  * The links Claude proposed for the cards this split made, by title against
