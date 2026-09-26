@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { isTerminal, type ApiCriterion, type CardDetail } from '@reeve/shared';
+import { isTerminal, type ApiAsset, type ApiCriterion, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
+import { when } from '../format.js';
+import { Lightbox } from '../Lightbox.js';
 import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
@@ -243,6 +245,26 @@ function Criteria({ detail }: { detail: CardDetail }) {
   // That covers a new card, and a Testing run in progress, which clears them.
   const judged = detail.criteria.some((c) => c.verdict);
 
+  // Evidence often names a screenshot ("Screenshot 'Cart with saved items'
+  // shows…"), so it links to it. Only this run's pictures: a failed capture
+  // leaves the last run's in place, and they may show something since fixed.
+  const shots = detail.assets.filter((a) => a.kind === 'screenshot' && a.label.trim());
+  const shotFor = (c: ApiCriterion) => {
+    const evidence = c.evidence?.toLowerCase();
+    if (!evidence || !c.verifiedRunId) return null;
+    // The longest label that fits, so "Cart" never claims "Cart on mobile".
+    return (
+      shots
+        .filter((s) => s.runId === c.verifiedRunId && evidence.includes(s.label.toLowerCase()))
+        .sort((a, b) => b.label.length - a.label.length)[0] ?? null
+    );
+  };
+  // An id rather than the asset, so each poll of the card shows the fresh row.
+  const [viewing, setViewing] = useState<string | null>(null);
+  // Stable, or every poll of the card would re-run the lightbox's effect.
+  const close = useCallback(() => setViewing(null), []);
+  const shown = detail.assets.find((a) => a.id === viewing) ?? null;
+
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
@@ -276,7 +298,7 @@ function Criteria({ detail }: { detail: CardDetail }) {
               {/* min-w-0, or the evidence under it would set the row's width. */}
               <div className="flex min-w-0 grow flex-col">
                 <span className="text-sm/5 text-(--color-text)">{c.text}</span>
-                {judged && <Evidence criterion={c} />}
+                {judged && <Evidence criterion={c} shot={shotFor(c)} onView={setViewing} />}
               </div>
               <button
                 type="button"
@@ -326,6 +348,14 @@ function Criteria({ detail }: { detail: CardDetail }) {
         </span>
       )}
       {failure && <p className="text-sm/5 text-red-300">{failure}</p>}
+      {shown && (
+        <Lightbox
+          asset={shown}
+          kind="Build"
+          caption={`${shown.url ?? ''} · ${shown.viewport ?? '?'}px · ${when(shown.createdAt)}`}
+          onClose={close}
+        />
+      )}
     </section>
   );
 }
@@ -351,7 +381,11 @@ function Mark({ verdict }: { verdict: ApiCriterion['verdict'] }) {
  * criterion, the long ones squeezed it to a sliver or ran off the modal, so here
  * it wraps wherever it has to.
  */
-function Evidence({ criterion: c }: { criterion: ApiCriterion }) {
+function Evidence({ criterion: c, shot, onView }: {
+  criterion: ApiCriterion;
+  shot: ApiAsset | null;
+  onView: (id: string) => void;
+}) {
   // Criteria are only unjudged beside judged ones when they were added since
   // the last run, because a run clears every verdict when it starts.
   if (!c.verdict) {
@@ -369,6 +403,20 @@ function Evidence({ criterion: c }: { criterion: ApiCriterion }) {
       }`}
     >
       {c.evidence.trim()}
+      {shot && (
+        <>
+          {' '}
+          <button
+            type="button"
+            // Safari and Firefox leave a clicked button unfocused, and the
+            // lightbox hands focus back to whatever had it.
+            onClick={(e) => { e.currentTarget.focus(); onView(shot.id); }}
+            className="whitespace-nowrap text-sky-300 hover:underline"
+          >
+            View screenshot
+          </button>
+        </>
+      )}
     </p>
   );
 }
