@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ApiAsset, CardDetail } from '@reeve/shared';
 import { when } from '../format.js';
+import { Lightbox } from '../Lightbox.js';
 import { Empty, SectionHead } from '../ui.js';
 
 type View = 'mockup' | 'build' | 'both';
@@ -144,20 +145,32 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
   );
 }
 
+/** Clipped to its top here, so a click opens the whole page. */
 function Figure({ asset, kind, caption }: { asset: ApiAsset; kind: string; caption: string }) {
+  const [open, setOpen] = useState(false);
+  // Stable, or every poll of the card would re-run the lightbox's effect.
+  const close = useCallback(() => setOpen(false), []);
   return (
     <figure className="m-0 flex flex-col gap-1.5">
       <figcaption className="flex justify-between gap-2 font-mono text-[10px]/4">
         <span className="font-medium tracking-[0.06em] text-(--color-text) uppercase">{kind}</span>
         <span className="truncate text-(--color-muted)">{caption}</span>
       </figcaption>
-      <div className="overflow-hidden rounded-md border border-(--color-edge)">
+      <button
+        type="button"
+        // Safari and Firefox leave a clicked button unfocused, and the lightbox
+        // hands focus back to whatever had it.
+        onClick={(e) => { e.currentTarget.focus(); setOpen(true); }}
+        aria-label={`View ${kind} full screen`}
+        className="block cursor-zoom-in overflow-hidden rounded-md border border-(--color-edge) hover:border-slate-600"
+      >
         <img
           src={asset.src}
           alt={`${kind}: ${asset.label}`}
           className="block max-h-[21rem] w-full bg-(--color-ink) object-cover object-top"
         />
-      </div>
+      </button>
+      {open && <Lightbox asset={asset} kind={kind} caption={caption} onClose={close} />}
     </figure>
   );
 }

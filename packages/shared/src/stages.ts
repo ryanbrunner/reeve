@@ -21,6 +21,16 @@ export const STAGE_LABELS: Record<Stage, string> = {
 };
 
 /**
+ * A card is a piece of work, or a project: a brief that groups several of them.
+ * A project is a card so that it gets everything a card already has — a brief
+ * to edit, runs to cost and read back, a modal — rather than a second copy of
+ * each. It sits in no column: the board shows it as a lane, and nothing runs a
+ * stage on it.
+ */
+export const CARD_KINDS = ['task', 'project'] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
+
+/**
  * Stages that run Claude. The others are holding areas the human moves cards
  * through, which is why `backlog` and `done` have no runnable work.
  */

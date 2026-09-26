@@ -82,6 +82,9 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
  * through here, so they refuse the same things for the same reasons.
  */
 export async function startStage(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<StartStageResult> {
+  if (card.kind === 'project') {
+    return { ok: false, status: 400, error: 'a project has no stages', detail: 'split it into tasks instead' };
+  }
   if (!isRunnable(card.stage as Stage)) {
     return { ok: false, status: 400, error: 'stage has no Claude work', detail: card.stage };
   }
@@ -141,10 +144,11 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
  * throw that attempt away. A refusal — the cap, a run still going from the
  * column it left — is not recorded: the card sits idle with its Run button,
  * which is where a person would have started it before. And nothing may
- * escape: an unhandled rejection here would take the server down.
+ * escape: an unhandled rejection here would take the server down. A project
+ * has no stages, whatever column its row says it is in.
  */
 export function maybeStartStage(db: Db, writer: EventWriter, card: Card, repo: Repo | undefined): void {
-  if (!repo || card.archivedAt) return;
+  if (!repo || card.archivedAt || card.kind === 'project') return;
   if (!canStartRun({ stage: card.stage as Stage, activity: cardActivity(db, card).activity })) return;
   startStage(db, writer, card, repo)
     .then((result) => {

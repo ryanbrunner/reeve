@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { AttentionBand } from './AttentionBand.js';
@@ -29,6 +29,7 @@ export function CardHeader({
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   const running = card.activity === 'running';
+  const createdBy = detail.events.find((e) => e.kind === 'created')?.actor;
 
   const qc = useQueryClient();
   const invalidate = () => {
@@ -50,7 +51,13 @@ export function CardHeader({
     mutationFn: (title: string) => api.updateCard(card.id, { title }),
     onSuccess: invalidate,
   });
-  const failed = archive.error ?? restore.error ?? rename.error;
+  const refile = useMutation({
+    mutationFn: (repoId: string | null) => api.updateCard(card.id, { repoId }),
+    onSuccess: invalidate,
+  });
+  const failed = archive.error ?? restore.error ?? rename.error ?? refile.error;
+  // Every repo, for the picker. The board already has them.
+  const repos = useQuery({ queryKey: ['board'], queryFn: api.board }).data?.repos ?? [];
 
   // The heading is the field. It is left to the DOM while it is being typed in,
   // so everything that ends an edit without saving one — an empty title, no
@@ -93,22 +100,50 @@ export function CardHeader({
   return (
     <header className="relative shrink-0 border-b border-(--color-edge) px-5 pt-3.5 pb-4">
       <div className="relative flex items-center gap-2">
-        {card.repoName && (
-          <span
-            className="rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4"
-            style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
-          >
-            {card.repoName}
-          </span>
-        )}
-        <span className="font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>
-        <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
-        <span className="flex items-center gap-1.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
-          {STAGE_LABELS[card.stage]}
-          {isRunnable(card.stage) && (
-            <span title="Claude runs here" className="text-[10px] text-sky-500">◆</span>
+        {/* The repo chip is the picker. Locked once there is a worktree: that
+            and its branch belong to the repo they were made in, and the server
+            refuses the move for the same reason. */}
+        <select
+          value={card.repoId ?? ''}
+          disabled={Boolean(card.worktreePath) || refile.isPending}
+          onChange={(e) => refile.mutate(e.target.value || null)}
+          aria-label="Repo"
+          title={
+            card.worktreePath ? 'Remove the worktree before moving the card to another repo'
+            : card.kind === 'project' ? 'The repo the project is split from, and its tasks default to'
+            : 'Move the card to another repo'
+          }
+          className="field-sizing-content cursor-pointer appearance-none rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4 outline-none focus-visible:ring-1 focus-visible:ring-sky-600 disabled:cursor-default"
+          style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
+        >
+          {/* A repo archived since is still the card's, so it stays pickable. */}
+          {card.repoId && !repos.some((r) => r.id === card.repoId) && (
+            <option value={card.repoId}>{card.repoName ?? 'Unknown repo'}</option>
           )}
-        </span>
+          {repos.map((r) => (
+            <option key={r.id} value={r.id}>{r.name}</option>
+          ))}
+          <option value="">No repo</option>
+        </select>
+        {/* A project has no number and sits in no column. */}
+        {card.kind === 'project' ?
+          <>
+            <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
+            <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
+              Project
+            </span>
+          </>
+        : <>
+            <span className="font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>
+            <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
+            <span className="flex items-center gap-1.5 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
+              {STAGE_LABELS[card.stage]}
+              {isRunnable(card.stage) && (
+                <span title="Claude runs here" className="text-[10px] text-sky-500">◆</span>
+              )}
+            </span>
+          </>
+        }
         <div className="grow" />
         {card.archivedAt ?
           <>
@@ -163,8 +198,9 @@ export function CardHeader({
 
       <div className="relative mt-1 font-mono text-[11px]/4 text-(--color-muted)">
         {/* "by you" is rendered, never stored: there is one person, and the day
-            there are two this is the line that changes. */}
-        Created {when(card.createdAt)} by you ·{' '}
+            there are two this is the line that changes. Claude is the other
+            author, of the tasks a project was split into. */}
+        Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
         {runs.length === 0 ? 'No runs yet' : `${plural(runs.length, 'run')} · ${cost(spent)}`}
         {running && runs.length > 0 && ' so far'}
       </div>

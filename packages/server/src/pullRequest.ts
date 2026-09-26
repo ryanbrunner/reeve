@@ -190,7 +190,7 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
  * unhandled rejection here would take the server down.
  */
 export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined): void {
-  if (!repo || card.mergedAt || !card.branchName || !card.worktreePath || !card.baseSha) return;
+  if (!repo || card.kind === 'project' || card.mergedAt || !card.branchName || !card.worktreePath || !card.baseSha) return;
   openPullRequest(db, card, repo).catch((e) => {
     console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
   });

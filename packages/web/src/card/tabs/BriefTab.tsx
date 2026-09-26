@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isTerminal, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
+import { SickoSwitch } from '../../sicko/Switch.js';
 import { Markdown } from '../Markdown.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
 
@@ -12,10 +13,12 @@ import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
  * it is the only one that is editable throughout.
  */
 export function BriefTab({ detail }: { detail: CardDetail }) {
+  // A project is done when its tasks are, so it has no criteria of its own:
+  // its brief is what they are split from.
   return (
     <>
       <Purpose detail={detail} />
-      <Criteria detail={detail} />
+      {detail.card.kind === 'project' ? <Split detail={detail} /> : <Criteria detail={detail} />}
       <Context detail={detail} />
     </>
   );
@@ -29,11 +32,11 @@ export function BriefTab({ detail }: { detail: CardDetail }) {
 const FIELD =
   'max-w-[40rem] rounded-md border border-(--color-edge) bg-(--color-ink) p-3 text-sm/5 outline-none focus:border-sky-600';
 
-const PROMPT = 'What is this card for?';
-
 function Purpose({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
+  const noun = detail.card.kind === 'project' ? 'project' : 'card';
+  const prompt = `What is this ${noun} for?`;
   const save = useMutation({
     mutationFn: (body: string) => api.updateCard(detail.card.id, { body }),
     onSuccess: async () => {
@@ -71,10 +74,10 @@ function Purpose({ detail }: { detail: CardDetail }) {
           rows={4}
           value={draft}
           disabled={save.isPending}
-          placeholder={PROMPT}
+          placeholder={prompt}
           // The heading used to name this field. Nothing else does now, and a
           // placeholder stops naming it the moment there is something in it.
-          aria-label="What this card is for"
+          aria-label={`What this ${noun} is for`}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           className={`${FIELD} resize-y placeholder:text-(--color-muted)`}
@@ -103,11 +106,66 @@ function Purpose({ detail }: { detail: CardDetail }) {
           // box does not change height the moment it becomes one.
           className={`${FIELD} min-h-[6.625rem] cursor-text text-(--color-muted) hover:border-slate-600`}
         >
-          {PROMPT}
+          {prompt}
         </div>
       )}
       {save.error && <p className="text-sm/5 text-red-300">{save.error.message}</p>}
-      <GenerateMockups detail={detail} />
+      {/* A project is never planned, so it has no mockups to draw. */}
+      {detail.card.kind === 'task' && <GenerateMockups detail={detail} />}
+      {/* Nor is a project ever swept, so it has no switch: the sweep moves tasks. */}
+      {detail.card.kind === 'task' && <CardSicko detail={detail} />}
+    </section>
+  );
+}
+
+/**
+ * A project's brief, broken into cards. The first split starts on its own when
+ * the brief is first saved; this is how to ask again, after the brief has grown.
+ * Wired as Suggest is, and busy and failed off the latest run for the same reason.
+ */
+function Split({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const split = useMutation({
+    mutationFn: () => api.splitProject(detail.card.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] }),
+  });
+
+  const last = detail.runs.find((r) => r.task === 'split_project');
+  const splitting = split.isPending || (last !== undefined && !isTerminal(last.status));
+  const failure =
+    split.error?.message ??
+    (!splitting && (last?.status === 'failed' || last?.status === 'interrupted')
+      ? `Split failed: ${last.errorMessage ?? 'the run was interrupted'}`
+      : null);
+
+  // The cards it made are the board's, which polls lazily when nothing on it
+  // is running — and nothing on it is: the split is the project's.
+  const landed = last?.status === 'succeeded' ? last.id : null;
+  useEffect(() => {
+    if (landed) void qc.invalidateQueries({ queryKey: ['board'] });
+  }, [landed, qc]);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead
+        aside={
+          <SmallButton
+            tone="sky"
+            busy={splitting}
+            disabled={!detail.card.body.trim()}
+            title={detail.card.body.trim() ? undefined : 'Write the brief first'}
+            onClick={() => split.mutate()}
+          >
+            {splitting ? 'Splitting…' : 'Split into tasks'}
+          </SmallButton>
+        }
+      >
+        Tasks
+      </SectionHead>
+      <span className="font-mono text-[10px]/4 text-(--color-muted)">
+        Claude breaks the brief into Backlog cards under this project, skipping any it already has
+      </span>
+      {failure && <p className="text-sm/5 text-red-300">{failure}</p>}
     </section>
   );
 }
@@ -145,6 +203,54 @@ function GenerateMockups({ detail }: { detail: CardDetail }) {
       </label>
       <span className="font-mono text-[10px]/4 text-(--color-muted)">
         Claude draws the screens this changes while planning, for Testing to compare the build against
+      </span>
+      {set.error && <p className="text-sm/5 text-red-300">{set.error.message}</p>}
+    </div>
+  );
+}
+
+/**
+ * SICKO MODE for this card alone. The header's switch, worn by one card: the
+ * same control, so it reads as the same promise, and the only rainbow the calm
+ * board lets through besides the header.
+ *
+ * Shown on and left alone while the board's own switch is on, because then
+ * this card goes whatever it says here.
+ */
+function CardSicko({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const set = useMutation({
+    mutationFn: (sicko: boolean) => api.updateCard(detail.card.id, { sicko }),
+    // Returned rather than fired, as in GenerateMockups above.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['board'] });
+      return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    },
+  });
+  const everyone = board?.sicko != null;
+  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.sicko);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <SickoSwitch
+        on={on}
+        onToggle={() => set.mutate(!on)}
+        disabled={everyone || set.isPending}
+        className="self-start"
+        title={
+          everyone ? 'Every card goes while the board is in SICKO MODE'
+          : on ?
+            'Put the human back in the loop for this card'
+          : 'Claude approves, answers and merges this card to main, with nobody reviewing it'
+        }
+      />
+      <span className="font-mono text-[10px]/4 text-(--color-muted)">
+        {everyone ?
+          'The whole board is in SICKO MODE already'
+        : detail.card.repoId === null ?
+          'Nothing happens until the card has a repo to run in'
+        : 'Only this card moves on its own, all the way to a merged pull request'}
       </span>
       {set.error && <p className="text-sm/5 text-red-300">{set.error.message}</p>}
     </div>

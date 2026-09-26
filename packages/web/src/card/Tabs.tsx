@@ -8,11 +8,13 @@ import { ChangesTab } from './tabs/ChangesTab.js';
 import { DiffTab } from './tabs/DiffTab.js';
 import { PlanTab } from './tabs/PlanTab.js';
 import { PreviewTab } from './tabs/PreviewTab.js';
+import { TasksTab } from './tabs/TasksTab.js';
 
-type TabId = 'brief' | 'plan' | 'changes' | 'diff' | 'preview' | 'activity';
+type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'activity';
 
 /**
- * The card's six readings, left to right in the order the work happens.
+ * The card's six readings, left to right in the order the work happens. A
+ * project has three: its brief, the tasks it was split into, and its history.
  *
  * Each tab's count is the one number that says whether it is worth opening —
  * how many criteria, which plan version, how many files changed — and is
@@ -21,7 +23,12 @@ type TabId = 'brief' | 'plan' | 'changes' | 'diff' | 'preview' | 'activity';
  * In SICKO MODE there are four: what was asked, what was planned, what it looks
  * like and that things happened. What actually changed is not yours to see.
  */
-export function Tabs({ detail, sicko = false }: { detail: CardDetail; sicko?: boolean }) {
+export function Tabs({ detail, onOpen, sicko = false }: {
+  detail: CardDetail;
+  onOpen: (id: string) => void;
+  sicko?: boolean;
+}) {
+  const project = detail.card.kind === 'project';
   // Open on whatever this card is currently about. A card in Testing wants its
   // preview; one in Backlog has only a brief.
   const [chosen, setTab] = useState<TabId>(() => defaultTab(detail, sicko));
@@ -37,9 +44,17 @@ export function Tabs({ detail, sicko = false }: { detail: CardDetail; sicko?: bo
     queryFn: () => api.diff(detail.card.id),
     enabled: Boolean(detail.worktree.path || detail.card.mergedSha) && !sicko,
   });
+  // The board already holds every task, so the Tasks tab reads them from there
+  // rather than asking for them again.
+  const board = useQuery({ queryKey: ['board'], queryFn: api.board, enabled: project });
+  const tasks = board.data?.cards.filter((c) => c.projectId === detail.card.id) ?? [];
 
   const shots = detail.assets.filter((a) => a.kind === 'screenshot');
-  const all: Array<{ id: TabId; label: string; count?: string | number }> = [
+  const all: Array<{ id: TabId; label: string; count?: string | number }> = project ? [
+    { id: 'brief', label: 'Brief' },
+    { id: 'tasks', label: 'Tasks', count: tasks.length || undefined },
+    { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
+  ] : [
     { id: 'brief', label: 'Brief', count: detail.criteria.length || undefined },
     { id: 'plan', label: 'Plan', count: detail.plan ? `v${detail.plan.version}` : undefined },
     { id: 'changes', label: 'Changes' },
@@ -88,6 +103,7 @@ export function Tabs({ detail, sicko = false }: { detail: CardDetail; sicko?: bo
       {/* Scrolls: the artboards are fixed-size canvases, a real card is not. */}
       <div role="tabpanel" className="flex min-h-0 grow flex-col gap-[18px] overflow-y-auto p-5">
         {tab === 'brief' && <BriefTab detail={detail} />}
+        {tab === 'tasks' && <TasksTab tasks={tasks} loading={board.isLoading} onOpen={onOpen} />}
         {tab === 'plan' && <PlanTab detail={detail} />}
         {tab === 'changes' && <ChangesTab detail={detail} />}
         {tab === 'diff' && <DiffTab detail={detail} diff={diff.data ?? null} loading={diff.isLoading} />}
@@ -99,6 +115,7 @@ export function Tabs({ detail, sicko = false }: { detail: CardDetail; sicko?: bo
 }
 
 function defaultTab(detail: CardDetail, sicko: boolean): TabId {
+  if (detail.card.kind === 'project') return 'brief';
   if (detail.card.activity === 'needs_input') return 'plan';
   const shots = detail.assets.some((a) => a.kind === 'screenshot');
   // Claude's notes once it has written them; until then — a card still running

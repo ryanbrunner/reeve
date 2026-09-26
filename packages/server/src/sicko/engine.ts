@@ -5,10 +5,12 @@ import type { Db } from '../db/client.js';
 import {
   boardCards,
   cardsInStage,
+  getCard,
   getSettings,
   listRepos,
   moveCard,
   questionsForRun,
+  sickoCards,
 } from '../db/queries.js';
 import type { Card, Question, Repo, Run } from '../db/schema.js';
 import { isOpeningPr, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
@@ -30,11 +32,17 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * was not ready and the `gh` call that timed out without one line of code
  * knowing that is what it is doing.
  *
- * Exactly the five things the arming overlay promises, and nothing else. Reeve's
+ * Exactly the six things the arming overlay promises, and nothing else. Reeve's
  * own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
  * of those is a human in the loop — they are limits on what a run may do, and
  * taking the person out of the loop is not a reason to widen them.
+ *
+ * A card can also be put in SICKO MODE on its own. With the board's switch off
+ * the sweep looks at those cards and no others, and does the same five things
+ * to each — landing its pull request included — while the rest of the board
+ * waits for a person as usual. With the board's switch on, every card goes
+ * whatever its flag says.
  */
 
 /** What the review gate is told, and what the card's history will say for ever. */
@@ -68,14 +76,20 @@ let sweeping = false;
  * Idempotent and safe to call on a timer: each rule reads the card as it is now.
  */
 export async function sickoSweep(db: Db, writer: EventWriter): Promise<void> {
-  if (sweeping || getSettings(db).sickoSince === null) return;
+  if (sweeping) return;
+  // The whole board with the switch on; otherwise only the cards flagged on
+  // their own, and nothing at all when there are none.
+  const cards = getSettings(db).sickoSince !== null ? boardCards(db) : sickoCards(db);
+  if (cards.length === 0) return;
   sweeping = true;
   try {
     const repos = new Map(listRepos(db).map((r) => [r.id, r]));
-    for (const { card } of boardCards(db)) {
-      // Re-read per card: the switch going off mid-sweep has to stop it here,
-      // not after it has walked the rest of the board.
-      if (getSettings(db).sickoSince === null) return;
+    for (const { card: listed } of cards) {
+      // Re-read per card, both switches: either going off mid-sweep has to
+      // stop it here, not one approval or merge later off a stale list.
+      const card = getCard(db, listed.id);
+      if (!card || card.archivedAt) continue;
+      if (getSettings(db).sickoSince === null && !card.sicko) continue;
       const repo = card.repoId ? repos.get(card.repoId) : undefined;
       // A card with no repo has no worktree, so no stage of it can run and
       // there is nothing to automate. It waits, as it would anyway.
@@ -108,8 +122,8 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     return;
   }
 
-  // Backlog. Nobody is going to drag this, so it goes, and then starts the way
-  // a card dragged into Planning starts.
+  // Backlog. Nobody is going to drag this, so it goes — over Planning, straight
+  // into In Progress — and then starts the way a card dragged there starts.
   if (!isRunnable(stage)) {
     // Except a card nobody has said anything about yet. A card is made with a
     // placeholder title and an empty brief and opened for the details to be
@@ -119,10 +133,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
     if (card.title.trim() === PLACEHOLDER_TITLE && card.body.trim() === '') return;
-    const to = nextStage(stage);
-    if (!to) return;
-    const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
-    if (moved) maybeStartStage(db, writer, moved, repo);
+    moveOn(db, writer, card, repo);
     return;
   }
 
@@ -139,14 +150,43 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
       return;
 
     // Started, restarted, or picked up after the cap refused it last time.
+    // Except in Planning, where nothing is ever started in here: a card that
+    // was sitting there when the switch went on, with no plan in flight, is
+    // moved on without one. A plan already written or already asking is left to
+    // finish through the two cases above, because it is paid for.
     case 'idle':
     case 'error':
+      if (stage === 'planning') {
+        moveOn(db, writer, card, repo);
+        return;
+      }
       if (canStartRun({ stage, activity })) await startStage(db, writer, card, repo);
       return;
 
     case 'running':
       return;
   }
+}
+
+/**
+ * The column after this one, with Planning stepped over.
+ *
+ * Here and not in `nextStage`, because the calm board, the review gate and the
+ * card's own buttons all advance through Planning, and SICKO MODE is a layer
+ * over that product rather than a fork of it. Nothing after it needs a plan:
+ * In Progress works from the card itself when none was recorded.
+ */
+function sickoNext(stage: Stage): Stage | null {
+  const to = nextStage(stage);
+  return to === 'planning' ? nextStage(to) : to;
+}
+
+/** Into the next column as Claude, and started there, as a drag would have. */
+function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
+  const to = sickoNext(card.stage as Stage);
+  if (!to) return;
+  const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
+  if (moved) maybeStartStage(db, writer, moved, repo);
 }
 
 /**

@@ -67,6 +67,11 @@ export interface ClaudeTask<Output = unknown> {
    */
   outOfBand?: boolean;
   /**
+   * Directories beyond the one the run is in that Claude may read. A project's
+   * split reads every repo, since its tasks can land in any of them.
+   */
+  directories?(db: Db): string[];
+  /**
    * Work the server does before the prompt is built, when the prompt needs
    * something that does not exist yet — Testing photographs the build here, so
    * `buildPrompt` can hand Claude the file paths of the pictures.

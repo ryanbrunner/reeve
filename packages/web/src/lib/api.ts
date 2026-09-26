@@ -78,6 +78,7 @@ export const api = {
       model?: string | null;
       effort?: EffortLevel | null;
       generateMockups?: boolean;
+      sicko?: boolean;
     },
   ) => patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 
@@ -96,6 +97,8 @@ export const api = {
     del(`/api/cards/${id}/criteria/${criterionId}`).then(json<{ ok: true }>),
   suggestCriteria: (id: string) =>
     post(`/api/cards/${id}/criteria/suggest`, {}).then(json<{ ok: true; runId: string }>),
+  /** A project's brief, broken into Backlog cards under it. Titles it already has are skipped. */
+  splitProject: (id: string) => post(`/api/cards/${id}/split`, {}).then(json<{ ok: true; runId: string }>),
   addRef: (id: string, body: { kind: ApiCardRef['kind']; value: string; label?: string | null }) =>
     post(`/api/cards/${id}/refs`, body).then(json<ApiCardRef>),
   deleteRef: (id: string, refId: string) => del(`/api/cards/${id}/refs/${refId}`).then(json<{ ok: true }>),
@@ -141,7 +144,8 @@ export const api = {
   reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
 };
 
-export const cardsIn = (cards: ApiCard[], stage: Stage, repoId?: string | null): ApiCard[] =>
+/** A column's cards in order, or only one lane's of them when a project is given: null is No project. */
+export const cardsIn = (cards: ApiCard[], stage: Stage, projectId?: string | null): ApiCard[] =>
   cards
-    .filter((c) => c.stage === stage && (repoId === undefined || c.repoId === repoId))
+    .filter((c) => c.stage === stage && (projectId === undefined || c.projectId === projectId))
     .sort((a, b) => a.position - b.position);

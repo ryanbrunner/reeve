@@ -1,8 +1,9 @@
 import { sql } from 'drizzle-orm';
-import type { EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
+  type AnySQLiteColumn,
   primaryKey,
   real,
   sqliteTable,
@@ -16,7 +17,7 @@ import {
  * where shared said `cancelled`.
  */
 export type CardStage = Stage;
-export type { RunKind, RunStatus, StopReason };
+export type { CardKind, RunKind, RunStatus, StopReason };
 
 export const REVIEW_DECISIONS = ['approved', 'rejected'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
@@ -95,6 +96,10 @@ export const card = sqliteTable(
   'card',
   {
     id: text('id').primaryKey(),
+    kind: text('kind').$type<CardKind>().notNull().default('task'),
+    // The project this card belongs to, if any. A project's own repo is its
+    // default: the one its split reads, and the one its tasks fall back to.
+    projectId: text('project_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
@@ -136,9 +141,17 @@ export const card = sqliteTable(
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
     // Whether Planning draws its own mockups for the states this card changes.
-    // On by default, including for cards that predate the column: drawing them
-    // is what saves a person having to.
+    // The `true` default only filled in the cards that predate the column, and
+    // they keep it. New cards are opt-in, decided by `createCard`: changing the
+    // default here would mean SQLite rebuilding the table, and dropping `card`
+    // inside drizzle's migration transaction cascades through everything
+    // hanging off it.
     generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
+    // SICKO MODE for this card alone: the sweep takes it all the way to a
+    // merged pull request while the board's own switch is off. A flag rather
+    // than a timestamp like `settings.sickoSince`, which is only there to give
+    // the HUD something to count from, and one card has no HUD.
+    sicko: integer('sicko', { mode: 'boolean' }).notNull().default(false),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
@@ -147,6 +160,7 @@ export const card = sqliteTable(
     index('card_board').on(t.stage, t.position),
     index('card_repo').on(t.repoId, t.stage, t.position),
     index('card_number').on(t.repoId, t.number),
+    index('card_project').on(t.projectId, t.stage, t.position),
   ],
 );
 
@@ -311,6 +325,28 @@ export const cardRef = sqliteTable(
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
   (t) => [index('card_ref_card').on(t.cardId, t.createdAt)],
+);
+
+/**
+ * One card that cannot start before another finishes. Its own table rather
+ * than a `card_ref` of kind `card`: a ref is something worth reading first,
+ * and reading every existing one as a blocker would jam cards nobody meant to.
+ *
+ * The pair is the key, so the same link twice is one row — which is what lets
+ * a project's Split run again without doubling every link it proposed.
+ */
+export const cardDependency = sqliteTable(
+  'card_dependency',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    dependsOnId: text('depends_on_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_on').on(t.dependsOnId)],
 );
 
 /**
@@ -494,5 +530,6 @@ export type Question = typeof question.$inferSelect;
 export type Asset = typeof asset.$inferSelect;
 export type Difference = typeof difference.$inferSelect;
 export type CardRef = typeof cardRef.$inferSelect;
+export type CardDependency = typeof cardDependency.$inferSelect;
 export type Artifact = typeof artifact.$inferSelect;
 export type Review = typeof review.$inferSelect;
