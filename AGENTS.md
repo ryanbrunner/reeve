@@ -53,6 +53,7 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `npm run cli -- board` — the `reeve` CLI without linking it, against the
   server on `REEVE_URL` or `REEVE_PORT`.
 - `npm run typecheck` — `tsc --noEmit` in every workspace.
+- `npm run cli -- <args>` — the `reeve` command, run from the repo root.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
 - `npm run -s reeve -- <args>` — the CLI, against a server that is already
   running; see The CLI below. `npm link -w @reeve/cli` puts `reeve` on your

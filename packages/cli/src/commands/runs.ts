@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { STAGE_LABELS, type ApiRunSummary } from '@reeve/shared';
 import { api } from '../client.js';
 import { formatCost, formatTime, parseOrUsage, print, printJson, shortId, table, usageError } from '../output.js';
-import { resolveCard } from '../resolve.js';
+import { resolveCardRef } from '../resolve.js';
 
 /**
  * A dev server's error is the tail of its output, npm's banner and all, and
@@ -41,7 +41,7 @@ export async function runs(args: string[]): Promise<void> {
     parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }),
   );
   if (positionals.length !== 1) throw usageError('runs takes one card');
-  const { card } = await resolveCard(positionals[0]!);
+  const { card } = await resolveCardRef(positionals[0]!);
   const list = await api.runs(card.id);
   if (values.json) return printJson(list);
 

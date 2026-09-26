@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { STAGE_LABELS, STAGES, type ApiCard, type ApiProject, type Stage } from '@reeve/shared';
 import { api } from '../client.js';
 import { activityLabel, formatTime, parseOrUsage, print, printJson, shortId, table } from '../output.js';
-import { findProject, findRepo, parseStage } from '../resolve.js';
+import { findProject, findRepo, requireStage } from '../resolve.js';
 
 /**
  * What a card is doing, in a word or two: its activity when it has one, and on
@@ -38,7 +38,7 @@ export async function board(args: string[]): Promise<void> {
       },
     }),
   );
-  const stage = values.stage === undefined ? null : parseStage(values.stage);
+  const stage = values.stage === undefined ? null : requireStage(values.stage);
 
   const [response, archived] = await Promise.all([
     api.board(),
@@ -47,8 +47,8 @@ export async function board(args: string[]): Promise<void> {
   // An archived project is still a project to filter the archive by: its
   // tasks usually went with it.
   const projects = [...response.projects, ...(archived ?? []).filter((c) => c.kind === 'project').map(asProject)];
-  const repo = values.repo === undefined ? null : findRepo(response.repos, values.repo);
-  const project = values.project === undefined ? null : findProject(projects, values.project);
+  const repo = values.repo === undefined ? null : findRepo(response, values.repo);
+  const project = values.project === undefined ? null : findProject(response, values.project);
   const titles = new Map(projects.map((p) => [p.id, p.title]));
 
   if (archived) {

@@ -9,6 +9,9 @@ import { EXIT, type ExitCode } from './exit.js';
  * ./exit.ts.
  */
 export class CliError extends Error {
+  /** Filled in by the group the error came from, so a usage mistake gets that verb's help and no other. */
+  usage: string | null = null;
+
   constructor(
     message: string,
     readonly exitCode: ExitCode = EXIT.error,
@@ -18,6 +21,15 @@ export class CliError extends Error {
 }
 
 export const usageError = (message: string) => new CliError(message, EXIT.usage);
+
+/** A flag that has to be a count: rejected here rather than reaching the server as NaN. */
+export function parseCount(name: string, value: string): number {
+  const n = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(n)) {
+    throw usageError(`${name} must be a whole number, not '${value}'`);
+  }
+  return n;
+}
 
 /** Runs a `parseArgs` call, so an unknown flag or a missing value is a usage error rather than a stack. */
 export function parseOrUsage<T>(parse: () => T): T {

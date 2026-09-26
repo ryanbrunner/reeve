@@ -17,7 +17,15 @@ import {
   textOrFile,
   usageError,
 } from '../output.js';
-import { resolveCard, resolveCardOnBoard } from '../resolve.js';
+import { resolveCardRef } from '../resolve.js';
+import { type Command } from '../command.js';
+import { add } from './card/add.js';
+import { archive, restore } from './card/archive.js';
+import { criteria } from './card/criteria.js';
+import { edit } from './card/edit.js';
+import { move } from './card/move.js';
+// `note` is already the stderr printer here; this is the verb that writes one.
+import { note as noteCard } from './card/note.js';
 import { followRun } from './run.js';
 import { renderRuns, totalCost } from './runs.js';
 
@@ -96,12 +104,15 @@ async function show(args: string[]): Promise<void> {
     parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }),
   );
   if (positionals.length !== 1) throw usageError('card show takes one card');
-  const { card, cards } = await resolveCard(positionals[0]!);
+  const { card, board } = await resolveCardRef(positionals[0]!);
   const detail = await api.detail(card.id);
   if (values.json) return printJson(detail);
-  const project = detail.card.projectId ? cards.find((c) => c.id === detail.card.projectId) : undefined;
+  const project = detail.card.projectId ? board.projects.find((p) => p.id === detail.card.projectId) : undefined;
   print(render(detail, project?.title ?? null));
 }
+
+/** The run-driving verbs want the card alone; the board comes back with it for `show`. */
+const oneCardOnBoard = async (ref: string) => (await resolveCardRef(ref)).card;
 
 /** How often `wait` asks. The board polls at about this pace while a card is running. */
 const POLL_MS = 2_000;
@@ -131,7 +142,7 @@ async function run(args: string[]): Promise<void> {
       options: { follow: { type: 'boolean', short: 'f' }, json: { type: 'boolean' } },
     }),
   );
-  const card = await resolveCardOnBoard(oneCard('run', positionals));
+  const card = await oneCardOnBoard(oneCard('run', positionals));
   const result = await api.startRun(card.id);
   if (values.json && !values.follow) return printJson(result);
   await started(result.runId, `started ${stageLabel(card.stage)} on ${cardRef(card)}`, !!values.follow, !!values.json);
@@ -151,7 +162,7 @@ async function approve(args: string[]): Promise<void> {
     }),
   );
   const notes = textOrFile(values.notes, values['notes-file'], 'notes');
-  const card = await resolveCardOnBoard(oneCard('approve', positionals));
+  const card = await oneCardOnBoard(oneCard('approve', positionals));
   const result = await api.approve(card.id, notes?.trim() || undefined);
   if (values.json) return printJson(result);
   note(
@@ -177,7 +188,7 @@ async function reject(args: string[]): Promise<void> {
   const notes = textOrFile(values.notes, values['notes-file'], 'notes')?.trim();
   // The server says the same, but only after the card has been looked up.
   if (!notes) throw usageError('a rejection needs --notes: they are the prompt for the next run');
-  const card = await resolveCardOnBoard(oneCard('reject', positionals));
+  const card = await oneCardOnBoard(oneCard('reject', positionals));
   const result = await api.reject(card.id, notes);
   if (values.json && !values.follow) return printJson(result);
   await started(
@@ -199,7 +210,7 @@ async function questions(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() =>
     parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }),
   );
-  const card = await resolveCardOnBoard(oneCard('questions', positionals));
+  const card = await oneCardOnBoard(oneCard('questions', positionals));
   const list = await api.questions(card.id);
   if (values.json) return printJson(list);
   if (list.length === 0) return note(`${cardRef(card)} has no questions in ${stageLabel(card.stage)}`);
@@ -225,7 +236,7 @@ async function answer(args: string[]): Promise<void> {
   if (!ref || !which) throw usageError('reeve card answer takes a card, a question and an answer');
   if (words.length > 0 && values.suggestion !== undefined) throw usageError('give an answer or --suggestion, not both');
 
-  const card = await resolveCardOnBoard(ref);
+  const card = await oneCardOnBoard(ref);
   const list = await api.questions(card.id);
   const question = /^\d+$/.test(which) ? list.find((q) => q.position === Number(which)) : list.find((q) => q.id === which);
   if (!question) throw new CliError(`${cardRef(card)} has no question ${which} in ${stageLabel(card.stage)}`);
@@ -283,7 +294,7 @@ async function wait(args: string[]): Promise<void> {
     deadline = Date.now() + seconds * 1000;
   }
 
-  let card = await resolveCardOnBoard(oneCard('wait', positionals));
+  let card = await oneCardOnBoard(oneCard('wait', positionals));
   let said = '';
   for (;;) {
     const outcome = waitOutcome(card) ?? (Date.now() >= deadline ? EXIT.timeout : null);
@@ -312,22 +323,54 @@ function failure(card: ApiCard, outcome: WaitExit): string {
 
 /**
  * `reeve card <verb>`: everything done to one card, under the noun it is done
- * to. `show` reads it; the rest drive the stage the card is in.
+ * to — reading it, driving the stage it is in, and writing it.
+ *
+ * The verbs that came with the board's own reader are plain functions and take
+ * their help from the one usage page in `main.ts`; the ones that write a card
+ * carry their own, and `--help` after such a verb prints that.
  */
-const VERBS: Record<string, (args: string[]) => Promise<void>> = {
-  show,
-  run,
-  approve,
-  reject,
-  questions,
-  answer,
-  wait,
+const VERBS: Record<string, Command> = {
+  show: { usage: '', run: show },
+  run: { usage: '', run },
+  approve: { usage: '', run: approve },
+  reject: { usage: '', run: reject },
+  questions: { usage: '', run: questions },
+  answer: { usage: '', run: answer },
+  wait: { usage: '', run: wait },
+  add,
+  edit,
+  criteria,
+  note: noteCard,
+  move,
+  archive,
+  restore,
 };
+
+/** The verbs that carry help, and a line for the ones that take theirs from `main.ts`. */
+const CARD_USAGE = [
+  `reeve card <verb>. Reading and driving a run: ${Object.entries(VERBS)
+    .filter(([, c]) => !c.usage)
+    .map(([name]) => name)
+    .join(', ')} — see reeve --help.`,
+  '',
+  ...Object.values(VERBS)
+    .map((c) => c.usage)
+    .filter(Boolean),
+].join('\n');
 
 export async function card(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
-  if (verb === undefined) throw usageError(`card needs a verb: ${Object.keys(VERBS).join(', ')}`);
-  const go = Object.hasOwn(VERBS, verb) ? VERBS[verb] : undefined;
-  if (!go) throw usageError(`unknown card verb '${verb}'`);
-  return go(rest);
+  if (verb === undefined || verb === 'help' || verb === '--help' || verb === '-h') return print(CARD_USAGE);
+  const command = Object.hasOwn(VERBS, verb) ? VERBS[verb] : undefined;
+  if (!command) throw usageError(`unknown card verb '${verb}'`);
+  if (command.usage && !command.isGroup && (rest.includes('--help') || rest.includes('-h'))) {
+    return print(command.usage);
+  }
+  try {
+    return await command.run(rest);
+  } catch (e) {
+    // The verb's own help if it has any; otherwise main.ts falls back to the page.
+    if (e instanceof CliError && e.exitCode === 2 && e.usage === null) e.usage = command.usage || null;
+    throw e;
+  }
 }

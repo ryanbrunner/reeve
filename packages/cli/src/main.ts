@@ -1,6 +1,7 @@
 import { DEFAULT_PORT } from '@reeve/shared';
 import { board } from './commands/board.js';
 import { card } from './commands/card.js';
+import { project } from './commands/project.js';
 import { repos } from './commands/repos.js';
 import { runCommands } from './commands/run.js';
 import { runs } from './commands/runs.js';
@@ -16,6 +17,12 @@ const USAGE = `Usage: reeve <command> [options]
       A card in full: its facts, criteria, open questions, plan and runs.
   reeve repos [--json]
       The repos cards can be made in.
+  reeve card add <title> / edit / move / note / criteria / archive / restore
+      Write a card: the calls the card's modal makes, from a terminal.
+      reeve card <verb> --help says what each one takes.
+  reeve project add <title>
+      A project to file cards under. Editing its brief and archiving it are
+      the card commands: a project is a card to the server.
   reeve card run <card> [--follow] [--json]
       Start the stage the card is in. --follow streams the run's transcript.
   reeve card approve <card> [--notes T] / reject <card> --notes T
@@ -55,13 +62,26 @@ async function run(args: string[]): Promise<void> {
   return go(rest);
 }
 
-const COMMANDS: Record<string, (args: string[]) => Promise<void>> = { board, card, repos, run, runs };
+const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
+  board,
+  card,
+  project: (args) => project.run(args),
+  repos,
+  run,
+  runs,
+};
+
+/** The nouns whose verbs carry help of their own, and so answer `--help` themselves. */
+const SELF_HELP = new Set(['card', 'project']);
 
 async function main(argv: string[]): Promise<void> {
   const [first] = argv;
-  if (first === undefined || first === 'help' || argv.includes('--help') || argv.includes('-h')) return print(USAGE);
+  if (first === undefined || first === 'help' || first === '--help' || first === '-h') return print(USAGE);
   const command = Object.hasOwn(COMMANDS, first) ? COMMANDS[first] : undefined;
   if (!command) throw usageError(`unknown command '${first}'`);
+  // Everything else takes its help from this page, so `--help` anywhere in the
+  // line means the page rather than an unknown flag.
+  if (!SELF_HELP.has(first) && (argv.includes('--help') || argv.includes('-h'))) return print(USAGE);
   return command(argv.slice(1));
 }
 
@@ -70,6 +90,7 @@ try {
 } catch (e) {
   if (!(e instanceof CliError)) throw e;
   note(`reeve: ${e.message}`);
-  if (e.exitCode === 2) note(`\n${USAGE}`);
+  // A verb with help of its own says so on the error; the rest get the page.
+  if (e.exitCode === 2) note(`\n${e.usage ?? USAGE}`);
   process.exitCode = e.exitCode;
 }

@@ -1,12 +1,17 @@
 import {
   DEFAULT_PORT,
   type ApiCard,
+  type ApiCardEvent,
+  type ApiCardRef,
+  type ApiCriterion,
   type ApiError,
   type ApiQuestion,
   type ApiRepo,
   type ApiRunSummary,
   type BoardResponse,
   type CardDetail,
+  type CreateCardBody,
+  type MoveCardBody,
   type Stage,
 } from '@reeve/shared';
 import { CliError } from './output.js';
@@ -18,11 +23,16 @@ import { CliError } from './output.js';
  * off `data/reeve.db`.
  */
 
-/** Always loopback unless `REEVE_URL` says otherwise: that is all the server binds. */
+/** Where `reeve serve` would listen. Always loopback: that is all the server binds. */
+export const localUrl = (port = Number(process.env.REEVE_PORT ?? DEFAULT_PORT)) => `http://127.0.0.1:${port}`;
+
+/** Where the client commands look for Reeve. `REEVE_URL` wins over `REEVE_PORT`. */
 export function baseUrl(): string {
-  const port = Number(process.env.REEVE_PORT ?? DEFAULT_PORT);
-  return (process.env.REEVE_URL ?? `http://127.0.0.1:${port}`).replace(/\/+$/, '');
+  return (process.env.REEVE_URL ?? localUrl()).replace(/\/+$/, '');
 }
+
+/** The board, opened on one card — what a command prints so the card is a click away. */
+export const cardUrl = (id: string) => `${baseUrl()}/?card=${encodeURIComponent(id)}`;
 
 /**
  * Nothing listening, as opposed to something listening and failing. Worth
@@ -39,6 +49,25 @@ function isRefused(e: unknown): boolean {
 
 /** fetch says only "fetch failed"; what went wrong is on its cause. */
 const describe = (e: unknown) => String((e as { cause?: unknown })?.cause ?? e);
+
+/**
+ * A refusal's `detail` as a sentence. Most are one already, but a body that
+ * failed its schema carries zod's issues as a JSON array, which reads better
+ * as one "field: problem" per issue than as the array.
+ */
+function readable(detail: string): string {
+  try {
+    const issues = JSON.parse(detail) as unknown;
+    if (Array.isArray(issues) && issues.every((i) => typeof i?.message === 'string')) {
+      return (issues as Array<{ message: string; path?: unknown[] }>)
+        .map((i) => (i.path?.length ? `${i.path.join('.')}: ${i.message}` : i.message))
+        .join('; ');
+    }
+  } catch {
+    // Not JSON: already a sentence.
+  }
+  return detail;
+}
 
 /**
  * One request, answered or refused. Handed back whole rather than parsed,
@@ -58,7 +87,7 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as Partial<ApiError>;
     // The same message the web UI shows: `detail` is the sentence worth reading.
-    const message = body.detail ? `${body.error}: ${body.detail}` : body.error;
+    const message = body.detail ? `${body.error}: ${readable(body.detail)}` : body.error;
     throw new CliError(message ?? `HTTP ${res.status} from ${path}`);
   }
   return res;
@@ -76,12 +105,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-const post = <T>(path: string, body: unknown) =>
+const post = <T>(path: string, body: unknown) => write<T>('POST', path, body);
+
+/** Anything that changes a card. A body is sent only when there is one. */
+const write = <T>(method: string, path: string, body?: unknown) =>
   request<T>(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    method,
+    ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   });
+
+/** `PATCH /cards/:id`. Every field is optional; null clears the card's own model, effort or repo. */
+export interface UpdateCardBody {
+  title?: string;
+  body?: string;
+  repoId?: string | null;
+  model?: string | null;
+  effort?: string | null;
+  generateMockups?: boolean;
+}
 
 const enc = encodeURIComponent;
 
@@ -144,4 +185,21 @@ export const api = {
   /** The run's transcript from after `since`, live until the run ends. See ./sse.ts. */
   events: (runId: string, since: number) =>
     send(`/api/runs/${enc(runId)}/events?since=${since}`, { headers: { accept: 'text/event-stream' } }),
+
+  createCard: (body: CreateCardBody) => write<ApiCard>('POST', '/api/cards', body),
+  updateCard: (id: string, body: UpdateCardBody) => write<ApiCard>('PATCH', `/api/cards/${enc(id)}`, body),
+  /** The card it answers with has `repoName: null`; take that from the board. */
+  moveCard: (id: string, body: MoveCardBody) => write<ApiCard>('POST', `/api/cards/${enc(id)}/move`, body),
+  archiveCard: (id: string) => write<{ ok: true }>('POST', `/api/cards/${enc(id)}/archive`),
+  restoreCard: (id: string) => write<ApiCard>('POST', `/api/cards/${enc(id)}/restore`),
+  splitProject: (id: string) => write<{ ok: true; runId: string }>('POST', `/api/cards/${enc(id)}/split`),
+
+  criteria: (id: string) => request<ApiCriterion[]>(`/api/cards/${enc(id)}/criteria`),
+  addCriterion: (id: string, text: string) => write<ApiCriterion>('POST', `/api/cards/${enc(id)}/criteria`, { text }),
+  deleteCriterion: (id: string, criterionId: string) =>
+    write<{ ok: true }>('DELETE', `/api/cards/${enc(id)}/criteria/${enc(criterionId)}`),
+
+  addRef: (id: string, body: Pick<ApiCardRef, 'kind' | 'value'>) =>
+    write<ApiCardRef>('POST', `/api/cards/${enc(id)}/refs`, body),
+  addNote: (id: string, body: string) => write<ApiCardEvent>('POST', `/api/cards/${enc(id)}/notes`, { body }),
 };
