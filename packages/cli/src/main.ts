@@ -6,10 +6,10 @@ import { open } from './commands/open.js';
 import { repos } from './commands/repos.js';
 import { serve } from './commands/serve.js';
 import { models, settings } from './commands/settings.js';
-import { sicko } from './commands/sicko.js';
 import { status } from './commands/status.js';
 import { runCommands } from './commands/run.js';
 import { runs } from './commands/runs.js';
+import { vibes } from './commands/vibes.js';
 import { EXIT } from './exit.js';
 import { CliError, note, print, usageError } from './output.js';
 
@@ -52,8 +52,8 @@ const USAGE = `Usage: reeve <command> [options]
       Open the board in a browser, on a card if one is named.
   reeve settings [...] / reeve models [--json]
       Reeve's own settings, and the models a stage can be set to.
-  reeve sicko [on|off] [--json]
-      SICKO MODE: the sweep that takes the human out of the loop. Bare, it
+  reeve vibes [on|off] [--json]
+      VIBES MODE: the sweep that takes the human out of the loop. Bare, it
       says whether it is on.
   reeve repos [add|edit|show] ...
       The repos cards can be made in, and how each one is set up.
@@ -96,8 +96,8 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   runs,
   serve,
   settings,
-  sicko,
   status,
+  vibes,
 };
 
 /** The nouns whose verbs carry help of their own, and so answer `--help` themselves. */

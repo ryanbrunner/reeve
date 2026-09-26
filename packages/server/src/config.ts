@@ -23,8 +23,8 @@ export const config = {
   /** How long a merged card stays on the board before it is archived. Checked on the merge-sync tick. */
   autoArchiveAfterMs: Number(process.env.REEVE_AUTO_ARCHIVE_MS ?? 600_000),
   /**
-   * How often SICKO MODE looks at the board. Each pass moves any given card at
+   * How often VIBES MODE looks at the board. Each pass moves any given card at
    * most one step, so this is also the pace the board advances at.
    */
-  sickoSweepMs: Number(process.env.REEVE_SICKO_SWEEP_MS ?? 2_000),
+  vibesSweepMs: Number(process.env.REEVE_VIBES_SWEEP_MS ?? 2_000),
 } as const;

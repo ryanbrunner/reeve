@@ -1,9 +1,9 @@
 /**
- * Throwaway check on the SICKO MODE sweep: does it actually take the human out
+ * Throwaway check on the VIBES MODE sweep: does it actually take the human out
  * of the loop, and does it say so honestly afterwards?
  *
- * Run it against a scratch database — `REEVE_DB=/tmp/sicko.db tsx
- * src/spikes/sicko-check.ts` — because the sweep is the one thing in Reeve that
+ * Run it against a scratch database — `REEVE_DB=/tmp/vibes.db tsx
+ * src/spikes/vibes-check.ts` — because the sweep is the one thing in Reeve that
  * moves real cards on a real board without being asked.
  *
  * No worktree and no GitHub here, so the runs the sweep tries to start fail
@@ -26,13 +26,13 @@ import {
   updateSettings,
 } from '../db/queries.js';
 import { PLACEHOLDER_TITLE } from '@reeve/shared';
-import { sickoSweep } from '../sicko/engine.js';
-import { sickoState } from '../sicko/state.js';
+import { vibesSweep } from '../vibes/engine.js';
+import { vibesState } from '../vibes/state.js';
 
 const { db, writer } = createApp();
 
 const repo = createRepo(db, {
-  name: `sicko-check-${Date.now()}`,
+  name: `vibes-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
   setupCommand: null, testCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
@@ -70,14 +70,14 @@ const asleep = createCard(db, { title: 'asleep', repoId: repo.id, stage: 'backlo
 // leaves its card there with a failed run, and a later sweep would move that
 // on too.
 const stranded = createCard(db, { title: 'stranded', repoId: repo.id, stage: 'planning' });
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const stayedPut = getCard(db, asleep.id)!.stage;
 
-updateSettings(db, { sicko: true });
+updateSettings(db, { vibes: true });
 
 // --- backlog --------------------------------------------------------------
 // Nobody is going to drag this, and nobody is going to plan it either.
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const movedTo = getCard(db, asleep.id)!.stage;
 const movedBy = actorsOf(asleep.id, 'moved');
 
@@ -92,10 +92,10 @@ const plansStarted = [asleep, stranded].flatMap((c) => runsForCard(db, c.id)).fi
 // that is guaranteed waste, and taking it away mid-sentence is the difference
 // between the switch being fun and the switch being a trap.
 const unnamed = createCard(db, { title: PLACEHOLDER_TITLE, repoId: repo.id, stage: 'backlog' });
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const unnamedStage = getCard(db, unnamed.id)!.stage;
 updateCard(db, unnamed.id, { title: 'Gift notes at checkout' });
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const namedStage = getCard(db, unnamed.id)!.stage;
 
 // --- the review gate ------------------------------------------------------
@@ -103,7 +103,7 @@ const namedStage = getCard(db, unnamed.id)!.stage;
 // advances — the same three things the Approve button does.
 const waiting = createCard(db, { title: 'waiting', repoId: repo.id, stage: 'planning' });
 succeeded(waiting.id, 'planning');
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const afterReview = getCard(db, waiting.id)!.stage;
 const reviewedBy = actorsOf(waiting.id, 'reviewed');
 
@@ -117,17 +117,17 @@ setRunStatus(db, askRun.id, {
 replaceQuestions(db, asking.id, askRun.id, 'planning', [
   { question: 'Which way?', suggestions: ['Left', 'Right'] },
 ]);
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const answers = questionsForRun(db, askRun.id).map((q) => q.answer);
 const answeredBy = actorsOf(asking.id, 'answered');
 
 // --- the scoreboard -------------------------------------------------------
-const state = sickoState(db)!;
+const state = vibesState(db)!;
 
 // --- off again ------------------------------------------------------------
-updateSettings(db, { sicko: false });
+updateSettings(db, { vibes: false });
 const parked = createCard(db, { title: 'parked', repoId: repo.id, stage: 'backlog' });
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
 const afterOff = getCard(db, parked.id)!.stage;
 
 // --- one card on its own --------------------------------------------------
@@ -141,10 +141,10 @@ const bystanderWaiting = createCard(db, { title: 'bystander waiting', repoId: re
 succeeded(bystanderWaiting.id, 'planning');
 // Flagged the moment after Add, before anything is typed into it.
 const soloUnnamed = createCard(db, { title: PLACEHOLDER_TITLE, repoId: repo.id, stage: 'backlog' });
-updateCard(db, solo.id, { sicko: true });
-updateCard(db, soloWaiting.id, { sicko: true });
-updateCard(db, soloUnnamed.id, { sicko: true });
-await sickoSweep(db, writer);
+updateCard(db, solo.id, { vibes: true });
+updateCard(db, soloWaiting.id, { vibes: true });
+updateCard(db, soloUnnamed.id, { vibes: true });
+await vibesSweep(db, writer);
 const soloUnnamedStage = getCard(db, soloUnnamed.id)!.stage;
 const soloStage = getCard(db, solo.id)!.stage;
 const soloMovedBy = actorsOf(solo.id, 'moved');
@@ -160,10 +160,10 @@ const bystanderReviews = actorsOf(bystanderWaiting.id, 'reviewed');
 // Turned off again, the card that just moved itself stops where it is, however
 // many sweeps go by — with a plan waiting that the next sweep would otherwise
 // approve.
-updateCard(db, solo.id, { sicko: false });
+updateCard(db, solo.id, { vibes: false });
 succeeded(solo.id, 'planning');
-await sickoSweep(db, writer);
-await sickoSweep(db, writer);
+await vibesSweep(db, writer);
+await vibesSweep(db, writer);
 const soloStageAfterOff = getCard(db, solo.id)!.stage;
 const soloReviewsAfterOff = actorsOf(solo.id, 'reviewed');
 
@@ -193,7 +193,7 @@ ok('the unflagged backlog card beside it stays put', bystanderStage, 'backlog');
 ok('and so does the one parked earlier', parkedStage, 'backlog');
 ok('a flagged card nobody has named yet is left where it is', soloUnnamedStage, 'backlog');
 ok('a flagged plan waiting for review is approved without being read', soloReviews, [
-  { actor: 'claude', body: 'Approved by SICKO MODE. Nobody read this.' },
+  { actor: 'claude', body: 'Approved by VIBES MODE. Nobody read this.' },
 ]);
 ok('and the card advances', soloWaitingStage, 'in_progress');
 ok('an unflagged plan waiting for review is not approved', bystanderReviews, []);

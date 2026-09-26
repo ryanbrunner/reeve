@@ -393,7 +393,7 @@ async function run(args: string[]): Promise<void> {
 
 /**
  * Passing the gate by hand. Nothing in the CLI calls this on its own: a person
- * or their script chose to, which is what keeps it a human action. SICKO MODE
+ * or their script chose to, which is what keeps it a human action. VIBES MODE
  * is the switch for approving with nobody deciding.
  */
 async function approve(args: string[]): Promise<void> {

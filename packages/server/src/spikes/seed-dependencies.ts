@@ -1,7 +1,7 @@
 /**
  * Seeds a board whose cards wait on each other, so the blocked chips, the
  * satisfied ones, the "needed by" count and the chain traced on hover can all
- * be looked at without spending API credit — calm, and under SICKO MODE.
+ * be looked at without spending API credit — calm, and under VIBES MODE.
  *
  * What it lays out:
  *   - a chain that crosses columns, lanes and repos, so hovering any card in

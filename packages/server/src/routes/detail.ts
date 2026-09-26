@@ -218,7 +218,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     return c.json(run ? questionsForRun(db, run.id).map(toApiQuestion) : []);
   });
 
-  /** Answer one question. The work is in ../answers.ts, which SICKO MODE shares. */
+  /** Answer one question. The work is in ../answers.ts, which VIBES MODE shares. */
   routes.post('/:id/questions/:questionId/answer', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
