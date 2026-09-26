@@ -1,10 +1,11 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { config } from './config.js';
 import type { Db } from './db/client.js';
-import { archiveCard, cardsAwaitingMerge, insertCardEvent, mergedCardsDueForArchive } from './db/queries.js';
+import { archiveCard, cardsAwaitingMerge, insertCardEvent, listRepos, mergedCardsDueForArchive } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import {
   createPullRequest,
+  fetchBranch,
   findPullRequest,
   mergePullRequest,
   pullRequestState,
@@ -254,11 +255,22 @@ let syncing = false;
  * One card at a time, and one sync at a time, since each is a `gh` call and a
  * slow one must not stack up behind the next tick. A card that cannot be asked
  * about is skipped until the next sync rather than failing the rest.
+ *
+ * First, each repo's base is fetched, so every card's "main · N behind" counts
+ * against what has landed — including merges made outside Reeve, which no card
+ * here is waiting on. A repo that cannot be fetched is skipped the same way.
  */
 export async function syncMergedPullRequests(db: Db): Promise<void> {
   if (syncing) return;
   syncing = true;
   try {
+    for (const repo of listRepos(db)) {
+      try {
+        await fetchBranch(repo.repoPath, repo.defaultBranch);
+      } catch (e) {
+        console.error(`[reeve] could not fetch ${repo.defaultBranch} for ${repo.name}: ${reason(e)}`);
+      }
+    }
     for (const { card, repo } of cardsAwaitingMerge(db)) {
       // A push under way will write the card itself; the next sync can look.
       if (!card.prUrl || opening.has(card.id) || resolving.has(card.id)) continue;
