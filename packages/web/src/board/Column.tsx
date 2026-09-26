@@ -3,6 +3,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { STAGE_LABELS, isRunnable, type ApiCard, type Stage } from '@reeve/shared';
 import { CardFace } from './CardFace.js';
+import { useLinks } from './links.js';
 
 export const COLUMN_PREFIX = 'col:';
 
@@ -146,11 +147,17 @@ export function Column({
 
 function SortableCard({ card, onOpen }: { card: ApiCard; onOpen?: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
+  const links = useLinks();
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={isDragging ? 'opacity-30' : ''}
+      // Keyboard focus lands here, on dnd-kit's handle, not on the face inside
+      // it — so this is where tabbing to a card traces its chain. React's focus
+      // events bubble, which covers the Run button inside too.
+      onFocus={() => links.enter(card.id)}
+      onBlur={() => links.leave(card.id)}
       {...attributes}
       {...listeners}
     >

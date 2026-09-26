@@ -1,27 +1,26 @@
 import { parseArgs } from 'node:util';
-import { DEFAULT_URL, connect, health, serverUrl } from '../client.js';
-import type { Command } from '../command.js';
+import { baseUrl, isRunning } from '../client.js';
+import { note, parseOrUsage, print, printJson } from '../output.js';
 
-export const status: Command = {
-  summary: 'Say whether a Reeve server is running',
-  usage: `Usage: reeve status [--url <url>]
+/**
+ * Whether a Reeve is answering, as a status rather than a sentence: 0 when one
+ * is, 1 when none is, so a script can ask before it starts one.
+ *
+ * Every other command fails the same way when Reeve is down, and says so. This
+ * one exists to be asked without that being a failure worth printing.
+ */
+export async function status(args: string[]): Promise<void> {
+  const { values } = parseOrUsage(() =>
+    parseArgs({ args, options: { url: { type: 'string' }, json: { type: 'boolean' } } }),
+  );
+  const url = (values.url ?? baseUrl()).replace(/\/+$/, '');
+  const running = await isRunning(url);
 
-Exits 0 if a Reeve server answers at the URL and 1 if not, so a script can
-ask before it starts one.
+  // The exit code is the answer, so "no" is set rather than thrown: a refusal
+  // would print `reeve: …` as though the question itself had failed.
+  if (!running) process.exitCode = 1;
 
-Options:
-  --url <url>  The server to check. Defaults to $REEVE_URL, then ${DEFAULT_URL}.`,
-
-  async run(args) {
-    const { values } = parseArgs({ args, options: { url: { type: 'string' } } });
-    const client = connect(serverUrl(values.url));
-    try {
-      await health(client);
-    } catch (e) {
-      console.log(`reeve: ${e instanceof Error ? e.message : String(e)}`);
-      return 1;
-    }
-    console.log(`Reeve is running at ${client.url}`);
-    return 0;
-  },
-};
+  if (values.json) return printJson({ running, url });
+  if (running) print(`Reeve is running at ${url}`);
+  else note(`Reeve isn't running at ${url}`);
+}

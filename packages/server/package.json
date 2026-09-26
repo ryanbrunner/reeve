@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
     "seed": "tsx src/db/seed.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate"

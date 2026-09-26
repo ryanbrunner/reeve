@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// The CLI is TypeScript run by tsx, like the server. Registered here rather
-// than through a `#!/usr/bin/env tsx` line so tsx resolves from this package
-// instead of from PATH, where it usually is not.
+// Plain JS so node can run it before anything can compile TypeScript. tsx is
+// resolved from here rather than from the cwd, so `reeve` works in any directory.
 import { register } from 'tsx/esm/api';
 
 register();

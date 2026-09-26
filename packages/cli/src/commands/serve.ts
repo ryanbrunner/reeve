@@ -1,89 +1,67 @@
-import { createServer } from 'node:net';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { connect, health } from '../client.js';
-import { UsageError, type Command } from '../command.js';
+import { openBrowser } from '../browser.js';
+import { isRunning, localUrl } from '../client.js';
+import { CliError, note, parseCount, parseOrUsage } from '../output.js';
 
-export const serve: Command = {
-  summary: 'Start the server, and the board if it has been built',
-  usage: `Usage: reeve serve [options]
-
-Starts Reeve on 127.0.0.1, serving the board from packages/web/dist when
-\`npm run build\` has made it. Each option sets the environment variable
-beside it, which works just as well on its own.
-
-Options:
-  --port <n>            REEVE_PORT            Port to listen on (4317)
-  --db <file>           REEVE_DB              SQLite database (data/reeve.db)
-  --assets <dir>        REEVE_ASSETS          Mockups and screenshots (data/assets)
-  --max-concurrent <n>  REEVE_MAX_CONCURRENT  Claude runs at once, until Settings says otherwise (3)`,
-
-  async run(args) {
-    const { values } = parseArgs({
+/**
+ * `reeve`: open the board, starting Reeve first if nothing is listening.
+ *
+ * The probe comes first and must be right. Booting reaps every run the
+ * database still calls live, before the port is even tried — so a second
+ * server over a running one would interrupt its runs and only then fail.
+ *
+ * The options beyond `--port` only ever become environment variables, so
+ * `config.ts` stays the one source for a setting and `--db f` and `REEVE_DB=f`
+ * are the same server. Paths resolve against where the command was typed,
+ * as whoever typed them meant, rather than wherever the server looks.
+ */
+export async function serve(args: string[]): Promise<void> {
+  const { values } = parseOrUsage(() =>
+    parseArgs({
       args,
       options: {
         port: { type: 'string' },
+        'no-open': { type: 'boolean' },
         db: { type: 'string' },
         assets: { type: 'string' },
         'max-concurrent': { type: 'string' },
       },
-    });
+    }),
+  );
+  const port = values.port === undefined ? undefined : parseCount('port', values.port);
+  const url = localUrl(port);
 
-    // Flags only ever become environment variables: config.ts has one source
-    // for its settings, and `--port 5000` and `REEVE_PORT=5000` are the same
-    // server. Paths resolve against where the command was typed, as whoever
-    // typed them meant, rather than wherever the server happens to look.
-    setEnv('REEVE_PORT', wholeNumber('--port', values.port));
-    setEnv('REEVE_DB', values.db && resolve(values.db));
-    setEnv('REEVE_ASSETS', values.assets && resolve(values.assets));
-    setEnv('REEVE_MAX_CONCURRENT', wholeNumber('--max-concurrent', values['max-concurrent']));
-
-    // config.ts reads the environment as it is imported, so the server is
-    // imported only now that the flags are in it.
-    const { config, startServer } = await import('@reeve/server');
-
-    // Starting reaps every run the database says is running, on the grounds
-    // that no process owns it. Run twice against one database, the second
-    // server would mark the first one's live runs interrupted before failing
-    // to bind, so the common way of doing that is caught before it can.
-    const url = `http://${config.hostname}:${config.port}`;
-    const alreadyUp = await health(connect(url)).then(
-      () => true,
-      () => false,
-    );
-    if (alreadyUp) {
-      console.error(`reeve: Reeve is already running at ${url}`);
-      return 1;
-    }
-    // Something else holding the port would otherwise surface as an uncaught
-    // EADDRINUSE from serve(), after createApp had already migrated the
-    // database and reaped its runs. Found in verification, where port 4400
-    // was taken by an unrelated server.
-    if (!(await portFree(config.port, config.hostname))) {
-      console.error(`reeve: port ${config.port} on ${config.hostname} is in use by something other than Reeve`);
-      return 1;
-    }
-
-    startServer();
-  },
-};
-
-/** Takes the port and lets it go at once. Any failure but EADDRINUSE is thrown as it is. */
-function portFree(port: number, host: string): Promise<boolean> {
-  return new Promise((answer, fail) => {
-    const probe = createServer();
-    probe.once('error', (e: NodeJS.ErrnoException) => (e.code === 'EADDRINUSE' ? answer(false) : fail(e)));
-    probe.listen(port, host, () => probe.close(() => answer(true)));
-  });
-}
-
-function setEnv(name: string, value: string | undefined) {
-  if (value !== undefined) process.env[name] = value;
-}
-
-function wholeNumber(flag: string, value: string | undefined): string | undefined {
-  if (value !== undefined && !/^\d+$/.test(value)) {
-    throw new UsageError(`${flag} takes a whole number, not "${value}"`);
+  if (await isRunning(url)) {
+    note(`Reeve is already running at ${url}`);
+    if (!values['no-open']) openBrowser(url);
+    return;
   }
-  return value;
+
+  // Before the server is imported below, because `config.ts` reads the
+  // environment as it is imported and never again.
+  if (port !== undefined) process.env.REEVE_PORT = String(port);
+  if (values.db !== undefined) process.env.REEVE_DB = resolve(values.db);
+  if (values.assets !== undefined) process.env.REEVE_ASSETS = resolve(values.assets);
+  if (values['max-concurrent'] !== undefined) {
+    process.env.REEVE_MAX_CONCURRENT = String(parseCount('max-concurrent', values['max-concurrent']));
+  }
+
+  // Imported only now: the server brings SQLite, the Agent SDK and Playwright,
+  // and no other command needs them.
+  const { config, startServer } = await import('@reeve/server');
+  // `npm run dev` serves the frontend from Vite, so the server treats a
+  // missing build as normal. Here it would be a blank page.
+  if (!existsSync(config.webDist)) {
+    throw new CliError(`the web app has not been built. Run \`npm run build\` in ${config.root}, then \`reeve\` again.`);
+  }
+
+  let listening: string;
+  try {
+    listening = await startServer({ port });
+  } catch (e) {
+    throw new CliError(`could not start Reeve on ${url}: ${(e as Error).message}`);
+  }
+  if (!values['no-open']) openBrowser(listening);
 }
