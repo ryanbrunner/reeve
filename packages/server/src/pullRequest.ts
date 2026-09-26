@@ -12,7 +12,7 @@ import {
   pushBranch,
   type PullRequestState,
 } from './git/github.js';
-import { GitError, checkWorktree, commitsSince, isDirty } from './git/worktree.js';
+import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import { runRegistry } from './runs/registry.js';
 
 /**
@@ -259,10 +259,15 @@ let syncing = false;
  * First, each repo's base is fetched, so every card's "main · N behind" counts
  * against what has landed — including merges made outside Reeve, which no card
  * here is waiting on. A repo that cannot be fetched is skipped the same way.
+ *
+ * Last, a repo that asked for it has its own default branch brought up to
+ * date, if one of its cards landed on it in this sync.
  */
 export async function syncMergedPullRequests(db: Db): Promise<void> {
   if (syncing) return;
   syncing = true;
+  // By id, so three cards landing in one sync fast-forward their repo once.
+  const landedOnDefault = new Map<string, Repo>();
   try {
     for (const repo of listRepos(db)) {
       try {
@@ -294,13 +299,39 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
         .where(and(eq(cardTable.id, card.id), eq(cardTable.prUrl, card.prUrl), isNull(cardTable.mergedAt)))
         .run();
       if (updated.changes === 0) continue;
+      const into = pr.base || repo.defaultBranch;
       insertCardEvent(db, {
         cardId: card.id, actor: 'human', kind: 'merged', stage: card.stage,
-        meta: { url: card.prUrl, number: card.prNumber, sha: pr.mergeSha, into: pr.base || repo.defaultBranch },
+        meta: { url: card.prUrl, number: card.prNumber, sha: pr.mergeSha, into },
       });
+      // A pull request retargeted at another branch did not land on this one.
+      if (repo.syncDefaultBranch && into === repo.defaultBranch) landedOnDefault.set(repo.id, repo);
     }
+    for (const repo of landedOnDefault.values()) await syncDefaultBranch(repo);
   } finally {
     syncing = false;
+  }
+}
+
+/**
+ * Fast-forward the repo's own default branch to what `origin` has now, for a
+ * repo that asked to be kept up to date when its cards merge.
+ *
+ * Fetched again first: the fetch at the top of the sync can predate the merge
+ * that was just noticed. A branch with commits of the person's own that
+ * `origin` lacks is theirs to reconcile, and is left as it is. Failures go to
+ * the log like a failed fetch, rather than onto a card: the checkout is the
+ * repo's, not any one card's, and the next merge tries again.
+ */
+async function syncDefaultBranch(repo: Repo): Promise<void> {
+  const branch = repo.defaultBranch;
+  try {
+    await fetchBranch(repo.repoPath, branch);
+    if ((await fastForwardBranch(repo.repoPath, branch)) === 'diverged') {
+      console.error(`[reeve] left ${branch} alone in ${repo.name}: it has commits origin does not`);
+    }
+  } catch (e) {
+    console.error(`[reeve] could not bring ${branch} up to date in ${repo.name}: ${reason(e)}`);
   }
 }
 
