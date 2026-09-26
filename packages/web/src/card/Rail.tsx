@@ -11,6 +11,7 @@ import {
   type Stage,
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
+import { copyText } from '../lib/clipboard.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
@@ -298,7 +299,7 @@ function Handoff({ detail }: { detail: CardDetail }) {
     onSuccess: ({ command }) => {
       // In `onSuccess` rather than the mutation: the file and the event exist by
       // now, and a refused clipboard must not read as a failed handoff.
-      navigator.clipboard?.writeText(command).then(() => setCopied(true), () => {});
+      void copyText(command).then((ok) => ok && setCopied(true));
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
     },
   });
