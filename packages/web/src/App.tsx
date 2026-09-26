@@ -14,6 +14,7 @@ import {
   PLACEHOLDER_PROJECT_TITLE,
   PLACEHOLDER_TITLE,
   STAGES,
+  blockedMoveRefusal,
   type ApiCard,
   type ApiRepo,
   type BoardResponse,
@@ -52,6 +53,9 @@ export function App() {
   // Stable for the same reason: the Archive's focus effect depends on it too.
   const closeArchive = useCallback(() => showArchive(false), [showArchive]);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
+  // A drop refused here, before anything was sent: a card waiting on another
+  // may only go back to Backlog. Said where the server's refusals are.
+  const [refusedDrag, setRefusedDrag] = useState<string | null>(null);
   const [openCard, openAndClose] = useOpenCard();
   const collapsedLanes = useCollapsedLanes();
 
@@ -59,6 +63,8 @@ export function App() {
     mutationFn: ({ id, ...body }: MoveCardBody & { id: string }) => api.moveCard(id, body),
     // Optimistic: the card must land under the cursor immediately, not after a round trip.
     onMutate: async ({ id, stage, index, projectId }) => {
+      // A move that went through makes the last refusal old news.
+      setRefusedDrag(null);
       await qc.cancelQueries({ queryKey: ['board'] });
       const prev = qc.getQueryData<BoardResponse>(['board']);
       if (prev) {
@@ -96,6 +102,11 @@ export function App() {
     const t = setTimeout(resetMove, 8_000);
     return () => clearTimeout(t);
   }, [moveError, resetMove]);
+  useEffect(() => {
+    if (!refusedDrag) return;
+    const t = setTimeout(() => setRefusedDrag(null), 8_000);
+    return () => clearTimeout(t);
+  }, [refusedDrag]);
 
   // A card's activity changes on its own as a run progresses, and nothing pushes
   // that to the board — the SSE stream is per-run, not board-wide — so it polls:
@@ -245,6 +256,15 @@ export function App() {
     const column = parseColumnId(overId) ?? parseColumnId(String(over.data.current?.sortable?.containerId ?? ''));
     if (!column) return;
     const { stage } = column;
+    // Refused before the optimistic move rather than after the server's 409,
+    // so a blocked card never shows in a column it cannot go to. The server
+    // still checks; this reads its answer off the card's links.
+    const blocked = blockedMoveRefusal(card.stage, stage, card.dependsOn);
+    if (blocked) {
+      resetMove();
+      setRefusedDrag(`Could not move “${card.title}” — ${blocked}`);
+      return;
+    }
     // Counted through the whole column, every lane at once: positions are
     // shared across lanes, and that is what the server counts through too.
     let index: number;
@@ -268,7 +288,8 @@ export function App() {
   // Named, because the card has already snapped back to where it was and the
   // sentence has to say which one it means.
   const refused = moveError ? byId.get(move.variables?.id ?? '') : undefined;
-  const refusal = moveError ? `Could not move “${refused?.title ?? 'the card'}” — ${moveError.message}` : null;
+  const refusal =
+    refusedDrag ?? (moveError ? `Could not move “${refused?.title ?? 'the card'}” — ${moveError.message}` : null);
 
   if (isLoading) return <Centered>Loading board…</Centered>;
   if (error) return <Centered>Could not reach the server. Is <code className="mx-1 text-sky-300">npm run dev</code> running?</Centered>;
@@ -333,6 +354,7 @@ export function App() {
                       stage={stage}
                       laneId={lane.id}
                       cards={cardsIn(cards, stage, lane.id)}
+                      refuses={dragging !== null && blockedMoveRefusal(dragging.stage, stage, dragging.dependsOn) !== null}
                       onOpen={openAndClose.open}
                       onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
                       adding={create.isPending}

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nextStage, type Stage } from '@reeve/shared';
+import { blockedMove } from '../blockers.js';
 import { entryRefusal } from '../board.js';
 import type { Db } from '../db/client.js';
 import {
@@ -70,9 +71,15 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     }
 
     if (decision === 'approved') {
+      const to = nextStage(card.stage) ?? card.stage;
+      // Approving is a move, and a card waiting on another may only move back
+      // to Backlog. Refused before anything is recorded, so there is no
+      // approved verdict for a card that went nowhere.
+      const blocked = blockedMove(db, card, to);
+      if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
       // Approving Testing is a move into Done, which pushes the branch. A card
       // that reached Testing without being built would push an empty one.
-      const refusal = entryRefusal(db, card, nextStage(card.stage) ?? card.stage);
+      const refusal = entryRefusal(db, card, to);
       if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
       return c.json({ ok: true, ...approveStage(db, writer, card, repo, lastRun, { notes }) });
     }

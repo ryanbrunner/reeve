@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { entryRefusal, toBoardCard } from '../board.js';
-import { blockedStart } from '../blockers.js';
+import { blockedMove } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
   archiveCard,
@@ -374,14 +374,13 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (projectId && !liveProject(db, projectId)) {
       return c.json({ error: 'no such project', detail: projectId }, 400);
     }
-    // Leaving Backlog is starting the card, and a card whose dependencies are
-    // not done may not start. Only leaving it: a reorder within Backlog is
-    // fine, and a card already past it when a dependency was added moves as
-    // it likes, since this rule guards starting and never pulls a card back.
-    if (before.stage === 'backlog' && parsed.data.stage !== 'backlog') {
-      const blocked = blockedStart(db, before);
-      if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
-    }
+    // A card whose dependencies have not cleared may only go back to Backlog,
+    // from wherever it is: every other column runs Claude on code that is not
+    // on main yet, or pushes a branch built without it. A card already past
+    // Backlog when a dependency was added stays where it is — nothing pulls it
+    // back — but can only be moved to Backlog. Reorders are always fine.
+    const blocked = blockedMove(db, before, parsed.data.stage);
+    if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
     // Entering Testing starts a run against the branch and entering Done pushes
     // it, so with nothing built yet one tests nothing and the other opens an
     // empty pull request. Reorders and moves backwards are never refused.

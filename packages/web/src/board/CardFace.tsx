@@ -179,7 +179,10 @@ function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
   const open = card.dependsOn.filter((d) => !d.done);
   // `#142` is per repo, so one from another repo says which.
   const ref = (d: ApiCardLink) => `${d.repoName && d.repoName !== card.repoName ? d.repoName : ''}#${d.number}`;
-  const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${d.done ? ' (done)' : ''}`).join('\n');
+  // A Done card whose pull request is still open is not done here, and saying
+  // so plainly keeps it from reading as work still under way.
+  const status = (d: ApiCardLink) => (d.done ? ' (done)' : d.awaitingMerge ? ' (PR not merged)' : '');
+  const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${status(d)}`).join('\n');
   // Free to wrap: a column can be 136px wide, and three refs from another repo
   // are wider than that. VIBES's one footer line cannot wrap, so it names one.
   const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]/4';
