@@ -18,10 +18,13 @@ import {
   type BoardResponse,
   type CreateCardBody,
   type MoveCardBody,
+  type UsageState,
 } from '@reeve/shared';
 import { CardFace } from './board/CardFace.js';
 import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/Column.js';
 import { Glyph } from './board/Glyph.js';
+import { LaneHeader } from './board/LaneHeader.js';
+import { useCollapsedLanes } from './board/useCollapsedLanes.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
 import { SettingsModal, type SettingsPane } from './settings/SettingsModal.js';
@@ -32,6 +35,7 @@ import { SickoLightsBehind, SickoLightsOver } from './sicko/Lights.js';
 import { SickoSwitch } from './sicko/Switch.js';
 import { SickoTicker } from './sicko/Ticker.js';
 import { useSicko, type Sicko } from './sicko/useSicko.js';
+import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
 
 export function App() {
@@ -45,6 +49,7 @@ export function App() {
   const closeSettings = useCallback(() => setSettingsOpen(null), []);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
   const [openCard, openAndClose] = useOpenCard();
+  const collapsedLanes = useCollapsedLanes();
 
   const move = useMutation({
     mutationFn: ({ id, ...body }: MoveCardBody & { id: string }) => api.moveCard(id, body),
@@ -92,7 +97,11 @@ export function App() {
       // that flew while the board was not looking would land without the
       // flight. Kept brisk whatever the cards are doing.
       : q.state.data?.sicko ? 1_000
-      : q.state.data?.cards.some((c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts) ? 1_500
+      // A card in SICKO MODE on its own moves with nobody touching it too, and
+      // at the idle rate it would jump a column without anyone seeing it go.
+      : q.state.data?.cards.some(
+          (c) => c.activity === 'running' || c.openingPr || c.resolvingConflicts || (c.sicko && c.mergedAt == null),
+        ) ? 1_500
       : 5_000,
   });
 
@@ -230,48 +239,58 @@ export function App() {
    */
   const lanesInner = (
     <div className={`flex-1 overflow-auto p-4 ${sicko.sick ? 'pb-20' : ''}`}>
-      {lanes.map((lane) => (
-        <section key={lane.id ?? 'none'} className="mb-6 last:mb-0">
-          <h2 className="mb-2 flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-            <span
-              className={`h-2 w-2 rounded-full ${sicko.sick ? 'sk-lane-dot' : ''}`}
-              style={{ background: lane.color ?? '#3f4754' }}
-            />
-            {/* The lane is the project, and its header is the way into it. */}
-            {lane.id ?
-              <button
-                type="button"
-                onClick={() => openAndClose.open(lane.id!)}
-                title="Open the project"
-                className={`uppercase hover:text-(--color-text) ${sicko.sick ? 'sk-lane-name' : ''}`}
-              >
-                {lane.name}
-              </button>
-            : <span className={sicko.sick ? 'sk-lane-name' : ''}>{lane.name}</span>}
-          </h2>
-          {sicko.sick ?
-            <SickoLane
-              cards={cards.filter((c) => c.projectId === lane.id)}
+      {lanes.map((lane) => {
+        const key = lane.id ?? 'none';
+        const bodyId = `lane-${key}`;
+        const collapsed = collapsedLanes.isCollapsed(key);
+        const laneCards = cards.filter((c) => c.projectId === lane.id);
+        return (
+          <section key={key} className="mb-6 last:mb-0">
+            <LaneHeader
               laneId={lane.id}
-              justMerged={sicko.justMerged}
+              name={lane.name}
+              color={lane.color}
+              cards={laneCards}
+              collapsed={collapsed}
+              onToggle={() => collapsedLanes.toggle(key)}
               onOpen={openAndClose.open}
+              bodyId={bodyId}
+              sick={sicko.sick}
             />
-          : <div className="grid grid-cols-5 gap-3 min-w-[920px]">
-              {STAGES.map((stage) => (
-                <Column
-                  key={stage}
-                  stage={stage}
+            {/* Always there, so the chevron's aria-controls has something to
+                point at. What is inside is unmounted when the lane is shut,
+                not hidden: a hidden grid would leave zero-size droppables for
+                columnCollisions to match, and a drag cannot land in a lane
+                nobody can see. onDragEnd still counts through every lane's
+                cards, shut ones included, because positions are shared. */}
+            <div id={bodyId}>
+              {collapsed ?
+                null
+              : sicko.sick ?
+                <SickoLane
+                  cards={laneCards}
                   laneId={lane.id}
-                  cards={cardsIn(cards, stage, lane.id)}
+                  justMerged={sicko.justMerged}
                   onOpen={openAndClose.open}
-                  onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
-                  adding={create.isPending}
                 />
-              ))}
+              : <div className="grid grid-cols-5 gap-3 min-w-[920px]">
+                  {STAGES.map((stage) => (
+                    <Column
+                      key={stage}
+                      stage={stage}
+                      laneId={lane.id}
+                      cards={cardsIn(cards, stage, lane.id)}
+                      onOpen={openAndClose.open}
+                      onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
+                      adding={create.isPending}
+                    />
+                  ))}
+                </div>
+              }
             </div>
-          }
-        </section>
-      ))}
+          </section>
+        );
+      })}
     </div>
   );
 
@@ -295,8 +314,12 @@ export function App() {
             onOpenSettings={setSettingsOpen}
             onOpenArchive={() => setArchiveOpen(true)}
             cardCount={cards.length}
+            usage={data?.usage ?? null}
             sicko={sicko}
           />
+          {/* Above the ticker, which is decoration: this is not. SICKO MODE does
+              not stop at the limit, so in it this is the only thing that says. */}
+          <UsageWarning usage={data?.usage ?? null} />
           {sicko.sick && <SickoTicker />}
           {/* Nothing is draggable in SICKO MODE, so the drag machinery is left
               out entirely rather than made inert around an overlay it would
@@ -393,7 +416,7 @@ function useOpenCard() {
   return [openCard, useMemo(() => ({ open, close }), [open, close])] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, sicko }: {
+function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings, onOpenArchive, cardCount, usage, sicko }: {
   repos: ApiRepo[];
   onAddProject: () => void;
   /** SICKO MODE's Ship it: a named card, made without opening it. */
@@ -403,6 +426,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
   onOpenSettings: (pane: SettingsPane) => void;
   onOpenArchive: () => void;
   cardCount: number;
+  usage: UsageState | null;
   sicko: Sicko;
 }) {
   // Only SICKO MODE's Ship it picks a repo here. On the calm board a card is
@@ -428,6 +452,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, onOpenSettings,
       <span className="shrink-0 font-mono text-[11px]/4 font-medium tracking-[0.06em] whitespace-nowrap text-(--color-muted)">
         {cardCount} cards
       </span>
+      <UsageMeter usage={usage} />
       {/* In SICKO MODE the idea is typed here rather than into a modal: the card
           it makes is named, so the sweep can take it immediately, and nothing
           covers the board while it goes. */}

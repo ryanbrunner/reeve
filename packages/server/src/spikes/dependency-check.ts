@@ -29,9 +29,13 @@ const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
 
 type Journal = { entries: Array<{ tag: string; when: number }> };
 const journal = JSON.parse(readFileSync(join(config.migrationsFolder, 'meta/_journal.json'), 'utf8')) as Journal;
-const last = journal.entries.at(-1)!;
-assert.equal(last.tag, '0016_card_dependency');
-assert.ok(journal.entries.slice(0, -1).every((e) => e.when < last.when), 'the new entry would be skipped');
+// Found by tag rather than taken as the last entry: main's `0017_card_sicko`
+// landed on top of this one. What matters either way is that every entry before
+// it has a smaller `when`, since that is what decides whether drizzle runs it.
+const at = journal.entries.findIndex((e) => e.tag === '0016_card_dependency');
+assert.notEqual(at, -1, 'card_dependency is in the journal');
+const mine = journal.entries[at]!;
+assert.ok(journal.entries.slice(0, at).every((e) => e.when < mine.when), 'the entry would be skipped');
 
 const hasTable = (db: ReturnType<typeof openDatabase>) =>
   Boolean(db.$client.prepare(`select 1 from sqlite_master where type = 'table' and name = 'card_dependency'`).get());
@@ -51,9 +55,12 @@ const applied = (db: ReturnType<typeof openDatabase>) =>
 {
   const before = join(scratch, 'drizzle-before');
   cpSync(config.migrationsFolder, before, { recursive: true });
+  // Cut at this card's own entry rather than at the end: migrations have landed
+  // on top of it since, and dropping only the last would leave a database that
+  // already has the table.
   writeFileSync(
     join(before, 'meta/_journal.json'),
-    JSON.stringify({ ...journal, entries: journal.entries.slice(0, -1) }),
+    JSON.stringify({ ...journal, entries: journal.entries.slice(0, at) }),
   );
   const file = join(scratch, 'existing.db');
   let db = openDatabase(file);
@@ -71,7 +78,8 @@ const applied = (db: ReturnType<typeof openDatabase>) =>
   db = openDatabase(file);
   runMigrations(db);
   assert.ok(hasTable(db), 'existing: card_dependency exists');
-  assert.equal(applied(db), count + 1, 'existing: exactly the one new migration applied');
+  // This one and everything merged after it.
+  assert.equal(applied(db), count + (journal.entries.length - at), 'existing: the pending migrations applied');
   assert.equal((db.$client.prepare(`select title from card where id = 'c1'`).get() as { title: string }).title, 'Old card');
   db.$client.close();
 }

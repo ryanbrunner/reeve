@@ -21,7 +21,7 @@ g('add', '-A'); g('commit', '-qm', 'base');
 const cardId = crypto.randomUUID();
 note('branch name', branchNameFor(cardId, 'Wire the Planning stage end to end!!'));
 
-const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId, title: 'Wire the Planning stage', baseBranch: 'main' });
+const wt = await createWorktree({ repoPath: repo, worktreeRoot, cardId, title: 'Wire the Planning stage', base: 'main' });
 note('worktree created', wt.path.replace(root, '…'));
 note('base sha', wt.baseSha.slice(0, 8));
 note('listed by git', (await listWorktrees(repo)).length + ' worktrees');

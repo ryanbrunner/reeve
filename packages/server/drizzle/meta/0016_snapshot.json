@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "da8f5b20-50cc-41fa-809a-58652b206dbb",
+  "id": "4539117f-c559-46bc-8a7f-2cfb124360a2",
   "prevId": "b9a006fb-c4ed-4112-af47-e868dd905f91",
   "tables": {
     "acceptance_criterion": {
@@ -645,8 +645,8 @@
         }
       },
       "indexes": {
-        "card_dependency_depends_on": {
-          "name": "card_dependency_depends_on",
+        "card_dependency_on": {
+          "name": "card_dependency_on",
           "columns": [
             "depends_on_id"
           ],

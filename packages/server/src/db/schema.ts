@@ -141,9 +141,17 @@ export const card = sqliteTable(
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
     // Whether Planning draws its own mockups for the states this card changes.
-    // On by default, including for cards that predate the column: drawing them
-    // is what saves a person having to.
+    // The `true` default only filled in the cards that predate the column, and
+    // they keep it. New cards are opt-in, decided by `createCard`: changing the
+    // default here would mean SQLite rebuilding the table, and dropping `card`
+    // inside drizzle's migration transaction cascades through everything
+    // hanging off it.
     generateMockups: integer('generate_mockups', { mode: 'boolean' }).notNull().default(true),
+    // SICKO MODE for this card alone: the sweep takes it all the way to a
+    // merged pull request while the board's own switch is off. A flag rather
+    // than a timestamp like `settings.sickoSince`, which is only there to give
+    // the HUD something to count from, and one card has no HUD.
+    sicko: integer('sicko', { mode: 'boolean' }).notNull().default(false),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
     updatedAt: timestamp('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
@@ -320,14 +328,17 @@ export const cardRef = sqliteTable(
 );
 
 /**
- * One task waiting on another: `cardId` depends on `dependsOnId`.
+ * One card that cannot start before another finishes. Its own table rather
+ * than a `card_ref` of kind `card`: a ref is something worth reading first,
+ * and reading every existing one as a blocker would jam cards nobody meant to.
+ * A dependency also has to be read both ways — what this card waits on, and
+ * what waits on it — which a ref's free-text `value` cannot be indexed for.
  *
- * Its own table rather than a `card_ref` of kind `card`. A ref is something
- * worth reading before starting; a dependency changes what happens to the
- * card, and has to be read both ways — what this card waits on, and what waits
- * on it — which a ref's free-text `value` cannot be indexed for. Only tasks
- * take part, and the links never form a cycle; the table cannot say either, so
- * `../dependencies.ts` refuses them before a row is written.
+ * The pair is the key, so the same link twice is one row — which is what lets
+ * a project's Split run again without doubling every link it proposed.
+ *
+ * Only tasks take part, and the links never form a cycle; the table cannot say
+ * either, so `../dependencies.ts` refuses them before a row is written.
  */
 export const cardDependency = sqliteTable(
   'card_dependency',
@@ -341,7 +352,7 @@ export const cardDependency = sqliteTable(
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
   // The key serves "what does this card wait on"; the index, the other way.
-  (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_depends_on').on(t.dependsOnId)],
+  (t) => [primaryKey({ columns: [t.cardId, t.dependsOnId] }), index('card_dependency_on').on(t.dependsOnId)],
 );
 
 /**

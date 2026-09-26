@@ -7,4 +7,4 @@ CREATE TABLE `card_dependency` (
 	FOREIGN KEY (`depends_on_id`) REFERENCES `card`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `card_dependency_depends_on` ON `card_dependency` (`depends_on_id`);
+CREATE INDEX `card_dependency_on` ON `card_dependency` (`depends_on_id`);

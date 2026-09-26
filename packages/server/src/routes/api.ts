@@ -34,6 +34,7 @@ import { sickoState } from '../sicko/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
+import { usageState } from '../usage.js';
 
 const stageSchema = z.enum(STAGES);
 
@@ -62,6 +63,7 @@ const updateCardSchema = z.object({
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
   generateMockups: z.boolean().optional(),
+  sicko: z.boolean().optional(),
 });
 
 const moveCardSchema = z.object({
@@ -162,6 +164,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
       sicko: sickoState(db),
+      // Here for the same reason. Read from memory, never the table: see usage.ts.
+      usage: usageState(Date.now()),
     };
     return c.json(body);
   });

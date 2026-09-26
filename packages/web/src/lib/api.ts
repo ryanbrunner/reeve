@@ -79,6 +79,7 @@ export const api = {
       model?: string | null;
       effort?: EffortLevel | null;
       generateMockups?: boolean;
+      sicko?: boolean;
     },
   ) => patch(`/api/cards/${id}`, body).then(json<ApiCard>),
 

@@ -66,6 +66,23 @@ export function boardCards(db: Db) {
 }
 
 /**
+ * The live cards in SICKO MODE on their own, in `boardCards`' shape. What the
+ * sweep reads while the board's switch is off, which is nearly always, so it
+ * costs one small select every couple of seconds rather than the whole board.
+ *
+ * Carries `isTask` because the sweep takes it as a stand-in for `boardCards`,
+ * and a project swept into Planning is a project being run as a stage.
+ */
+export function sickoCards(db: Db) {
+  return db
+    .select({ card })
+    .from(card)
+    .where(and(isTask, eq(card.sicko, true), isNull(card.archivedAt)))
+    .orderBy(asc(card.stage), asc(card.position))
+    .all();
+}
+
+/**
  * The board's lanes: every live project, oldest first, with its default repo's
  * colour and how many live tasks it has.
  */
@@ -392,8 +409,10 @@ export function createCard(
       repoId,
       stage,
       position: kind === 'project' ? 0 : last + POSITION_GAP,
-      // Left out when not given, so the column's default decides.
-      ...(values.generateMockups === undefined ? {} : { generateMockups: values.generateMockups }),
+      // Opt-in: most cards change nothing worth drawing, and a mockup nobody
+      // needed is Planning's time and budget spent for nothing. Decided here
+      // rather than by the column's default, which still says true.
+      generateMockups: values.generateMockups ?? false,
     })
     .returning()
     .get();
@@ -433,7 +452,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'sicko'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -844,7 +863,19 @@ export function dependencyLinks(db: Db, cardId?: string): (id: string) => Depend
   return (id) => ({ dependsOn: dependsOn.get(id) ?? [], dependents: dependents.get(id) ?? [] });
 }
 
-/** Linking twice is not an error: the second press finds what it wanted already there. */
+/**
+ * Every link on the board, archived cards' included. Read whole rather than
+ * per card because the only question asked of it so far is whether a new link
+ * closes a cycle, and that can run through any card, not just one project's.
+ */
+export function allDependencies(db: Db) {
+  return db.select().from(cardDependency).all();
+}
+
+/**
+ * Says nothing about cycles; the caller checks. A link that is already there
+ * is left as it was, so adding it again is not an error.
+ */
 export function addDependency(db: Db, cardId: string, dependsOnId: string) {
   db.insert(cardDependency).values({ cardId, dependsOnId }).onConflictDoNothing().run();
 }
