@@ -180,7 +180,8 @@ export const card = sqliteTable(
     // than a timestamp like `settings.vibesSince`, which is only there to give
     // the HUD something to count from, and one card has no HUD. The column
     // keeps the mode's old name, SICKO MODE: renaming it would be a migration
-    // for a name nobody sees.
+    // for a name nobody sees. On a project it means every task in its lane,
+    // and the project itself is never swept (`vibesCards`).
     vibes: integer('sicko', { mode: 'boolean' }).notNull().default(false),
     archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').notNull().default(sql`(unixepoch() * 1000)`),

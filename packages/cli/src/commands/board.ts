@@ -98,6 +98,7 @@ const asProject = (c: ApiCard): ApiProject => ({
   repoId: c.repoId,
   laneColor: c.laneColor,
   taskCount: 0,
+  vibes: c.vibes,
 });
 
 /**

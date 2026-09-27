@@ -117,8 +117,8 @@ function Purpose({ detail }: { detail: CardDetail }) {
       {pasteError && <p className="text-sm/5 text-red-300">{pasteError}</p>}
       {/* A project is never planned, so it has no mockups to draw. */}
       {detail.card.kind === 'task' && <GenerateMockups detail={detail} />}
-      {/* Nor is a project ever swept, so it has no switch: the sweep moves tasks. */}
-      {detail.card.kind === 'task' && <CardVibes detail={detail} />}
+      {/* A project is never swept itself, but its switch sweeps every task in it. */}
+      <CardVibes detail={detail} />
     </section>
   );
 }
@@ -220,7 +220,12 @@ function GenerateMockups({ detail }: { detail: CardDetail }) {
  * board lets through besides the header.
  *
  * Shown on and left alone while the board's own switch is on, because then
- * this card goes whatever it says here.
+ * this card goes whatever it says here, and likewise on a task whose project's
+ * switch is on. That is read off the board rather than the card, because the
+ * server never writes a project's flag into its tasks (see `ApiProject.vibes`).
+ *
+ * On a project it is the project's switch, and says so: the project itself is
+ * a lane and never moves, but every task in it does.
  */
 function CardVibes({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
@@ -233,18 +238,27 @@ function CardVibes({ detail }: { detail: CardDetail }) {
       return qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
     },
   });
+  const project = detail.card.kind === 'project';
   const everyone = board?.vibes != null;
-  const on = everyone || ((set.isPending ? set.variables : undefined) ?? detail.card.vibes);
+  // Only a live project's: `board.projects` holds no archived ones, and nor
+  // does the server read an archived project's switch.
+  const lane = !project && board?.projects.find((p) => p.id === detail.card.projectId)?.vibes === true;
+  const carried = everyone || lane;
+  const on = carried || ((set.isPending ? set.variables : undefined) ?? detail.card.vibes);
 
   return (
     <div className="flex flex-col gap-1">
       <VibesSwitch
         on={on}
         onToggle={() => set.mutate(!on)}
-        disabled={everyone || set.isPending}
+        disabled={carried || set.isPending}
         className="self-start"
         title={
           everyone ? 'Every card goes while the board is in VIBES MODE'
+          : lane ? 'Every task in this project goes while the project is in VIBES MODE'
+          : project ?
+            on ? 'Put the human back in the loop for this project'
+            : 'Claude approves, answers and merges every task in this project to main, with nobody reviewing them'
           : on ?
             'Put the human back in the loop for this card'
           : 'Claude approves, answers and merges this card to main, with nobody reviewing it'
@@ -253,6 +267,10 @@ function CardVibes({ detail }: { detail: CardDetail }) {
       <span className="font-mono text-[10px]/4 text-(--color-muted)">
         {everyone ?
           'The whole board is in VIBES MODE already'
+        : lane ?
+          'Its project is in VIBES MODE, so this card goes with it'
+        : project ?
+          'Every task in this project moves on its own, the ones added later included, while the rest of the board waits'
         : detail.card.repoId === null ?
           'Nothing happens until the card has a repo to run in'
         : 'Only this card moves on its own, all the way to a merged pull request'}

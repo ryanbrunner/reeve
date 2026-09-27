@@ -8,6 +8,7 @@ import {
   cardsInStage,
   getCard,
   getSettings,
+  inVibes,
   listRepos,
   moveCard,
   questionsForRun,
@@ -40,11 +41,13 @@ import { maybeStartStage, startStage } from '../startStage.js';
  * taking the person out of the loop is not a reason to widen them. Nor do a
  * card's dependencies, for the same reason: see `blockers.ts`.
  *
- * A card can also be put in VIBES MODE on its own. With the board's switch off
- * the sweep looks at those cards and no others, and does the same five things
- * to each — landing its pull request included — while the rest of the board
- * waits for a person as usual. With the board's switch on, every card goes
- * whatever its flag says.
+ * A card can also be put in VIBES MODE on its own, and so can a project, which
+ * puts every task in its lane there with it. With the board's switch off the
+ * sweep looks at those cards and no others, and does the same five things to
+ * each — landing its pull request included — while the rest of the board waits
+ * for a person as usual. The project itself is never swept: it is a lane, not
+ * a piece of work. With the board's switch on, every card goes whatever its
+ * flag or its project's says.
  */
 
 /** What the review gate is told, and what the card's history will say for ever. */
@@ -80,18 +83,19 @@ let sweeping = false;
 export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
   if (sweeping) return;
   // The whole board with the switch on; otherwise only the cards flagged on
-  // their own, and nothing at all when there are none.
+  // their own or through their project, and nothing at all when there are none.
   const cards = getSettings(db).vibesSince !== null ? boardCards(db) : vibesCards(db);
   if (cards.length === 0) return;
   sweeping = true;
   try {
     const repos = new Map(listRepos(db).map((r) => [r.id, r]));
     for (const { card: listed } of cards) {
-      // Re-read per card, both switches: either going off mid-sweep has to
-      // stop it here, not one approval or merge later off a stale list.
+      // Re-read per card, every switch: any of them going off mid-sweep has to
+      // stop it here, not one approval or merge later off a stale list. That
+      // includes the project's, and a card moved out of its lane since.
       const card = getCard(db, listed.id);
       if (!card || card.archivedAt) continue;
-      if (getSettings(db).vibesSince === null && !card.vibes) continue;
+      if (getSettings(db).vibesSince === null && !inVibes(db, card)) continue;
       const repo = card.repoId ? repos.get(card.repoId) : undefined;
       // A card with no repo has no worktree, so no stage of it can run and
       // there is nothing to automate. It waits, as it would anyway.

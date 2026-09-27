@@ -125,10 +125,12 @@ export function App() {
       : q.state.data?.vibes ? 1_000
       // A card in VIBES MODE on its own moves with nobody touching it too, and
       // at the idle rate it would jump a column without anyone seeing it go.
+      // So does every task in a project in VIBES MODE, whose flag is the
+      // project's and not on the card.
       : q.state.data?.cards.some(
           (c) =>
             c.activity === 'running' || c.openingPr || c.resolvingConflicts || c.mergingPr ||
-            (c.vibes && c.mergedAt == null),
+            ((c.vibes || q.state.data?.projects.some((p) => p.vibes && p.id === c.projectId)) && c.mergedAt == null),
         ) ? 1_500
       : 5_000,
   });
@@ -195,10 +197,17 @@ export function App() {
   const repos = data?.repos ?? [];
   const projects = data?.projects ?? [];
   // A card whose project is no longer on the board — archived, most likely —
-  // is drawn under No project rather than in a lane that is not there.
+  // is drawn under No project rather than in a lane that is not there. A task
+  // in a project in VIBES MODE is drawn as in VIBES MODE itself, because it
+  // goes on its own just the same; on the wire `vibes` is only its own flag.
   const cards = useMemo(() => {
     const live = new Set((data?.projects ?? []).map((p) => p.id));
-    return (data?.cards ?? []).map((c) => (c.projectId && !live.has(c.projectId) ? { ...c, projectId: null } : c));
+    const lanesInVibes = new Set((data?.projects ?? []).filter((p) => p.vibes).map((p) => p.id));
+    return (data?.cards ?? []).map((c) =>
+      c.projectId && !live.has(c.projectId) ? { ...c, projectId: null }
+      : c.projectId && lanesInVibes.has(c.projectId) && !c.vibes ? { ...c, vibes: true }
+      : c,
+    );
   }, [data]);
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
 
@@ -296,8 +305,8 @@ export function App() {
 
   // A lane per project, oldest first, then everything that belongs to none.
   const lanes = [
-    ...projects.map((p) => ({ id: p.id as string | null, name: p.title, color: p.laneColor })),
-    { id: null, name: 'No project', color: null },
+    ...projects.map((p) => ({ id: p.id as string | null, name: p.title, color: p.laneColor, solo: p.vibes })),
+    { id: null, name: 'No project', color: null, solo: false },
   ];
 
   /*
@@ -330,6 +339,7 @@ export function App() {
               onOpen={openAndClose.open}
               bodyId={bodyId}
               vibes={vibes.on}
+              solo={lane.solo}
             />
             {/* Always there, so the chevron's aria-controls has something to
                 point at. What is inside is unmounted when the lane is shut,

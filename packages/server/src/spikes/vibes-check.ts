@@ -169,6 +169,36 @@ await vibesSweep(db, writer);
 const soloStageAfterOff = getCard(db, solo.id)!.stage;
 const soloReviewsAfterOff = actorsOf(solo.id, 'reviewed');
 
+// --- a project ------------------------------------------------------------
+// The board's switch still off. A project's switch takes every task in its
+// lane without any of them being flagged, and nothing outside it — least of
+// all the project itself, which is a lane and not a stage to run.
+const lane = createCard(db, { title: 'lane', kind: 'project', repoId: repo.id });
+const laneTask = createCard(db, { title: 'lane task', repoId: repo.id, stage: 'backlog', projectId: lane.id });
+const laneWaiting = createCard(db, { title: 'lane waiting', repoId: repo.id, stage: 'planning', projectId: lane.id });
+succeeded(laneWaiting.id, 'planning');
+const otherLane = createCard(db, { title: 'other lane', kind: 'project', repoId: repo.id });
+const outsider = createCard(db, { title: 'outsider', repoId: repo.id, stage: 'backlog', projectId: otherLane.id });
+updateCard(db, lane.id, { vibes: true });
+await vibesSweep(db, writer);
+const laneTaskStage = getCard(db, laneTask.id)!.stage;
+const laneTaskMovedBy = actorsOf(laneTask.id, 'moved');
+const laneWaitingStage = getCard(db, laneWaiting.id)!.stage;
+const laneReviews = actorsOf(laneWaiting.id, 'reviewed');
+const outsiderStage = getCard(db, outsider.id)!.stage;
+const laneMoves = actorsOf(lane.id, 'moved');
+const laneRuns = runsForCard(db, lane.id).length;
+
+// Switched off, the lane's tasks wait for a person again, a plan written for
+// one of them included.
+updateCard(db, lane.id, { vibes: false });
+const laneLater = createCard(db, { title: 'lane later', repoId: repo.id, stage: 'planning', projectId: lane.id });
+succeeded(laneLater.id, 'planning');
+await vibesSweep(db, writer);
+await vibesSweep(db, writer);
+const laneLaterStage = getCard(db, laneLater.id)!.stage;
+const laneLaterReviews = actorsOf(laneLater.id, 'reviewed');
+
 // Counted, not just printed: two ✗ lines in the single-card section went
 // unnoticed across several merges while this always exited 0.
 let failed = 0;
@@ -208,6 +238,17 @@ ok('an unflagged plan waiting for review is not approved', bystanderReviews, [])
 ok('and stays in planning', bystanderWaitingStage, 'planning');
 ok('unflagged, its waiting implementation is not approved', soloReviewsAfterOff, []);
 ok('and it stays in progress', soloStageAfterOff, 'in_progress');
+
+console.log('\n--- a project, with the switch off ---');
+ok('an unflagged backlog task in the lane moves itself over planning', laneTaskStage, 'in_progress');
+ok('and the move is recorded as Claude', laneTaskMovedBy, ['claude']);
+ok('a plan waiting in the lane is approved without being read', laneReviews, ['claude']);
+ok('and the card advances', laneWaitingStage, 'in_progress');
+ok('a task in another project stays put', outsiderStage, 'backlog');
+ok('the project itself is never moved', laneMoves, []);
+ok('nor run', laneRuns, 0);
+ok('switched off, a plan waiting in the lane is not approved', laneLaterReviews, []);
+ok('and stays in planning', laneLaterStage, 'planning');
 
 console.log('\n--- the scoreboard ---');
 ok('human approvals', state.humanApprovals, 0);

@@ -12,7 +12,7 @@ import { ACTIVITY_DOTS, ACTIVITY_LABELS } from './activity.js';
  * touched. A shut lane must never hide a card waiting on a person, because
  * nothing on the board moves until one acts. Open, the columns say it already.
  */
-export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, onOpen, bodyId, vibes }: {
+export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, onOpen, bodyId, vibes, solo }: {
   /** The lane's project; null is No project, which has nothing to open. */
   laneId: string | null;
   name: string;
@@ -24,7 +24,10 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
   onOpen: (id: string) => void;
   /** The lane body's id, for the chevron's aria-controls. */
   bodyId: string;
+  /** The board's VIBES MODE, which dresses every lane alike. */
   vibes: boolean;
+  /** This lane's project alone in VIBES MODE, on the calm board. */
+  solo: boolean;
 }) {
   return (
     <h2
@@ -68,6 +71,17 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
           {name}
         </button>
       : <span className={vibes ? 'sk-lane-name' : ''}>{name}</span>}
+      {/* The chip a card in VIBES MODE on its own wears, here because the
+          project's switch is what put its cards there. Folded, it is the only
+          sign left that they are moving with nobody watching. */}
+      {solo && !vibes && (
+        <span
+          className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold tracking-normal normal-case"
+          title="In VIBES MODE: Claude approves and merges every task in this project with nobody reviewing them"
+        >
+          <span>vibes</span>
+        </span>
+      )}
       {collapsed && <Summary cards={cards} />}
     </h2>
   );
