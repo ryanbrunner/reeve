@@ -128,6 +128,9 @@ function CritReview({ detail }: { detail: CardDetail }) {
   const { card, worktree } = detail;
   const blocked =
     card.stage !== 'planning' ? 'Only a plan in Planning can be reviewed in Crit.'
+    // Before `activity`, which still reads as the last run's until the next
+    // one exists: a revision starting is not a plan to review.
+    : card.startingStage ? 'Claude is starting on the plan. Wait for it to finish.'
     : card.activity === 'running' ? 'Claude is working on the plan. Wait for it to finish.'
     : card.activity === 'needs_input' ? 'Answer Claude’s questions first.'
     : card.activity !== 'needs_review' ? 'The plan is not ready for review.'
