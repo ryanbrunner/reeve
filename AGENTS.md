@@ -178,9 +178,13 @@ switched on.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
 - **Tool permissions deny by default.** A stage's `allowedTools` is the
-  policy; `packages/server/src/runs/permissions.ts` answers everything else,
-  and its one allowance is rewriting `git -C <the worktree> …` to plain `git …`,
-  never a widening. VIBES MODE does not widen permissions either.
+  policy; `packages/server/src/runs/permissions.ts` answers everything else.
+  It allows two things, and neither is a widening: rewriting
+  `git -C <the worktree> …` to plain `git …`, and one leading `REEVE_DB=…` on
+  an otherwise allowed command, so a stage can run a spike the way this file
+  says to. It refuses a `REEVE_DB` that names the running server's own
+  database, and any other variable. VIBES MODE does not widen permissions
+  either.
 
 ## Database migrations
 

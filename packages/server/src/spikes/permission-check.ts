@@ -10,10 +10,11 @@
 import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+import { config } from '../config.js';
 import { decideToolUse, denialRecorder, type ToolDenialRecord } from '../runs/permissions.js';
-import { GIT_READ } from '../stages/tools.js';
+import { GIT_READ, NODE_TOOLING } from '../stages/tools.js';
 
 const note = (l: string, v: unknown) => console.log(`${l.padEnd(34)}: ${v}`);
 let failures = 0;
@@ -61,6 +62,48 @@ check('denial names the list', message.includes('git status') && message.include
 check('denial says the rest still works', message.includes('still runs'));
 check('denial says where the run already is', message.includes(wt));
 note('denial text', message);
+
+console.log('\n--- a scratch database ---');
+// In Progress's shell, which is where spikes are run from.
+const withNode = [...allowedTools, ...NODE_TOOLING];
+const decideNode = (command: string) =>
+  decideToolUse({ toolName: 'Bash', input: { command }, allowedTools: withNode, worktreePath: wt });
+const spike = 'REEVE_DB=/tmp/scratch.db npx tsx packages/server/src/spikes/vibes-check.ts';
+const scratch = decideNode(spike);
+check(
+  'REEVE_DB=… npx allowed, assignment kept',
+  scratch.behavior === 'allow' && scratch.updatedInput?.['command'] === spike,
+  JSON.stringify(scratch.behavior === 'allow' ? scratch.updatedInput?.['command'] : scratch.message?.slice(0, 60)),
+);
+check('quoted value allowed', decideNode(`REEVE_DB="/tmp/a b.db" npx tsx x.ts`).behavior === 'allow');
+const scratchC = decideNode(`REEVE_DB=/tmp/s.db git -C ${wt} status`);
+check(
+  'combines with the -C rewrite',
+  scratchC.behavior === 'allow' && scratchC.updatedInput?.['command'] === 'REEVE_DB=/tmp/s.db git status',
+);
+check('a stage without npx still refuses it', decide(spike).behavior === 'deny');
+check('another variable refused', decideNode('NODE_OPTIONS=--require=/tmp/x.js npx tsx x.ts').behavior === 'deny');
+check('GIT_DIR refused', decideNode('GIT_DIR=/elsewhere/.git git status').behavior === 'deny');
+check('a second assignment refused', decideNode('REEVE_DB=/tmp/s.db REEVE_PORT=4399 npx tsx x.ts').behavior === 'deny');
+check('substitution in the value refused', decideNode('REEVE_DB=$(mktemp) npx tsx x.ts').behavior === 'deny');
+check('an assignment and no command refused', decideNode('REEVE_DB=/tmp/s.db').behavior === 'deny');
+check('still has to match the list', decideNode('REEVE_DB=/tmp/s.db gh pr view 1').behavior === 'deny');
+const live = decideNode(`REEVE_DB=${config.dbFile} npx tsx x.ts`);
+check(
+  'the live board refused, by name',
+  live.behavior === 'deny' && live.message.includes('reaps'),
+  live.behavior === 'deny' ? live.message.slice(0, 80) : 'allowed',
+);
+// The shell expands these into the live board too, so the check has to see through them.
+if (config.dbFile.startsWith(`${homedir()}/`)) {
+  const tilde = decideNode(`REEVE_DB=~${config.dbFile.slice(homedir().length)} npx tsx x.ts`);
+  check('the live board by ~ refused', tilde.behavior === 'deny' && tilde.message.includes('reaps'));
+}
+check('~ inside quotes is literal', decideNode(`REEVE_DB="~/s.db" npx tsx x.ts`).behavior === 'allow');
+const [dir, file] = [dirname(config.dbFile), basename(config.dbFile)];
+check('a partly quoted value refused', decideNode(`REEVE_DB=${dir}/"${file}" npx tsx x.ts`).behavior === 'deny');
+check('a backslash in the value refused', decideNode(`REEVE_DB=${dir}/\\${file} npx tsx x.ts`).behavior === 'deny');
+check('~someone refused', decideNode('REEVE_DB=~root/s.db npx tsx x.ts').behavior === 'deny');
 
 const notBash = decideToolUse({ toolName: 'WebFetch', input: { url: 'https://example.com' }, allowedTools, worktreePath: wt });
 check('a tool it has no business with', notBash.behavior === 'deny' && notBash.message.includes('Read, Glob, Grep'));

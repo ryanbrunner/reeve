@@ -1,5 +1,7 @@
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import type { PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
 
 /**
@@ -35,8 +37,10 @@ export interface ToolDecision {
 }
 
 /**
- * Deny by default. The one thing that is allowed is a rewrite, not a widening:
- * see `withoutGitC`.
+ * Deny by default. Two things get through, and neither is a widening: the
+ * `git -C` rewrite (see `withoutGitC`) and a scratch database for Reeve's own
+ * spikes (see `withScratchDb`). Whatever is left after either still has to
+ * match the stage's list.
  */
 export function decideToolUse({ toolName, input, allowedTools, worktreePath }: ToolDecision): PermissionResult {
   if (toolName !== 'Bash') {
@@ -45,11 +49,59 @@ export function decideToolUse({ toolName, input, allowedTools, worktreePath }: T
 
   const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
   const prefixes = bashPrefixes(allowedTools);
-  const plain = withoutGitC(command, worktreePath);
-  if (plain && !COMPOUND.test(plain) && prefixes.some((p) => isCommand(plain, p))) {
-    return { behavior: 'allow', updatedInput: { ...input, command: plain } };
+  const scratch = withScratchDb(command);
+  if (scratch.db && isLiveDatabase(scratch.db, worktreePath)) {
+    return { behavior: 'deny', message: liveDbDenial(command) };
+  }
+  const plain = withoutGitC(scratch.rest, worktreePath);
+  // The assignment goes back on — unlike `-C`, it is the point of the command —
+  // and is checked with the rest, so `REEVE_DB=$(…)` is refused like anything else.
+  const run = scratch.assignment + (plain ?? '');
+  if (plain && !COMPOUND.test(run) && prefixes.some((p) => isCommand(plain, p))) {
+    return { behavior: 'allow', updatedInput: { ...input, command: run } };
   }
   return { behavior: 'deny', message: bashDenial(command, prefixes, worktreePath) };
+}
+
+/**
+ * `REEVE_DB=/tmp/scratch.db npx tsx …` -> the assignment, and `npx tsx …` to
+ * match against the list.
+ *
+ * AGENTS.md runs every spike this way, and several refuse to start without it,
+ * because they move real cards on whatever board they are given. The CLI's
+ * matcher knows nothing of `REEVE_DB`, so the form lands here — and on card
+ * b419aadc a run had to set the variable inside a `node -e` and start `npx`
+ * from there, which the list allowed all along and is far harder to read.
+ *
+ * Exactly one assignment, and only this name. It changes which file Reeve's own
+ * code opens and nothing about what the command after it may do. `GIT_DIR`,
+ * `NODE_OPTIONS` or `PATH` would each let an allowed prefix mean something the
+ * list never said, which is why this is a name and not a pattern. A second
+ * assignment is left in `rest`, where it matches no prefix and is denied.
+ *
+ * `db` has to be the path the shell will open, or the live-board check below is
+ * comparing against something else. So only the forms whose value can be read
+ * exactly are taken: wholly quoted, or bare with no quote or backslash in it,
+ * and a bare `~` or `~/…` expanded as the shell expands it after `=`.
+ * `REEVE_DB=…/reeve".db"` or `~someone/…` is left in `rest` and denied with
+ * the rest of what this does not reason about.
+ */
+function withScratchDb(command: string): { assignment: string; db: string | null; rest: string } {
+  const m = /^REEVE_DB=("[^"\\]*"|'[^']*'|(?!~[^/\s])[^\s"'\\]+)\s+(.+)$/s.exec(command);
+  if (!m) return { assignment: '', db: null, rest: command };
+  const value = m[1]!;
+  const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
+  return { assignment: `REEVE_DB=${value} `, db, rest: m[2]! };
+}
+
+/**
+ * The board this server is running on. A spike pointed at it would open the
+ * database a second time, and a second process opening it reaps the runs in
+ * flight — the one asking included. Unset `REEVE_DB` is no risk of this: the
+ * spike resolves its default from the worktree, not the main checkout.
+ */
+function isLiveDatabase(db: string, worktreePath: string): boolean {
+  return samePath(resolve(worktreePath, db), resolve(config.dbFile));
 }
 
 /**
@@ -106,8 +158,18 @@ function bashDenial(command: string, prefixes: string[], worktreePath: string): 
       : 'This stage has no shell at all.',
     `Run one of them as a single plain command — you are already in ${worktreePath}, so no \`cd\` and no \`git -C\`,`,
     'and nothing wrapped in a loop, a subshell or a command substitution.',
+    'The one variable it may start with is `REEVE_DB=<scratch path>`, for Reeve\'s own spikes.',
     'This is about the form of that one command and nothing else: every command on the list above still runs,',
     'and the rest of your tools are untouched. Rewrite it and carry on.',
+  ].join(' ');
+}
+
+function liveDbDenial(command: string): string {
+  return [
+    `Denied: \`${short(command)}\`.`,
+    `\`REEVE_DB\` there is the database the Reeve server running this stage is using (${config.dbFile}),`,
+    'and opening it from a second process reaps the runs in flight, this one included.',
+    'Point it at a scratch file instead — a fresh path under /tmp — and run the same command again.',
   ].join(' ');
 }
 
