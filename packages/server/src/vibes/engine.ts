@@ -18,7 +18,7 @@ import type { Card, Question, Repo, Run } from '../db/schema.js';
 import { isOpeningPr, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
 import { approveStage } from '../review.js';
 import type { EventWriter } from '../runs/events.js';
-import { maybeStartStage, startStage } from '../startStage.js';
+import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
 import { thinkOfIdeas } from './ideas.js';
 
 /**
@@ -160,10 +160,12 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // the rule under the gate: a Testing card that was never built is left for
     // a person, as the button would refuse it, rather than pushed empty to Done.
     // Nor the order the work has to happen in: a card waiting on another stays,
-    // reviewed or not, until what it waits on has cleared.
+    // reviewed or not, until what it waits on has cleared. Nor a card a person
+    // has just rejected, whose revision is waiting on the tree's setup and
+    // reads as needing review until it starts.
     case 'needs_review': {
       const to = nextStage(stage) ?? stage;
-      if (run && !blockedMove(db, card, to) && !entryRefusal(db, card, to)) {
+      if (run && !isStartingStage(card.id) && !blockedMove(db, card, to) && !entryRefusal(db, card, to)) {
         approveStage(db, writer, card, repo, run, { actor: 'claude', notes: APPROVAL });
       }
       return;
