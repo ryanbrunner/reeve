@@ -29,6 +29,9 @@ export function useCardDetail(cardId: string | null) {
       // A resolution checks and pushes after its run has ended, so it is
       // watched by the card's own flag rather than the run's.
       if (data?.card.openingPr || data?.card.resolvingConflicts || data?.card.mergingPr) return 1_500;
+      // A stage starting has no run yet to stream, and the band waits on the
+      // refetch that finds one to stop saying so.
+      if (data?.card.startingStage) return 1_500;
       // A dev server says where it is in its output, a second or two after it
       // starts, and nothing pushes that to the Rail.
       if (data?.worktree.server?.running && !data.worktree.server.url) return 1_500;

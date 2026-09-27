@@ -18,6 +18,11 @@ import type { LiveRun } from './useCardDetail.js';
  * Done is the exception. Claude never runs there, so a Done card is always
  * idle — and that is exactly when there is one thing left to say about it:
  * where its pull request is, or why there is not one yet.
+ *
+ * A stage that is starting beats every activity. Its run has no row yet, so
+ * the activity is still whatever the last run left: a revision waiting on the
+ * repo's setup reads as needing review, and its buttons would only earn a 409
+ * from a server that is already starting the next run.
  */
 export function AttentionBand({ detail, live }: { detail: CardDetail; live: LiveRun | null }) {
   const { card } = detail;
@@ -25,6 +30,13 @@ export function AttentionBand({ detail, live }: { detail: CardDetail; live: Live
     return (
       <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
         <PullRequest detail={detail} />
+      </div>
+    );
+  }
+  if (card.startingStage) {
+    return (
+      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+        <Starting detail={detail} />
       </div>
     );
   }
@@ -258,6 +270,36 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
           {stop.isPending ? 'Stopping…' : 'Stop'}
         </SmallButton>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The seconds between a start and its run: the worktree being made, then the
+ * repo's setup waited on. Nothing to press, because there is nothing yet to
+ * stop, and every verdict on the last run is refused until this one exists.
+ * The run summary carries no command, so the setup is told by being a live
+ * shell run with no task: a Crit review has one, and a test pressed by hand
+ * mid-start is the one thing it could be mistaken for.
+ */
+function Starting({ detail }: { detail: CardDetail }) {
+  const { card, repo, worktree } = detail;
+  const setup = detail.runs.find((r) => r.kind === 'shell' && r.task === null && !isTerminal(r.status));
+  return (
+    <div className="min-w-0">
+      <div className="text-sm/5 font-medium text-(--color-text)">Starting {STAGE_LABELS[card.stage]}</div>
+      <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+        {setup ? (
+          <>
+            Waiting on the repo’s setup{repo?.setupCommand && <>, <Code>{repo.setupCommand}</Code>,</>} before
+            Claude starts.
+          </>
+        ) : worktree.path ? (
+          'Claude starts in a moment.'
+        ) : (
+          'Making the worktree. Claude starts once it is ready.'
+        )}
+      </p>
     </div>
   );
 }

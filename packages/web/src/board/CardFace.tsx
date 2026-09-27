@@ -1,6 +1,8 @@
 import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { tok, tokenTitle } from '../card/format.js';
-import { ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE } from './activity.js';
+import {
+  ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
+} from './activity.js';
 import { NeededByGlyph, SuggestedGlyph, WaitsGlyph } from './Glyph.js';
 import { useLinks, type LinkRole } from './links.js';
 
@@ -40,7 +42,8 @@ export function CardFace({
   stamped?: boolean;
 }) {
   const run = card.latestRun;
-  const label = ACTIVITY_LABELS[card.activity];
+  const activity = shownActivity(card);
+  const label = card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity];
   // A merged card is finished, and on the calm board it says so in green. VIBES
   // MODE has a louder skin of its own for landing on main, and no mark: its
   // marks spin, and nothing there colours this one.
@@ -48,8 +51,8 @@ export function CardFace({
   const skin =
     vibes && card.mergedAt != null ? 'sk-merged'
     : merged ? MERGED_STYLE
-    : ACTIVITY_STYLE[card.activity];
-  const mark = merged ? (vibes ? null : MERGED_MARK) : ACTIVITY_MARKS[card.activity];
+    : ACTIVITY_STYLE[activity];
+  const mark = merged ? (vibes ? null : MERGED_MARK) : ACTIVITY_MARKS[activity];
   const links = useLinks();
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.
@@ -104,7 +107,7 @@ export function CardFace({
         {label && <span className="sr-only">{label}</span>}
         {/* Only an idle card shows a status chip, and only to surface the run
             status the glow cannot say — a cancelled run. */}
-        {!vibes && card.activity === 'idle' && run && (
+        {!vibes && activity === 'idle' && run && (
           <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
             {run.status}
           </span>
@@ -148,7 +151,16 @@ export function CardFace({
             opening PR…
           </span>
         )}
-        {!vibes && !dragging && canStartRun(card) && <RunButton card={card} />}
+        {/* Said, not left to the glow: that is Claude's sky, but Claude has
+            not started, and a start can sit behind the repo's setup for
+            minutes. The Run button waits it out, since the server would
+            refuse a second start. */}
+        {!vibes && card.startingStage && (
+          <span className="rounded bg-slate-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-slate-300">
+            starting…
+          </span>
+        )}
+        {!vibes && !dragging && !card.startingStage && canStartRun(card) && <RunButton card={card} />}
         {/* Never beside Run: that is for a column Claude works in, and this is
             Done's alone. Gone while a push or a resolution is changing the
             branch GitHub's verdict was about. */}
@@ -156,7 +168,7 @@ export function CardFace({
           <MergeButton card={card} />
         )}
       </div>
-      {card.activity === 'running' && (
+      {activity === 'running' && (
         <span className="card-rail" aria-hidden="true">
           <span />
         </span>

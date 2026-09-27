@@ -44,6 +44,23 @@ export const ACTIVITY_MARKS: Partial<Record<CardActivity, React.ReactNode>> = {
 };
 
 /**
+ * The activity a card wears, which is its own except while its stage is
+ * starting: the worktree being made, or the repo's setup waited on, before the
+ * run has a row. For those seconds — minutes, behind an `npm install` — the
+ * card still reads as whatever its last run left, and a revision waiting on
+ * setup would go on glowing ready-for-review over a review the server will
+ * refuse. It wears Claude's sky instead, and the rail, since a run is coming.
+ * Not a `CardActivity`, for the reason `isMerged` is not one: `reeve card wait`
+ * turns those into exit codes, and reads `startingStage` apart.
+ */
+export function shownActivity(card: Pick<ApiCard, 'activity' | 'startingStage'>): CardActivity {
+  return card.startingStage ? 'running' : card.activity;
+}
+
+/** Said in place of `running`'s label, since Claude is not running yet. */
+export const STARTING_LABEL = 'Starting';
+
+/**
  * A card whose pull request has landed, in Done, is finished, and wears it:
  * green, with a check in a circle. Not a `CardActivity`, which is read from
  * the card's runs and which `reeve card wait` turns into exit codes; this is a
