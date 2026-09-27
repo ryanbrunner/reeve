@@ -21,11 +21,12 @@ export const MAX_ASSET_BYTES = 12 * 1024 * 1024;
 
 /**
  * What every asset's route starts with, ahead of its id, and the one place to
- * change it: `assetSrc` and `PASTED_IMAGE` are built from it. Exported for the
- * place that cannot call `assetSrc`: `prunePastedAssets` asks SQLite which
- * briefs link an image, row by row, so it builds the link there. A prune whose
- * idea of the route had drifted from the page's would find every pasted image
- * unlinked, and delete each an hour after it was pasted.
+ * change it: `assetSrc` and `PASTED_IMAGE` are built from it, and the server
+ * mounts the asset router on it. Exported for that, and for the place that
+ * cannot call `assetSrc`: `prunePastedAssets` asks SQLite which briefs link an
+ * image, row by row, so it builds the link there. A prune whose idea of the
+ * route had drifted from the page's would find every pasted image unlinked,
+ * and delete each an hour after it was pasted.
  */
 export const ASSET_ROUTE = '/api/assets/';
 

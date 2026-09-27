@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { existsSync } from 'node:fs';
 import { relative } from 'node:path';
 import { assertContractsConvertible } from '@reeve/shared';
+import { ASSET_ROUTE } from './assets/store.js';
 import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
@@ -50,7 +51,7 @@ export function createApp() {
   app.route('/api/cards', actionRoutes(db, writer));
   app.route('/api/cards', stageRoutes(db, writer));
   app.route('/api/cards', detailRoutes(db, writer));
-  app.route('/api/assets', assetRoutes(db));
+  app.route(ASSET_ROUTE, assetRoutes(db));
   app.get('/healthz', (c) => c.json({ ok: true }));
 
   // In production the built frontend is served from the same origin and port.
