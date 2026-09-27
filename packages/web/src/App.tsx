@@ -129,7 +129,7 @@ export function App() {
       // project's and not on the card.
       : q.state.data?.cards.some(
           (c) =>
-            c.activity === 'running' || c.openingPr || c.resolvingConflicts || c.mergingPr ||
+            c.activity === 'running' || c.startingStage || c.openingPr || c.resolvingConflicts || c.mergingPr ||
             ((c.vibes || q.state.data?.projects.some((p) => p.vibes && p.id === c.projectId)) && c.mergedAt == null),
         ) ? 1_500
       : 5_000,
