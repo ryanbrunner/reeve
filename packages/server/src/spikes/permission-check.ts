@@ -9,7 +9,7 @@
  */
 import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { config } from '../config.js';
@@ -42,6 +42,14 @@ check(
   JSON.stringify(rewritten.behavior === 'allow' ? rewritten.updatedInput?.['command'] : rewritten.message?.slice(0, 40)),
 );
 check('git -C . allowed too', decide('git -C . log --oneline').behavior === 'allow');
+// The same directory on a disk that ignores case, so the same rewrite.
+if (existsSync(wt.toUpperCase())) {
+  const recased = decide(`git -C ${wt.toUpperCase()} status`);
+  check(
+    'git -C <worktree, re-cased> rewritten',
+    recased.behavior === 'allow' && recased.updatedInput?.['command'] === 'git status',
+  );
+}
 check('a subdirectory is refused', decide(`git -C ${join(wt, 'packages')} log`).behavior === 'deny');
 check('somewhere else is refused', decide('git -C /etc log').behavior === 'deny');
 check('plain allowed command allowed', decide('git log --oneline -5').behavior === 'allow');
@@ -99,8 +107,22 @@ if (config.dbFile.startsWith(`${homedir()}/`)) {
   const tilde = decideNode(`REEVE_DB=~${config.dbFile.slice(homedir().length)} npx tsx x.ts`);
   check('the live board by ~ refused', tilde.behavior === 'deny' && tilde.message.includes('reaps'));
 }
-check('~ inside quotes is literal', decideNode(`REEVE_DB="~/s.db" npx tsx x.ts`).behavior === 'allow');
 const [dir, file] = [dirname(config.dbFile), basename(config.dbFile)];
+// So do these, on a disk that ignores case, which is macOS's default. Only
+// where the re-cased path exists: on a case-sensitive disk, or with no database
+// at REEVE_DB yet, it names another file, and allowing it is right.
+for (const [name, recased] of [
+  ['the live board re-cased refused', `${dir}/${file.toUpperCase()}`],
+  ['the live board by a re-cased directory refused', `${dir.toUpperCase()}/${file}`],
+] as const) {
+  if (!existsSync(recased)) {
+    note(name, `skipped: nothing at ${recased}`);
+    continue;
+  }
+  const decision = decideNode(`REEVE_DB=${recased} npx tsx x.ts`);
+  check(name, decision.behavior === 'deny' && decision.message.includes('reaps'), decision.behavior);
+}
+check('~ inside quotes is literal', decideNode(`REEVE_DB="~/s.db" npx tsx x.ts`).behavior === 'allow');
 check('a partly quoted value refused', decideNode(`REEVE_DB=${dir}/"${file}" npx tsx x.ts`).behavior === 'deny');
 check('a backslash in the value refused', decideNode(`REEVE_DB=${dir}/\\${file} npx tsx x.ts`).behavior === 'deny');
 check('~someone refused', decideNode('REEVE_DB=~root/s.db npx tsx x.ts').behavior === 'deny');
