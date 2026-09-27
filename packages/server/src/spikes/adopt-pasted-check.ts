@@ -27,7 +27,9 @@ process.env.REEVE_ASSETS ??= join(scratch, 'assets');
 
 const { eq } = await import('drizzle-orm');
 const { createApp } = await import('../index.js');
-const { archiveCard, assetsFor, createCard, createRepo, getAsset, getCard, insertAsset } = await import('../db/queries.js');
+const {
+  archiveCard, assetsFor, cardsLinkingOthersPastedAssets, createCard, createRepo, getAsset, getCard, insertAsset,
+} = await import('../db/queries.js');
 const { asset, card } = await import('../db/schema.js');
 const { absoluteAssetPath, deleteAsset, relativeAssetPath, writeAsset } = await import('../assets/store.js');
 const { adoptPastedImages } = await import('../assets/pasted.js');
@@ -78,7 +80,13 @@ const projectBody = body(project.id);
 const mixedBody = body(mixed.id);
 const ownBody = body(own.id);
 
+// Found by the query alone, not by the copy passing a card's own images over:
+// neither the project nor Own is a candidate.
+const candidates = () => cardsLinkingOthersPastedAssets(db).map((c) => c.title).sort();
+assert.deepEqual(candidates(), ['Archived', 'Both', 'Mixed']);
+
 assert.equal(adoptPastedImages(db), 2, 'the two tasks linking pasted images are rewritten');
+assert.deepEqual(candidates(), ['Mixed'], 'only the link to a missing file is left to find');
 
 // Each task links a copy of its own, one per image however often it is linked.
 const bothLinks = linked(body(both.id));
