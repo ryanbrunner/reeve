@@ -19,21 +19,38 @@ export const CONTENT_TYPES: Record<string, string> = {
 /** Generous for a screenshot, small enough that a stray upload can't fill a disk. */
 export const MAX_ASSET_BYTES = 12 * 1024 * 1024;
 
+/**
+ * What every asset's route starts with, ahead of its id, and the one place to
+ * change it: `assetSrc` and `PASTED_IMAGE` are built from it, and the server
+ * mounts the asset router on it. Exported for that, and for the place that
+ * cannot call `assetSrc`: `prunePastedAssets` asks SQLite which briefs link an
+ * image, row by row, so it builds the link there. A prune whose idea of the
+ * route had drifted from the page's would find every pasted image unlinked,
+ * and delete each an hour after it was pasted.
+ */
+export const ASSET_ROUTE = '/api/assets/';
+
 /** The route the page is given for an asset; its path on disk never leaves the server. */
-export const assetSrc = (assetId: string) => `/api/assets/${assetId}`;
+export const assetSrc = (assetId: string) => `${ASSET_ROUTE}${assetId}`;
+
+/** `RegExp.escape` arrives after the Node this runs on. */
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * An image the brief's editor pasted in, by the `src` the page was given for
- * it: `![alt](/api/assets/<id>)`, with the alt and the id captured. Beside
- * `assetSrc` so the route and the pattern that reads it back change together,
- * and one constant so Claude's brief, the pull request's description and a
- * split task's copies cannot disagree about which links are images.
+ * it: `![alt](/api/assets/<id>)`, with the alt and the id captured. Built from
+ * `ASSET_ROUTE` so the route and the pattern that reads it back change
+ * together, and one constant so Claude's brief, the pull request's description
+ * and a split task's copies cannot disagree about which links are images.
  *
  * Global, so it is for `matchAll` and `replace`, which start from the top
  * every time; `test` or `exec` on it would carry `lastIndex` from one call to
  * the next.
  */
-export const PASTED_IMAGE = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
+export const PASTED_IMAGE = new RegExp(
+  String.raw`!\[([^\]\n]*)\]\(` + escapeRegExp(ASSET_ROUTE) + String.raw`([\w-]+)\)`,
+  'g',
+);
 
 export function relativeAssetPath(cardId: string, assetId: string, contentType: string): string {
   return join(cardId, `${assetId}.${CONTENT_TYPES[contentType] ?? 'bin'}`);
