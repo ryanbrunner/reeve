@@ -1,5 +1,5 @@
 import { STAGE_LABELS, ideasOutput, type IdeasOutput } from '@reeve/shared';
-import { addCriterion, cardsInRepo, createCard } from '../db/queries.js';
+import { addCriterion, cardsInRepo, createCard, getCard, liveProject } from '../db/queries.js';
 import { renderPrompt } from './template.js';
 import type { ClaudeTask } from './types.js';
 
@@ -63,10 +63,15 @@ export const ideasTask: ClaudeTask<IdeasOutput> = {
    * Into Backlog as Claude's, each suggested by the card it was had after, so
    * the board draws where it came from the way it does for a stage's suggested
    * tasks. The `created` event still says `ideaFrom`, because a suggested task
-   * is Claude's too, and that is what the HUD tells an idea apart by. Nothing
-   * is flagged for VIBES MODE on its own: these go because the board's switch
-   * is on, and wait for a person like any other card if it has gone off by the
-   * time they land.
+   * is Claude's too, and that is what the HUD tells an idea apart by.
+   *
+   * In that card's project while it is live, as `recordSuggestions` puts a
+   * stage's suggestions, so the "from #n" chip does not point into a lane its
+   * card sits outside. Nothing is flagged for VIBES MODE on its own: these go
+   * because the board's switch is on, and if it has gone off by the time they
+   * land they do what any other card in their lane does — wait for a person,
+   * or, in a project put in VIBES MODE, go anyway, since that lane was switched
+   * on for every task in it.
    *
    * Clamped here as well as asked for in the prompt, because each one is a
    * card that will be built unread. A title the repo has already had, archived
@@ -80,6 +85,10 @@ export const ideasTask: ClaudeTask<IdeasOutput> = {
     const repoId = ctx.card.repoId;
     if (!repoId) return;
     const have = new Set(cardsInRepo(db, repoId).map((c) => c.title.trim().toLowerCase()));
+    // Read now rather than off `ctx`, which is the card as it was when the run
+    // started: a person may have moved it into another lane since.
+    const source = getCard(db, ctx.card.id) ?? ctx.card;
+    const projectId = source.projectId && liveProject(db, source.projectId) ? source.projectId : null;
     let made = 0;
     for (const idea of output.ideas) {
       if (made >= MAX_IDEAS) break;
@@ -91,6 +100,7 @@ export const ideasTask: ClaudeTask<IdeasOutput> = {
         body: idea.body,
         repoId,
         stage: 'backlog',
+        projectId,
         suggestedById: ctx.card.id,
         actor: 'claude',
         meta: { ideaFrom: ctx.card.id, runId },
