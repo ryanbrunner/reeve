@@ -1,10 +1,13 @@
 /**
  * Drives a card that is starting in a real browser, which no seed can show:
  * `startingStage` lives only in the server's memory, for the seconds between a
- * start and its run. A repo whose setup command is `sleep` holds two Planning
+ * start and its run. A repo whose setup command is `sleep` holds Planning
  * cards there — one whose last run failed, one ready for review — and the
  * board and the open card are checked for the Starting band, the "starting…"
- * chip, and no Retry, Mark reviewed, Send back or Run to press meanwhile.
+ * chip, and no Retry, Mark reviewed, Send back or Run to press meanwhile. The
+ * open card has to turn to starting on its own, by its poll, when the start is
+ * made somewhere else; and Retry on another failed card has to show the band
+ * while its POST is still waiting on the setup.
  *
  * No API credit: the concurrency cap is set to 0 behind the settings route's
  * back, so each start is refused with a 429 once the setup is done and Claude
@@ -76,12 +79,16 @@ function planningCard(title: string, status: 'failed' | 'succeeded') {
 const failed = planningCard('Retry me while I start', 'failed');
 const ready = planningCard('Review me while I start', 'succeeded');
 const approved = planningCard('Approve me into a start', 'succeeded');
+// Its own card, not `failed` again: that one's worktree has had its setup by
+// the time Retry is pressed, so its start would be refused at once.
+const retried = planningCard('Press my Retry and wait', 'failed');
 
 async function detail(id: string) {
   return (await (await app.request(`/api/cards/${id}/detail`)).json()) as CardDetail;
 }
 assert.equal((await detail(failed.id)).card.activity, 'error');
 assert.equal((await detail(ready.id)).card.activity, 'needs_review');
+assert.equal((await detail(retried.id)).card.activity, 'error');
 
 const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' });
 await new Promise((r) => server.once('listening', r));
@@ -110,15 +117,15 @@ try {
     return { status: r.status, body: (await r.json()) as unknown };
   });
 
-  // A start from outside the page — the CLI, a sweep — is not pushed, and the
-  // open card of a review does not poll, so it is not seen until something
-  // refetches it. Said, then reloaded.
-  await new Promise((r) => setTimeout(r, 4_000));
-  const unseen = await dialog.getByText('Starting Planning').count();
-  console.log(`[reeve] open card turned to starting on its own, 4s after an outside start: ${unseen > 0}`);
+  // A start from outside the page — the CLI, a sweep — is not pushed, so the
+  // open card has only its own 3s poll to notice it by. No reload: that would
+  // pass whether the poll does or not. 10s, not 4s: a 4s window failed two
+  // runs in three with the poll in place, depending on where its 3s fell
+  // against the start. Anything under the 20s setup still tells a card that
+  // polls from one that never looks again until the start is over.
+  await dialog.getByText('Starting Planning').waitFor({ timeout: 10_000 })
+    .catch(() => assert.fail('the open card did not turn to starting on its own within 10s of an outside start'));
   assert.ok((await detail(ready.id)).card.startingStage);
-  await page.reload();
-  await dialog.getByText('Starting Planning').waitFor();
   console.log(`[reeve] open card read as starting ${Date.now() - t0}ms after the start`);
   await dialog.getByText(`Waiting on the repo’s setup, ${SETUP}, before Claude starts.`).waitFor({ timeout: 10_000 });
   for (const name of ['Mark reviewed', 'Send back', 'Retry']) assert.equal(await button(name).count(), 0, `${name} while starting`);
@@ -157,6 +164,30 @@ try {
   await page.goto(`${base}/?card=${failed.id}`);
   await button('Retry').waitFor();
   await page.screenshot({ path: join(shots, 'starting-after-failed.png') });
+
+  // Retry from the open card. Its POST answers only once the new worktree's
+  // setup is done, and the band is not to wait on it: the card reads as
+  // starting from the moment the server takes the request.
+  await page.goto(`${base}/?card=${retried.id}`);
+  let answered = false;
+  const retriedStart = page.waitForResponse((r) =>
+    r.url().endsWith(`/api/cards/${retried.id}/run`) && r.request().method() === 'POST', { timeout: 40_000 });
+  void retriedStart.then(() => { answered = true; });
+  await button('Retry').click();
+  const t2 = Date.now();
+  await dialog.getByText('Starting Planning').waitFor({ timeout: 4_000 })
+    .catch(() => assert.fail('Retry did not turn the card to starting within 4s'));
+  assert.ok(!answered, 'the Starting band waited on the POST');
+  console.log(`[reeve] retried card read as starting ${Date.now() - t2}ms after Retry, before its POST returned`);
+  for (const name of ['Retry', 'Mark reviewed', 'Send back']) assert.equal(await button(name).count(), 0, `${name} while starting`);
+  await page.screenshot({ path: join(shots, 'starting-open-retried.png') });
+  // The cap refuses it once the setup is done, and the Failed band that comes
+  // back says why, though it is not the one Retry was pressed on.
+  assert.equal((await retriedStart).status(), 429, 'refused at the cap, so Claude never ran');
+  console.log(`[reeve] retried start refused ${Date.now() - t2}ms after Retry`);
+  await button('Retry').waitFor({ timeout: 10_000 });
+  await dialog.getByText('too many concurrent runs: limit is 0').waitFor();
+  await page.screenshot({ path: join(shots, 'starting-after-retried.png') });
 
   // The path a person takes: Mark reviewed on the open card approves it into
   // In Progress, which starts it behind the new worktree's setup. The band
