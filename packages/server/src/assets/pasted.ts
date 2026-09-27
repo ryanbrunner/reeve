@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { Db } from '../db/client.js';
-import { getAsset, insertAsset } from '../db/queries.js';
+import { cardsLinkingOthersPastedAssets, getAsset, insertAsset, rewriteCardBody } from '../db/queries.js';
 import { PASTED_IMAGE, absoluteAssetPath, assetSrc, relativeAssetPath, writeAsset } from './store.js';
 
 /**
@@ -49,4 +49,31 @@ export function copyPastedImages(db: Db, cardId: string, body: string): string {
     const copy = copies.get(id);
     return copy ? `![${alt}](${assetSrc(copy)})` : link;
   });
+}
+
+/**
+ * Give every card still linking another card's pasted image a copy of its
+ * own, and return how many briefs were rewritten.
+ *
+ * For the tasks split before the split made copies, whose briefs still point
+ * at the project's rows. Nothing hard-deletes a project with tasks today, and
+ * pruning keeps an image any brief links, so nothing has broken yet; this is
+ * so that nothing does once something deletes one.
+ *
+ * Run at every boot rather than once, because it costs one select when there
+ * is nothing to do, and because a split is not the only way a brief can come
+ * to link another card's image: a link is only Markdown, and can be written
+ * from the CLI or pasted into the editor as text.
+ * A link whose file has gone is left, and found again on the next boot to be
+ * left again.
+ */
+export function adoptPastedImages(db: Db): number {
+  let rewritten = 0;
+  for (const c of cardsLinkingOthersPastedAssets(db)) {
+    const body = copyPastedImages(db, c.id, c.body);
+    if (body === c.body) continue;
+    rewriteCardBody(db, c.id, body);
+    rewritten++;
+  }
+  return rewritten;
 }

@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { existsSync } from 'node:fs';
 import { relative } from 'node:path';
 import { assertContractsConvertible } from '@reeve/shared';
+import { adoptPastedImages } from './assets/pasted.js';
 import { config } from './config.js';
 import { openDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
@@ -85,6 +86,18 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
       // not start a CLI each time. Warmed now so the first picker and the first
       // pinned run do not wait on it.
       void listModels();
+
+      // Out here rather than in createApp, because it writes files, and a spike
+      // on a scratch database may still have its assets going to data/assets.
+      // Synchronous, so no request lands in the middle of a brief being
+      // rewritten, and caught, so a failure costs a log line rather than a
+      // server that is otherwise fine.
+      try {
+        const adopted = adoptPastedImages(db);
+        if (adopted > 0) console.log(`[reeve] gave ${adopted} card(s) their own copies of another card's pasted images`);
+      } catch (e) {
+        console.error(`[reeve] copying pasted images failed: ${String(e)}`);
+      }
 
       // Here rather than in createApp, so the spikes that build an app do not
       // shell out to GitHub. Nothing may escape: a rejection would end the server.
