@@ -293,6 +293,8 @@ export interface VibesState {
   spendTokens: number;
   /** Cards Claude has moved a column on its own. */
   moves: number;
+  /** Cards Claude thought of itself, once a repo had nothing left to do. */
+  ideas: number;
   /** The last handful of things it did, newest first, already in human words. */
   log: string[];
 }

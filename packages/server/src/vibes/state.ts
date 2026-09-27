@@ -35,6 +35,7 @@ export function vibesState(db: Db): VibesState | null {
     questionsSelfAnswered: byClaude('answered'),
     spendTokens: tokensSince(db, since),
     moves: byClaude('moved'),
+    ideas: ledger.filter(isIdea).length,
     log: ledger.flatMap((e) => {
       const line = logLine(e);
       return line ? [line] : [];
@@ -43,6 +44,15 @@ export function vibesState(db: Db): VibesState | null {
 }
 
 type Entry = ReturnType<typeof vibesLedger>[number];
+
+/**
+ * A card VIBES MODE made up, told apart by what its `created` event says it
+ * came from. Not by the actor alone: a project's split also creates cards as
+ * Claude, and those were a person's idea written out in their brief.
+ */
+function isIdea(e: Entry): boolean {
+  return e.kind === 'created' && e.actor === 'claude' && Boolean((e.meta as { ideaFrom?: string } | null)?.ideaFrom);
+}
 
 /**
  * One event as a line of the HUD's log, or null for the ones not worth saying.
@@ -58,6 +68,8 @@ function logLine(e: Entry): string | null {
   switch (e.kind) {
     case 'merged':
       return `Claude merged ${it} → main · 0 reviews`;
+    case 'created':
+      return isIdea(e) ? `Claude thought of ${it} · building it next` : null;
     case 'reviewed':
       return e.actor === 'claude'
         ? `Claude approved its own work on ${it} · nobody read it`

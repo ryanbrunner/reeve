@@ -2,7 +2,7 @@ import type { VibesState } from '@reeve/shared';
 import { tokens } from '../card/format.js';
 
 /**
- * The scoreboard along the bottom: five numbers and a running log of what
+ * The scoreboard along the bottom: six numbers and a running log of what
  * Claude has done to your repository since you stopped being asked.
  *
  * Every figure is counted server-side from the moment the switch was flipped,
@@ -22,6 +22,7 @@ export function VibesHud({ state, pop }: { state: VibesState; pop: boolean }) {
       <Stat label="Human approvals" value={state.humanApprovals} />
       <Stat label="Reviews skipped" value={state.reviewsSkipped} />
       <Stat label="Questions self-answered" value={state.questionsSelfAnswered} />
+      <Stat label="Ideas of its own" value={state.ideas} />
       <Stat label="Tokens" value={tokens(state.spendTokens)} zero={state.spendTokens === 0} />
       <div className="sk-log">
         {/* Two deep: the newest in white, the one before it faded out. */}
