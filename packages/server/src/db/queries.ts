@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
   RUNNABLE_STAGES,
@@ -1428,6 +1428,34 @@ export function prunePastedAssets(db: Db, cardId: string, before: string): strin
     .all();
   for (const a of stale) db.delete(asset).where(eq(asset.id, a.id)).run();
   return stale.map((a) => a.path);
+}
+
+/**
+ * Cards whose brief links an image pasted into some other card's: tasks split
+ * before a split copied a project's images to them, above all. Archived ones
+ * too, since restoring one brings its brief back.
+ */
+export function cardsLinkingOthersPastedAssets(db: Db): Card[] {
+  return db
+    .select()
+    .from(card)
+    .where(exists(
+      db.select({ id: asset.id }).from(asset)
+        .where(and(
+          eq(asset.kind, 'pasted'),
+          ne(asset.cardId, card.id),
+          sql`instr(${card.body}, ${ASSET_ROUTE} || ${asset.id}) > 0`,
+        )),
+    ))
+    .all();
+}
+
+/**
+ * A card's brief rewritten by Reeve rather than edited: `updatedAt` is left
+ * alone, since the card header shows it as when someone last changed the card.
+ */
+export function rewriteCardBody(db: Db, id: string, body: string): void {
+  db.update(card).set({ body }).where(eq(card.id, id)).run();
 }
 
 export function differencesFor(db: Db, cardId: string) {
