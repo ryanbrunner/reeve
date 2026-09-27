@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
   RUNNABLE_STAGES,
@@ -207,6 +207,59 @@ export function archivedMergedWorktrees(db: Db) {
     .all();
 }
 
+/**
+ * Every task a repo has ever had, archived included, newest first. What VIBES
+ * MODE reads before thinking of something new: shipped work was taken off the
+ * board, not undone, and proposing it again would be building it twice.
+ */
+export function cardsInRepo(db: Db, repoId: string): Card[] {
+  return db
+    .select()
+    .from(card)
+    .where(and(isTask, eq(card.repoId, repoId)))
+    .orderBy(desc(card.createdAt))
+    .all();
+}
+
+/**
+ * The repo's live tasks that are still to be finished: anywhere but Done. A
+ * blank card someone has not typed into yet is not work, and is left out.
+ */
+export function openCardsInRepo(db: Db, repoId: string): Card[] {
+  return db
+    .select()
+    .from(card)
+    .where(and(isTask, eq(card.repoId, repoId), isNull(card.archivedAt), ne(card.stage, 'done')))
+    .all()
+    .filter((c) => !isPlaceholderCard(c));
+}
+
+/**
+ * The repo's task that most recently arrived in Done after a moment, archived
+ * or not, if it is still there. Read off the events rather than the live
+ * cards, because a merged card is archived a few minutes later and the card
+ * that arrived before it must not become "the latest" when it goes.
+ */
+export function latestIntoDone(db: Db, repoId: string, since: Date): Card | undefined {
+  const row = db
+    .select({ card })
+    .from(cardEvent)
+    .innerJoin(card, eq(card.id, cardEvent.cardId))
+    .where(and(
+      isTask,
+      eq(card.repoId, repoId),
+      gt(cardEvent.createdAt, since),
+      or(
+        and(eq(cardEvent.kind, 'moved'), eq(cardEvent.toStage, 'done')),
+        and(eq(cardEvent.kind, 'created'), eq(cardEvent.stage, 'done')),
+      ),
+    ))
+    .orderBy(desc(cardEvent.createdAt), desc(sql`"card_event"."rowid"`))
+    .limit(1)
+    .get();
+  return row?.card.stage === 'done' ? row.card : undefined;
+}
+
 export function cardsInStage(db: Db, stage: CardStage): Card[] {
   return db
     .select()
@@ -337,6 +390,23 @@ export function liveTaskRun(db: Db, cardId: string, task: string) {
     .get();
 }
 
+/** Whether the card has ever had a task of this kind, whatever became of it. */
+export function hadTaskRun(db: Db, cardId: string, task: string): boolean {
+  return Boolean(
+    db.select({ id: run.id }).from(run).where(and(eq(run.cardId, cardId), eq(run.task, task))).get(),
+  );
+}
+
+/** `liveTaskRun` across every card in a repo, for a task that is about the repo rather than one card. */
+export function liveTaskRunInRepo(db: Db, repoId: string, task: string) {
+  return db
+    .select({ run })
+    .from(run)
+    .innerJoin(card, eq(card.id, run.cardId))
+    .where(and(eq(card.repoId, repoId), eq(run.task, task), inArray(run.status, NON_TERMINAL)))
+    .get()?.run;
+}
+
 /**
  * A stage run still in flight for the card, in any column. The same reading as
  * `liveTaskRun`, for the same reason, but for the one run a card may have at a
@@ -459,6 +529,8 @@ export function createCard(
     projectId?: string | null;
     suggestedById?: string | null;
     actor?: CardEventActor;
+    /** On the `created` event: where the card came from, when that is worth saying. */
+    meta?: Record<string, unknown>;
   },
 ) {
   const stage = values.stage ?? 'backlog';
@@ -493,6 +565,7 @@ export function createCard(
     actor: values.actor ?? 'human',
     kind: 'created',
     stage,
+    meta: values.meta ?? null,
     createdAt: created.createdAt,
   });
   return created;

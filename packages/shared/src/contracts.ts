@@ -254,6 +254,28 @@ export const projectSplitOutput = z.object({
 });
 
 /**
+ * Not a stage either — VIBES MODE deciding what to build next, when a repo
+ * has run out of work. The split's shape without a repo or dependencies: every
+ * idea lands in the repo it was had in, and none waits on another, because
+ * nobody is there to sort out an order.
+ */
+export const ideasOutput = z.object({
+  ideas: z
+    .array(
+      z.object({
+        title: z.string().describe('A short imperative title for the card, as it would read on the board.'),
+        body: z
+          .string()
+          .describe('The card’s brief, in Markdown: what to build, why it is worth doing now, and anything a person picking it up needs to know.'),
+        criteria: z
+          .array(z.string())
+          .describe('What must be true for this to be done, each written as something a person could observe.'),
+      }),
+    )
+    .describe('What to build next, best first. At most three. Empty if nothing is worth doing.'),
+});
+
+/**
  * Not a stage either — the Done band's Resolve conflicts button. The server
  * starts the merge and checks it afterwards; this is Claude's account of what
  * it decided in between, which is all a person has to go on before the push
@@ -280,6 +302,7 @@ export const conflictResolutionOutput = z.object({
 
 export type CriteriaOutput = z.infer<typeof criteriaOutput>;
 export type ProjectSplitOutput = z.infer<typeof projectSplitOutput>;
+export type IdeasOutput = z.infer<typeof ideasOutput>;
 export type ConflictResolutionOutput = z.infer<typeof conflictResolutionOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
 export type ImplementationOutput = z.infer<typeof implementationOutput>;
@@ -328,5 +351,6 @@ export function assertContractsConvertible(): void {
   jsonSchemaFor(triageOutput);
   jsonSchemaFor(criteriaOutput);
   jsonSchemaFor(projectSplitOutput);
+  jsonSchemaFor(ideasOutput);
   jsonSchemaFor(conflictResolutionOutput);
 }

@@ -40,6 +40,7 @@ function whatComesOff(board: BoardResponse): string[] {
     `  Planning        skipped: Backlog goes straight to In Progress (${plural(backlog, 'card')} there now)`,
     `  Merge to main   automatic: Done opens its pull request and merges it (${plural(done, 'card')} in Done now)`,
     '  New ideas       run on arrival: a card added to Backlog starts once it has a title or a brief',
+    '  What to build   Claude decides: a repo with nothing left to do gets up to three cards of its own',
     "Tool permissions, the concurrency cap and the repository's branch protection stay as they are.",
   ];
 }
@@ -49,6 +50,7 @@ function summary(state: VibesState): string {
     `${plural(state.moves, 'move')}, ${plural(state.merged, 'merge')}`,
     `${plural(state.reviewsSkipped, 'review')} skipped`,
     `${plural(state.questionsSelfAnswered, 'question')} self-answered`,
+    `${plural(state.ideas, 'idea')} of its own`,
     `${formatTokens(state.spendTokens)} spent`,
   ].join(', ');
 }
