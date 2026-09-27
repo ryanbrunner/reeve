@@ -364,6 +364,12 @@ function Failed({ detail }: { detail: CardDetail }) {
       return started;
     },
     onSettled: refresh,
+    // Kept, where the default would drop it. This band unmounts once the card
+    // is starting, and the five-minute clock that starts then runs through
+    // the setup and is not reset by the refusal, so behind a setup of nearly
+    // five minutes the refusal would show for seconds. One small entry a
+    // click, and only the latest is read, as for the board's Run button.
+    gcTime: Infinity,
   });
   // Read off the cache, not `retry`: the Starting band takes this one's place
   // while the start is under way, so a refusal — the cap, say — lands on a
