@@ -1,10 +1,12 @@
 /**
  * Drives a card that is starting in a real browser, which no seed can show:
  * `startingStage` lives only in the server's memory, for the seconds between a
- * start and its run. A repo whose setup command is `sleep` holds two Planning
+ * start and its run. A repo whose setup command is `sleep` holds Planning
  * cards there — one whose last run failed, one ready for review — and the
  * board and the open card are checked for the Starting band, the "starting…"
- * chip, and no Retry, Mark reviewed, Send back or Run to press meanwhile.
+ * chip, and no Retry, Mark reviewed, Send back or Run to press meanwhile. The
+ * open card has to turn to starting on its own, by its poll, when the start is
+ * made somewhere else.
  *
  * No API credit: the concurrency cap is set to 0 behind the settings route's
  * back, so each start is refused with a 429 once the setup is done and Claude
@@ -110,15 +112,12 @@ try {
     return { status: r.status, body: (await r.json()) as unknown };
   });
 
-  // A start from outside the page — the CLI, a sweep — is not pushed, and the
-  // open card of a review does not poll, so it is not seen until something
-  // refetches it. Said, then reloaded.
-  await new Promise((r) => setTimeout(r, 4_000));
-  const unseen = await dialog.getByText('Starting Planning').count();
-  console.log(`[reeve] open card turned to starting on its own, 4s after an outside start: ${unseen > 0}`);
+  // A start from outside the page — the CLI, a sweep — is not pushed, so the
+  // open card has only its own 3s poll to notice it by. No reload: that would
+  // pass whether the poll does or not.
+  await dialog.getByText('Starting Planning').waitFor({ timeout: 4_000 })
+    .catch(() => assert.fail('the open card did not turn to starting on its own within 4s of an outside start'));
   assert.ok((await detail(ready.id)).card.startingStage);
-  await page.reload();
-  await dialog.getByText('Starting Planning').waitFor();
   console.log(`[reeve] open card read as starting ${Date.now() - t0}ms after the start`);
   await dialog.getByText(`Waiting on the repo’s setup, ${SETUP}, before Claude starts.`).waitFor({ timeout: 10_000 });
   for (const name of ['Mark reviewed', 'Send back', 'Retry']) assert.equal(await button(name).count(), 0, `${name} while starting`);
