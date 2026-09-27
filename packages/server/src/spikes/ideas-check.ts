@@ -13,6 +13,7 @@ import { PLACEHOLDER_TITLE } from '@reeve/shared';
 import { createApp } from '../index.js';
 import {
   archiveCard,
+  archiveProject,
   cardEventsFor,
   cardLinks,
   cardsInRepo,
@@ -26,7 +27,7 @@ import {
   setRunStatus,
   updateSettings,
 } from '../db/queries.js';
-import type { Repo } from '../db/schema.js';
+import type { Card, Repo } from '../db/schema.js';
 import { ideasTask } from '../stages/ideas.js';
 import type { StageContext } from '../stages/types.js';
 import { ideaSource, thinkOfIdeas } from '../vibes/ideas.js';
@@ -124,6 +125,7 @@ for (const title of ['Gift notes', 'Wishlists', 'Reorder']) {
   // it came after merged and archived.
   assert.equal(c.suggestedById, second.id);
   assert.equal(cardLinks(db, c.id)(c.id).suggestedBy?.id, second.id, 'the board draws it as suggested');
+  assert.equal(c.projectId, null, 'no lane, as the card it came after had none');
 }
 assert.equal(ideasTask.summarise({ ideas: [] }), 'Thought of nothing worth doing');
 
@@ -134,6 +136,28 @@ createCard(db, { title: 'An aside', repoId: shop.id, stage: 'backlog', suggested
 const state = vibesState(db)!;
 assert.equal(state.ideas, 3);
 assert.ok(state.log.includes('Claude thought of “Reorder” · building it next'), state.log.join('\n'));
+
+// In the lane of the card it came after, as a stage's suggested task is, so
+// its chip never points into a lane it sits outside.
+const ideaAfter = (source: Card, title: string) => {
+  ideasTask.onPersist!(db, { ...ctx, card: source }, { ideas: [idea(title)] }, 'run');
+  return cardsInRepo(db, shop.id).find((c) => c.title === title)!;
+};
+const lane = createCard(db, { title: 'Checkout', kind: 'project', repoId: shop.id });
+const inLane = createCard(db, { title: 'Pay later', repoId: shop.id, stage: 'done', projectId: lane.id });
+assert.equal(ideaAfter(inLane, 'Split payments').projectId, lane.id, 'in the lane it came from');
+
+// The lane the card is in now, not the one it was in when the run started.
+const drifted = createCard(db, { title: 'Receipts', repoId: shop.id, stage: 'done' });
+moveCard(db, drifted.id, 'done', 0, 'human', lane.id);
+assert.equal(ideaAfter(drifted, 'Emailed receipts').projectId, lane.id, 'dragged into the lane mid-run');
+
+// Nowhere, once that project has been archived: taking the card it came after
+// with it, since that is in Done.
+archiveProject(db, lane.id);
+const gone = getCard(db, inLane.id)!;
+assert.ok(gone.archivedAt, 'archived with its project');
+assert.equal(ideaAfter(gone, 'Store credit').projectId, null, 'no lane that is no longer on the board');
 
 updateSettings(db, { vibes: false });
 console.log('[reeve] ideas check passed');
