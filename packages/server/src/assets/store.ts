@@ -26,8 +26,8 @@ export const assetSrc = (assetId: string) => `/api/assets/${assetId}`;
  * An image the brief's editor pasted in, by the `src` the page was given for
  * it: `![alt](/api/assets/<id>)`, with the alt and the id captured. Beside
  * `assetSrc` so the route and the pattern that reads it back change together,
- * and one constant so Claude's brief and the pull request's description cannot
- * disagree about which links are images.
+ * and one constant so Claude's brief, the pull request's description and a
+ * split task's copies cannot disagree about which links are images.
  *
  * Global, so it is for `matchAll` and `replace`, which start from the top
  * every time; `test` or `exec` on it would carry `lastIndex` from one call to
