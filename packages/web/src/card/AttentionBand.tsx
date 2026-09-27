@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
@@ -345,13 +345,33 @@ function ThinkingSummary({ text }: { text: string }) {
 function Failed({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const run = detail.card.latestRun;
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+    void qc.invalidateQueries({ queryKey: ['board'] });
+  };
+  const key = ['start', detail.card.id];
   const retry = useMutation({
-    mutationFn: () => api.startStage(detail.card.id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
-      void qc.invalidateQueries({ queryKey: ['board'] });
+    mutationKey: key,
+    // The start only answers once the repo's setup is done, which can be
+    // minutes, and the card reads as starting from the moment the server
+    // takes the request, before it awaits anything. So the card is looked at
+    // again as soon as the request is sent, rather than sitting on this band
+    // with its button held; the poll underneath catches a look that got there
+    // first. Settled, not succeeded: a refused start ends the starting too.
+    mutationFn: () => {
+      const started = api.startStage(detail.card.id);
+      refresh();
+      return started;
     },
+    onSettled: refresh,
   });
+  // Read off the cache, not `retry`: the Starting band takes this one's place
+  // while the start is under way, so a refusal — the cap, say — lands on a
+  // band mounted afresh, whose own mutation has never run. And only a refusal
+  // made since this band's run ended: the cache outlives a later run that
+  // started and failed on its own.
+  const last = useMutationState({ filters: { mutationKey: key }, select: (m) => m.state }).at(-1);
+  const refused = last?.error && last.submittedAt > (run?.finishedAt ?? 0) ? last.error : null;
 
   return (
     <div className="flex items-center gap-4">
@@ -366,7 +386,7 @@ function Failed({ detail }: { detail: CardDetail }) {
           {retry.isPending ? 'Starting…' : 'Retry'}
         </Button>
       </div>
-      {retry.error && <p className="basis-full text-sm/5 text-red-300">{retry.error.message}</p>}
+      {refused && <p className="basis-full text-sm/5 text-red-300">{refused.message}</p>}
     </div>
   );
 }
