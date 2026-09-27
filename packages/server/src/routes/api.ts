@@ -358,9 +358,10 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     if (!updated) return c.json({ error: 'not found' }, 404);
     // Saving the brief is the one moment an image pasted into it can stop being
     // linked, and nothing else ever deletes one. Only when the body was sent:
-    // renaming the card or flipping a toggle changes nothing it links.
+    // renaming the card or flipping a toggle changes nothing it links. The body
+    // it had goes too, for the images it linked that another card owns.
     if (parsed.data.body !== undefined) {
-      for (const path of prunePastedAssets(db, id)) deleteAsset(path);
+      for (const path of prunePastedAssets(db, id, existing.body)) deleteAsset(path);
     }
     // A project's first brief is split on its own. Only the first: compared
     // against the body before this save, so rewording a brief later never

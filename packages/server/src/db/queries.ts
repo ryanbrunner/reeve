@@ -1328,13 +1328,22 @@ const PASTED_GRACE_MS = 60 * 60 * 1000;
  * Any card's body counts, not only this one's. A split copies a project's
  * brief into its tasks, links and all, and the images stay the project's rows
  * — so rewriting the project's brief must not take a picture out of a task's.
+ *
+ * For the same reason the images `before`, the body this save replaced,
+ * linked are judged too, whichever card owns them. When a task drops the
+ * last link to its project's image, the task's save is the only moment that
+ * image stops being linked: the project's brief dropped it earlier, and may
+ * never be saved again.
  */
-export function prunePastedAssets(db: Db, cardId: string): string[] {
+export function prunePastedAssets(db: Db, cardId: string, before: string): string[] {
   const stale = db
     .select()
     .from(asset)
     .where(and(
-      eq(asset.cardId, cardId),
+      or(
+        eq(asset.cardId, cardId),
+        sql`instr(${before}, '/api/assets/' || ${asset.id}) > 0`,
+      ),
       eq(asset.kind, 'pasted'),
       lte(asset.createdAt, new Date(Date.now() - PASTED_GRACE_MS)),
       notExists(
