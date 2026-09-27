@@ -24,6 +24,7 @@ import type {
   Stage,
   StopReason,
 } from '@reeve/shared';
+import { assetSrc } from './assets/store.js';
 import type {
   AcceptanceCriterion,
   Asset,
@@ -233,7 +234,7 @@ export function toApiAsset(a: Asset): ApiAsset {
     url: a.url,
     viewport: a.viewport,
     // The on-disk path never leaves the server; the client gets a route.
-    src: `/api/assets/${a.id}`,
+    src: assetSrc(a.id),
     width: a.width,
     height: a.height,
     runId: a.runId,
