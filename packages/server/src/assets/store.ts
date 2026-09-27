@@ -19,8 +19,17 @@ export const CONTENT_TYPES: Record<string, string> = {
 /** Generous for a screenshot, small enough that a stray upload can't fill a disk. */
 export const MAX_ASSET_BYTES = 12 * 1024 * 1024;
 
+/**
+ * What every asset's route starts with, ahead of its id. Exported for the one
+ * place that cannot call `assetSrc`: `prunePastedAssets` asks SQLite which
+ * briefs link an image, row by row, so it builds the link there. A prune whose
+ * idea of the route had drifted from the page's would find every pasted image
+ * unlinked, and delete each an hour after it was pasted.
+ */
+export const ASSET_ROUTE = '/api/assets/';
+
 /** The route the page is given for an asset; its path on disk never leaves the server. */
-export const assetSrc = (assetId: string) => `/api/assets/${assetId}`;
+export const assetSrc = (assetId: string) => `${ASSET_ROUTE}${assetId}`;
 
 /**
  * An image the brief's editor pasted in, by the `src` the page was given for
