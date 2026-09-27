@@ -1,4 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
+import { PASTED_IMAGE } from './assets/store.js';
 import { config } from './config.js';
 import type { Db } from './db/client.js';
 import {
@@ -123,6 +124,20 @@ const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
  */
 const prDescription = (body: string) =>
   body.trim().replace(PASTED, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
+
+/**
+ * The card's body as a pull request description. A pasted image is linked by
+ * its route on this server, which GitHub cannot reach and would show as a
+ * broken picture, so each is left as its alt text instead: the reader learns
+ * there was one, and the card still has it. Not uploaded, because `gh` has no
+ * way to attach an image to a pull request, and not dropped, because a
+ * sentence that says "like this:" should not then point at nothing.
+ *
+ * Parentheses rather than emphasis, since the alt may be a file name, and a
+ * `_` or `*` in one would unbalance it.
+ */
+const prDescription = (body: string) =>
+  body.trim().replace(PASTED_IMAGE, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
 
 /**
  * Push a Done card's branch to `origin` and open a pull request for it against

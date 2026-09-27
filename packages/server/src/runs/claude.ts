@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EffortLevel, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
 import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
-import { absoluteAssetPath } from '../assets/store.js';
+import { PASTED_IMAGE, absoluteAssetPath, assetSrc } from '../assets/store.js';
 import type { Db } from '../db/client.js';
 import {
   artifactsForCard,
@@ -119,9 +119,6 @@ export function stageContextFor(
   };
 }
 
-/** An image the brief's editor pasted in, by the `src` the page was given for it. */
-const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
-
 /**
  * The card's body as Claude reads it. A pasted image is linked by its route,
  * which means nothing to a run with no browser, so the brief is followed by
@@ -137,9 +134,9 @@ function briefFor(db: Db, card: Card): string {
   const body = card.body.trim();
   if (!body) return '_No further detail was given._';
   const files = new Map<string, string>();
-  for (const [, , id] of body.matchAll(PASTED)) {
+  for (const [, , id] of body.matchAll(PASTED_IMAGE)) {
     const row = id ? getAsset(db, id) : undefined;
-    if (row) files.set(`/api/assets/${row.id}`, absoluteAssetPath(row.path));
+    if (row) files.set(assetSrc(row.id), absoluteAssetPath(row.path));
   }
   if (!files.size) return body;
   const list = [...files].map(([src, path]) => `- \`${src}\` is \`${path}\``).join('\n');
