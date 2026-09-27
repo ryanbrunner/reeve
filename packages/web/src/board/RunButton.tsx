@@ -31,6 +31,12 @@ export function RunButton({ card }: { card: ApiCard }) {
       return started;
     },
     onSettled: refresh,
+    // Kept, where the default would drop it. Its button unmounts once the
+    // card is starting, and the five-minute clock that starts then runs
+    // through the setup and is not reset by the refusal, so behind a setup of
+    // nearly five minutes the refusal would show for seconds. One small entry
+    // a click, and only the latest is read.
+    gcTime: Infinity,
   });
   // Read off the cache, not `start`: the card hides this button while it is
   // starting, so a refusal — the cap, say — lands on a button mounted afresh,
