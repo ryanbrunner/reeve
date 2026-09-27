@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 import type { ApiCard } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
@@ -13,10 +13,32 @@ import { api } from '../lib/api.js';
  */
 export function RunButton({ card }: { card: ApiCard }) {
   const qc = useQueryClient();
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['board'] });
+  // The same key as the attention band's Retry: it is the same start, and a
+  // refusal from either is the card's to say.
+  const key = ['start', card.id];
   const start = useMutation({
-    mutationFn: () => api.startStage(card.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['board'] }),
+    mutationKey: key,
+    // The start only answers once the repo's setup is done, which can be
+    // minutes, and the card reads as starting from the moment the server
+    // takes the request. So the board is looked at again as soon as the
+    // request is sent, rather than the card sitting on a held button until
+    // the next poll. Settled, not succeeded: a refused start ends the
+    // starting too.
+    mutationFn: () => {
+      const started = api.startStage(card.id);
+      refresh();
+      return started;
+    },
+    onSettled: refresh,
   });
+  // Read off the cache, not `start`: the card hides this button while it is
+  // starting, so a refusal — the cap, say — lands on a button mounted afresh,
+  // whose own mutation has never run. And only a refusal made since the
+  // card's last run ended: the cache outlives a later run that started and
+  // finished on its own. A fresh click is the latest entry, and clears it.
+  const last = useMutationState({ filters: { mutationKey: key }, select: (m) => m.state }).at(-1);
+  const refused = last?.error && last.submittedAt > (card.latestRun?.finishedAt ?? 0) ? last.error : null;
   const retry = card.activity === 'error';
 
   return (
@@ -36,9 +58,8 @@ export function RunButton({ card }: { card: ApiCard }) {
       >
         {start.isPending ? 'Starting…' : retry ? 'Retry' : 'Run'}
       </button>
-      {/* Cleared by the next click: a fresh attempt resets the mutation. */}
-      {start.error && (
-        <p className="basis-full font-mono text-[10px] leading-snug text-red-300">{start.error.message}</p>
+      {refused && (
+        <p className="basis-full font-mono text-[10px] leading-snug text-red-300">{refused.message}</p>
       )}
     </>
   );
