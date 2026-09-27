@@ -273,10 +273,17 @@ export async function removeWorktree(repoPath: string, path: string, force = fal
  * /private/var/..., so a plain string compare marks every healthy worktree as
  * missing. Compare resolved paths, falling back to the literal when the path is
  * already gone.
+ *
+ * The native realpath, because it also gives back the case stored on disk, and
+ * the JS one hands back whatever case it was given. macOS ignores case by
+ * default, so `…/REEVE.db` and `/users/ryan/…` open the same file as the
+ * spelling on disk. Found as a way past the live-board check in the shell
+ * policy while verifying card 1cec1c89: a re-cased `REEVE_DB` compared unequal
+ * and was allowed.
  */
 export function realOrSelf(p: string): string {
   try {
-    return realpathSync(p);
+    return realpathSync.native(p);
   } catch {
     return p;
   }

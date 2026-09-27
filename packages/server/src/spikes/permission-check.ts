@@ -9,7 +9,7 @@
  */
 import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { config } from '../config.js';
@@ -99,8 +99,22 @@ if (config.dbFile.startsWith(`${homedir()}/`)) {
   const tilde = decideNode(`REEVE_DB=~${config.dbFile.slice(homedir().length)} npx tsx x.ts`);
   check('the live board by ~ refused', tilde.behavior === 'deny' && tilde.message.includes('reaps'));
 }
-check('~ inside quotes is literal', decideNode(`REEVE_DB="~/s.db" npx tsx x.ts`).behavior === 'allow');
 const [dir, file] = [dirname(config.dbFile), basename(config.dbFile)];
+// So do these, on a disk that ignores case, which is macOS's default. Only
+// where the re-cased path exists: on a case-sensitive disk, or with no database
+// at REEVE_DB yet, it names another file, and allowing it is right.
+for (const [name, recased] of [
+  ['the live board re-cased refused', `${dir}/${file.toUpperCase()}`],
+  ['the live board by a re-cased directory refused', `${dir.toUpperCase()}/${file}`],
+] as const) {
+  if (!existsSync(recased)) {
+    note(name, `skipped: nothing at ${recased}`);
+    continue;
+  }
+  const decision = decideNode(`REEVE_DB=${recased} npx tsx x.ts`);
+  check(name, decision.behavior === 'deny' && decision.message.includes('reaps'), decision.behavior);
+}
+check('~ inside quotes is literal', decideNode(`REEVE_DB="~/s.db" npx tsx x.ts`).behavior === 'allow');
 check('a partly quoted value refused', decideNode(`REEVE_DB=${dir}/"${file}" npx tsx x.ts`).behavior === 'deny');
 check('a backslash in the value refused', decideNode(`REEVE_DB=${dir}/\\${file} npx tsx x.ts`).behavior === 'deny');
 check('~someone refused', decideNode('REEVE_DB=~root/s.db npx tsx x.ts').behavior === 'deny');
