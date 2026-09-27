@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
+import { deleteAsset } from '../assets/store.js';
 import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedMove } from '../blockers.js';
 import type { Db } from '../db/client.js';
@@ -21,6 +22,7 @@ import {
   liveProject,
   liveTasksInProject,
   moveCard,
+  prunePastedAssets,
   restoreCard,
   restoreProject,
   runsForCard,
@@ -354,6 +356,12 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
     const updated = updateCard(db, id, parsed.data);
     if (!updated) return c.json({ error: 'not found' }, 404);
+    // Saving the brief is the one moment an image pasted into it can stop being
+    // linked, and nothing else ever deletes one. Only when the body was sent:
+    // renaming the card or flipping a toggle changes nothing it links.
+    if (parsed.data.body !== undefined) {
+      for (const path of prunePastedAssets(db, id)) deleteAsset(path);
+    }
     // A project's first brief is split on its own. Only the first: compared
     // against the body before this save, so rewording a brief later never
     // spends money unasked — that is the Split button's job. A refusal, or
