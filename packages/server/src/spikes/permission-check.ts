@@ -42,6 +42,14 @@ check(
   JSON.stringify(rewritten.behavior === 'allow' ? rewritten.updatedInput?.['command'] : rewritten.message?.slice(0, 40)),
 );
 check('git -C . allowed too', decide('git -C . log --oneline').behavior === 'allow');
+// The same directory on a disk that ignores case, so the same rewrite.
+if (existsSync(wt.toUpperCase())) {
+  const recased = decide(`git -C ${wt.toUpperCase()} status`);
+  check(
+    'git -C <worktree, re-cased> rewritten',
+    recased.behavior === 'allow' && recased.updatedInput?.['command'] === 'git status',
+  );
+}
 check('a subdirectory is refused', decide(`git -C ${join(wt, 'packages')} log`).behavior === 'deny');
 check('somewhere else is refused', decide('git -C /etc log').behavior === 'deny');
 check('plain allowed command allowed', decide('git log --oneline -5').behavior === 'allow');
