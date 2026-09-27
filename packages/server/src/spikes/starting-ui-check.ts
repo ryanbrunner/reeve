@@ -119,9 +119,12 @@ try {
 
   // A start from outside the page — the CLI, a sweep — is not pushed, so the
   // open card has only its own 3s poll to notice it by. No reload: that would
-  // pass whether the poll does or not.
-  await dialog.getByText('Starting Planning').waitFor({ timeout: 4_000 })
-    .catch(() => assert.fail('the open card did not turn to starting on its own within 4s of an outside start'));
+  // pass whether the poll does or not. 10s, not 4s: a 4s window failed two
+  // runs in three with the poll in place, depending on where its 3s fell
+  // against the start. Anything under the 20s setup still tells a card that
+  // polls from one that never looks again until the start is over.
+  await dialog.getByText('Starting Planning').waitFor({ timeout: 10_000 })
+    .catch(() => assert.fail('the open card did not turn to starting on its own within 10s of an outside start'));
   assert.ok((await detail(ready.id)).card.startingStage);
   console.log(`[reeve] open card read as starting ${Date.now() - t0}ms after the start`);
   await dialog.getByText(`Waiting on the repo’s setup, ${SETUP}, before Claude starts.`).waitFor({ timeout: 10_000 });
