@@ -108,23 +108,6 @@ export type PullRequestResult =
 
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
 
-/** An image the brief's editor pasted in, by the `src` the page was given for it. */
-const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
-
-/**
- * The card's body as a pull request description. A pasted image is linked by
- * its route on this server, which GitHub cannot reach and would show as a
- * broken picture, so each is left as its alt text instead: the reader learns
- * there was one, and the card still has it. Not uploaded, because `gh` has no
- * way to attach an image to a pull request, and not dropped, because a
- * sentence that says "like this:" should not then point at nothing.
- *
- * Parentheses rather than emphasis, since the alt may be a file name, and a
- * `_` or `*` in one would unbalance it.
- */
-const prDescription = (body: string) =>
-  body.trim().replace(PASTED, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
-
 /**
  * The card's body as a pull request description. A pasted image is linked by
  * its route on this server, which GitHub cannot reach and would show as a

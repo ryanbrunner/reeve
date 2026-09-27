@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { projectSplitOutput, type ProjectSplitOutput } from '@reeve/shared';
-import { absoluteAssetPath, relativeAssetPath, writeAsset } from '../assets/store.js';
+import { absoluteAssetPath, assetSrc, PASTED_IMAGE, relativeAssetPath, writeAsset } from '../assets/store.js';
 import type { Db } from '../db/client.js';
 import {
   addCriterion,
@@ -109,12 +109,6 @@ export const splitProjectTask: ClaudeTask<ProjectSplitOutput> = {
 };
 
 /**
- * An image the brief's editor pasted in, by the `src` the page was given for it.
- * The same pattern `briefFor` in runs/claude.ts finds them by.
- */
-const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
-
-/**
  * A task's brief with each pasted image it links swapped for a copy of its
  * own, file and row.
  *
@@ -130,7 +124,7 @@ const PASTED = /!\[([^\]\n]*)\]\(\/api\/assets\/([\w-]+)\)/g;
  */
 function copyPastedImages(db: Db, taskId: string, body: string): string {
   const copies = new Map<string, string>();
-  for (const [, , id] of body.matchAll(PASTED)) {
+  for (const [, , id] of body.matchAll(PASTED_IMAGE)) {
     if (!id || copies.has(id)) continue;
     const row = getAsset(db, id);
     if (row?.kind !== 'pasted') continue;
@@ -154,9 +148,9 @@ function copyPastedImages(db: Db, taskId: string, body: string): string {
     copies.set(id, copy.id);
   }
   if (!copies.size) return body;
-  return body.replace(PASTED, (link, alt: string, id: string) => {
+  return body.replace(PASTED_IMAGE, (link, alt: string, id: string) => {
     const copy = copies.get(id);
-    return copy ? `![${alt}](/api/assets/${copy})` : link;
+    return copy ? `![${alt}](${assetSrc(copy)})` : link;
   });
 }
 
