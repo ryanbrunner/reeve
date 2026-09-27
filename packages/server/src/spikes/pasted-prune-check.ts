@@ -3,7 +3,9 @@
  * links any more, row and file, and keeps every other picture: one the brief
  * still links, one a split task's brief still links after the project's has
  * dropped it, one pasted too recently to judge, a mockup, and another card's.
- * A save that leaves the body out prunes nothing.
+ * A save that leaves the body out prunes nothing. When the task's brief then
+ * drops the project's image too, the task's save deletes it, though the
+ * project owns it; one the project still links stays.
  *
  * The pasted rows are inserted directly, backdated past the grace period,
  * since uploading one with `kind=pasted` is the brief editor's route.
@@ -74,7 +76,10 @@ const fresh = picture(project.id, 'fresh', { fresh: true });
 const mockup = picture(project.id, 'mockup', { kind: 'mockup' });
 const othersOrphan = picture(other.id, "another card's");
 
-createCard(db, { title: 'Task', repoId: repo.id, projectId: project.id, body: `Copied from the project:\n\n${inTask.link}` });
+const task = createCard(db, {
+  title: 'Task', repoId: repo.id, projectId: project.id,
+  body: `Copied from the project:\n\n${inTask.link}\n\n${linked.link}`,
+});
 await patch(project.id, { body: `Before.\n\n${removed.link}\n\n${linked.link}\n\n${inTask.link}` });
 assert.ok([removed, linked, inTask, fresh, mockup, othersOrphan].every(kept), 'everything linked or exempt survives');
 
@@ -92,6 +97,14 @@ assert.ok(kept(inTask), "one a task's brief still links stays");
 assert.ok(kept(fresh), 'one inside the grace period stays');
 assert.ok(kept(mockup), 'a mockup is never a pasted image');
 assert.ok(kept(othersOrphan), "another card's images are its own save's business");
+
+// The task drops both of the project's images it linked. The project's brief
+// already dropped one and will not be saved again, so the task's save is the
+// last chance to notice; the other the project still links.
+await patch(task.id, { body: 'Written without the pictures.' });
+assert.ok(gone(inTask), "the project's image goes when the last task linking it drops it");
+assert.ok(kept(linked), 'but not while the project still links it');
+assert.ok(kept(othersOrphan), 'and the task judges only what its brief linked');
 
 // The other card's orphan goes when that card's own brief is saved.
 await patch(other.id, { body: 'Still nothing pasted here.' });
