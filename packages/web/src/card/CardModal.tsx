@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { CardActivity } from '@reeve/shared';
-import { ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE } from '../board/activity.js';
+import {
+  ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
+} from '../board/activity.js';
 import { api } from '../lib/api.js';
 import { CardHeader } from './CardHeader.js';
 import { Rail } from './Rail.js';
@@ -81,7 +83,9 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
     };
   }, [onClose]);
 
-  const activity = data?.card.activity ?? 'idle';
+  // Worn as the board card wears it, starting included; `live` above keys off
+  // the real activity, since a start has no run to stream yet.
+  const activity = data ? shownActivity(data.card) : 'idle';
   // The ring the card wears on the calm board when it is in VIBES MODE alone,
   // at this size too: it is the same card. Not in the board's VIBES MODE, which
   // dresses every card the same and so has nothing to single this one out for.
@@ -124,7 +128,9 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
                 <span />
               </span>
             )}
-            <span className="sr-only">{merged ? MERGED_LABEL : ACTIVITY_LABELS[activity]}</span>
+            <span className="sr-only">
+              {merged ? MERGED_LABEL : data.card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity]}
+            </span>
           </>
         )}
         {/* Decorative, and behind the header rather than the whole panel. */}
