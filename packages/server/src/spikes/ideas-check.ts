@@ -14,6 +14,7 @@ import { createApp } from '../index.js';
 import {
   archiveCard,
   cardEventsFor,
+  cardLinks,
   cardsInRepo,
   createCard,
   createRepo,
@@ -21,7 +22,6 @@ import {
   getCard,
   insertRun,
   moveCard,
-  refsFor,
   runsForCard,
   setRunStatus,
   updateSettings,
@@ -101,7 +101,7 @@ updateSettings(db, { vibes: true });
 await new Promise((r) => setTimeout(r, 1_100));
 
 // What an answer becomes: at most three cards in Backlog, made by Claude, each
-// pointing back at the card it came after, and nothing the repo already had.
+// suggested by the card it came after, and nothing the repo already had.
 const stored = getCard(db, second.id)!;
 const ctx = { card: stored, repo: shop, worktreePath: shop.repoPath } as StageContext;
 const before = cardsInRepo(db, shop.id).length;
@@ -120,12 +120,17 @@ for (const title of ['Gift notes', 'Wishlists', 'Reorder']) {
   assert.equal(created.actor, 'claude');
   assert.deepEqual(created.meta, { ideaFrom: second.id, runId: 'run' });
   assert.deepEqual(criteriaFor(db, c.id).map((x) => [x.text, x.source]), [[`${c.title} works`, 'claude']]);
-  assert.deepEqual(refsFor(db, c.id).map((r) => [r.kind, r.value]), [['card', String(second.number)]]);
+  // Named on the board as a stage's suggested task is, even with the card
+  // it came after merged and archived.
+  assert.equal(c.suggestedById, second.id);
+  assert.equal(cardLinks(db, c.id)(c.id).suggestedBy?.id, second.id, 'the board draws it as suggested');
 }
 assert.equal(ideasTask.summarise({ ideas: [] }), 'Thought of nothing worth doing');
 
-// Counted and told on the HUD, and a project's split, also made by Claude, is not.
+// Counted and told on the HUD, and a project's split, also made by Claude, is
+// not. Nor is a stage's suggested task, which is suggested by a card too.
 createCard(db, { title: 'From a split', repoId: shop.id, stage: 'backlog', actor: 'claude' });
+createCard(db, { title: 'An aside', repoId: shop.id, stage: 'backlog', suggestedById: second.id, actor: 'claude' });
 const state = vibesState(db)!;
 assert.equal(state.ideas, 3);
 assert.ok(state.log.includes('Claude thought of “Reorder” · building it next'), state.log.join('\n'));

@@ -125,7 +125,8 @@ export const card = sqliteTable(
      * a pair table like `card_dependency`: a card is suggested by one card at
      * most, the link is made once when the run lands and never changes, and it
      * cannot loop, since this card did not exist when its suggester ran. Only
-     * `recordSuggestions` in `../suggestions.ts` writes it; no route takes it.
+     * `recordSuggestions` in `../suggestions.ts` and VIBES MODE's ideas in
+     * `../stages/ideas.ts` write it; no route takes it.
      */
     suggestedById: text('suggested_by_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
