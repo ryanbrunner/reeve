@@ -1,5 +1,5 @@
 import { STAGE_LABELS, ideasOutput, type IdeasOutput } from '@reeve/shared';
-import { addCriterion, addRef, cardsInRepo, createCard } from '../db/queries.js';
+import { addCriterion, cardsInRepo, createCard } from '../db/queries.js';
 import { renderPrompt } from './template.js';
 import type { ClaudeTask } from './types.js';
 
@@ -60,15 +60,21 @@ export const ideasTask: ClaudeTask<IdeasOutput> = {
   onComplete: () => [],
 
   /**
-   * Into Backlog as Claude's, each pointing back at the card it was had after.
-   * Nothing is flagged for VIBES MODE on its own: these go because the board's
-   * switch is on, and wait for a person like any other card if it has gone off
-   * by the time they land.
+   * Into Backlog as Claude's, each suggested by the card it was had after, so
+   * the board draws where it came from the way it does for a stage's suggested
+   * tasks. The `created` event still says `ideaFrom`, because a suggested task
+   * is Claude's too, and that is what the HUD tells an idea apart by. Nothing
+   * is flagged for VIBES MODE on its own: these go because the board's switch
+   * is on, and wait for a person like any other card if it has gone off by the
+   * time they land.
    *
    * Clamped here as well as asked for in the prompt, because each one is a
    * card that will be built unread. A title the repo has already had, archived
    * included, is skipped, and so is one with no words in it, which would sit in
-   * Backlog as a placeholder the sweep never starts.
+   * Backlog as a placeholder the sweep never starts. Wider than
+   * `recordSuggestions`, which only skips what its own card suggested before:
+   * an idea is built with nobody reading it, so one that repeats shipped work
+   * is that work built twice.
    */
   onPersist(db, ctx, output, runId) {
     const repoId = ctx.card.repoId;
@@ -85,13 +91,13 @@ export const ideasTask: ClaudeTask<IdeasOutput> = {
         body: idea.body,
         repoId,
         stage: 'backlog',
+        suggestedById: ctx.card.id,
         actor: 'claude',
         meta: { ideaFrom: ctx.card.id, runId },
       });
       have.add(key);
       made += 1;
       for (const text of idea.criteria) addCriterion(db, created.id, text, 'claude');
-      addRef(db, created.id, 'card', String(ctx.card.number), `#${ctx.card.number} ${ctx.card.title}`);
     }
   },
 
