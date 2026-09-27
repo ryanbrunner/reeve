@@ -120,7 +120,7 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
  * `_` or `*` in one would unbalance it.
  */
 const prDescription = (body: string) =>
-  body.trim().replace(PASTED_IMAGE,(_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
+  body.trim().replace(PASTED_IMAGE, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
 
 /**
  * Push a Done card's branch to `origin` and open a pull request for it against
