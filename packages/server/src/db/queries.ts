@@ -9,6 +9,7 @@ import {
   type StageRunDefaults,
   type UpdateSettingsBody,
 } from '@reeve/shared';
+import { ASSET_ROUTE } from '../assets/store.js';
 import { config } from '../config.js';
 import { runTokens } from '../mappers.js';
 import type { Db } from './client.js';
@@ -1339,7 +1340,7 @@ export function prunePastedAssets(db: Db, cardId: string): string[] {
       lte(asset.createdAt, new Date(Date.now() - PASTED_GRACE_MS)),
       notExists(
         db.select({ id: card.id }).from(card)
-          .where(sql`instr(${card.body}, '/api/assets/' || ${asset.id}) > 0`),
+          .where(sql`instr(${card.body}, ${ASSET_ROUTE} || ${asset.id}) > 0`),
       ),
     ))
     .all();
