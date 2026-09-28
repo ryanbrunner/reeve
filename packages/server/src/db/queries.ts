@@ -109,7 +109,8 @@ export function inVibes(db: Db, c: Card): boolean {
 
 /**
  * The board's lanes: every live project, oldest first, with its default repo's
- * colour and how many live tasks it has.
+ * colour, how many live tasks it has, and how many it finished before the
+ * sweep archived them (see `ApiProject.archivedDoneCount`).
  */
 export function boardProjects(db: Db) {
   const tasks = db
@@ -118,11 +119,26 @@ export function boardProjects(db: Db) {
     .where(and(isTask, isNull(card.archivedAt), isNotNull(card.projectId)))
     .groupBy(card.projectId)
     .as('tasks');
+  // `archiveCard` leaves the stage alone, so an archived card still in Done is
+  // one that finished. Its own alias, not `n`, so the outer select cannot mix
+  // the two counts up.
+  const finished = db
+    .select({ projectId: card.projectId, archivedDone: sql<number>`count(*)`.as('archived_done') })
+    .from(card)
+    .where(and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'done'), isNotNull(card.projectId)))
+    .groupBy(card.projectId)
+    .as('finished');
   return db
-    .select({ card, laneColor: repo.laneColor, taskCount: sql<number>`coalesce(${tasks.n}, 0)` })
+    .select({
+      card,
+      laneColor: repo.laneColor,
+      taskCount: sql<number>`coalesce(${tasks.n}, 0)`,
+      archivedDoneCount: sql<number>`coalesce(${finished.archivedDone}, 0)`,
+    })
     .from(card)
     .leftJoin(repo, eq(card.repoId, repo.id))
     .leftJoin(tasks, eq(tasks.projectId, card.id))
+    .leftJoin(finished, eq(finished.projectId, card.id))
     .where(and(eq(card.kind, 'project'), isNull(card.archivedAt)))
     .orderBy(asc(card.createdAt))
     .all();

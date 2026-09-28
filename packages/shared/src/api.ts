@@ -251,6 +251,15 @@ export interface ApiProject {
   /** Live tasks under it. */
   taskCount: number;
   /**
+   * Tasks under it that were archived from Done: finished, then swept off the
+   * board. The lane's progress bar counts its live tasks from the board's own
+   * cards and adds these to Done, because the merge sweep archives a merged
+   * task ten minutes after it lands, and without them the Done segment would
+   * grow at each merge and shrink again once the sweep ran. A task archived
+   * from any other column was dropped on purpose and is counted nowhere.
+   */
+  archivedDoneCount: number;
+  /**
    * VIBES MODE for every task in this lane, beside each task's own `vibes`
    * rather than written into it: a task that leaves the lane leaves the mode,
    * and switching the project off puts back exactly the tasks nobody flagged.
