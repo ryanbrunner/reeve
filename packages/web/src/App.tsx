@@ -28,7 +28,7 @@ import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/
 import { Glyph } from './board/Glyph.js';
 import { LaneHeader } from './board/LaneHeader.js';
 import { LinksProvider } from './board/links.js';
-import { NewCardPicker } from './board/RepoPicker.js';
+import { NewCardPicker, RepoSelect } from './board/RepoPicker.js';
 import { useCollapsedLanes } from './board/useCollapsedLanes.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
@@ -239,7 +239,7 @@ export function App() {
     create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
   // VIBES MODE's Ship it: named already, so it is not opened, and under no
   // project, since the header has no lane to file it in.
-  const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
+  const shipIt = ({ repoId, title }: { repoId: string; title: string }) =>
     create.mutate({ title, repoId, stage: 'backlog' });
 
   // Which cards are on main, as one string so the identity only changes when
@@ -629,7 +629,7 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   repos: ApiRepo[];
   onAddProject: () => void;
   /** VIBES MODE's Ship it: a named card, made without opening it. */
-  onShip: (v: { repoId: string | null; title: string }) => void;
+  onShip: (v: { repoId: string; title: string }) => void;
   adding: boolean;
   addError: Error | null;
   /** Why the last drag was refused, while it is still worth saying. */
@@ -640,18 +640,18 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   vibes: Vibes;
 }) {
   // Only VIBES MODE's Ship it picks a repo here. On the calm board a card is
-  // added from the ghost in its lane and its repo picked in the card's header,
-  // but a shipped card is never opened, so this is its only chance.
-  // Filed under the first repo unless told otherwise, because an unfiled
-  // card is a dead one: no repo means no worktree, which means no stage can
-  // run.
-  // `null` is "hasn't said", `''` is "said no repo" — two different things,
-  // and collapsing them makes No repo unpickable: the fallback below would
-  // read the empty string as untouched and snap the select back to the first.
+  // added from the ghost in its lane, which asks for its repo when it is not
+  // obvious, but a shipped card is never opened, so this is its only chance.
+  // The same rule as the ghost: the only repo without asking, and otherwise
+  // nothing until one is picked, with no No repo, because an unfiled card is
+  // a dead one and the sweep would take it nowhere. The pick is kept for the
+  // next idea, which usually goes to the same place.
   const [repoId, setRepoId] = useState<string | null>(null);
   const [idea, setIdea] = useState('');
-  const chosen = repoId === '' || repos.some((p) => p.id === repoId);
-  const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
+  const filedUnder =
+    repos.length === 1 ? (repos[0]?.id ?? null)
+    : repos.some((r) => r.id === repoId) ? repoId
+    : null;
   const on = vibes.on;
   return (
     <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
@@ -676,26 +676,20 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
           e.preventDefault();
           if (!on) return onAddProject();
           const title = idea.trim();
-          if (!title) return;
-          onShip({ repoId: filedUnder || null, title });
+          if (!title || !filedUnder) return;
+          onShip({ repoId: filedUnder, title });
           setIdea('');
         }}
       >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
         {on && repos.length > 0 && (
-          <select
+          <RepoSelect
+            repos={repos}
             value={filedUnder}
-            onChange={(e) => setRepoId(e.target.value)}
-            aria-label="Repo for the new card"
-            className={`rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600 ${
-              on ? 'sk-field' : ''
-            }`}
-          >
-            {repos.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-            <option value="">No repo</option>
-          </select>
+            onChange={setRepoId}
+            label="Repo for the new card"
+            className="sk-field rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600"
+          />
         )}
         {on && (
           <>
@@ -716,7 +710,11 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
             column, in the lane they belong to. */}
         <button
           type="submit"
-          disabled={adding || (on && idea.trim() === '')}
+          disabled={adding || (on && (idea.trim() === '' || !filedUnder))}
+          title={
+            on && !filedUnder ? (repos.length === 0 ? 'Add a repo to ship ideas into' : 'Pick a repo for the idea')
+            : undefined
+          }
           className={`rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium whitespace-nowrap hover:bg-sky-600 disabled:opacity-40 ${
             on ? 'sk-add' : ''
           }`}
