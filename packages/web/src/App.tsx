@@ -81,7 +81,12 @@ export function App() {
           qc.setQueryData<BoardResponse>(['board'], {
             ...prev,
             cards: prev.cards.map((c) =>
-              c.id === id ? { ...c, stage, position, ...(projectId !== undefined ? { projectId } : {}) } : c,
+              c.id === id ? {
+                ...c, stage, position, ...(projectId !== undefined ? { projectId } : {}),
+                // Leaving Backlog takes a suggestion on, as the server records it;
+                // left pink until the refetch, it would glow in the wrong column.
+                pendingSuggestion: c.pendingSuggestion && stage === 'backlog',
+              } : c,
             ),
           });
         }

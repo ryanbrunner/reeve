@@ -86,6 +86,24 @@ export const MERGED_MARK = (
 
 export const MERGED_LABEL = 'Merged';
 
+/**
+ * A card a run suggested that nobody has decided on yet: pink, the colour the
+ * board already uses for suggestions, with a lightbulb, since it is an idea
+ * rather than work anyone asked for. A card fact like merged, and for the same
+ * reason not a `CardActivity`; the server works it out as `pendingSuggestion`.
+ * Only in Backlog, where no run colours a card anyway, so it never hides one.
+ */
+export const SUGGESTION_STYLE = 'card-glow card-glow-suggested';
+
+export const SUGGESTION_MARK = (
+  <Mark>
+    <path d="M9 14.5c-.3-1-.9-1.8-1.6-2.5A5.5 5.5 0 1 1 16.6 12c-.7.7-1.3 1.5-1.6 2.5" />
+    <path d="M9 18h6M10 21h4" />
+  </Mark>
+);
+
+export const SUGGESTION_LABEL = 'Suggestion';
+
 export function Mark({ children }: { children: React.ReactNode }) {
   return (
     <svg className="card-mark" viewBox="0 0 24 24" aria-hidden="true">
