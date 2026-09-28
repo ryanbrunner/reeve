@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
+import { RepoSelect } from '../board/RepoPicker.js';
 import { api } from '../lib/api.js';
 import { AttentionBand } from './AttentionBand.js';
 import { plural, sumTokens, tok, tokenTitle, when } from './format.js';
@@ -114,29 +115,37 @@ export function CardHeader({
             and its branch belong to the repo they were made in, and the server
             refuses the move for the same reason. A merged card's branch
             outlives its worktree, so that stays locked for good. */}
-        <select
-          value={card.repoId ?? ''}
+        <RepoSelect
+          repos={repos}
+          value={card.repoId}
+          onChange={(repoId) => refile.mutate(repoId)}
+          label="Repo"
+          // Refiling to none stays possible here, unlike on a new card: it is
+          // what a card already had, and the chip then asks for one again.
+          none
+          // A repo archived since is still the card's, so it stays pickable.
+          orphan={
+            card.repoId && !repos.some((r) => r.id === card.repoId) ?
+              { id: card.repoId, name: card.repoName ?? 'Unknown repo' }
+            : null
+          }
           disabled={Boolean(card.worktreePath || (card.mergedAt != null && card.branchName)) || refile.isPending}
-          onChange={(e) => refile.mutate(e.target.value || null)}
-          aria-label="Repo"
           title={
             card.worktreePath ? 'Remove the worktree before moving the card to another repo'
             : card.mergedAt != null && card.branchName ? 'Merged from this repo, where its branch is kept'
+            : !card.repoId ? 'Pick the repo the card runs in. It cannot run until it has one.'
             : card.kind === 'project' ? 'The repo the project is split from, and its tasks default to'
             : 'Move the card to another repo'
           }
-          className="field-sizing-content cursor-pointer appearance-none rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4 outline-none focus-visible:ring-1 focus-visible:ring-sky-600 disabled:cursor-default"
-          style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
-        >
-          {/* A repo archived since is still the card's, so it stays pickable. */}
-          {card.repoId && !repos.some((r) => r.id === card.repoId) && (
-            <option value={card.repoId}>{card.repoName ?? 'Unknown repo'}</option>
-          )}
-          {repos.map((r) => (
-            <option key={r.id} value={r.id}>{r.name}</option>
-          ))}
-          <option value="">No repo</option>
-        </select>
+          // With no repo it asks for one in the amber a card waiting on you
+          // wears, because it is waiting on you: nothing runs without it.
+          className={`rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4 outline-none focus-visible:ring-1 focus-visible:ring-sky-600 ${
+            card.repoId ? '' : 'bg-(--color-activity-input-fill) text-amber-200'
+          }`}
+          style={
+            card.repoId ? { background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' } : undefined
+          }
+        />
         {/* A project has no number and sits in no column. */}
         {card.kind === 'project' ?
           <>
