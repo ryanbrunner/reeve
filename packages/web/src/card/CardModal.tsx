@@ -62,7 +62,9 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
     // detail query so it rendered at once would let this take focus back.
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      // Handled already by something open inside the modal — the repo list in
+      // the header — whose Escape shuts only itself.
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       // Not while someone is typing. Escape closing the modal out from under a
       // half-written brief or a rejection note would throw away their words on
       // one keystroke. Leaving the field is enough, and the brief and title
