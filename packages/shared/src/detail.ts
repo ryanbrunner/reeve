@@ -364,4 +364,13 @@ export interface CardDetail {
   worktree: ApiWorktree;
   assets: ApiAsset[];
   differences: ApiDifference[];
+  /**
+   * A project's tasks that were archived after finishing, by the same rule as
+   * `ApiProject.archivedDoneCount`. Here for an archived project too, which is
+   * no lane on the board and so has no count there: the Tasks tab reads this
+   * once the lane is gone, or a project whose work had all merged would open on
+   * nothing. The Done tasks archived with the project are among them; its open
+   * tasks went to No project and are not. Always 0 for a task.
+   */
+  archivedDoneCount: number;
 }
