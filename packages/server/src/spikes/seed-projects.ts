@@ -4,13 +4,26 @@
  * lanes and a project's modal can all be tried without spending API credit.
  *
  * The first project reads as though it was split: its tasks were made by
- * Claude, with criteria, and it carries a finished split run.
+ * Claude, with criteria, and it carries a finished split run. It has a task in
+ * every column and one more merged and swept into the archive, so its lane's
+ * progress bar shows all five segments and reads 2/6.
  *
  *   REEVE_DB=data/reeve.db npx tsx packages/server/src/spikes/seed-projects.ts
  */
+import { eq } from 'drizzle-orm';
 import type { Stage } from '@reeve/shared';
 import { createApp } from '../index.js';
-import { addCriterion, createCard, createRepo, insertRun, listRepos, setRunStatus, updateCard } from '../db/queries.js';
+import { card } from '../db/schema.js';
+import {
+  addCriterion,
+  archiveCard,
+  createCard,
+  createRepo,
+  insertRun,
+  listRepos,
+  setRunStatus,
+  updateCard,
+} from '../db/queries.js';
 
 const { db } = createApp();
 
@@ -79,6 +92,21 @@ task('Saved list under the cart', 'backlog', web.id, saved.id, {
   claude: true,
   criteria: ['The saved list shows beneath the cart', 'Move to cart puts the line back'],
 });
+task('Saved count in the header', 'testing', web.id, saved.id, {
+  claude: true,
+  criteria: ['The header shows how many items are saved'],
+});
+
+// Merged now, so it stays on the board until the sweep's ten minutes are up,
+// and the bar should read the same after as before.
+const merged = (title: string) => {
+  const c = task(title, 'done', api.id, saved.id, { claude: true });
+  db.update(card).set({ mergedAt: new Date() }).where(eq(card.id, c.id)).run();
+  return c;
+};
+merged('Saved items API contract');
+// Finished and already swept away: counted in Done from the archive alone.
+archiveCard(db, merged('Saved items table migration').id, { reason: 'merged' });
 
 const checkout = project(
   'Faster checkout',
@@ -92,4 +120,4 @@ task('Fix the flaky tax rounding test', 'backlog', api.id, null);
 task('Bump the image CDN client', 'done', web.id, null);
 task('Typo in the footer', 'planning', web.id, null);
 
-console.log('[reeve] seeded two projects and their tasks, plus three cards under no project');
+console.log('[reeve] seeded two projects and their tasks, one of them archived, plus three cards under no project');
