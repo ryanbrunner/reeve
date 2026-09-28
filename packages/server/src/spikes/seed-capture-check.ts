@@ -34,10 +34,10 @@ const { ensureDevServer, waitForServer } = await import('../runs/devServer.js');
 const { runRegistry } = await import('../runs/registry.js');
 const { startShellRun } = await import('../runs/shell.js');
 const { planningStage } = await import('../stages/planning.js');
-const { testingStage } = await import('../stages/testing.js');
+const { seedForCapture, testingStage } = await import('../stages/testing.js');
 const { ensureWorktree } = await import('../startStage.js');
 
-const { db, writer } = createApp();
+const { app, db, writer } = createApp();
 
 const checks: Array<[string, boolean, string]> = [];
 const check = (name: string, ok: boolean, detail = '') => checks.push([name, ok, detail]);
@@ -180,6 +180,22 @@ const at = (d: Date | null | undefined) => d?.getTime() ?? NaN;
   check('failing: the capture was still taken', shotHeight(card.id) > 0, `${shotHeight(card.id)}px tall`);
 }
 
+// --- A seed that hangs, with its timeout cut to a second ----------------------------
+
+{
+  const card = await testingCard('seed hangs', { mockup: false });
+  const hanging = 'sleep 30';
+  const began = Date.now();
+  const note = await seedForCapture(
+    db, writer, { card, repo: { ...repo, seedCommand: hanging }, worktreePath: card.worktreePath! }, 1_000,
+  );
+  const [seed] = shells(card.id);
+  check('hangs: the note says it was stopped', note?.includes(`\`${hanging}\` was still running after 1 seconds`) ?? false, String(note));
+  check('hangs: its run ended as stopped', seed?.status === 'cancelled', String(seed?.status));
+  check('hangs: ...and is no longer live', seed !== undefined && runRegistry.get(seed.id) === undefined, String(seed?.id));
+  check('hangs: it was not waited out', Date.now() - began < 10_000, `${Date.now() - began}ms`);
+}
+
 // --- No seed command: a running server is left alone ------------------------------
 
 {
@@ -216,6 +232,29 @@ const at = (d: Date | null | undefined) => d?.getTime() ?? NaN;
   });
   await handle.done;
   check('env: a repo command sees neither REEVE_DB nor REEVE_ASSETS', seen[0] === '[null,null]', seen[0] ?? 'nothing printed');
+}
+
+// --- The field, over the wire as the Settings form and `reeve repos` send it ------
+
+{
+  const patch = async (seedCommand: string | null) => {
+    const res = await app.request(`/api/repos/${repo.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ seedCommand }),
+    });
+    return { status: res.status, json: (await res.json()) as { seedCommand?: string | null; detail?: string } };
+  };
+  const saved = await patch('node seed.mjs --rows 40');
+  const listed = (await (await app.request('/api/repos')).json()) as Array<{ id: string; seedCommand: string | null }>;
+  check('wire: a seed command is saved', saved.status === 200 && saved.json.seedCommand === 'node seed.mjs --rows 40', JSON.stringify(saved.json.seedCommand));
+  check('wire: ...and read back', listed.find((r) => r.id === repo.id)?.seedCommand === 'node seed.mjs --rows 40', '');
+  const cleared = await patch(null);
+  check('wire: null clears it', cleared.status === 200 && cleared.json.seedCommand === null, JSON.stringify(cleared.json.seedCommand));
+  const port = await patch('node seed.mjs {{port}}');
+  check('wire: {{port}} is refused', port.status === 400, `${port.status} ${port.json.detail}`);
+  const typo = await patch('node seed.mjs {{prot}}');
+  check('wire: an unknown variable is refused', typo.status === 400, `${typo.status} ${typo.json.detail}`);
 }
 
 // --- Planning is told what the captures will be taken against -----------------------

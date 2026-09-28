@@ -218,10 +218,14 @@ const SEED_TIMEOUT_MS = 120_000;
  *
  * Never throws: like everything in `prepare`, a seed that fails or hangs is
  * reported, and the pictures are taken anyway. Null when there was nothing to
- * seed, or no server to photograph once it had been.
+ * seed, or no server to photograph once it had been. Exported, with its
+ * timeout, for the spike that cannot wait two minutes to see one run out.
  */
-async function seedForCapture(
-  db: Db, writer: EventWriter, ctx: Pick<StageContext, 'card' | 'repo' | 'worktreePath'>,
+export async function seedForCapture(
+  db: Db,
+  writer: EventWriter,
+  ctx: Pick<StageContext, 'card' | 'repo' | 'worktreePath'>,
+  timeoutMs = SEED_TIMEOUT_MS,
 ): Promise<string | null> {
   const { card, repo } = ctx;
   if (!repo.seedCommand || !repo.serverCommand) return null;
@@ -238,12 +242,12 @@ async function seedForCapture(
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), SEED_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(null), timeoutMs);
   });
   const ended = await Promise.race([handle.done, timedOut]).finally(() => clearTimeout(timer));
 
   if (!ended) {
-    const seconds = SEED_TIMEOUT_MS / 1000;
+    const seconds = timeoutMs / 1000;
     // On the run itself, so its log says why it was cut off.
     writer.append(handle.runId, 'error', { message: `Stopped by Testing: still seeding after ${seconds} seconds` });
     await runRegistry.get(handle.runId)?.stop('cancelled_by_user');
