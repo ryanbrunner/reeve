@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 import { config } from '../config.js';
 
 /**
- * Where a card's images live: `data/assets/<cardId>/<assetId>.<ext>`.
+ * Where a card's images live: `<config.assetsDir>/<cardId>/<assetId>.<ext>`,
+ * which is `data/assets` in a checkout and `~/.reeve/assets` in an install.
  *
  * Stored relative to `config.assetsDir` so the data directory can move without
  * rewriting every row, and namespaced by card so deleting a card's files is one

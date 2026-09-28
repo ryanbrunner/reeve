@@ -82,6 +82,10 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
     const server = serve({ fetch: app.fetch, port, hostname: config.hostname }, (info) => {
       const url = `http://${config.hostname}:${info.port}`;
       console.log(`[reeve] ${url}`);
+      // Named at every boot, so an installed user can find their board, and a
+      // checkout that took itself for an install (an empty ~/.reeve board where
+      // data/ was expected) says so at once rather than looking like data loss.
+      console.log(`[reeve] board: ${config.dbFile}`);
 
       // Out here rather than in createApp, which the spikes call and which should
       // not start a CLI each time. Warmed now so the first picker and the first

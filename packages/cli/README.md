@@ -23,6 +23,13 @@ it over HTTP and never opens the database: creating or moving a card starts runs
 the server holds in memory. It looks for Reeve at `$REEVE_URL`, else
 `http://127.0.0.1:$REEVE_PORT`, else `http://127.0.0.1:4317`.
 
+The board, its database and its images, lives in the checkout's gitignored
+`data/` when Reeve runs from a git checkout, and in `~/.reeve` when it runs
+from an installed copy (the same on macOS and Linux; `XDG_DATA_HOME` plays no
+part). Either is created on first run, and the server prints the database's
+path when it starts. `REEVE_DB` and `REEVE_ASSETS`, or `reeve serve --db` and
+`--assets`, put it anywhere else.
+
 ## Reading
 
 ```sh
