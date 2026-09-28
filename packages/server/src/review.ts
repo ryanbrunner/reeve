@@ -60,7 +60,7 @@ export function approveStage(
 }
 
 export type Revision =
-  | { ok: true; revisionRunId: string; forkedFrom: string | null }
+  | { ok: true; revisionRunId: string; forkedFrom: string | null; done: Promise<void> }
   | { ok: false; error: string; status: 409 | 501 };
 
 /**
@@ -105,5 +105,5 @@ export async function sendBackForRevision(
     parentRunId: lastRun.id,
   });
   if (!revision.ok) return { ok: false, error: revision.error, status: 409 };
-  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId };
+  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId, done: revision.done };
 }
