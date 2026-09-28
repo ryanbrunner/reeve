@@ -72,12 +72,18 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
-`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBES_SWEEP_MS`. By default the database is
-`data/reeve.db` and mockups and screenshots go in `data/assets/`; `data/` is
-gitignored and created at runtime. The server binds to 127.0.0.1 only.
-Its default paths, and the built web app's, are resolved from the repo root
-rather than the working directory, so the server behaves the same wherever it
-is started.
+`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBES_SWEEP_MS`. Where the board lives
+depends on whether the package root has a `.git` (a card's worktree counts).
+In a checkout the database is `data/reeve.db` and mockups and screenshots go
+in `data/assets/`; `data/` is gitignored. An installed copy, which has no
+`.git`, uses `~/.reeve/reeve.db` and `~/.reeve/assets/` instead, on every
+platform, so a Homebrew upgrade into a new Cellar directory keeps the board.
+Either directory is created on first run. `REEVE_DB` and `REEVE_ASSETS`, or
+`reeve serve --db` and `--assets`, win over both. The server binds to
+127.0.0.1 only. The migrations and the built web app are part of the install
+and always resolve from the package's own location, as does `data/` in a
+checkout, never from the working directory, so the server behaves the same
+wherever it is started.
 
 The CLI's commands other than `serve` find the server at `--url`, then
 `REEVE_URL`, then `http://127.0.0.1:4317`. A server started on another port
