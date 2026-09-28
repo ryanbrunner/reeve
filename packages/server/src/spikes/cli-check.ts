@@ -19,7 +19,7 @@ import { promisify } from 'node:util';
 import { serve } from '@hono/node-server';
 import type { ApiCard, ApiCriterion } from '@reeve/shared';
 import { config } from '../config.js';
-import { cardEventsFor, createRepo, criteriaFor, getCard, insertRun, refsFor, setRunStatus } from '../db/queries.js';
+import { cardEventsFor, createCard, createRepo, criteriaFor, getCard, insertRun, refsFor, setRunStatus } from '../db/queries.js';
 import { createApp } from '../index.js';
 
 const { app, db } = createApp();
@@ -253,6 +253,53 @@ assert.match(detached.stdout, /Archived .*\. Moved 1 card to No project\./);
 assert.ok(getCard(db, projectId)?.archivedAt);
 assert.equal(getCard(db, filed.id)?.projectId, null);
 assert.equal((await reeve('card', 'restore', projectId, '--detach-open')).code, 2);
+
+// --- accept and dismiss -----------------------------------------------------
+
+// Suggested as a run would suggest them: `card add` makes a person's card, and
+// the route refuses those.
+const suggest = (title: string) =>
+  createCard(db, { title, repoId: web.id, suggestedById: giftId, actor: 'claude' });
+const kept = suggest(`Wrap it ${stamp}`);
+const turnedDown = suggest(`Gift receipts ${stamp}`);
+
+// --json is the route's card, alone on stdout, and it is still in Backlog.
+const accepted = JSON.parse((await ok('card', 'accept', `${web.name}#${kept.number}`, '--json')).stdout) as ApiCard;
+assert.equal(accepted.id, kept.id);
+assert.equal(accepted.pendingSuggestion, false);
+assert.equal(accepted.stage, 'backlog');
+assert.equal(accepted.archivedAt, null);
+assert.ok(getCard(db, kept.id)?.suggestionAcceptedAt);
+const again = await reeve('card', 'accept', kept.id);
+assert.equal(again.code, 1);
+assert.match(again.stderr, /not a pending suggestion: the suggestion was already accepted/);
+
+const dismissed = await ok('card', 'dismiss', turnedDown.id.slice(0, 8));
+assert.match(dismissed.stdout, new RegExp(`Dismissed ${web.name}#${turnedDown.number}: it is archived`));
+assert.ok(getCard(db, turnedDown.id)?.archivedAt);
+await ok('card', 'restore', turnedDown.id);
+assert.equal(getCard(db, turnedDown.id)?.archivedAt, null);
+
+// A person's card is refused either way, for the reason the server gives.
+for (const verb of ['accept', 'dismiss']) {
+  const personal = await reeve('card', verb, thirdId);
+  assert.equal(personal.code, 1);
+  assert.match(personal.stderr, /a person made this card/);
+}
+assert.equal(getCard(db, thirdId)?.archivedAt, null);
+assert.equal(getCard(db, thirdId)?.suggestionAcceptedAt, null);
+
+// One card, always named; the verb's own help says what it does.
+const none = await reeve('card', 'accept');
+assert.equal(none.code, 2);
+assert.match(none.stderr, /reeve card accept <card>/);
+const two = await reeve('card', 'dismiss', kept.id, turnedDown.id);
+assert.equal(two.code, 2);
+assert.match(two.stderr, /reeve card dismiss <card>/);
+assert.match((await ok('card', 'accept', '--help')).stdout, /stays in Backlog/);
+assert.match((await ok('card', 'dismiss', '--help')).stdout, /archived, not[\s\S]*`card restore` brings/);
+assert.match((await ok('card', '--help')).stdout, /reeve card accept[\s\S]*reeve card dismiss/);
+assert.match((await ok('--help')).stdout, /archive \/ restore \/ accept \/ dismiss/);
 
 console.log(`cli-check: every assertion passed against ${url}`);
 server.close();

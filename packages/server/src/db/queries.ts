@@ -108,6 +108,15 @@ export function inVibes(db: Db, c: Card): boolean {
 }
 
 /**
+ * A project's task that finished and was then archived, by the merge sweep or
+ * with its project: what `archivedDoneCount` counts. `archiveCard` leaves the
+ * stage alone, so an archived card still in Done is one that finished, and one
+ * archived from any other column was dropped on purpose. One definition for
+ * the lane and the modal, so the two can never count differently.
+ */
+const isArchivedDone = and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'done'), isNotNull(card.projectId));
+
+/**
  * The board's lanes: every live project, oldest first, with its default repo's
  * colour, how many live tasks it has, and how many it finished before the
  * sweep archived them (see `ApiProject.archivedDoneCount`).
@@ -119,13 +128,11 @@ export function boardProjects(db: Db) {
     .where(and(isTask, isNull(card.archivedAt), isNotNull(card.projectId)))
     .groupBy(card.projectId)
     .as('tasks');
-  // `archiveCard` leaves the stage alone, so an archived card still in Done is
-  // one that finished. Its own alias, not `n`, so the outer select cannot mix
-  // the two counts up.
+  // Its own alias, not `n`, so the outer select cannot mix the two counts up.
   const finished = db
     .select({ projectId: card.projectId, archivedDone: sql<number>`count(*)`.as('archived_done') })
     .from(card)
-    .where(and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'done'), isNotNull(card.projectId)))
+    .where(isArchivedDone)
     .groupBy(card.projectId)
     .as('finished');
   return db
@@ -142,6 +149,21 @@ export function boardProjects(db: Db) {
     .where(and(eq(card.kind, 'project'), isNull(card.archivedAt)))
     .orderBy(asc(card.createdAt))
     .all();
+}
+
+/**
+ * One project's `archivedDoneCount`, whether or not the project is live. An
+ * archived project is no lane, so `boardProjects` has no row for it, and its
+ * modal asks here instead. Archiving a project archives its Done tasks with
+ * their `projectId` kept, so they count with the ones swept before it; its
+ * open tasks went to No project, and do not.
+ */
+export function archivedDoneCountFor(db: Db, projectId: string): number {
+  return db
+    .select({ n: sql<number>`count(*)` })
+    .from(card)
+    .where(and(isArchivedDone, eq(card.projectId, projectId)))
+    .get()?.n ?? 0;
 }
 
 /** A live project, or nothing: the check behind every card put under one. */

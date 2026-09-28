@@ -74,6 +74,8 @@ reeve card archive <card> [--detach-open]
 reeve card restore <card>
 reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--seed CMD] [--server CMD] …
 reeve repos show <repo> [--json]
+reeve card accept <card>
+reeve card dismiss <card>
 ```
 
 `reeve card move --help`, and the same for every command that writes, says what
@@ -100,6 +102,15 @@ blank one clears it. `--seed` is the command Testing runs before its
 screenshots, after stopping the card's dev server and before starting it again,
 so the pictures show fixture data rather than an empty page. `repos show`
 prints it as the Seed row.
+
+**`card accept` and `card dismiss` are for cards a run suggested**, the Accept
+and Reject buttons on a suggestion's face; `card approve` and `card reject` are
+the review gate, and have nothing to do with them. Accepting leaves the card in
+Backlog and takes away its badge. Dismissing archives it, which also stops the
+same title being suggested again, and `card restore` brings it back. Anything
+else — a card a person made, one already decided, one out of Backlog — is
+refused, and the refusal says which. A script finds the ones waiting in
+`board --json`, as the `cards` with `pendingSuggestion` true.
 
 Criteria are numbered from 1, as `criteria list` shows them. There is no
 `criteria check`: a verdict is Testing's, and belongs to the run that reached it.
@@ -130,15 +141,17 @@ reeve card move "$id" planning
 as the web app gets it, typed by `@reeve/shared` — while anything said to a
 person goes to stderr.
 
-| Command            | Endpoint                      | Type                  |
-| ------------------ | ----------------------------- | --------------------- |
-| `board`            | `GET /api/board`              | `BoardResponse`       |
-| `board --archived` | `GET /api/cards/archived`     | `ApiCard[]`           |
-| `card show`        | `GET /api/cards/:id/detail`   | `CardDetail`          |
-| `repos`            | `GET /api/repos`              | `ApiRepo[]`           |
-| `runs`             | `GET /api/cards/:id/runs`     | `ApiRunSummary[]`     |
-| `card archive`     | `POST /api/cards/:id/archive` | `ArchiveCardResponse` |
-| `card restore`     | `POST /api/cards/:id/restore` | `ApiCard`             |
+| Command            | Endpoint                         | Type                  |
+| ------------------ | -------------------------------- | --------------------- |
+| `board`            | `GET /api/board`                 | `BoardResponse`       |
+| `board --archived` | `GET /api/cards/archived`        | `ApiCard[]`           |
+| `card show`        | `GET /api/cards/:id/detail`      | `CardDetail`          |
+| `repos`            | `GET /api/repos`                 | `ApiRepo[]`           |
+| `runs`             | `GET /api/cards/:id/runs`        | `ApiRunSummary[]`     |
+| `card archive`     | `POST /api/cards/:id/archive`    | `ArchiveCardResponse` |
+| `card restore`     | `POST /api/cards/:id/restore`    | `ApiCard`             |
+| `card accept`      | `POST /api/cards/:id/suggestion` | `ApiCard`             |
+| `card dismiss`     | `POST /api/cards/:id/suggestion` | `ApiCard`             |
 
 `board`'s filters narrow the arrays in that document and leave its shape
 alone: `cards` loses what does not match, and `projects` loses projects outside

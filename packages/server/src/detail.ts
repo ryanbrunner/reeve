@@ -13,6 +13,7 @@ import {
 import { toBoardCard } from './board.js';
 import type { Db } from './db/client.js';
 import {
+  archivedDoneCountFor,
   assetsFor,
   cardEventsFor,
   cardsSuggestedBy,
@@ -87,6 +88,7 @@ export async function cardDetail(
     worktree: await worktreeFacts(db, card, repo, runs),
     assets: assetsFor(db, card.id).map(toApiAsset),
     differences: differencesFor(db, card.id).map(toApiDifference),
+    archivedDoneCount: card.kind === 'project' ? archivedDoneCountFor(db, card.id) : 0,
   };
 }
 

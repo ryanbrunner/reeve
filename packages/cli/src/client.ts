@@ -22,6 +22,7 @@ import {
   type MoveCardBody,
   type ResolveConflictsResponse,
   type Stage,
+  type SuggestionDecisionBody,
   type UpdateRepoBody,
   type UpdateSettingsBody,
 } from '@reeve/shared';
@@ -218,6 +219,9 @@ export const api = {
   archiveCard: (id: string, body?: ArchiveCardBody) =>
     write<ArchiveCardResponse>('POST', `/api/cards/${enc(id)}/archive`, body),
   restoreCard: (id: string) => write<ApiCard>('POST', `/api/cards/${enc(id)}/restore`),
+  /** Accepting keeps a suggested card in Backlog; rejecting archives it. Refused for anything else. */
+  decideSuggestion: (id: string, decision: SuggestionDecisionBody['decision']) =>
+    write<ApiCard>('POST', `/api/cards/${enc(id)}/suggestion`, { decision } satisfies SuggestionDecisionBody),
   splitProject: (id: string) => write<{ ok: true; runId: string }>('POST', `/api/cards/${enc(id)}/split`),
 
   criteria: (id: string) => request<ApiCriterion[]>(`/api/cards/${enc(id)}/criteria`),
