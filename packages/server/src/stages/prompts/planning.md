@@ -52,7 +52,7 @@ independent of each other.
 `captures` names the states worth a screenshot when this is tested. Only states
 reachable by URL alone: the capturer opens a path at a viewport width and takes
 a picture, it does not click through a journey. Leave it empty for work with no
-visible surface.
+visible surface. {{seed}}
 
 Leave `mockups` empty unless a Mockups section below asks you to draw them.
 

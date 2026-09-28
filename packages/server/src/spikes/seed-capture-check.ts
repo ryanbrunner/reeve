@@ -33,6 +33,7 @@ const { assetsFor, createCard, createRepo, getCard, getRun, insertAsset, insertR
 const { ensureDevServer, waitForServer } = await import('../runs/devServer.js');
 const { runRegistry } = await import('../runs/registry.js');
 const { startShellRun } = await import('../runs/shell.js');
+const { planningStage } = await import('../stages/planning.js');
 const { testingStage } = await import('../stages/testing.js');
 const { ensureWorktree } = await import('../startStage.js');
 
@@ -215,6 +216,18 @@ const at = (d: Date | null | undefined) => d?.getTime() ?? NaN;
   });
   await handle.done;
   check('env: a repo command sees neither REEVE_DB nor REEVE_ASSETS', seen[0] === '[null,null]', seen[0] ?? 'nothing printed');
+}
+
+// --- Planning is told what the captures will be taken against -----------------------
+
+{
+  const card = await testingCard('planning prompt', { mockup: false });
+  const prompt = (withRepo: Repo) =>
+    planningStage.buildPrompt({ card, repo: withRepo, worktreePath: card.worktreePath!, brief: '' });
+  const seeded = prompt(repo);
+  check('planning: the prompt names the seed command', seeded.includes(`seed command, \`${SEED}\``), '');
+  check('planning: ...and says to extend it for a state it lacks', seeded.includes('extends the seed script'), '');
+  check('planning: with none, it says there is none', prompt({ ...repo, seedCommand: null }).includes('has no seed command'), '');
 }
 
 for (const run of runRegistry.all()) await run.stop('cancelled_by_user');
