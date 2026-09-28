@@ -96,9 +96,13 @@ export const repo = sqliteTable('repo', {
   repoPath: text('repo_path').notNull(),
   worktreeRoot: text('worktree_root').notNull(),
   defaultBranch: text('default_branch').notNull().default('main'),
-  // Any of the four lifecycle commands may be blank.
+  // Any of the six lifecycle commands may be blank.
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
+  // Puts fixture data where the dev server will read it. Testing runs it, with
+  // the card's server stopped, before taking its screenshots, so a capture
+  // shows the state the mockup draws rather than an empty page.
+  seedCommand: text('seed_command'),
   serverCommand: text('server_command'),
   // Where the dev server can be reached when the repo knows better than the
   // server's own output, e.g. `https://{{slug}}.test` behind a local proxy.

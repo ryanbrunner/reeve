@@ -38,7 +38,7 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
-import { SERVER_VARS, unknownVars } from '../runs/serverUrl.js';
+import { SERVER_VARS, unknownVars, usesVar } from '../runs/serverUrl.js';
 import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
@@ -105,6 +105,14 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
+  // Filled like the server's, but it runs before the server has been given a
+  // port, so a `{{port}}` here would reach the shell as written.
+  seedCommand: z
+    .string()
+    .nullable()
+    .optional()
+    .superRefine(knownVarsOnly('Seed command'))
+    .refine((v) => !v || !usesVar(v, 'port'), 'Seed command runs before the server has a port, so it cannot use {{port}}'),
   serverCommand: z.string().nullable().optional().superRefine(knownVarsOnly('Server command')),
   serverUrl: z
     .string()
