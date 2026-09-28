@@ -4,9 +4,16 @@ import { Empty, SectionHead } from '../ui.js';
 /**
  * A project's tasks, in the order the board would show them: by column left to
  * right, then by place in the column. Each opens in this one's place.
+ *
+ * The ones the sweep archived after they finished are not on the board to list,
+ * so they are a count at the end, and the count at the top includes them: the
+ * number must match the lane's bar, and a project whose work had all merged
+ * must not read as one never started.
  */
-export function TasksTab({ tasks, loading, onOpen }: {
+export function TasksTab({ tasks, archivedDone, loading, onOpen }: {
   tasks: ApiCard[];
+  /** The project's `archivedDoneCount`. */
+  archivedDone: number;
   loading: boolean;
   onOpen: (id: string) => void;
 }) {
@@ -15,9 +22,15 @@ export function TasksTab({ tasks, loading, onOpen }: {
   );
   return (
     <section className="flex flex-col gap-2">
-      <SectionHead count={tasks.length || undefined}>Tasks</SectionHead>
+      <SectionHead count={tasks.length + archivedDone || undefined}>Tasks</SectionHead>
       {loading ?
         <Empty>Loading tasks…</Empty>
+      : ordered.length === 0 && archivedDone > 0 ?
+        <Empty>
+          {archivedDone === 1 ?
+            'Its one task finished and was archived. The Archive has it.'
+          : `All ${archivedDone} tasks finished and were archived. The Archive has them.`}
+        </Empty>
       : ordered.length === 0 ?
         <Empty>Nothing yet. Write the brief and Claude will split it into tasks, or add them from the board.</Empty>
       : <ul className="rounded-md border border-(--color-edge) bg-(--color-ink)">
@@ -44,6 +57,12 @@ export function TasksTab({ tasks, loading, onOpen }: {
               </button>
             </li>
           ))}
+          {/* Not a button: there is no card on the board to open. */}
+          {archivedDone > 0 && (
+            <li className="border-t border-(--color-edge) px-3 py-[7px] text-sm/5 text-(--color-muted)">
+              {archivedDone} more finished and archived
+            </li>
+          )}
         </ul>
       }
     </section>

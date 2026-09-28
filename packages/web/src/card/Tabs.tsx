@@ -46,14 +46,18 @@ export function Tabs({ detail, onOpen, vibes = false }: {
     enabled: Boolean(worktree.path || (worktree.branch && worktree.base) || detail.card.mergedSha) && !vibes,
   });
   // The board already holds every task, so the Tasks tab reads them from there
-  // rather than asking for them again.
+  // rather than asking for them again. It holds the live ones only: those the
+  // sweep archived after they finished are a count on the project's lane, and
+  // the tab counts them too, or a project whose work had all merged would
+  // open on nothing. An archived project has no lane, and counts none.
   const board = useQuery({ queryKey: ['board'], queryFn: api.board, enabled: project });
   const tasks = board.data?.cards.filter((c) => c.projectId === detail.card.id) ?? [];
+  const archivedDone = board.data?.projects.find((p) => p.id === detail.card.id)?.archivedDoneCount ?? 0;
 
   const shots = detail.assets.filter((a) => a.kind === 'screenshot');
   const all: Array<{ id: TabId; label: string; count?: string | number }> = project ? [
     { id: 'brief', label: 'Brief' },
-    { id: 'tasks', label: 'Tasks', count: tasks.length || undefined },
+    { id: 'tasks', label: 'Tasks', count: tasks.length + archivedDone || undefined },
     { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
   ] : [
     { id: 'brief', label: 'Brief', count: detail.criteria.length || undefined },
@@ -104,7 +108,7 @@ export function Tabs({ detail, onOpen, vibes = false }: {
       {/* Scrolls: the artboards are fixed-size canvases, a real card is not. */}
       <div role="tabpanel" className="flex min-h-0 grow flex-col gap-[18px] overflow-y-auto p-5">
         {tab === 'brief' && <BriefTab detail={detail} />}
-        {tab === 'tasks' && <TasksTab tasks={tasks} loading={board.isLoading} onOpen={onOpen} />}
+        {tab === 'tasks' && <TasksTab tasks={tasks} archivedDone={archivedDone} loading={board.isLoading} onOpen={onOpen} />}
         {tab === 'plan' && <PlanTab detail={detail} />}
         {tab === 'changes' && <ChangesTab detail={detail} />}
         {tab === 'diff' && <DiffTab detail={detail} diff={diff.data ?? null} loading={diff.isLoading} />}
