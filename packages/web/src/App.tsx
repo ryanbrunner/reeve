@@ -305,8 +305,14 @@ export function App() {
 
   // A lane per project, oldest first, then everything that belongs to none.
   const lanes = [
-    ...projects.map((p) => ({ id: p.id as string | null, name: p.title, color: p.laneColor, solo: p.vibes })),
-    { id: null, name: 'No project', color: null, solo: false },
+    ...projects.map((p) => ({
+      id: p.id as string | null,
+      name: p.title,
+      color: p.laneColor,
+      solo: p.vibes,
+      archivedDone: p.archivedDoneCount,
+    })),
+    { id: null, name: 'No project', color: null, solo: false, archivedDone: 0 },
   ];
 
   /*
@@ -334,6 +340,7 @@ export function App() {
               name={lane.name}
               color={lane.color}
               cards={laneCards}
+              archivedDone={lane.archivedDone}
               collapsed={collapsed}
               onToggle={() => collapsedLanes.toggle(key)}
               onOpen={openAndClose.open}

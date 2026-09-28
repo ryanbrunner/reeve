@@ -67,6 +67,18 @@
   --color-sug-fill: #ec489926;
   --color-sug-ring: #f472b6;
 
+  /* A project's progress bar, one segment per column. Slate, although slate
+     is otherwise left to utilities, because these name a column rather than a
+     shade: every hue a card can wear already says something, and a sky In
+     Progress segment would read as a running card. So the open columns step
+     from dark to light as work moves right, and Done alone takes a colour,
+     merged's green. The shades alone cannot name a column, which is why the
+     bar's tooltip does. */
+  --color-stage-backlog: #475569;
+  --color-stage-planning: #64748b;
+  --color-stage-in-progress: #94a3b8;
+  --color-stage-testing: #cbd5e1;
+
   --shadow-card-glow-running: inset 0 0 18px 0 #00a6f459, inset 0 0 4px 0 #00a6f466, 0 0 18px -8px #00a6f48c;
   --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
