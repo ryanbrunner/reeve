@@ -16,6 +16,7 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     defaultBranch: 'main',
     setupCommand: null,
     testCommand: null,
+    seedCommand: null,
     serverCommand: null,
     serverUrl: null,
     teardownCommand: null,

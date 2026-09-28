@@ -162,6 +162,13 @@
       "when": 1790561859655,
       "tag": "0022_suggestion_accepted",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1790592784748,
+      "tag": "0023_repo_seed_command",
+      "breakpoints": true
     }
   ]
 }

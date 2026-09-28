@@ -316,6 +316,7 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     defaultBranch: repo?.defaultBranch ?? '',
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
+    seedCommand: repo?.seedCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
     serverUrl: repo?.serverUrl ?? '',
     teardownCommand: repo?.teardownCommand ?? '',
@@ -352,6 +353,7 @@ function RepoForm({
         repoPath: form.repoPath.trim(),
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
+        seedCommand: blankIsNull(form.seedCommand),
         serverCommand: blankIsNull(form.serverCommand),
         serverUrl: blankIsNull(form.serverUrl),
         teardownCommand: blankIsNull(form.teardownCommand),
@@ -442,6 +444,12 @@ function RepoForm({
         </Field>
         <Field label="Test" hint="What Testing runs to check the work.">
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
+        </Field>
+        <Field
+          label="Seed"
+          hint="Fixture data for Testing's screenshots. Before it takes them, Testing stops the card's dev server, runs this, then starts the server again, so a Preview open on the card restarts on this data. Sees REEVE_WORKTREE and REEVE_SLUG."
+        >
+          <Text value={form.seedCommand} onChange={set('seedCommand')} placeholder="npm run db:seed" mono />
         </Field>
         <Field
           label="Server"
