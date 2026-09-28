@@ -49,10 +49,15 @@ export function Tabs({ detail, onOpen, vibes = false }: {
   // rather than asking for them again. It holds the live ones only: those the
   // sweep archived after they finished are a count on the project's lane, and
   // the tab counts them too, or a project whose work had all merged would
-  // open on nothing. An archived project has no lane, and counts none.
+  // open on nothing. The lane's count comes first, since it arrives in the
+  // same response as the live cards: the detail polls slowly when idle, and
+  // read alone it would lag each task the sweep took off the board, so Done
+  // would dip until it caught up. An archived project has no lane, and its
+  // count comes off the detail instead.
   const board = useQuery({ queryKey: ['board'], queryFn: api.board, enabled: project });
   const tasks = board.data?.cards.filter((c) => c.projectId === detail.card.id) ?? [];
-  const archivedDone = board.data?.projects.find((p) => p.id === detail.card.id)?.archivedDoneCount ?? 0;
+  const archivedDone =
+    board.data?.projects.find((p) => p.id === detail.card.id)?.archivedDoneCount ?? detail.archivedDoneCount;
 
   const shots = detail.assets.filter((a) => a.kind === 'screenshot');
   const all: Array<{ id: TabId; label: string; count?: string | number }> = project ? [

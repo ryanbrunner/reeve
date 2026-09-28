@@ -72,7 +72,9 @@ export function CardHeader({
   // and the ones already there are not the confirm's to count.
   const done = tasks.length - open.length;
   // The project's lane, for the tasks the sweep has archived. Only a live
-  // project has one, so an archived project shows no bar rather than a 0/0.
+  // project has one, so an archived project shows no bar, and that is by
+  // decision rather than for want of a count: its finished work is counted in
+  // the Tasks tab instead, off the detail's `archivedDoneCount`.
   const lane = card.kind === 'project' ? board?.projects.find((p) => p.id === card.id) : undefined;
 
   // The heading is the field. It is left to the DOM while it is being typed in,
