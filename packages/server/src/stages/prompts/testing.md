@@ -45,6 +45,9 @@ Each difference belongs to a screenshot by its exact label.
 
 {{testCommand}}
 
+Build and test with whatever the repo already uses, in whatever language it is
+written: its own scripts, package manager and test runner.
+
 Fix what you can. A test that was already broken before this card is not yours
 to chase — say so in `summary` and leave it. Record anything you did fix in
 `fixes_applied`, and be honest in `passed`: it is true only if the suite ends
@@ -54,5 +57,14 @@ Commit anything you fixed, before you finish, with a subject that says it came
 from verification. Uncommitted work is invisible to everything downstream: the
 card's pull request is its commits, and a dirty worktree refuses to be pushed at
 all. Leaving a fix in the working tree loses it.
+
+Stage the files you changed by name, `git add <path>`, never `git add -A` or
+`git add .`. `.reeve/` holds this card's stage documents, the notes above
+among them. It is untracked rather than ignored, and must never be committed.
+
+Do not push, and do not open or touch a pull request: no `git push`, no `gh`.
+Reeve does both itself. Do not rewrite history you did not write here: no
+`reset`, `rebase` or amending of commits that were on the branch when you
+started.
 {{suggesting}}{{reviewNotes}}
 {{notes}}

@@ -26,6 +26,10 @@ The project can span these. Each is named, then where its checkout is.
 Look at enough of the code to split along the lines it already has, rather
 than guessing. You may read any of the repos above by their paths.
 
+Read, search and run read-only commands as you need, but change nothing in any
+of them: do not edit, create or delete files, install anything or commit. The
+server makes the cards from what you return.
+
 Then propose the tasks:
 
 - Each should be a piece of work one person could plan, build and review on
