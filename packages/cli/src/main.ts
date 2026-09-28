@@ -20,8 +20,9 @@ const USAGE = `Usage: reeve <command> [options]
       and title, then the projects. --archived lists what is off the board.
   reeve card show <card> [--json]
       A card in full: its facts, criteria, open questions, plan and runs.
-  reeve card add <title> / edit / move / note / criteria / archive / restore
+  reeve card add <title> / edit / move / note / criteria / archive / restore / accept / dismiss
       Write a card: the calls the card's modal makes, from a terminal.
+      accept and dismiss decide on a card a run suggested, not a review.
       reeve card <verb> --help says what each one takes.
   reeve project add <title>
       A project to file cards under. Editing its brief and archiving it are
