@@ -469,6 +469,8 @@ export interface ApiModel {
   supportsEffort?: boolean;
   supportedEffortLevels?: EffortLevel[];
   supportsAdaptiveThinking?: boolean;
+  /** Every run is in auto mode, so a model that reports `false` cannot run a stage. */
+  supportsAutoMode?: boolean;
 }
 
 export interface ModelsResponse {
