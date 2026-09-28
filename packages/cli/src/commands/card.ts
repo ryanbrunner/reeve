@@ -35,6 +35,7 @@ import { edit } from './card/edit.js';
 import { move } from './card/move.js';
 // `note` is already the stderr printer here; this is the verb that writes one.
 import { note as noteCard } from './card/note.js';
+import { accept, dismiss } from './card/suggestion.js';
 import { followRun } from './run.js';
 import { renderRuns, totalTokens } from './runs.js';
 
@@ -586,6 +587,8 @@ const VERBS: Record<string, Command> = {
   move,
   archive,
   restore,
+  accept,
+  dismiss,
   worktree: { usage: '', run: worktree },
   pr: { usage: '', run: pr },
   'resolve-conflicts': { usage: '', run: resolveConflicts },
