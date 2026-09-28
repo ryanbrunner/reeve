@@ -272,7 +272,7 @@ export function CardHeader({
         </div>
       )}
 
-      <AttentionBand detail={detail} live={live} />
+      <AttentionBand detail={detail} live={live} onClose={onClose} />
     </header>
   );
 }

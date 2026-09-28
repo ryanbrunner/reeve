@@ -81,6 +81,10 @@ export const CARD_EVENT_KINDS = [
   // An open card moved to No project because its project was archived. `meta`
   // names the project, which the card no longer points at.
   'left_project',
+  // A suggested card taken on with Accept. Moving one out of Backlog takes it
+  // on too, and says so with the `moved` it already writes. Rejecting one
+  // writes `archived`, with `meta.rejectedSuggestion`.
+  'suggestion_accepted',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
@@ -129,6 +133,14 @@ export const card = sqliteTable(
      * `../stages/ideas.ts` write it; no route takes it.
      */
     suggestedById: text('suggested_by_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
+    /**
+     * When a person took a suggested card on: pressed Accept, or moved it out
+     * of Backlog, which `moveCard` counts as the same thing. Until then the
+     * card is a pending suggestion (`isPendingSuggestion`), and the board asks
+     * for a decision. Rejecting archives the card instead, so it never needs a
+     * stamp of its own. Always null on a card a person made.
+     */
+    suggestionAcceptedAt: timestamp('suggestion_accepted_at'),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.

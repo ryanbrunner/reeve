@@ -196,6 +196,14 @@ export interface ApiCard {
    * `dependents` is: the board lights them up when this card is hovered.
    */
   suggestions: string[];
+  /**
+   * A run suggested this card and nobody has decided on it yet: it is still in
+   * Backlog, neither accepted nor archived. The board offers Accept and Reject
+   * while it is set. Worked out by the server, so the rule lives in one place.
+   * Not an `activity`, which is read from runs and which `reeve card wait`
+   * turns into exit codes; this is a fact about the card, as merged is.
+   */
+  pendingSuggestion: boolean;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -489,6 +497,15 @@ export interface MoveCardBody {
  */
 export interface ArchiveCardBody {
   detachOpen?: boolean;
+}
+
+/**
+ * A person's decision on a card a run suggested. Accepting keeps it in
+ * Backlog; rejecting archives it, which is also what keeps the same title
+ * from being suggested again.
+ */
+export interface SuggestionDecisionBody {
+  decision: 'accepted' | 'rejected';
 }
 
 /** The counts only for a project: how many Done cards went with it, and how many open ones were moved out. */

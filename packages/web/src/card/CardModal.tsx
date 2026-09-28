@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { CardActivity } from '@reeve/shared';
 import {
   ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
+  SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
 } from '../board/activity.js';
 import { api } from '../lib/api.js';
 import { CardHeader } from './CardHeader.js';
@@ -31,6 +32,7 @@ const GLOW: Record<CardActivity, string> = {
 };
 
 const MERGED_GLOW = `${MERGED_STYLE} modal-glow-merged`;
+const SUGGESTION_GLOW = `${SUGGESTION_STYLE} modal-glow-suggested`;
 
 export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = false }: {
   cardId: string;
@@ -97,6 +99,9 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
   // Finished, in the same green and circled check the board card wears. Not in
   // VIBES MODE, whose card wears its own pink for this and no mark.
   const merged = !vibes && data != null && isMerged(data.card);
+  // A suggestion waiting on a decision, in the pink and lightbulb the board
+  // card wears. The band in the header is where it is decided.
+  const suggested = !vibes && !merged && data?.card.pendingSuggestion === true;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
@@ -107,7 +112,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
         aria-modal="true"
         aria-labelledby="card-title"
         tabIndex={-1}
-        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
+        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : suggested ? SUGGESTION_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
       >
         {isLoading && <Middle>Loading card…</Middle>}
         {error && <Middle>Could not load this card. {error.message}</Middle>}
@@ -129,12 +134,15 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
               </span>
             )}
             <span className="sr-only">
-              {merged ? MERGED_LABEL : data.card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity]}
+              {merged ? MERGED_LABEL
+                : suggested ? SUGGESTION_LABEL
+                : data.card.startingStage ? STARTING_LABEL
+                : ACTIVITY_LABELS[activity]}
             </span>
           </>
         )}
         {/* Decorative, and behind the header rather than the whole panel. */}
-        {data && (merged ? MERGED_MARK : ACTIVITY_MARKS[activity])}
+        {data && (merged ? MERGED_MARK : suggested ? SUGGESTION_MARK : ACTIVITY_MARKS[activity])}
       </div>
     </div>,
     document.body,

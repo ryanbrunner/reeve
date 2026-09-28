@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
+import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
@@ -23,8 +24,21 @@ import type { LiveRun } from './useCardDetail.js';
  * the activity is still whatever the last run left: a revision waiting on the
  * repo's setup reads as needing review, and its buttons would only earn a 409
  * from a server that is already starting the next run.
+ *
+ * A suggestion nobody has decided on is asked about before the idle card's
+ * silence: it sits in Backlog, where no run gives it an activity, and the
+ * decision is the one thing it wants.
  */
-export function AttentionBand({ detail, live }: { detail: CardDetail; live: LiveRun | null }) {
+export function AttentionBand({
+  detail,
+  live,
+  onClose,
+}: {
+  detail: CardDetail;
+  live: LiveRun | null;
+  /** Rejecting a suggestion archives it, and the modal closes as Delete's does. */
+  onClose: () => void;
+}) {
   const { card } = detail;
   if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
     return (
@@ -37,6 +51,13 @@ export function AttentionBand({ detail, live }: { detail: CardDetail; live: Live
     return (
       <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
         <Starting detail={detail} />
+      </div>
+    );
+  }
+  if (card.pendingSuggestion) {
+    return (
+      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+        <Suggested detail={detail} onClose={onClose} />
       </div>
     );
   }
@@ -116,6 +137,45 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
         </form>
       )}
       {review.error && <p className="text-sm/5 text-red-300">{review.error.message}</p>}
+    </div>
+  );
+}
+
+/**
+ * A card a run suggested, waiting on someone to say whether it is wanted.
+ * Accepting keeps it where it is; rejecting archives it, so the modal closes
+ * behind it, the way Delete in the header does.
+ */
+function Suggested({ detail, onClose }: { detail: CardDetail; onClose: () => void }) {
+  const { card } = detail;
+  const decide = useSuggestionDecision(card.id);
+  const from = card.suggestedBy;
+  // `#142` is per repo, so a suggester in another repo says which.
+  const ref = from && `${from.repoName && from.repoName !== card.repoName ? from.repoName : ''}#${from.number}`;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 grow">
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            {from ? <>Suggested by <span className="text-(--color-sug)">{ref}</span> {from.title}</> : 'Suggested'}
+          </div>
+          <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+            Accepting keeps it in Backlog as work to do. Rejecting archives it, and it is not suggested again.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('rejected', { onSuccess: onClose })}
+          >
+            Reject
+          </Button>
+          <Button tone="suggest" disabled={decide.isPending} onClick={() => decide.mutate('accepted')}>
+            {decide.isPending ? 'Working…' : 'Accept'}
+          </Button>
+        </div>
+      </div>
+      {decide.error && <p className="text-sm/5 text-red-300">{decide.error.message}</p>}
     </div>
   );
 }

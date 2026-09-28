@@ -506,9 +506,13 @@ export function moveCard(
 ) {
   const before = getCard(db, id);
   const position = positionForSlot(db, stage, index, id);
+  // Moving a suggestion on is taking it on, whoever moves it: a drag, or VIBES
+  // MODE sweeping it. Stamped here so a drag back to Backlog never asks again.
+  const accepted =
+    before && isPendingSuggestion(before) && stage !== 'backlog' ? { suggestionAcceptedAt: new Date() } : {};
   const updated = db
     .update(card)
-    .set({ stage, position, ...(projectId !== undefined ? { projectId } : {}), updatedAt: new Date() })
+    .set({ stage, position, ...(projectId !== undefined ? { projectId } : {}), ...accepted, updatedAt: new Date() })
     .where(eq(card.id, id))
     .returning()
     .get();
@@ -524,6 +528,41 @@ export function moveCard(
   }
   renormaliseIfNeeded(db, stage);
   return updated;
+}
+
+/**
+ * A card a run suggested that nobody has decided on yet: still in Backlog,
+ * neither accepted nor archived. The board lights it up and offers Accept and
+ * Reject, and the suggestion route refuses any card this says no to. Only in
+ * Backlog, because a suggestion moved on has been taken on (`moveCard`
+ * stamps it), and one that was made before the stamp existed and has since
+ * left was stamped by the migration.
+ *
+ * A rejected suggestion restored from the Archive is pending again, which is
+ * the right answer: the person has changed their mind, and not yet said to
+ * what.
+ */
+export function isPendingSuggestion(c: Card): boolean {
+  return (
+    c.suggestedById !== null && c.suggestionAcceptedAt === null && c.archivedAt === null
+    && c.kind === 'task' && c.stage === 'backlog'
+  );
+}
+
+/**
+ * Take a suggested card on where it stands. It stays in Backlog, and keeps
+ * its link to the card that suggested it, which is still where it came from.
+ */
+export function acceptSuggestion(db: Db, id: string, actor: CardEventActor = 'human') {
+  const now = new Date();
+  const accepted = db
+    .update(card)
+    .set({ suggestionAcceptedAt: now, updatedAt: now })
+    .where(and(eq(card.id, id), isNull(card.suggestionAcceptedAt)))
+    .returning()
+    .get();
+  if (accepted) insertCardEvent(db, { cardId: id, actor, kind: 'suggestion_accepted', stage: accepted.stage });
+  return accepted;
 }
 
 /**

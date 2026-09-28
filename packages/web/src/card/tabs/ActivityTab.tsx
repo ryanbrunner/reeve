@@ -203,7 +203,8 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
     e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed' ||
-    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed' || e.kind === 'merge_failed'
+    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed' || e.kind === 'merge_failed' ||
+    e.kind === 'suggestion_accepted'
   );
 }
 
@@ -251,7 +252,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'archived':
       return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged'
         : e.meta?.['reason'] === 'project' ? 'archived the card with its project'
+        : e.meta?.['rejectedSuggestion'] ? 'rejected the suggestion'
         : 'archived the card';
+    case 'suggestion_accepted':
+      return 'accepted the suggestion';
     case 'left_project': {
       // Named from the event: the card no longer points at the project.
       const title = e.meta?.['projectTitle'];

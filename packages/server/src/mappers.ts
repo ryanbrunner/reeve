@@ -141,7 +141,8 @@ export function toApiCard(
   activity: CardActivity,
   derived: Pick<
     ApiCard,
-    'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage' | 'implemented'
+    | 'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage'
+    | 'implemented' | 'pendingSuggestion'
   >,
   links: Pick<ApiCard, 'dependsOn' | 'dependents' | 'suggestedBy' | 'suggestions'>,
 ): ApiCard {
