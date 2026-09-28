@@ -4,12 +4,19 @@
  * else, and `taskCount` still counts only live ones. Tasks are made straight
  * into their columns with `createCard`, as in project-archive-check.ts.
  *
+ * Then the same count on the project's card detail, which is what its modal
+ * reads once the project is archived and has no lane: it agrees with the lane
+ * while there is one, and afterwards still counts the tasks swept earlier and
+ * the Done ones archived with the project, but not the open one it detached.
+ *
  *   REEVE_DB=/tmp/reeve-progress.db npx tsx packages/server/src/spikes/project-progress-check.ts
  */
 import assert from 'node:assert/strict';
-import type { ApiCard, ApiProject, BoardResponse, Stage } from '@reeve/shared';
+import type { ApiCard, ApiProject, BoardResponse, CardDetail, Stage } from '@reeve/shared';
 import { createApp } from '../index.js';
-import { archiveCard, createCard, createRepo, listRepos, moveCard } from '../db/queries.js';
+import {
+  archiveCard, archiveProject, createCard, createRepo, getCard, listRepos, moveCard, restoreProject,
+} from '../db/queries.js';
 
 const { app, db } = createApp();
 
@@ -39,6 +46,8 @@ async function lane(id: string): Promise<ApiProject> {
   return found;
 }
 
+const detail = (id: string) => call<CardDetail>('GET', `/api/cards/${id}/detail`);
+
 const project = await call<ApiCard>('POST', '/api/cards', { title: 'Saved for later', kind: 'project', repoId: repo.id });
 const other = await call<ApiCard>('POST', '/api/cards', { title: 'Faster checkout', kind: 'project', repoId: repo.id });
 const task = (title: string, stage: Stage, projectId = project.id) =>
@@ -51,7 +60,7 @@ assert.equal(saved.archivedDoneCount, 0);
 
 const backlog = task('Backlog task', 'backlog');
 const planning = task('Planning task', 'planning');
-task('Done and still on the board', 'done');
+const stillDone = task('Done and still on the board', 'done');
 const finished = task('Done and swept', 'done');
 const dropped = task('Dropped from Backlog', 'backlog');
 
@@ -92,5 +101,36 @@ assert.equal(board.cards.find((c) => c.id === planning.id)?.projectId, other.id)
 
 console.log(
   `[reeve] ${saved.title}: ${saved.taskCount} live, ${saved.archivedDoneCount} archived from Done — so the bar reads 2/3`,
+);
+
+// The modal's count agrees with the lane's while the project has one.
+assert.equal((await detail(project.id)).archivedDoneCount, saved.archivedDoneCount);
+assert.equal((await detail(other.id)).archivedDoneCount, 1);
+
+// Archived, the project is no lane, and its detail still counts: the task
+// swept before, and the Done one archived with it. The Backlog task went to No
+// project, and the one dropped from Backlog was never counted.
+assert.deepEqual(archiveProject(db, project.id), { archived: 1, detached: 1 });
+const after = await call<BoardResponse>('GET', '/api/board');
+assert.ok(!after.projects.some((p) => p.id === project.id), 'an archived project is no lane');
+assert.equal(getCard(db, backlog.id)?.projectId, null);
+const archived = await detail(project.id);
+assert.ok(archived.card.archivedAt, 'the detail is of the archived project');
+assert.equal(archived.archivedDoneCount, 2);
+
+// Restored, the Done task that went with it comes back, and the lane and the
+// detail agree again on the one the sweep took.
+restoreProject(db, project.id);
+assert.equal(getCard(db, stillDone.id)?.archivedAt, null);
+saved = await lane(project.id);
+assert.equal(saved.archivedDoneCount, 1);
+assert.equal((await detail(project.id)).archivedDoneCount, saved.archivedDoneCount);
+
+// A task has no tasks of its own, archived from Done or otherwise.
+assert.equal((await detail(finished.id)).archivedDoneCount, 0);
+assert.equal((await detail(stillDone.id)).archivedDoneCount, 0);
+
+console.log(
+  `[reeve] ${saved.title}: its detail counted ${archived.archivedDoneCount} archived from Done while it was archived`,
 );
 console.log('[reeve] project progress check passed');
