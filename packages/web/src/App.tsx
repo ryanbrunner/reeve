@@ -16,6 +16,7 @@ import {
   STAGES,
   blockedMoveRefusal,
   type ApiCard,
+  type ApiProject,
   type ApiRepo,
   type BoardResponse,
   type CreateCardBody,
@@ -27,6 +28,7 @@ import { COLUMN_PREFIX, Column, columnCollisions, parseColumnId } from './board/
 import { Glyph } from './board/Glyph.js';
 import { LaneHeader } from './board/LaneHeader.js';
 import { LinksProvider } from './board/links.js';
+import { NewCardPicker } from './board/RepoPicker.js';
 import { useCollapsedLanes } from './board/useCollapsedLanes.js';
 import { ArchiveModal } from './archive/ArchiveModal.js';
 import { CardModal } from './card/CardModal.js';
@@ -44,6 +46,8 @@ import { api, cardsIn } from './lib/api.js';
 export function App() {
   const qc = useQueryClient();
   const [archiveOpen, showArchive] = useArchiveParam();
+  // The lane whose Backlog is asking a new card for its repo, by lane key.
+  const [newCardLane, setNewCardLane] = useNewCardParam();
   // Which pane Settings opens on, or null while it is shut.
   const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
   // Stable, because the modal's focus effect depends on it and the board
@@ -191,6 +195,9 @@ export function App() {
     mutationFn: (body: CreateCardBody) => api.createCard(body),
     onSuccess: (card, { title, kind }) => {
       if (title === PLACEHOLDER_TITLE || kind === 'project') {
+        // Shut first, as the Archive is: `open` pushes the URL as it finds
+        // it, and the card's entry must not carry `?new` with it.
+        setNewCardLane(null);
         setFreshId(card.id);
         openAndClose.open(card.id);
       }
@@ -216,17 +223,17 @@ export function App() {
   }, [data]);
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
 
-  // Filed under the lane's project and that project's repo, falling back to
-  // the first repo: an unfiled card is a dead one, since no repo means no
-  // worktree and no stage can run. The header's picker changes it after.
+  // Filed under the lane's project and a repo, because an unfiled card is a
+  // dead one: no repo means no worktree and no stage can run. When the repo is
+  // obvious the card is made at once; otherwise the lane's Backlog asks first,
+  // rather than filing it under whichever repo happens to be first. The
+  // header's chip changes it after either way.
+  const makeCard = (projectId: string | null, repoId: string) =>
+    create.mutate({ title: PLACEHOLDER_TITLE, stage: 'backlog', projectId, repoId });
   const addCard = (projectId: string | null) => {
-    const project = projects.find((p) => p.id === projectId);
-    create.mutate({
-      title: PLACEHOLDER_TITLE,
-      stage: 'backlog',
-      projectId,
-      repoId: project?.repoId ?? repos[0]?.id ?? null,
-    });
+    const repoId = obviousRepo(repos, projects, projectId);
+    if (repoId) makeCard(projectId, repoId);
+    else setNewCardLane(projectId ?? NO_PROJECT_LANE);
   };
   const addProject = () =>
     create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
@@ -243,7 +250,21 @@ export function App() {
   const mergedIds = useMemo(() => (mergedKey ? mergedKey.split(',') : []), [mergedKey]);
   const vibes = useVibes(data?.vibes ?? null, mergedIds, data !== undefined);
 
+  // `?new` asks, and never makes anything: opening a link must not create a
+  // card. So it is dropped wherever + would not have asked — a lane with an
+  // obvious repo, a lane no longer on the board — and in VIBES MODE, whose
+  // lanes have no Backlog to ask in. Only once the board has loaded, since
+  // until then there are no repos, and a link to the picker would lose it.
+  const vibesOn = vibes.on;
+  useEffect(() => {
+    if (!data || newCardLane === null) return;
+    const laneId = newCardLane === NO_PROJECT_LANE ? null : newCardLane;
+    const gone = laneId !== null && !data.projects.some((p) => p.id === laneId);
+    if (vibesOn || gone || obviousRepo(data.repos, data.projects, laneId)) setNewCardLane(null);
+  }, [data, newCardLane, vibesOn, setNewCardLane]);
+
   function onDragStart(e: DragStartEvent) {
+    setNewCardLane(null);
     setDragging(byId.get(String(e.active.id)) ?? null);
   }
 
@@ -334,7 +355,7 @@ export function App() {
   const lanesInner = (
     <div className={`flex-1 overflow-auto p-4 ${vibes.on ? 'pb-20' : ''}`}>
       {lanes.map((lane) => {
-        const key = lane.id ?? 'none';
+        const key = lane.id ?? NO_PROJECT_LANE;
         const bodyId = `lane-${key}`;
         const collapsed = collapsedLanes.isCollapsed(key);
         const laneCards = cards.filter((c) => c.projectId === lane.id);
@@ -380,6 +401,22 @@ export function App() {
                       onOpen={openAndClose.open}
                       onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
                       adding={create.isPending}
+                      adder={
+                        stage === 'backlog' && newCardLane === key ?
+                          <NewCardPicker
+                            repos={repos}
+                            busy={create.isPending}
+                            onPick={(repoId) => makeCard(lane.id, repoId)}
+                            onCancel={() => setNewCardLane(null)}
+                            // Shut as Settings opens, or the first press in
+                            // it would shut it anyway, as a press elsewhere.
+                            onAddRepo={() => {
+                              setNewCardLane(null);
+                              setSettingsOpen({ kind: 'repo', id: null });
+                            }}
+                          />
+                        : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -552,6 +589,40 @@ function useArchiveParam() {
     setOpen(next);
   }, []);
   return [open, show] as const;
+}
+
+/** No project's lane key: in `?new=`, and where the lanes are keyed. */
+const NO_PROJECT_LANE = 'none';
+
+/**
+ * The repo a new card in this lane goes under without asking, or null when
+ * there is a choice to make. The lane's project's repo if it still has one on
+ * the board, and otherwise the only repo, if there is only one. Never the
+ * first of several: that was a guess, and a card filed by a guess sat under
+ * the wrong repo until somebody noticed.
+ */
+function obviousRepo(repos: ApiRepo[], projects: ApiProject[], laneId: string | null): string | null {
+  const projectRepo = projects.find((p) => p.id === laneId)?.repoId;
+  if (projectRepo && repos.some((r) => r.id === projectRepo)) return projectRepo;
+  return repos.length === 1 ? (repos[0]?.id ?? null) : null;
+}
+
+/**
+ * Which lane is picking a new card's repo, kept in the URL as `?new=<project
+ * id>`, or `?new=none` for No project, so a reload lands back on the question.
+ * Replaced rather than pushed, as `?archive` is: Back undoing an open picker
+ * would be a surprise.
+ */
+function useNewCardParam() {
+  const [lane, setLane] = useState(() => new URLSearchParams(window.location.search).get('new'));
+  const set = useCallback((next: string | null) => {
+    const url = new URL(window.location.href);
+    if (next === null) url.searchParams.delete('new');
+    else url.searchParams.set('new', next);
+    window.history.replaceState(null, '', url);
+    setLane(next);
+  }, []);
+  return [lane, set] as const;
 }
 
 function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibes }: {
