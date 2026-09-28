@@ -1,8 +1,8 @@
 /**
- * Drives the repo pickers in a real browser: the one a new card asks from when
- * its repo is not obvious, the card header's chip, and VIBES MODE's Ship it.
- * With two repos + asks and makes nothing until a row is picked; in a lane
- * whose project has a repo, or on a board with one repo, it does not ask; with
+ * Drives the repo pickers in a real browser: the one every new card asks
+ * from, the card header's chip, and VIBES MODE's Ship it. + always asks and
+ * makes nothing until a row is picked, even with one repo; in a lane whose
+ * project has a repo that repo comes first, tagged, and still not picked; with
  * none it offers Add a repo. Needs the built web app (`npm run build`) and
  * Playwright's chromium.
  *
@@ -85,6 +85,7 @@ try {
   assert.equal((await cards()).length, before, 'opening the picker made a card');
   assert.equal(new URL(page.url()).searchParams.get('new'), 'none');
   assert.equal(await picker.getAttribute('aria-activedescendant'), null, 'a row was active on opening');
+  assert.equal(await picker.locator('[aria-selected="true"]').count(), 0, 'a row was selected on opening');
   const offered = await picker.getByRole('option').allTextContents();
   assert.equal(offered.length, 2);
   assert.ok(!offered.some((o) => o.includes('No repo')), 'the new-card picker offered No repo');
@@ -150,37 +151,56 @@ try {
   await closeCard();
   console.log('[reeve] header chip refiles, and Escape shuts only the list');
 
-  // A project with a repo files under it without asking.
+  // A project with a repo still asks: its repo first and tagged, not picked.
+  // orders-api sorts first by name, so storefront coming first is the project.
   await ghost(filed.id).click();
+  const filedList = page.locator(`#lane-${filed.id}`).getByRole('listbox');
+  await filedList.waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('new'), filed.id);
+  assert.ok(!(await cards()).some((c) => c.projectId === filed.id), 'a project with a repo made a card unasked');
+  assert.equal(await filedList.getAttribute('aria-activedescendant'), null, 'the project repo was active');
+  assert.equal(await filedList.locator('[aria-selected="true"]').count(), 0, 'the project repo was selected');
+  const filedRows = await filedList.getByRole('option').allTextContents();
+  assert.equal(filedRows.length, 2);
+  assert.match(filedRows[0] ?? '', /^storefront\s*project/, `the project repo was not first and tagged: ${filedRows}`);
+  assert.ok(!filedRows[1]?.includes('project'), 'another repo carried the project tag');
+  await page.screenshot({ path: join(shots, 'repo-picker-project.png') });
+  await page.keyboard.press('Enter');
+  assert.ok(!(await cards()).some((c) => c.projectId === filed.id), 'Enter picked the project repo');
+  await filedList.getByRole('option', { name: /storefront/ }).click();
   await dialog.waitFor();
-  const inFiled = (await cards()).find((c) => c.projectId === filed.id);
-  assert.equal(inFiled?.repoId, storefront.id);
-  assert.equal(await picker.count(), 0);
+  assert.equal((await cards()).find((c) => c.projectId === filed.id)?.repoId, storefront.id);
   await closeCard();
 
-  // A project with none asks, rather than taking the first repo.
+  // A project with none asks too, with no row tagged.
   await ghost(unfiled.id).click();
-  await page.locator(`#lane-${unfiled.id}`).getByRole('listbox').waitFor();
+  const unfiledList = page.locator(`#lane-${unfiled.id}`).getByRole('listbox');
+  await unfiledList.waitFor();
   assert.equal(new URL(page.url()).searchParams.get('new'), unfiled.id);
   assert.ok(!(await cards()).some((c) => c.projectId === unfiled.id));
+  assert.ok(!(await unfiledList.getByRole('option').allTextContents()).some((o) => o.includes('project')));
   await page.keyboard.press('Escape');
-  console.log('[reeve] a project with a repo files under it; one without asks');
+  console.log('[reeve] a project lane asks, its repo first and tagged but not picked');
 
-  // One repo: no question, and a link to one is dropped.
+  // One repo: still a question, and a link to it is kept.
   setArchived(ordersApi.id, true);
   await page.goto(`${base}/?new=none`);
-  await page.locator('#lane-none').waitFor();
-  await page.waitForURL((url) => !url.searchParams.has('new'));
-  assert.equal(await picker.count(), 0);
+  await page.locator('#lane-none').getByRole('listbox').waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('new'), 'none', 'a one-repo ?new was dropped');
+  assert.equal(await picker.getAttribute('aria-activedescendant'), null);
+  assert.equal(await picker.locator('[aria-selected="true"]').count(), 0);
+  await page.keyboard.press('Escape');
   const count = (await cards()).length;
   await ghost('none').click();
+  await picker.waitFor();
+  assert.equal((await cards()).length, count, 'one repo: + made a card without asking');
+  await picker.getByRole('option', { name: /storefront/ }).click();
   await dialog.waitFor();
-  assert.equal(await picker.count(), 0);
   const only = await cards();
   assert.equal(only.length, count + 1);
   assert.ok(only.some((c) => !c.projectId && c.repoId === storefront.id && c.title === 'Untitled'));
   await closeCard();
-  console.log('[reeve] one repo: + makes the card at once, and ?new is dropped');
+  console.log('[reeve] one repo: + still asks, and ?new is kept');
 
   // No repos: it says so, and Add a repo opens the new-repo form.
   setArchived(storefront.id, true);
@@ -194,12 +214,19 @@ try {
   await page.screenshot({ path: join(shots, 'repo-picker-none.png') });
   console.log('[reeve] no repos: Add a repo opens Settings on the new-repo form');
 
-  // VIBES MODE, two repos: Ship it waits for a pick, and keeps it.
+  // VIBES MODE, one repo: even the only one waits to be picked.
   setArchived(storefront.id, false);
-  setArchived(ordersApi.id, false);
   await call('PATCH', '/api/settings', { vibes: true });
   await page.goto(base);
   const ship = page.getByRole('button', { name: 'Ship it' });
+  await ship.waitFor();
+  await page.getByRole('button', { name: 'Repo for the new card: Pick a repo' }).waitFor();
+  await page.locator('#new-idea').fill('Ship an idea');
+  assert.ok(await ship.isDisabled(), 'Ship it took the only repo without a pick');
+
+  // Two repos: Ship it waits for a pick, and keeps it.
+  setArchived(ordersApi.id, false);
+  await page.goto(base);
   await ship.waitFor();
   assert.equal(await page.locator('header select').count(), 0, 'Ship it still has a native select');
   await page.locator('#new-idea').fill('Ship an idea');
@@ -215,6 +242,8 @@ try {
   await page.waitForFunction(`document.querySelector('#new-idea')?.value === ''`);
   assert.equal((await cards()).find((c) => c.title === 'Ship an idea')?.repoId, ordersApi.id);
   await page.getByRole('button', { name: 'Repo for the new card: orders-api' }).waitFor();
+  await page.locator('#new-idea').fill('Ship another');
+  assert.ok(await ship.isEnabled(), 'the pick was not kept for the next idea');
   await page.screenshot({ path: join(shots, 'repo-picker-vibes.png') });
   console.log('[reeve] VIBES MODE: Ship it waits for a repo, and keeps it for the next idea');
 } finally {

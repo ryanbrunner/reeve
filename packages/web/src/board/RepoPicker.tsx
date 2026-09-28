@@ -14,33 +14,50 @@ import { Chevron, Dropdown, Listbox, useDismiss, type ListboxOption } from '../u
 const NO_COLOR = '#3f4754';
 
 /** One repo: its colour, its name, and where it is, which is what tells two checkouts of one repo apart. */
-export function RepoRow({ name, color, detail }: { name: string; color: string | null; detail?: string }) {
+export function RepoRow({ name, color, detail, tag }: {
+  name: string;
+  color: string | null;
+  detail?: string;
+  /** A word beside the name saying why this row is where it is. */
+  tag?: string;
+}) {
   return (
     <div className="flex items-center gap-2">
       <span aria-hidden="true" className="size-2 shrink-0 rounded-[2px]" style={{ background: color ?? NO_COLOR }} />
       <div className="min-w-0">
-        <div className="truncate text-[13px]/[18px] text-(--color-text)">{name}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[13px]/[18px] text-(--color-text)">{name}</span>
+          {tag && (
+            <span className="shrink-0 rounded-[3px] bg-sky-500/15 px-1 font-mono text-[10px]/[14px] text-sky-300">
+              {tag}
+            </span>
+          )}
+        </div>
         {detail && <div className="truncate font-mono text-[10px]/[14px] text-(--color-muted)">{detail}</div>}
       </div>
     </div>
   );
 }
 
-const repoOption = (r: ApiRepo): ListboxOption => ({
+const repoOption = (r: ApiRepo, tag?: string): ListboxOption => ({
   value: r.id,
-  content: <RepoRow name={r.name} color={r.laneColor} detail={fromHome(r.repoPath)} />,
+  content: <RepoRow name={r.name} color={r.laneColor} detail={fromHome(r.repoPath)} tag={tag} />,
 });
 
 /**
- * Where the ghost card was, when a new card's repo is not obvious: asked
- * first, because a card cannot run anywhere until it has one, and a card made
- * under the first repo in the list was one filed wherever it happened to land.
+ * Where the ghost card was, for every new card: asked first, because a card
+ * cannot run anywhere until it has one, and a card made under a repo filled in
+ * for you was one filed wherever it happened to land.
  *
  * Nothing is made until a row is picked, so walking away from this leaves
- * nothing behind. It goes on Escape, Cancel, or a press anywhere else.
+ * nothing behind. It goes on Escape, Cancel, or a press anywhere else. In a
+ * project's lane the project's repo is the likely answer, so it comes first
+ * and says so, but it is not picked for you: that would be the default again.
  */
-export function NewCardPicker({ repos, onPick, onCancel, onAddRepo, busy = false }: {
+export function NewCardPicker({ repos, projectRepoId = null, onPick, onCancel, onAddRepo, busy = false }: {
   repos: ApiRepo[];
+  /** The lane's project's repo, listed first and tagged. Never preselected. */
+  projectRepoId?: string | null;
   onPick: (repoId: string) => void;
   onCancel: () => void;
   /** With no repos there is nothing to pick, and this is the way out. */
@@ -51,6 +68,13 @@ export function NewCardPicker({ repos, onPick, onCancel, onAddRepo, busy = false
   const panel = useRef<HTMLDivElement>(null);
   const eyebrow = useId();
   useDismiss(panel, onCancel);
+  // A project whose repo has since been archived gets no row for it: that
+  // repo is not on the board to be picked.
+  const theirs = repos.find((r) => r.id === projectRepoId);
+  const options = [
+    ...(theirs ? [repoOption(theirs, 'project')] : []),
+    ...repos.filter((r) => r !== theirs).map((r) => repoOption(r)),
+  ];
   return (
     <div
       ref={panel}
@@ -71,7 +95,7 @@ export function NewCardPicker({ repos, onPick, onCancel, onAddRepo, busy = false
       {/* Focus goes to the list, or with no repos to the button that fixes that. */}
       {repos.length > 0 ?
         <Listbox
-          options={repos.map(repoOption)}
+          options={options}
           label="Repo for the new card"
           onPick={onPick}
           onEscape={onCancel}
@@ -134,7 +158,7 @@ export function RepoSelect({
 }) {
   const options: ListboxOption[] = [
     ...(orphan ? [{ value: orphan.id, content: <RepoRow name={orphan.name} color={null} detail="archived" /> }] : []),
-    ...repos.map(repoOption),
+    ...repos.map((r) => repoOption(r)),
     ...(none ? [{ value: '', apart: true, content: <RepoRow name="No repo" color={null} /> }] : []),
   ];
   // A card with no repo reads as asking for one, not as having chosen none:

@@ -16,7 +16,6 @@ import {
   STAGES,
   blockedMoveRefusal,
   type ApiCard,
-  type ApiProject,
   type ApiRepo,
   type BoardResponse,
   type CreateCardBody,
@@ -224,17 +223,14 @@ export function App() {
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
 
   // Filed under the lane's project and a repo, because an unfiled card is a
-  // dead one: no repo means no worktree and no stage can run. When the repo is
-  // obvious the card is made at once; otherwise the lane's Backlog asks first,
-  // rather than filing it under whichever repo happens to be first. The
-  // header's chip changes it after either way.
+  // dead one: no repo means no worktree and no stage can run. The lane's
+  // Backlog always asks first, even with one repo or in a project that has
+  // one: a repo filled in without asking was a default nobody chose, and a
+  // card filed by it sat under the wrong repo until somebody noticed. The
+  // header's chip changes it after.
   const makeCard = (projectId: string | null, repoId: string) =>
     create.mutate({ title: PLACEHOLDER_TITLE, stage: 'backlog', projectId, repoId });
-  const addCard = (projectId: string | null) => {
-    const repoId = obviousRepo(repos, projects, projectId);
-    if (repoId) makeCard(projectId, repoId);
-    else setNewCardLane(projectId ?? NO_PROJECT_LANE);
-  };
+  const addCard = (projectId: string | null) => setNewCardLane(projectId ?? NO_PROJECT_LANE);
   const addProject = () =>
     create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
   // VIBES MODE's Ship it: named already, so it is not opened, and under no
@@ -251,16 +247,16 @@ export function App() {
   const vibes = useVibes(data?.vibes ?? null, mergedIds, data !== undefined);
 
   // `?new` asks, and never makes anything: opening a link must not create a
-  // card. So it is dropped wherever + would not have asked — a lane with an
-  // obvious repo, a lane no longer on the board — and in VIBES MODE, whose
-  // lanes have no Backlog to ask in. Only once the board has loaded, since
-  // until then there are no repos, and a link to the picker would lose it.
+  // card. It is dropped where there is nowhere to ask — a lane no longer on
+  // the board — and in VIBES MODE, whose lanes have no Backlog to ask in. Only
+  // once the board has loaded, since until then there are no lanes, and a
+  // link to the picker would lose it.
   const vibesOn = vibes.on;
   useEffect(() => {
     if (!data || newCardLane === null) return;
     const laneId = newCardLane === NO_PROJECT_LANE ? null : newCardLane;
     const gone = laneId !== null && !data.projects.some((p) => p.id === laneId);
-    if (vibesOn || gone || obviousRepo(data.repos, data.projects, laneId)) setNewCardLane(null);
+    if (vibesOn || gone) setNewCardLane(null);
   }, [data, newCardLane, vibesOn, setNewCardLane]);
 
   function onDragStart(e: DragStartEvent) {
@@ -405,6 +401,7 @@ export function App() {
                         stage === 'backlog' && newCardLane === key ?
                           <NewCardPicker
                             repos={repos}
+                            projectRepoId={projects.find((p) => p.id === lane.id)?.repoId ?? null}
                             busy={create.isPending}
                             onPick={(repoId) => makeCard(lane.id, repoId)}
                             onCancel={() => setNewCardLane(null)}
@@ -595,19 +592,6 @@ function useArchiveParam() {
 const NO_PROJECT_LANE = 'none';
 
 /**
- * The repo a new card in this lane goes under without asking, or null when
- * there is a choice to make. The lane's project's repo if it still has one on
- * the board, and otherwise the only repo, if there is only one. Never the
- * first of several: that was a guess, and a card filed by a guess sat under
- * the wrong repo until somebody noticed.
- */
-function obviousRepo(repos: ApiRepo[], projects: ApiProject[], laneId: string | null): string | null {
-  const projectRepo = projects.find((p) => p.id === laneId)?.repoId;
-  if (projectRepo && repos.some((r) => r.id === projectRepo)) return projectRepo;
-  return repos.length === 1 ? (repos[0]?.id ?? null) : null;
-}
-
-/**
  * Which lane is picking a new card's repo, kept in the URL as `?new=<project
  * id>`, or `?new=none` for No project, so a reload lands back on the question.
  * Replaced rather than pushed, as `?archive` is: Back undoing an open picker
@@ -640,18 +624,15 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   vibes: Vibes;
 }) {
   // Only VIBES MODE's Ship it picks a repo here. On the calm board a card is
-  // added from the ghost in its lane, which asks for its repo when it is not
-  // obvious, but a shipped card is never opened, so this is its only chance.
-  // The same rule as the ghost: the only repo without asking, and otherwise
-  // nothing until one is picked, with no No repo, because an unfiled card is
-  // a dead one and the sweep would take it nowhere. The pick is kept for the
-  // next idea, which usually goes to the same place.
+  // added from the ghost in its lane, which asks for its repo, but a shipped
+  // card is never opened, so this is its only chance. The same rule as the
+  // ghost: nothing until one is picked, even the only repo, and no No repo,
+  // because an unfiled card is a dead one and the sweep would take it nowhere.
+  // The pick is kept for the next idea, which usually goes to the same place,
+  // and dropped if its repo leaves the board.
   const [repoId, setRepoId] = useState<string | null>(null);
   const [idea, setIdea] = useState('');
-  const filedUnder =
-    repos.length === 1 ? (repos[0]?.id ?? null)
-    : repos.some((r) => r.id === repoId) ? repoId
-    : null;
+  const filedUnder = repos.some((r) => r.id === repoId) ? repoId : null;
   const on = vibes.on;
   return (
     <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
