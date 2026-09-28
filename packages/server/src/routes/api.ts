@@ -7,6 +7,7 @@ import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedMove } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
+  acceptSuggestion,
   archiveCard,
   archiveProject,
   archivedCards,
@@ -18,6 +19,7 @@ import {
   discardIfBlank,
   getCard,
   getSettings,
+  isPendingSuggestion,
   listRepos,
   liveProject,
   liveTasksInProject,
@@ -82,6 +84,10 @@ const moveCardSchema = z.object({
 
 const archiveCardSchema = z.object({
   detachOpen: z.boolean().optional(),
+});
+
+const suggestionDecisionSchema = z.object({
+  decision: z.enum(['accepted', 'rejected']),
 });
 
 /**
@@ -487,6 +493,42 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       });
     }
     return c.json({ ok: true } satisfies ArchiveCardResponse);
+  });
+
+  /**
+   * A person's decision on a card a run suggested, from the card's face or its
+   * modal. Accepting stamps it and leaves it where it is. Rejecting archives
+   * it rather than deleting it: the Archive can still bring it back, and
+   * `recordSuggestions` skips an archived title, so the same idea is not
+   * suggested again. Its own route rather than a flag on archive, so the
+   * check that this is a suggestion still waiting on someone is made once.
+   */
+  api.post('/cards/:id/suggestion', async (c) => {
+    const parsed = suggestionDecisionSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid decision', detail: parsed.error.message }, 400);
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+    if (!isPendingSuggestion(existing)) {
+      return c.json({
+        error: 'not a pending suggestion',
+        detail: !existing.suggestedById ? 'a person made this card'
+          : existing.archivedAt ? 'the card is archived'
+          : existing.suggestionAcceptedAt ? 'the suggestion was already accepted'
+          : 'the card has left Backlog',
+      }, 409);
+    }
+    const accepted = parsed.data.decision === 'accepted';
+    // The archive route's rule about runs holds for a rejection too. A Backlog
+    // card runs no stage, but its brief's Suggest can be going, and would
+    // carry on spending out of sight.
+    if (!accepted && runRegistry.all().some((r) => r.cardId === id)) {
+      return c.json({ error: 'card is running', detail: 'stop its run before rejecting the suggestion' }, 409);
+    }
+    const decided =
+      (accepted ? acceptSuggestion(db, id) : archiveCard(db, id, { rejectedSuggestion: true })) ?? existing;
+    const repo = decided.repoId ? listRepos(db).find((p) => p.id === decided.repoId) : undefined;
+    return c.json(toBoardCard(db, decided, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
   // Asked whenever a card closes, of every card, and it is the server that
