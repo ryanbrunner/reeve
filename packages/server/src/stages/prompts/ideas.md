@@ -24,8 +24,9 @@ README, its layout, what the last card changed, the gaps and TODOs a careful
 reader would find. Then propose what to build next.
 
 Read, search and run read-only commands as you need, but change nothing: do
-not edit, create or delete files, install anything or commit. The server makes
-the cards from what you return.
+not edit, create or delete files, install anything or commit. This may be the
+person's own checkout rather than a card's worktree, with their work in it.
+The server makes the cards from what you return.
 
 - Each idea should be a piece of work that could be planned, built and merged
   on its own, and leave the project better than it found it. Prefer what a
