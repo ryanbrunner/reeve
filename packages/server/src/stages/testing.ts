@@ -10,11 +10,16 @@ import {
   replaceDifferences,
   replaceScreenshots,
 } from '../db/queries.js';
+import type { Db } from '../db/client.js';
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
+import type { EventWriter } from '../runs/events.js';
+import { runRegistry } from '../runs/registry.js';
+import { fillVars, serverEnv, serverVars } from '../runs/serverUrl.js';
+import { startShellRun } from '../runs/shell.js';
 import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
-import type { StageDefinition } from './types.js';
+import type { StageContext, StageDefinition } from './types.js';
 
 /**
  * The stage that checks the work against what was asked for.
@@ -52,27 +57,33 @@ export const testingStage: StageDefinition<TestingOutput> = {
     const targets = captureTargetsFor(mockups, plannedCaptures(db, ctx.card.id));
     if (targets.length === 0) return { screenshots: 'No screenshots were requested for this card.' };
 
+    // Before the server is looked for, since seeding stops it: the one
+    // `ensureDevServer` finds after this is always one that started on the
+    // seeded data. What the seed did heads every answer below, a failure
+    // included, so a board that is empty for want of it is not a mystery.
+    const seeded = await seedForCapture(db, writer, ctx);
+    const say = (screenshots: string) => ({ screenshots: seeded ? `${seeded}\n\n${screenshots}` : screenshots });
+
     const server = await ensureDevServer(db, writer, ctx.card, ctx.repo);
     if (server.state === 'unavailable') {
-      return { screenshots: `No screenshots: the dev server could not be started (${server.reason}).` };
+      return say(`No screenshots: the dev server could not be started (${server.reason}).`);
     }
     const answer = await waitForServer(db, server.runId);
     if (answer.state === 'no-url') {
-      return {
-        screenshots:
-          'No screenshots: the dev server never said where it was serving. It printed no local URL, and the ' +
+      return say(
+        'No screenshots: the dev server never said where it was serving. It printed no local URL, and the ' +
           'repo gives it no `{{port}}` in its command and no Server URL in its settings.',
-      };
+      );
     }
     if (answer.state === 'no-answer') {
-      return { screenshots: `No screenshots: the dev server at ${answer.url} never answered.` };
+      return say(`No screenshots: the dev server at ${answer.url} never answered.`);
     }
     if (answer.state === 'stopped') {
-      return { screenshots: `No screenshots: the dev server stopped before it answered${answer.reason ? ` (${answer.reason})` : ''}.` };
+      return say(`No screenshots: the dev server stopped before it answered${answer.reason ? ` (${answer.reason})` : ''}.`);
     }
 
     const result = await captureTargets({ baseUrl: answer.url, targets });
-    if (result.unavailable) return { screenshots: `No screenshots: ${result.unavailable}` };
+    if (result.unavailable) return say(`No screenshots: ${result.unavailable}`);
 
     // This run's pictures replace the last run's, so the tab never shows two
     // versions of the same state with no way to tell which is current.
@@ -96,11 +107,11 @@ export const testingStage: StageDefinition<TestingOutput> = {
     }
     for (const f of result.failures) lines.push(`- **${f.label}** could not be captured: ${f.reason}`);
 
-    return {
-      screenshots: lines.length
+    return say(
+      lines.length
         ? `These are on disk. Read the image files — both of each pair — and compare them.\n\n${lines.join('\n')}`
         : 'No screenshots could be taken.',
-    };
+    );
   },
 
   buildPrompt(ctx, prepared) {
@@ -189,6 +200,61 @@ function captureTargetsFor(
     targets.push(c);
   }
   return targets;
+}
+
+/** Long enough for `npx tsx` to start cold; a seed past it is hung, not slow. */
+const SEED_TIMEOUT_MS = 120_000;
+
+/**
+ * Run the repo's seed so the pictures show the state a mockup draws. A fresh
+ * worktree's server reads a fresh, empty database: card b9d5ed0b's captures of
+ * a pending suggestion were of a board with no cards at all.
+ *
+ * The card's server is stopped first, whoever started it. Nothing may hold the
+ * database while a seed resets it, and the server photographed has to be one
+ * that read it afterwards; a person's Preview comes back on the seeded data.
+ * What "seeded" means is the repo's business, resetting included, so this only
+ * guarantees the order.
+ *
+ * Never throws: like everything in `prepare`, a seed that fails or hangs is
+ * reported, and the pictures are taken anyway. Null when there was nothing to
+ * seed, or no server to photograph once it had been.
+ */
+async function seedForCapture(
+  db: Db, writer: EventWriter, ctx: Pick<StageContext, 'card' | 'repo' | 'worktreePath'>,
+): Promise<string | null> {
+  const { card, repo } = ctx;
+  if (!repo.seedCommand || !repo.serverCommand) return null;
+
+  for (const run of runRegistry.all().filter((r) => r.cardId === card.id && r.kind === 'server')) {
+    await run.stop('cancelled_by_user');
+  }
+
+  const vars = serverVars(card.id, card.branchName);
+  const command = fillVars(repo.seedCommand, vars);
+  const handle = startShellRun({
+    db, writer, cardId: card.id, stage: card.stage,
+    command, cwd: ctx.worktreePath, env: serverEnv(vars),
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), SEED_TIMEOUT_MS);
+  });
+  const ended = await Promise.race([handle.done, timedOut]).finally(() => clearTimeout(timer));
+
+  if (!ended) {
+    const seconds = SEED_TIMEOUT_MS / 1000;
+    // On the run itself, so its log says why it was cut off.
+    writer.append(handle.runId, 'error', { message: `Stopped by Testing: still seeding after ${seconds} seconds` });
+    await runRegistry.get(handle.runId)?.stop('cancelled_by_user');
+    return `The seed command \`${command}\` was still running after ${seconds} seconds and was stopped, so these ` +
+      'may show a board with no data, or only some of it.';
+  }
+  if (ended.exitCode !== 0) {
+    return `The seed command \`${command}\` failed (exit code ${ended.exitCode}), so these may show a board with ` +
+      'no data, or only some of it. Its output is in its run on the card.';
+  }
+  return `Taken after seeding the board with \`${command}\`: what they show is fixture data, not anything a person made.`;
 }
 
 /**
