@@ -3,16 +3,16 @@ import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
-import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /**
  * The stage that actually writes code, and the first one with teeth.
  *
- * `acceptEdits` rather than `bypassPermissions`: nobody is watching, so edits
- * inside the worktree go through without asking, but the mode still refuses the
- * things that reach outside it. The worktree is the blast radius, and it is a
- * throwaway branch — which is the whole reason a card gets one.
+ * It builds and tests with whatever the repo uses, and auto mode is what lets
+ * it: the worktree is the blast radius, and it is a throwaway branch — which is
+ * the whole reason a card gets one. What stays out of bounds even so — pushing,
+ * pull requests, history it did not write, committing `.reeve/` — is in the
+ * prompt, since the classifier cannot know Reeve does those itself.
  *
  * It commits as it goes. A card's work being four commits rather than one diff
  * is what lets the Commits rail show the shape of the work, and what makes a bad
@@ -21,10 +21,6 @@ import type { StageDefinition } from './types.js';
 export const inProgressStage: StageDefinition<ImplementationOutput> = {
   id: 'in_progress',
   schema: implementationOutput,
-  permissionMode: 'acceptEdits',
-  // Scoped so a run can build, test and commit its own work, but not reach for
-  // the network or rewrite history it did not create.
-  allowedTools: ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', ...GIT_READ, ...GIT_COMMIT, ...NODE_TOOLING],
   maxBudgetUsd: 10,
   maxTurns: 200,
   effort: 'high',

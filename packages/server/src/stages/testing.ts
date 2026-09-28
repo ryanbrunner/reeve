@@ -13,7 +13,6 @@ import {
 import { ensureDevServer, waitForServer } from '../runs/devServer.js';
 import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
-import { GIT_COMMIT, GIT_READ, NODE_TOOLING } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -30,10 +29,6 @@ import type { StageDefinition } from './types.js';
 export const testingStage: StageDefinition<TestingOutput> = {
   id: 'testing',
   schema: testingOutput,
-  permissionMode: 'acceptEdits',
-  // Read is what lets it look at the screenshots, not only the code. It commits
-  // its own fixes, so it holds GIT_COMMIT as In Progress does.
-  allowedTools: ['Read', 'Glob', 'Grep', 'Edit', 'Write', ...GIT_READ, ...GIT_COMMIT, ...NODE_TOOLING],
   maxBudgetUsd: 8,
   maxTurns: 150,
   effort: 'high',
