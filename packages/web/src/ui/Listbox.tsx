@@ -50,9 +50,11 @@ export function Listbox({
   }, [autoFocus]);
 
   // Kept in view as the arrows walk past the bottom of a list that scrolls.
+  // Only when the row changes: the board re-renders the new-card picker on
+  // every poll, and each one would pull the lanes back to it.
   useEffect(() => {
-    if (active >= 0) document.getElementById(rowId(active))?.scrollIntoView({ block: 'nearest' });
-  });
+    if (active >= 0) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: 'nearest' });
+  }, [active, id]);
 
   const last = options.length - 1;
   const onKeyDown = (e: React.KeyboardEvent) => {

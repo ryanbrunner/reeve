@@ -119,7 +119,7 @@ try {
   // Picking makes the card, filed where picked, open with its title selected.
   await picker.getByRole('option', { name: /orders-api/ }).click();
   await dialog.waitFor();
-  await page.waitForFunction(() => document.activeElement?.id === 'card-title');
+  await page.locator('#card-title:focus').waitFor();
   assert.ok(!hasNew(), 'the new card carried ?new');
   const made = (await cards()).find((c) => !c.projectId && c.repoId === ordersApi.id);
   assert.ok(made, 'no card was made under orders-api');
@@ -170,7 +170,7 @@ try {
   setArchived(ordersApi.id, true);
   await page.goto(`${base}/?new=none`);
   await page.locator('#lane-none').waitFor();
-  await page.waitForFunction(() => !new URL(location.href).searchParams.has('new'));
+  await page.waitForURL((url) => !url.searchParams.has('new'));
   assert.equal(await picker.count(), 0);
   const count = (await cards()).length;
   await ghost('none').click();
@@ -211,7 +211,8 @@ try {
   await shipList.getByRole('option', { name: /orders-api/ }).click();
   assert.ok(await ship.isEnabled());
   await ship.click();
-  await page.waitForFunction(() => (document.querySelector('#new-idea') as HTMLInputElement | null)?.value === '');
+  // A string, because this package compiles without the DOM's types.
+  await page.waitForFunction(`document.querySelector('#new-idea')?.value === ''`);
   assert.equal((await cards()).find((c) => c.title === 'Ship an idea')?.repoId, ordersApi.id);
   await page.getByRole('button', { name: 'Repo for the new card: orders-api' }).waitFor();
   await page.screenshot({ path: join(shots, 'repo-picker-vibes.png') });
