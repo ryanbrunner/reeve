@@ -15,6 +15,7 @@ import {
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
 import { copyText } from '../lib/clipboard.js';
+import { Dropdown } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
@@ -126,8 +127,8 @@ function Repo({ detail }: { detail: CardDetail }) {
   );
 }
 
-const SELECT =
-  'w-full rounded-sm border border-(--color-edge) bg-(--color-ink) px-1.5 py-1 font-mono text-[11px]/[18px] text-(--color-text) outline-none focus:border-sky-600 disabled:opacity-50';
+/** A rail dropdown's trigger: the width of the rail, on the ink like its other fields. */
+const FIELD = 'w-full rounded-sm bg-(--color-ink) px-1.5 py-1 text-(--color-text)';
 
 /**
  * The tasks this card depends on, and the ones that depend on it.
@@ -176,26 +177,27 @@ function Dependencies({ detail, onOpen }: { detail: CardDetail; onOpen: (id: str
             ))}
           </div>
         )}
-        <select
-          aria-label="Add a card this one depends on"
+        {/* Nothing is ever picked here, so it always reads as the prompt: a
+            card picked moves up into the list above. Searchable, because this
+            is every task on the board. */}
+        <Dropdown
+          label="Add a card this one depends on"
           value=""
+          placeholder={groups.length ? 'Add a dependency…' : 'No other cards to depend on'}
+          searchable
           disabled={add.isPending || groups.length === 0}
-          onChange={(e) => {
-            if (e.target.value) add.mutate(e.target.value);
-          }}
-          className={SELECT}
-        >
-          <option value="">{groups.length ? 'Add a dependency…' : 'No other cards to depend on'}</option>
-          {groups.map(([repo, cards]) => (
-            <optgroup key={repo} label={repo}>
-              {cards.map((c) => (
-                <option key={c.id} value={c.id}>
-                  #{c.number} {c.title}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+          options={groups.map(([repo, cards]) => ({
+            group: repo,
+            options: cards.map((c) => ({
+              value: c.id,
+              label: `#${c.number} ${c.title}`,
+              color: c.laneColor ?? '#3f4754',
+              hint: STAGE_LABELS[c.stage],
+            })),
+          }))}
+          onChange={(id) => add.mutate(id)}
+          className={FIELD}
+        />
         {error && <p className="font-mono text-[10px]/4 text-red-300">{error.message}</p>}
       </section>
       {dependents.length > 0 && (
@@ -346,37 +348,28 @@ function Model({ detail }: { detail: CardDetail }) {
     <section className="flex flex-col gap-2">
       <SectionHead>Model</SectionHead>
       <div className="flex flex-col gap-1.5">
-        <select
-          aria-label="Model for this card's runs"
+        <Dropdown
+          label="Model for this card's runs"
           value={model ?? ''}
           disabled={set.isPending}
-          onChange={(e) => {
-            const next = e.target.value || null;
+          options={[{ value: '', label: 'Settings default' }, ...modelOptions(models, model)]}
+          onChange={(v) => {
+            const next = v || null;
             set.mutate({ model: next, effort: keepEffort(models, next, effort) });
           }}
-          className={SELECT}
-        >
-          <option value="">Settings default</option>
-          {modelOptions(models, model).map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Effort for this card's runs"
+          className={FIELD}
+        />
+        <Dropdown
+          label="Effort for this card's runs"
           value={effort ?? ''}
           disabled={set.isPending || levels.length === 0}
-          onChange={(e) => set.mutate({ effort: (e.target.value || null) as EffortLevel | null })}
-          className={SELECT}
-        >
-          <option value="">{levels.length === 0 ? 'No effort on this model' : 'Settings default'}</option>
-          {levels.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: levels.length === 0 ? 'No effort on this model' : 'Settings default' },
+            ...levels.map((l) => ({ value: l, label: l })),
+          ]}
+          onChange={(v) => set.mutate({ effort: (v || null) as EffortLevel | null })}
+          className={FIELD}
+        />
       </div>
       <p className="font-mono text-[10px]/4 text-(--color-muted)">
         For Planning, In Progress and Testing. Suggest keeps its own.
