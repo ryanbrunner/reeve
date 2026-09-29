@@ -13,29 +13,26 @@ import {
 } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
 import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
-import { GIT_READ } from './tools.js';
 import type { StageDefinition } from './types.js';
 
 /** Enough to show the states a change alters, few enough to stay in budget. */
 const MAX_MOCKUPS = 3;
 
 /**
- * The first stage, and deliberately the safest one to build the machinery
- * against: `permissionMode: 'plan'` means no tool execution at all, so the whole
- * spawn -> ingest -> SSE -> review loop can be debugged with Claude unable to
- * modify anything.
+ * The first stage: read the code, and say what to do about it.
  *
  * Claude returns the plan as data. The SERVER writes `.reeve/plan.md`, which is
- * what lets the stage stay read-only and still produce a durable artifact — and
+ * what lets the stage change nothing and still produce a durable artifact — and
  * what keeps the document and the structured plan from ever disagreeing, since
  * one is composed from the other.
+ *
+ * Changing nothing is the prompt's to ask, not a mode's to enforce. Plan mode
+ * would stop it running `cargo metadata` or `go list` as surely as `rm`, and a
+ * plan for a repo in another language needs those as much as it needs Read.
  */
 export const planningStage: StageDefinition<PlanningOutput> = {
   id: 'planning',
   schema: planningOutput,
-  permissionMode: 'plan',
-  // Read-only. No Write/Edit even scoped, because the server owns artifacts.
-  allowedTools: ['Read', 'Glob', 'Grep', ...GIT_READ],
   // Up to three HTML documents is real output on top of the plan, and running
   // out of budget fails the run with no plan at all.
   maxBudgetUsd: 4,
@@ -75,6 +72,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       reviewNotes,
       answers,
       mockups: prepared?.['mockups'] ?? '',
+      seed: seedGuidance(ctx.repo.seedCommand),
       suggesting: renderSuggesting(),
       notes: renderNotes(ctx.notes),
     });
@@ -218,6 +216,27 @@ function composePlan(output: PlanningOutput, mockups: PlanningOutput['mockups'])
   }
 
   return `${out.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * What data the captures will be taken against. A plan cannot name a seed of
+ * its own — Planning has no shell, and the command would run outside the
+ * permission policy — so the way it asks for a state is to extend the one the
+ * repo runs. Card b9d5ed0b's captures of a pending suggestion were of an empty
+ * board for want of this.
+ */
+function seedGuidance(seedCommand: string | null): string {
+  if (!seedCommand) {
+    return (
+      'This repo has no seed command, so the dev server starts on whatever data the worktree has, which in a ' +
+      'fresh one is usually none: a state that needs data to show will be photographed empty.'
+    );
+  }
+  return (
+    `They are taken against a board seeded by the repo's seed command, \`${seedCommand}\`, which Testing runs ` +
+    'in the worktree before it starts the dev server. If a capture needs a state that seed does not produce, ' +
+    'add a step that extends the seed script to produce it, or the picture will not show what it is meant to.'
+  );
 }
 
 /** The plan's mockups as they will be drawn: one per label, and no more than the cap. */

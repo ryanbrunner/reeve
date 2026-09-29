@@ -10,6 +10,7 @@ if (listRepos(db).length === 0) {
     defaultBranch: 'main',
     setupCommand: 'npm install',
     testCommand: 'npm run typecheck',
+    seedCommand: null,
     serverCommand: 'npm run dev',
     teardownCommand: null,
     finishCommand: null,

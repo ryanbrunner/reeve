@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
 import { RepoSelect } from '../board/RepoPicker.js';
+import { ProjectProgress } from '../board/ProjectProgress.js';
 import { api } from '../lib/api.js';
 import { AttentionBand } from './AttentionBand.js';
 import { plural, sumTokens, tok, tokenTitle, when } from './format.js';
@@ -61,14 +62,21 @@ export function CardHeader({
     onSuccess: invalidate,
   });
   const failed = archive.error ?? restore.error ?? rename.error ?? refile.error;
-  // Every repo, for the picker, and a project's cards, for the confirm. The
-  // board already has them. The server checks again, so a card added since
-  // the last poll is refused rather than moved unasked.
+  // Every repo, for the picker, and a project's cards, for its progress and the
+  // confirm. The board already has them. The server checks again, so a card
+  // added since the last poll is refused rather than moved unasked.
   const board = useQuery({ queryKey: ['board'], queryFn: api.board }).data;
   const repos = board?.repos ?? [];
   const tasks = card.kind === 'project' ? (board?.cards ?? []).filter((c) => c.projectId === card.id) : [];
   const open = tasks.filter((c) => c.stage !== 'done');
+  // Live Done cards alone: these are what go to the Archive with the project,
+  // and the ones already there are not the confirm's to count.
   const done = tasks.length - open.length;
+  // The project's lane, for the tasks the sweep has archived. Only a live
+  // project has one, so an archived project shows no bar, and that is by
+  // decision rather than for want of a count: its finished work is counted in
+  // the Tasks tab instead, off the detail's `archivedDoneCount`.
+  const lane = card.kind === 'project' ? board?.projects.find((p) => p.id === card.id) : undefined;
 
   // The heading is the field. It is left to the DOM while it is being typed in,
   // so everything that ends an edit without saving one — an empty title, no
@@ -153,6 +161,21 @@ export function CardHeader({
             <span className="font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-text) uppercase">
               Project
             </span>
+            {/* The same bar as the lane's, since a project opens on its brief
+                and this is the first thing that says how far it has got. The
+                divider goes with it, for a project with no tasks yet. */}
+            {lane && tasks.length + lane.archivedDoneCount > 0 && (
+              <>
+                <span aria-hidden="true" className="h-3 w-px bg-(--color-edge)" />
+                <ProjectProgress
+                  tasks={tasks}
+                  archivedDone={lane.archivedDoneCount}
+                  width="w-36"
+                  long
+                  className="font-mono text-[11px]/4 text-(--color-muted)"
+                />
+              </>
+            )}
           </>
         : <>
             <span className="font-mono text-[11px]/4 text-(--color-muted)">#{card.number}</span>

@@ -19,6 +19,8 @@ export interface ApiRepo {
   defaultBranch: string;
   setupCommand: string | null;
   testCommand: string | null;
+  /** Run by Testing, with the card's server stopped, before it takes screenshots. */
+  seedCommand: string | null;
   serverCommand: string | null;
   /** Where the dev server is, as a template, e.g. `https://{{slug}}.test`. */
   serverUrl: string | null;
@@ -396,6 +398,7 @@ export interface CreateRepoBody {
   defaultBranch?: string;
   setupCommand?: string | null;
   testCommand?: string | null;
+  seedCommand?: string | null;
   serverCommand?: string | null;
   serverUrl?: string | null;
   teardownCommand?: string | null;
@@ -469,6 +472,8 @@ export interface ApiModel {
   supportsEffort?: boolean;
   supportedEffortLevels?: EffortLevel[];
   supportsAdaptiveThinking?: boolean;
+  /** Every run is in auto mode, so a model that reports `false` cannot run a stage. */
+  supportsAutoMode?: boolean;
 }
 
 export interface ModelsResponse {

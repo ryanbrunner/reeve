@@ -16,11 +16,11 @@ import {
   unreadNotesFor,
 } from '../db/queries.js';
 import { artifact as artifactTable, type Card, type CardStage, type Repo } from '../db/schema.js';
-import type { ClaudeTask, StageContext } from '../stages/types.js';
+import type { ClaudeTask, PermissionMode, StageContext } from '../stages/types.js';
 import { recordRateLimit } from '../usage.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
-import { decideToolUse, denialRecorder } from './permissions.js';
+import { decideToolUse, denialRecorder, liveDatabaseGuard } from './permissions.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -166,11 +166,31 @@ export function modelAndEffortFor(
 }
 
 /**
+ * Every run's permission mode. The classifier decides what a run may do, as it
+ * does in Claude Code's auto mode, and each stage's prompt says what it should
+ * do; see runs/permissions.ts for what is left for us to answer.
+ */
+const PERMISSION_MODE = 'auto' satisfies PermissionMode;
+
+/**
+ * Thrown when a run could only go ahead without auto mode.
+ *
+ * Refused rather than run in some other mode, because there is no other mode
+ * worth running in: `default` sends every edit and command to a callback that
+ * can only say no, and anything wider is more than auto mode would allow, in
+ * runs nobody is watching. The message is what the card shows.
+ */
+class AutoModeUnavailable extends Error {}
+
+/**
  * Trims what was asked for to what the model takes, so a setting it rejects
  * never reaches it. Only a pinned model the CLI listed is checked: no model is
  * the CLI's default, which takes everything the stages ask for, and a model the
  * CLI did not list is sent as asked. A capability the CLI did not report is
  * assumed — the same reading the pickers give it.
+ *
+ * Auto mode is the one it cannot trim away. A model that says it has none
+ * fails the run here, before anything is spent.
  */
 async function fitToModel(
   model: string | null,
@@ -178,6 +198,11 @@ async function fitToModel(
 ): Promise<{ effort: EffortLevel | null; adaptiveThinking: boolean }> {
   const caps = model ? await capabilitiesFor(model) : undefined;
   if (!caps) return { effort, adaptiveThinking: true };
+  if (caps.supportsAutoMode === false) {
+    throw new AutoModeUnavailable(
+      `Auto mode is unavailable for ${model}, so Reeve will not run it: pick another model for this card or stage.`,
+    );
+  }
   const takesEffort =
     effort !== null && caps.supportsEffort !== false && (caps.supportedEffortLevels?.includes(effort) ?? true);
   return { effort: takesEffort ? effort : null, adaptiveThinking: caps.supportsAdaptiveThinking !== false };
@@ -213,7 +238,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // What was asked for. Corrected below if the model turns out not to take it,
     // so the row always says what was actually sent.
     effort,
-    permissionMode: stage.permissionMode,
+    permissionMode: PERMISSION_MODE,
     maxBudgetUsd: stage.maxBudgetUsd,
     // Filled in once the prompt exists. A stage that has to prepare something
     // first — Testing takes its screenshots — writes the prompt after that, so
@@ -240,6 +265,13 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   // so a killed run still says what it was refused — and so the card can show
   // it while the run is still going.
   const denials = denialRecorder();
+  // Recorded where it is decided. A denial we make ourselves, in the callback
+  // or the hook, never reaches the stream as an event, so this is the only
+  // place it can be caught.
+  const refuse = (toolName: string, input: Record<string, unknown>, toolUseId: string) => {
+    const refused = denials.refused(toolName, input, toolUseId);
+    if (refused) setRunStatus(db, runId, { permissionDenials: refused });
+  };
 
   const options: Omit<Options, 'prompt'> = {
     cwd: worktreePath,
@@ -249,23 +281,18 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // history reads as a list of attempts rather than one mutating session.
     ...(resumeSessionId ? { resume: resumeSessionId, forkSession: true } : {}),
     sessionId,
-    permissionMode: stage.permissionMode,
-    allowedTools: stage.allowedTools,
+    // No `allowedTools`: a list is exactly what this replaced. See PERMISSION_MODE.
+    permissionMode: PERMISSION_MODE,
     ...(stage.directories ? { additionalDirectories: stage.directories(db) } : {}),
-    // Nobody is watching to approve anything, and a run that parks on its first
-    // unmatched tool call parks forever — so something must answer immediately.
+    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [liveDatabaseGuard(worktreePath, refuse)] }] },
+    // Nobody is watching to approve anything, and a run that parks on what the
+    // classifier escalates parks forever — so something must answer at once.
     // This does, synchronously, and its answer is a better one than the SDK's
     // own `permissionPrompts: 'none'`: see runs/permissions.ts for what that
     // refusal cost us.
     canUseTool: (toolName, input, { toolUseID }) => {
-      const decision = decideToolUse({ toolName, input, allowedTools: stage.allowedTools, worktreePath });
-      // Recorded where it is decided. A denial we make ourselves never reaches
-      // the stream as an event, so this is the only place it can be caught.
-      if (decision.behavior === 'deny') {
-        const refused = denials.refused(toolName, input, toolUseID);
-        if (refused) setRunStatus(db, runId, { permissionDenials: refused });
-      }
-      return Promise.resolve(decision);
+      refuse(toolName, input, toolUseID);
+      return Promise.resolve(decideToolUse({ toolName, input }));
     },
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
@@ -315,9 +342,20 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         if (message.type === 'result') result = message;
         // Stored above like any other message; this only moves the board's readout.
         if (message.type === 'rate_limit_event') recordRateLimit(message, Date.now());
+        // What `fitToModel` could not see: an account or a setting that turns
+        // auto mode off. The session says which mode it really started in, and
+        // it says so before Claude has taken a turn. Thrown out of the loop,
+        // which closes the query, into the catch below that fails the run.
+        if (message.type === 'system' && message.subtype === 'init' && message.permissionMode !== PERMISSION_MODE) {
+          abortController.abort();
+          throw new AutoModeUnavailable(
+            `Auto mode is unavailable to this session, which started in ${message.permissionMode} mode, so Reeve ` +
+              'stopped it before Claude began: check the account Claude Code signs in with, and any `disableAutoMode` setting.',
+          );
+        }
 
-        // The refusals nobody asked us about: a permission mode that forbids
-        // tools outright, which is how Planning runs.
+        // The refusals nobody asked us about: auto mode's classifier turning a
+        // call down on its own.
         const refused = denials.observe(message);
         if (refused) setRunStatus(db, runId, { permissionDenials: refused });
 
@@ -333,6 +371,13 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         setRunStatus(db, runId, { lastActivity: thought.activity, lastThinking: thought.thinking });
       }
     } catch (err) {
+      // Checked first: the init check aborts on its way out, and that is a
+      // refusal to report, not a person pressing Stop.
+      if (err instanceof AutoModeUnavailable) {
+        writer.append(runId, 'error', { message: err.message });
+        finish(db, writer, runId, 'failed', 'sdk_error', err.message, result);
+        return;
+      }
       const text = String(err);
       if (cancelled || text.includes(ABORT_MARKER)) {
         finish(db, writer, runId, 'cancelled', 'cancelled_by_user', null, result);
@@ -395,8 +440,8 @@ function materialiseArtifacts(
   runStage: CardStage,
 ): void {
   for (const draft of stage.onComplete(ctx, output)) {
-    // The server writes the file. Claude only returned data, which is what lets
-    // the Planning stage hold no write tools at all.
+    // The server writes the file. Claude only returned data, which is why the
+    // Planning stage can be told to change nothing at all.
     if (draft.path) {
       const full = join(worktreePath, draft.path);
       mkdirSync(dirname(full), { recursive: true });

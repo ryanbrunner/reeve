@@ -164,8 +164,8 @@ switched on.
 - **Claude returns data; the server writes the documents.** Each stage's
   output is a zod schema in `packages/shared/src/contracts.ts`, and the server
   composes `.reeve/plan.md`, `.reeve/implementation.md` and
-  `.reeve/test-report.md` from it. That inversion is what lets Planning run
-  with no write tools at all.
+  `.reeve/test-report.md` from it. That inversion is why Planning, which
+  could edit files, is told to change nothing.
 - **`.reeve/` is untracked stage output and must never be committed.** It is
   not in `.gitignore` — it is written into whatever repo a card belongs to —
   so `git add -A` or `git add .` would sweep it in. The pull request and
@@ -187,14 +187,26 @@ switched on.
   spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
-- **Tool permissions deny by default.** A stage's `allowedTools` is the
-  policy; `packages/server/src/runs/permissions.ts` answers everything else.
-  It allows two things, and neither is a widening: rewriting
-  `git -C <the worktree> …` to plain `git …`, and one leading `REEVE_DB=…` on
-  an otherwise allowed command, so a stage can run a spike the way this file
-  says to. It refuses a `REEVE_DB` that names the running server's own
-  database, and any other variable. VIBES MODE does not widen permissions
-  either.
+- **Every run is in auto mode, and nothing wider.** `startClaudeRun` in
+  `packages/server/src/runs/claude.ts` sends `permissionMode: 'auto'` and no
+  `allowedTools`, so the SDK's classifier decides what a run may do in any
+  language's toolchain, as it does in Claude Code. Stages declare no mode and
+  no tool list. What a stage should not do (change files while planning,
+  push, open pull requests, commit `.reeve/`) is its prompt's to say.
+- **No auto mode, no run.** A pinned model that reports
+  `supportsAutoMode: false`, or a session whose `init` message reports another
+  mode, fails the run before Claude takes a turn, with the reason as its
+  `errorMessage`. Reeve never falls back to another mode.
+- **What the classifier escalates is denied.**
+  `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
+  answers allow. Nobody is watching, and allowing would be `bypassPermissions`
+  by another name. Its refusal names the call and tells Claude to carry on
+  another way.
+- **A spike never opens the live board.** A PreToolUse hook on Bash refuses
+  any command that sets `REEVE_DB` to the running server's own database, or
+  to a value it cannot read plainly. It is a hook because a command the
+  classifier approves never reaches `canUseTool`. VIBES MODE does not widen
+  permissions either.
 
 ## Database migrations
 
@@ -232,6 +244,24 @@ As in Claude Code, gitignored files that match the repo's `.worktreeinclude`
 made, before the setup command starts (`copyWorktreeIncludes` in
 `packages/server/src/git/worktree.ts`). They are copied, never linked, and
 never over a file the worktree already has. A reused worktree gets nothing.
+
+A repo has six lifecycle commands: setup, test, seed, server, teardown and
+finish. The seed is for Testing's screenshots, which a fresh worktree's server
+would otherwise take of an empty page. When a card has captures to take,
+Testing stops the card's dev server, runs the seed in the worktree, and then
+starts the server again (`seedForCapture` in
+`packages/server/src/stages/testing.ts`). A seed that fails is reported in the
+prompt, and the pictures are taken anyway. Resetting old data is the command's
+job. The planning prompt names the seed, so a plan whose capture needs a state
+the seed lacks extends the seed script. Repo commands never inherit the host's
+`REEVE_DB` or `REEVE_ASSETS`, so a worktree's own Reeve opens its own
+`data/reeve.db`. For Reeve's own repo the seed is:
+
+    rm -f data/reeve.db data/reeve.db-wal data/reeve.db-shm && REEVE_DB=data/reeve.db npx tsx packages/server/src/spikes/seed-card-detail.ts
+
+It runs from the worktree root, so it writes the database the dev server then
+opens. Its merged card is archived on the server's first merge-sync tick
+unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
 
 ## Conventions
 

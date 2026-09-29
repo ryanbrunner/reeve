@@ -39,11 +39,19 @@ the app's styles as they were then. It shows what was meant, not the exact
 look: judge the build on layout, content and controls, and leave font, colour
 and spacing drift unreported unless it changes what a person would see.
 
+When the repo seeds the board before these are taken, the section above opens
+by saying so and naming the command, or by saying the seed failed. Seeded data
+is a fixture, not something the work made. An empty page after a failed seed
+says the fixture is missing, which is not by itself a fault in the work.
+
 Each difference belongs to a screenshot by its exact label.
 
 ## Tests
 
 {{testCommand}}
+
+Build and test with whatever the repo already uses, in whatever language it is
+written: its own scripts, package manager and test runner.
 
 Fix what you can. A test that was already broken before this card is not yours
 to chase — say so in `summary` and leave it. Record anything you did fix in
@@ -54,5 +62,14 @@ Commit anything you fixed, before you finish, with a subject that says it came
 from verification. Uncommitted work is invisible to everything downstream: the
 card's pull request is its commits, and a dirty worktree refuses to be pushed at
 all. Leaving a fix in the working tree loses it.
+
+Stage the files you changed by name, `git add <path>`, never `git add -A` or
+`git add .`. `.reeve/` holds this card's stage documents, the notes above
+among them. It is untracked rather than ignored, and must never be committed.
+
+Do not push, and do not open or touch a pull request: no `git push`, no `gh`.
+Reeve does both itself. Do not rewrite history you did not write here: no
+`reset`, `rebase` or amending of commits that were on the branch when you
+started.
 {{suggesting}}{{reviewNotes}}
 {{notes}}

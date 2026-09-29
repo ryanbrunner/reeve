@@ -125,7 +125,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   /**
    * Ask Claude what done should mean. A real run, so it shows in the card's
    * history and its cost is counted — but not a stage, so it needs no worktree
-   * of its own and reads the repo's checkout instead. It is read-only.
+   * of its own and reads the repo's checkout instead. Its prompt tells it to
+   * change nothing, and here that is the person's own checkout at stake.
    */
   routes.post('/:id/criteria/suggest', async (c) => {
     const card = getCard(db, c.req.param('id'));

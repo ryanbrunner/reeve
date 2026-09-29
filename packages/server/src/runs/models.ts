@@ -19,6 +19,7 @@ function toApiModel(m: ModelInfo): ApiModel {
     supportsEffort: m.supportsEffort,
     supportedEffortLevels: m.supportedEffortLevels,
     supportsAdaptiveThinking: m.supportsAdaptiveThinking,
+    supportsAutoMode: m.supportsAutoMode,
   };
 }
 
