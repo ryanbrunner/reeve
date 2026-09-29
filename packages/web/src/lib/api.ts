@@ -18,6 +18,7 @@ import type {
   CreateRepoBody,
   CritReviewResponse,
   EffortLevel,
+  GlossReviewResponse,
   HandoffResponse,
   MergePullRequestResponse,
   ModelsResponse,
@@ -167,6 +168,8 @@ export const api = {
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
   /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */
   reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
+  /** Opens the running app in Gloss, or answers with the round already waiting. Each round there is a verdict. */
+  reviewWithGloss: (id: string) => post(`/api/cards/${id}/gloss`, {}).then(json<GlossReviewResponse>),
 };
 
 /** A column's cards in order, or only one lane's of them when a project is given: null is No project. */

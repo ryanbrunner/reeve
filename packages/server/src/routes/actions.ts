@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import {
   needsWorktree,
   type CritReviewResponse,
+  type GlossReviewResponse,
   type MergePullRequestResponse,
   type ResolveConflictsResponse,
 } from '@reeve/shared';
@@ -10,6 +11,7 @@ import { startCritReview } from '../crit.js';
 import type { Db } from '../db/client.js';
 import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '../db/queries.js';
 import { GitError, checkWorktree } from '../git/worktree.js';
+import { startGlossReview } from '../gloss.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { canMergePr, isPrConflicting, landPullRequest, openPullRequest } from '../pullRequest.js';
@@ -229,6 +231,49 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const review = await startCritReview(db, writer, card, health.path, run);
     if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
     const body: CritReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
+    return c.json(body, review.reused ? 200 : 201);
+  });
+
+  /**
+   * Open the card's running app for review in Gloss. A round submitted there
+   * sends the build back with the comments as notes, and the window reloads
+   * onto the revision once it is ready; approving there approves the stage.
+   *
+   * Only where there is a build, In Progress or Testing, and only while it is
+   * waiting for review, as the buttons are. A second click answers with the
+   * round already waiting rather than starting another.
+   */
+  routes.post('/:id/gloss', async (c) => {
+    const cardId = c.req.param('id');
+    const card = getCard(db, cardId);
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
+    const repo = repoFor(card.repoId);
+    if (!repo) return c.json({ error: 'card has no repo', detail: 'a review in Gloss needs a repo' }, 400);
+    if (card.stage !== 'in_progress' && card.stage !== 'testing') {
+      return c.json({ error: 'only a build in In Progress or Testing can be reviewed in Gloss', detail: card.stage }, 400);
+    }
+    if (!repo.serverCommand) {
+      return c.json({ error: 'repo has no server command', detail: 'Gloss reviews the card’s dev server' }, 400);
+    }
+    const { activity, run } = cardActivity(db, card);
+    if (!run || activity !== 'needs_review') {
+      return c.json({ error: 'the build is not waiting for review', detail: activity }, 409);
+    }
+    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand)) {
+      return c.json({ error: 'a run is already active for this card' }, 409);
+    }
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
+    if (health.state !== 'ok') {
+      return c.json(
+        { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
+        409,
+      );
+    }
+
+    const review = await startGlossReview(db, writer, card, repo, health.path, run);
+    if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
+    const body: GlossReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
     return c.json(body, review.reused ? 200 : 201);
   });
 

@@ -329,7 +329,9 @@ function noteFailedSetup(db: Db, card: Card, setup: Awaited<ReturnType<typeof se
 }
 
 export type ContinueStageResult =
-  | { ok: true; runId: string }
+  // `done` settles once the run is finished and its row says how, for a caller
+  // that has something to do then: a review in Gloss hands the next round back.
+  | { ok: true; runId: string; done: Promise<void> }
   | { ok: false; error: string };
 
 /**
@@ -377,7 +379,7 @@ export async function continueStage(
 
     noteFailedSetup(db, fresh, setup);
     const handle = startClaudeRun({ ...run, db, writer, card: fresh, repo, worktreePath: health.path });
-    return { ok: true, runId: handle.runId };
+    return { ok: true, runId: handle.runId, done: handle.done };
   } finally {
     starting.delete(card.id);
   }

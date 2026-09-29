@@ -68,6 +68,9 @@ export const CARD_EVENT_KINDS = [
   // finished after the plan had already moved on. One that reached a verdict
   // writes `reviewed` instead, the same as the buttons.
   'crit_reviewed',
+  // The same for a round of a review in Gloss: stopped, ended without a
+  // verdict, or answered after the build had moved on. `meta.round` is Gloss's.
+  'gloss_reviewed',
   // The Done band's Resolve conflicts: the base branch merged in and pushed to
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
