@@ -12,8 +12,11 @@ Read enough of the codebase to plan this concretely. Look for existing
 functions, components and patterns you can reuse — prefer extending what is
 there over adding parallel machinery.
 
-You have read-only access. Do not attempt to edit files; return the plan as
-structured output instead. The harness writes it to disk.
+Read, search and run whatever read-only commands help, with the repo's own
+tooling in whatever language it is written. But change nothing: do not edit,
+create or delete files, install anything or commit. Return the plan as
+structured output instead. The harness writes it to disk, and the next stage
+starts from this worktree exactly as you leave it.
 
 ## What makes a good plan here
 

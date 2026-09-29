@@ -4,6 +4,7 @@ import type { Db } from '../db/client.js';
 import type { EventWriter } from '../runs/events.js';
 import type { Card, Repo } from '../db/schema.js';
 
+/** What a run's row records it was sent. Always `auto` for new runs; older rows say otherwise. */
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto';
 export type { EffortLevel };
 
@@ -58,8 +59,9 @@ export interface ClaudeTask<Output = unknown> {
   id: string;
   schema: z.ZodType<Output>;
   buildPrompt(ctx: StageContext, prepared?: Record<string, string>): string;
-  permissionMode: PermissionMode;
-  allowedTools: string[];
+  // No permission mode and no tool list: every task runs in auto mode
+  // (runs/claude.ts), and what a task should and should not do is its prompt's
+  // to say.
   maxBudgetUsd: number;
   maxTurns?: number;
   model?: string;

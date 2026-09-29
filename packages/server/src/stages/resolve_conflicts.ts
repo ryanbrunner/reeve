@@ -1,5 +1,4 @@
 import { conflictResolutionOutput, type ConflictResolutionOutput } from '@reeve/shared';
-import { inProgressStage } from './in_progress.js';
 import { renderPrompt } from './template.js';
 import type { ClaudeTask } from './types.js';
 
@@ -15,10 +14,8 @@ export const RESOLVE_CONFLICTS_TASK = 'resolve_conflicts';
  *
  * Claude edits and commits, and that is all. The server fetched and merged
  * before the run, and afterwards it checks the result and does the pushing
- * itself, so nothing here can merge, reset, check out or push. `git show` is
- * for reading each side of a conflict, and `git mv` and `git rm` for moving a
- * migration out of the way of the base's: the Write tool can make a file but
- * never rename or remove one.
+ * itself, so the prompt tells it not to merge, reset, check out or push. Auto
+ * mode would let it; the prompt is what says the merge is already the server's.
  *
  * Out of band: a Done card has no stage run to take over, and the card's own
  * model and effort are for its work, not for this.
@@ -28,8 +25,6 @@ export function resolveConflictsTask(merge: { base: string; conflicts: string[] 
     id: RESOLVE_CONFLICTS_TASK,
     outOfBand: true,
     schema: conflictResolutionOutput,
-    permissionMode: 'acceptEdits',
-    allowedTools: [...inProgressStage.allowedTools, 'Bash(git show *)', 'Bash(git mv *)', 'Bash(git rm *)'],
     maxBudgetUsd: 5,
     maxTurns: 100,
     effort: 'high',
