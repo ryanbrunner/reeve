@@ -40,6 +40,7 @@ import { VibesTicker } from './vibes/Ticker.js';
 import { useVibes, type Vibes } from './vibes/useVibes.js';
 import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
+import { Dropdown } from './lib/Dropdown.js';
 
 export function App() {
   const qc = useQueryClient();
@@ -620,19 +621,16 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
       >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
         {on && repos.length > 0 && (
-          <select
+          <Dropdown
+            label="Repo for the new card"
             value={filedUnder}
-            onChange={(e) => setRepoId(e.target.value)}
-            aria-label="Repo for the new card"
-            className={`rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600 ${
-              on ? 'sk-field' : ''
-            }`}
-          >
-            {repos.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-            <option value="">No repo</option>
-          </select>
+            options={[
+              ...repos.map((p) => ({ value: p.id, label: p.name, color: p.laneColor ?? '#3f4754' })),
+              { value: '', label: 'No repo', color: '#3f4754' },
+            ]}
+            onChange={setRepoId}
+            className="sk-field rounded-md bg-(--color-panel) px-2 py-1.5 whitespace-nowrap text-(--color-muted)"
+          />
         )}
         {on && (
           <>
