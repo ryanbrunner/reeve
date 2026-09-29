@@ -245,6 +245,24 @@ made, before the setup command starts (`copyWorktreeIncludes` in
 `packages/server/src/git/worktree.ts`). They are copied, never linked, and
 never over a file the worktree already has. A reused worktree gets nothing.
 
+A repo has six lifecycle commands: setup, test, seed, server, teardown and
+finish. The seed is for Testing's screenshots, which a fresh worktree's server
+would otherwise take of an empty page. When a card has captures to take,
+Testing stops the card's dev server, runs the seed in the worktree, and then
+starts the server again (`seedForCapture` in
+`packages/server/src/stages/testing.ts`). A seed that fails is reported in the
+prompt, and the pictures are taken anyway. Resetting old data is the command's
+job. The planning prompt names the seed, so a plan whose capture needs a state
+the seed lacks extends the seed script. Repo commands never inherit the host's
+`REEVE_DB` or `REEVE_ASSETS`, so a worktree's own Reeve opens its own
+`data/reeve.db`. For Reeve's own repo the seed is:
+
+    rm -f data/reeve.db data/reeve.db-wal data/reeve.db-shm && REEVE_DB=data/reeve.db npx tsx packages/server/src/spikes/seed-card-detail.ts
+
+It runs from the worktree root, so it writes the database the dev server then
+opens. Its merged card is archived on the server's first merge-sync tick
+unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
+
 ## Conventions
 
 - Strict TypeScript with `noUncheckedIndexedAccess` and `verbatimModuleSyntax`

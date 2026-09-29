@@ -72,6 +72,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       reviewNotes,
       answers,
       mockups: prepared?.['mockups'] ?? '',
+      seed: seedGuidance(ctx.repo.seedCommand),
       suggesting: renderSuggesting(),
       notes: renderNotes(ctx.notes),
     });
@@ -215,6 +216,27 @@ function composePlan(output: PlanningOutput, mockups: PlanningOutput['mockups'])
   }
 
   return `${out.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * What data the captures will be taken against. A plan cannot name a seed of
+ * its own — Planning has no shell, and the command would run outside the
+ * permission policy — so the way it asks for a state is to extend the one the
+ * repo runs. Card b9d5ed0b's captures of a pending suggestion were of an empty
+ * board for want of this.
+ */
+function seedGuidance(seedCommand: string | null): string {
+  if (!seedCommand) {
+    return (
+      'This repo has no seed command, so the dev server starts on whatever data the worktree has, which in a ' +
+      'fresh one is usually none: a state that needs data to show will be photographed empty.'
+    );
+  }
+  return (
+    `They are taken against a board seeded by the repo's seed command, \`${seedCommand}\`, which Testing runs ` +
+    'in the worktree before it starts the dev server. If a capture needs a state that seed does not produce, ' +
+    'add a step that extends the seed script to produce it, or the picture will not show what it is meant to.'
+  );
 }
 
 /** The plan's mockups as they will be drawn: one per label, and no more than the cap. */

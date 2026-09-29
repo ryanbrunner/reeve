@@ -72,6 +72,8 @@ reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
 reeve card archive <card> [--detach-open]
 reeve card restore <card>
+reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--seed CMD] [--server CMD] …
+reeve repos show <repo> [--json]
 reeve card accept <card>
 reeve card dismiss <card>
 ```
@@ -94,6 +96,12 @@ still applies, and a refusal says what `gh` said.
 yet Done is refused, and the refusal names them; `--detach-open` archives it
 anyway and moves them to No project. Restoring the project brings back the Done
 cards that went with it, and leaves the moved ones where they are.
+
+`repos add` and `repos edit` take the Settings form's fields as flags, and a
+blank one clears it. `--seed` is the command Testing runs before its
+screenshots, after stopping the card's dev server and before starting it again,
+so the pictures show fixture data rather than an empty page. `repos show`
+prints it as the Seed row.
 
 **`card accept` and `card dismiss` are for cards a run suggested**, the Accept
 and Reject buttons on a suggestion's face; `card approve` and `card reject` are
