@@ -45,12 +45,24 @@ import { Dropdown } from './lib/Dropdown.js';
 export function App() {
   const qc = useQueryClient();
   const [archiveOpen, showArchive] = useArchiveParam();
-  // Which pane Settings opens on, or null while it is shut.
-  const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
+  // Which pane Settings opens on, or null while it is shut. `?settings` opens
+  // it on Runs, so Settings can be linked to and photographed by URL; the
+  // button beside it still picks its own pane and leaves the URL alone.
+  const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(() =>
+    new URLSearchParams(window.location.search).has('settings') ? { kind: 'runs' } : null,
+  );
   // Stable, because the modal's focus effect depends on it and the board
   // re-renders this component on every poll: a fresh arrow each time would
   // re-run that effect and yank focus out of whichever field was being typed in.
-  const closeSettings = useCallback(() => setSettingsOpen(null), []);
+  // The param goes by replaceState, as `?archive` does, leaving no history.
+  const closeSettings = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('settings')) {
+      url.searchParams.delete('settings');
+      window.history.replaceState(null, '', url);
+    }
+    setSettingsOpen(null);
+  }, []);
   // Stable for the same reason: the Archive's focus effect depends on it too.
   const closeArchive = useCallback(() => showArchive(false), [showArchive]);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
