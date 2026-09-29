@@ -15,6 +15,7 @@ import {
   type StageRunDefaults,
 } from '@reeve/shared';
 import { api } from '../lib/api.js';
+import { Dropdown } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { Button, Empty, SectionHead, SmallButton } from '../card/ui.js';
 
@@ -48,9 +49,14 @@ export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onC
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // Same rule as the card: Escape gets you out of a field before it gets
-      // you out of the dialog, so a half-typed path survives one keystroke.
+      // you out of the dialog, so a half-typed path survives one keystroke. A
+      // dropdown counts as a field; its open list has already had the first
+      // Escape to itself.
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.getAttribute('role') === 'combobox')
+      ) {
         target.blur();
         return;
       }
@@ -527,20 +533,14 @@ function Select({
   onChange: (v: string | null) => void;
 }) {
   return (
-    <select
-      aria-label={label}
+    <Dropdown
+      label={label}
       value={value ?? ''}
+      options={[{ value: '', label: empty }, ...options]}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full rounded-md border border-(--color-edge) bg-(--color-ink) px-2 py-1.5 font-mono text-[11px]/[18px] outline-none focus:border-sky-600 disabled:opacity-50"
-    >
-      <option value="">{empty}</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      onChange={(v) => onChange(v || null)}
+      className="w-full rounded-md bg-(--color-ink) px-2 py-1.5 text-(--color-text)"
+    />
   );
 }
 
