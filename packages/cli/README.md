@@ -23,6 +23,33 @@ it over HTTP and never opens the database: creating or moving a card starts runs
 the server holds in memory. It looks for Reeve at `$REEVE_URL`, else
 `http://127.0.0.1:$REEVE_PORT`, else `http://127.0.0.1:4317`.
 
+## Checking an install
+
+```sh
+reeve doctor [--url U] [--json]
+```
+
+One line per thing Reeve relies on: `ok`, `warn`, `FAIL` or `info`, what was
+found, and for anything missing how to fix it.
+
+- **Required**, and the exit status is 1 without any of them: Node at the
+  `engines.node` in Reeve's `package.json`, `git` on PATH, and credentials the
+  Agent SDK can use, either a Claude login or `ANTHROPIC_API_KEY`. The CLI is
+  asked for these, so the answer is the one a run will get. A key is reported
+  as found and never tried, because trying it would spend credit.
+- **Warnings**, which still exit 0: `gh` installed and logged in (only pull
+  requests need it), Chromium for Playwright (only screenshots need it), and
+  the built web app (only `reeve serve` needs it; `npm run dev` never has one).
+- **Information**: whether a server answers at the URL `reeve status` would
+  ask, and where the database and assets are. The paths are a running server's
+  own when one answers, and otherwise where `reeve serve` from this shell would
+  put them. The database file is only ever checked for, never opened.
+
+It asks from your shell, whose PATH, login and `ANTHROPIC_API_KEY` may not be
+those of a server started some other way. Its `--json` is
+`{ ok, checks: [{ name, level, status, detail, fix }] }`, a shape of its own:
+no endpoint is behind it.
+
 ## Reading
 
 ```sh
@@ -113,7 +140,8 @@ reeve card move "$id" planning
 `card add` and `project add` print the new id on its own with `--quiet`. With
 `--json`, stdout is a single JSON document and nothing else — the API's answer
 as the web app gets it, typed by `@reeve/shared` — while anything said to a
-person goes to stderr.
+person goes to stderr. `doctor` is the one exception, since it asks no API: its
+report is described above.
 
 | Command            | Endpoint                      | Type                  |
 | ------------------ | ----------------------------- | --------------------- |

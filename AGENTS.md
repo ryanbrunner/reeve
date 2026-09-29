@@ -38,8 +38,8 @@ npm workspaces, four packages:
   command that imports the server; everything else goes through a running
   server's HTTP API and never its database, because runs live in the server's
   memory and a second process opening the database reaps them. Its `--json`
-  output is the API's own wire types from `@reeve/shared`, unreshaped; see its
-  README. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
+  output is the API's own wire types from `@reeve/shared`, unreshaped, except
+  `doctor`'s, which asks no API; see its README. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
 
 ## Commands
 
@@ -69,6 +69,11 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   where the command is run.
 - `reeve status` — exits 0 if a server answers and 1 if not, so a script can
   ask before starting one.
+- `reeve doctor` — one line per requirement, with the fix for each one that is
+  missing. It exits 1 only when Node, git or Claude credentials are missing,
+  and only warns about `gh`, Chromium and the web build. Its probes live beside
+  the server code they predict failures in (`accountProbe`, `browserProbe`,
+  `ghProbe`), and it never opens the database.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
