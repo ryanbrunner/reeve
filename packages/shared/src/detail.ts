@@ -34,6 +34,7 @@ export type CardEventKind =
   | 'restored'
   | 'handed_off'
   | 'crit_reviewed'
+  | 'gloss_reviewed'
   | 'conflicts_resolved'
   | 'conflicts_failed'
   | 'merge_failed'
@@ -295,6 +296,18 @@ export interface CritReviewResponse {
   runId: string;
   url: string | null;
   /** A review was already open for this plan, and this is it. */
+  reused: boolean;
+}
+
+/**
+ * What `POST /cards/:id/gloss` answers with: the shell run waiting on the
+ * reviewer's round, and the page of the card's dev server that Gloss shows.
+ * Gloss opens its own window, so there is nothing here to link to.
+ */
+export interface GlossReviewResponse {
+  runId: string;
+  url: string;
+  /** A round was already waiting on the reviewer, and this is it. */
   reused: boolean;
 }
 
