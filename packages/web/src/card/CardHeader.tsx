@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, type CardDetail } from '@reeve/shared';
 import { ProjectProgress } from '../board/ProjectProgress.js';
 import { api } from '../lib/api.js';
+import { Dropdown } from '../lib/Dropdown.js';
 import { AttentionBand } from './AttentionBand.js';
 import { plural, sumTokens, tok, tokenTitle, when } from './format.js';
 import { SmallButton } from './ui.js';
@@ -122,29 +123,28 @@ export function CardHeader({
             and its branch belong to the repo they were made in, and the server
             refuses the move for the same reason. A merged card's branch
             outlives its worktree, so that stays locked for good. */}
-        <select
+        <Dropdown
+          variant="chip"
+          label="Repo"
           value={card.repoId ?? ''}
           disabled={Boolean(card.worktreePath || (card.mergedAt != null && card.branchName)) || refile.isPending}
-          onChange={(e) => refile.mutate(e.target.value || null)}
-          aria-label="Repo"
+          onChange={(v) => refile.mutate(v || null)}
           title={
             card.worktreePath ? 'Remove the worktree before moving the card to another repo'
             : card.mergedAt != null && card.branchName ? 'Merged from this repo, where its branch is kept'
             : card.kind === 'project' ? 'The repo the project is split from, and its tasks default to'
             : 'Move the card to another repo'
           }
-          className="field-sizing-content cursor-pointer appearance-none rounded-sm px-1.5 py-0.5 font-mono text-[10px]/4 outline-none focus-visible:ring-1 focus-visible:ring-sky-600 disabled:cursor-default"
+          options={[
+            // A repo archived since is still the card's, so it stays pickable.
+            ...(card.repoId && !repos.some((r) => r.id === card.repoId) ?
+              [{ value: card.repoId, label: card.repoName ?? 'Unknown repo', color: card.laneColor ?? '#3f4754' }]
+            : []),
+            ...repos.map((r) => ({ value: r.id, label: r.name, color: r.laneColor ?? '#3f4754' })),
+            { value: '', label: 'No repo', color: '#3f4754' },
+          ]}
           style={{ background: `${card.laneColor ?? '#3f4754'}33`, color: card.laneColor ?? '#9aa4b2' }}
-        >
-          {/* A repo archived since is still the card's, so it stays pickable. */}
-          {card.repoId && !repos.some((r) => r.id === card.repoId) && (
-            <option value={card.repoId}>{card.repoName ?? 'Unknown repo'}</option>
-          )}
-          {repos.map((r) => (
-            <option key={r.id} value={r.id}>{r.name}</option>
-          ))}
-          <option value="">No repo</option>
-        </select>
+        />
         {/* A project has no number and sits in no column. */}
         {card.kind === 'project' ?
           <>
