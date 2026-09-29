@@ -228,8 +228,16 @@ export function App() {
       repoId: project?.repoId ?? repos[0]?.id ?? null,
     });
   };
+  // Filed under a repo only when there is just the one. A project's repo is
+  // what its tasks default to, so the first of several, picked by nobody,
+  // would spread to every card split from it. With more, it starts with none
+  // and its header's chip asks; nothing of it runs until that is answered.
   const addProject = () =>
-    create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
+    create.mutate({
+      title: PLACEHOLDER_PROJECT_TITLE,
+      kind: 'project',
+      repoId: repos.length === 1 ? (repos[0]?.id ?? null) : null,
+    });
   // VIBES MODE's Ship it: named already, so it is not opened, and under no
   // project, since the header has no lane to file it in.
   const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
