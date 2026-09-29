@@ -121,6 +121,8 @@ try {
   await picker.getByRole('option', { name: /orders-api/ }).click();
   await dialog.waitFor();
   await page.locator('#card-title:focus').waitFor();
+  // Focused is not selected: typing must replace the placeholder, not add to it.
+  assert.equal(await page.evaluate('String(window.getSelection())'), 'Untitled', 'the new title was not selected');
   assert.ok(!hasNew(), 'the new card carried ?new');
   const made = (await cards()).find((c) => !c.projectId && c.repoId === ordersApi.id);
   assert.ok(made, 'no card was made under orders-api');
