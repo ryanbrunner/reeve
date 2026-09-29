@@ -20,6 +20,11 @@ export function duration(ms: number | null | undefined): string {
   return `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
 }
 
+/** A path under a home directory, from `~`: the part that tells two apart is at the end. */
+export function fromHome(path: string): string {
+  return path.replace(/^\/Users\/[^/]+/, '~');
+}
+
 /** Clock time for today, a date for anything older. Nobody needs "Sep 24" today. */
 export function when(ms: number | null | undefined): string {
   if (!ms) return '—';

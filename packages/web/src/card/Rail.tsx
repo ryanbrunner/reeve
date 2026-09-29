@@ -16,7 +16,7 @@ import {
 import { api, cardsIn } from '../lib/api.js';
 import { copyText } from '../lib/clipboard.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
-import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
+import { duration, fromHome, sumTokens, tok, tokenTitle, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
 /**
@@ -481,7 +481,7 @@ function Worktree({ detail }: { detail: CardDetail }) {
           {worktree.behind ? ` · ${worktree.behind} behind` : worktree.behind === 0 ? ' · up to date' : ''}
         </Fact>
         <Fact label="Path" copy={worktree.path}>
-          {worktree.path.replace(/^\/Users\/[^/]+/, '~')}
+          {fromHome(worktree.path)}
         </Fact>
       </div>
 

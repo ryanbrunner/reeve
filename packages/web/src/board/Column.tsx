@@ -51,6 +51,7 @@ export function Column({
   onOpen,
   onAdd,
   adding = false,
+  adder,
   refuses = false,
   vibes = false,
   hot = false,
@@ -65,6 +66,12 @@ export function Column({
   /** Offered as a ghost card at the foot of the column. Backlog is where new work goes, so only it has one. */
   onAdd?: () => void;
   adding?: boolean;
+  /**
+   * Drawn in the ghost's place while a new card is being set up, before it
+   * exists: the repo picker. The column only makes room for it, and never
+   * learns what it is.
+   */
+  adder?: React.ReactNode;
   /**
    * The card being dragged waits on another and may not come in here. Only a
    * hint, drawn in the dependency colour: the droppable stays enabled, because
@@ -140,7 +147,10 @@ export function Column({
           place in the tab order. Held while a card is being made, since a
           double-click would otherwise make two and open both. Never in VIBES
           MODE, whose well holds nothing and whose cards come from Ship it. */}
-      {onAdd && !active && !vibes && (
+      {/* Opaque from the start, unlike the ghost: it is open because somebody
+          asked for it, and it is waiting on them. Gone mid-drag all the same. */}
+      {adder && !active && !vibes && <div className={cards.length ? 'mt-2' : ''}>{adder}</div>}
+      {onAdd && !adder && !active && !vibes && (
         <button
           type="button"
           onClick={onAdd}
