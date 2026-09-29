@@ -169,6 +169,13 @@
       "when": 1790592784748,
       "tag": "0023_repo_seed_command",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1790678557535,
+      "tag": "0024_drop_repo_allowed_tools",
+      "breakpoints": true
     }
   ]
 }
