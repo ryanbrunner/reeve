@@ -1,6 +1,7 @@
 import { DEFAULT_PORT } from '@reeve/shared';
 import { board } from './commands/board.js';
 import { card } from './commands/card.js';
+import { doctor } from './commands/doctor.js';
 import { project } from './commands/project.js';
 import { open } from './commands/open.js';
 import { repos } from './commands/repos.js';
@@ -48,6 +49,10 @@ const USAGE = `Usage: reeve <command> [options]
       works just as well on its own.
   reeve status [--url U] [--json]
       Whether a Reeve is answering: exit 0 if one is, 1 if not.
+  reeve doctor [--url U] [--json]
+      What this install is missing, one line per check, and how to fix it:
+      Node, git and Claude credentials, which exit 1 when absent; gh,
+      Chromium and the web build, which only warn; the server and its data.
   reeve open [<card>]
       Open the board in a browser, on a card if one is named.
   reeve settings [...] / reeve models [--json]
@@ -67,7 +72,8 @@ const USAGE = `Usage: reeve <command> [options]
 <stage>  backlog, planning, in-progress, testing or done
 
 --json prints the API's answer unchanged, filtered by any flags given, alone
-on stdout. Anything said to a person goes to stderr.
+on stdout; doctor, which asks no API, prints a report of its own. Anything
+said to a person goes to stderr.
 
 Exit status is 0 on success, 1 when Reeve refused or could not be reached, and
 2 for a mistake in the command itself. card wait says how the run ended with
@@ -88,6 +94,7 @@ async function run(args: string[]): Promise<void> {
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   board,
   card,
+  doctor,
   models,
   open,
   project: (args) => project.run(args),
