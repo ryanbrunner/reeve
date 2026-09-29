@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
 import { useSuggestionDecision } from '../board/SuggestionButtons.js';
@@ -137,6 +137,74 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
         </form>
       )}
       {review.error && <p className="text-sm/5 text-red-300">{review.error.message}</p>}
+      {(detail.card.stage === 'in_progress' || detail.card.stage === 'testing') && <GlossReview detail={detail} />}
+    </div>
+  );
+}
+
+/**
+ * Review the build by using it, in Gloss, instead of only reading the report.
+ *
+ * The verdict comes from Gloss rather than from here, as Crit's does for a
+ * plan: a round of comments sends the build back, and Approve approves it.
+ * The window outlives the round, and reloads onto the revision by itself, so
+ * this only opens the review, says it is open, and stops it.
+ */
+function GlossReview({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+  // Returned rather than fired, as Crit's is, so the button stays pending
+  // until the refetch has the round in it and `live` below takes over.
+  const open = useMutation({
+    mutationFn: () => api.reviewWithGloss(detail.card.id),
+    onSuccess: invalidate,
+  });
+  const stop = useMutation({ mutationFn: (runId: string) => api.stopRun(runId), onSuccess: invalidate });
+  // The board's cache, as the Rail reads it, for whether there is a server to open.
+  const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const repo = board?.repos.find((r) => r.id === detail.card.repoId);
+
+  // Newest first, so a modal opened again finds the round still waiting.
+  const last = detail.runs.find((r) => r.task === 'gloss_review');
+  const live = last && !isTerminal(last.status) ? last : null;
+
+  // An approval moves the card, and the board does not poll. The modal does,
+  // so the round ending is noticed here and passed on.
+  const isLive = Boolean(live);
+  const wasLive = useRef(isLive);
+  useEffect(() => {
+    if (wasLive.current && !isLive) void qc.invalidateQueries({ queryKey: ['board'] });
+    wasLive.current = isLive;
+  }, [isLive, qc]);
+
+  const blocked =
+    repo && !repo.serverCommand ? 'The repo has no server command, so there is no running app to open. Add one in Settings.'
+    : !detail.worktree.path || !detail.worktree.exists ? 'The worktree is missing from disk.'
+    : null;
+  const error = open.error ?? stop.error;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        {live ? (
+          <>
+            <span className="font-mono text-[11px]/4 text-(--color-muted)">Gloss is open in its own window.</span>
+            <SmallButton busy={stop.isPending} onClick={() => stop.mutate(live.id)}>
+              {stop.isPending ? 'Stopping…' : 'Stop'}
+            </SmallButton>
+          </>
+        ) : (
+          <SmallButton tone="sky" disabled={Boolean(blocked)} busy={open.isPending} onClick={() => open.mutate()}>
+            {open.isPending ? 'Opening Gloss…' : 'Review in Gloss'}
+          </SmallButton>
+        )}
+        {(live || blocked) && (
+          <p className="font-mono text-[10px]/4 text-(--color-muted)">
+            {live ? 'Submit sends your comments back as feedback, and the window reloads once Claude is done. Approve approves the build.' : blocked}
+          </p>
+        )}
+      </div>
+      {error && <p className="font-mono text-[10px]/4 text-red-300">{error.message}</p>}
     </div>
   );
 }
