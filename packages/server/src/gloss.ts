@@ -274,15 +274,24 @@ async function finishRound(
       return;
     }
 
-    // Left as submitted if this fails: pressing Review in Gloss again picks the
-    // same round up, so the comments are not lost with the start.
-    const revision = await sendBackForRevision(
-      db, writer, card, repo, run, formatNotes(verdict, comments),
-      { via: 'gloss', ...meta, comments: comments.length },
-    );
+    // A revision that fails to start, or throws, has usually recorded the
+    // rejection already, so the comments are safe in the card's history and a
+    // retry would find this build reviewed. The window is told, rather than
+    // left saying it is waiting for Claude.
+    const notes = formatNotes(verdict, comments);
+    let revision: Awaited<ReturnType<typeof sendBackForRevision>>;
+    try {
+      revision = await sendBackForRevision(
+        db, writer, card, repo, run, notes, { via: 'gloss', ...meta, comments: comments.length },
+      );
+    } catch (err) {
+      revision = { ok: false, error: String(err), status: 409 };
+    }
     if (!revision.ok) {
+      await gloss(session, 'ready', `Reeve could not start the revision: ${revision.error}. Your comments are on the card.`)
+        .catch(() => {});
       recordOutcome(db, session, reviewedRunId, 'failed',
-        `Sent back from Gloss, but the revision did not start: ${revision.error}.`, meta);
+        `Sent back from Gloss, but the revision did not start: ${revision.error}.\n\n${notes}`, meta);
       return;
     }
 
