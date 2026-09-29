@@ -11,8 +11,8 @@ import { continueStage, isStartingStage, maybeStartStage } from './startStage.js
  * The two verdicts the human gate can reach, whoever reaches them.
  *
  * Out of the route because more than a button says them now: a review in Crit
- * ends in one or the other, and two copies of what approving means would
- * drift apart the first time one of them grew a step.
+ * or a round in Gloss ends in one or the other, and two copies of what
+ * approving means would drift apart the first time one of them grew a step.
  */
 
 /**
