@@ -132,12 +132,14 @@ export function Dropdown({
 
   // Focus goes where the keys are read: the filter when there is one, the
   // trigger otherwise. Safari does not focus a clicked button, so the trigger
-  // is focused on purpose rather than assumed.
+  // is focused on purpose rather than assumed. Not until the list is placed:
+  // until then it is hidden, and a hidden filter refuses focus.
+  const placed = pos !== null;
   useEffect(() => {
-    if (!open) return;
+    if (!open || !placed) return;
     if (searchable) filter.current?.focus();
     else trigger.current?.focus();
-  }, [open, searchable]);
+  }, [open, placed, searchable]);
 
   // Placed before paint, so the list never flashes at the top-left corner.
   // Below the trigger unless it would not fit there and fits better above,
