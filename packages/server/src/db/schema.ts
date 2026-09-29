@@ -110,7 +110,6 @@ export const repo = sqliteTable('repo', {
   serverUrl: text('server_url'),
   teardownCommand: text('teardown_command'),
   finishCommand: text('finish_command'),
-  allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
   // Fast-forward the repo's own default branch once one of its cards' pull
   // requests is merged. Off unless asked for: it moves the person's checkout,

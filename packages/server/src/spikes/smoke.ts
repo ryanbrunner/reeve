@@ -1,7 +1,7 @@
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { openDatabase } from '../db/client.js';
 import { boardCards, eventsSince, insertEvents, insertRun, nextSeq, reapOrphanedRuns } from '../db/queries.js';
-import { card, repo } from '../db/schema.js';
+import { card, repo, run } from '../db/schema.js';
 
 const db = openDatabase(process.env.REEVE_DB ?? '../../data/reeve.db');
 migrate(db, { migrationsFolder: './drizzle' });
@@ -10,7 +10,6 @@ db.insert(repo).values({
   id: 'p1', name: 'reeve', repoPath: '/Users/ryan/code/reeve',
   worktreeRoot: '/Users/ryan/code/.reeve-worktrees', setupCommand: 'npm install',
   serverCommand: 'npm run dev', teardownCommand: 'rm -rf node_modules', laneColor: '#6b7db3',
-  allowedTools: ['Read', 'Edit', 'Bash(git *)'],
 }).onConflictDoNothing().run();
 
 db.insert(card).values({
@@ -22,6 +21,7 @@ const sessionId = crypto.randomUUID();
 const created = insertRun(db, {
   id: 'r1', cardId: 'c1', kind: 'claude', stage: 'planning', status: 'running',
   sessionId, model: 'claude-opus-5', effort: 'high', permissionMode: 'plan', cwd: '/tmp/worktree', startedAt: new Date(),
+  permissionDenials: [{ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }],
 });
 console.log('run inserted   :', created.id, created.status, created.sessionId === sessionId ? '(session id round-tripped)' : '(MISMATCH)');
 
@@ -39,7 +39,7 @@ console.log('resume from 1  :', eventsSince(db, 'r1', 1).map((e) => e.seq).join(
 
 const board = boardCards(db);
 console.log('board row      :', board[0]?.card.title, '| repo:', board[0]?.repoName, '| lane:', board[0]?.laneColor);
-console.log('json column    :', JSON.stringify(db.select().from(repo).get()?.allowedTools));
+console.log('json column    :', JSON.stringify(db.select().from(run).get()?.permissionDenials));
 
 const reaped = reapOrphanedRuns(db, new Date());
 console.log('reaper         :', reaped.length, 'orphan(s) ->', reaped.map((r) => `${r.id}:${r.sessionId?.slice(0, 8)}`).join(', '), '(resumable)');
