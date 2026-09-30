@@ -40,7 +40,7 @@ import { VibesTicker } from './vibes/Ticker.js';
 import { useVibes, type Vibes } from './vibes/useVibes.js';
 import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
-import { Dropdown } from './lib/Dropdown.js';
+import { Dropdown, type DropdownOption } from './lib/Dropdown.js';
 
 export function App() {
   const qc = useQueryClient();
@@ -229,17 +229,24 @@ export function App() {
   }, [data]);
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
 
-  // Filed under the lane's project and that project's repo, falling back to
-  // the first repo: an unfiled card is a dead one, since no repo means no
-  // worktree and no stage can run. The header's picker changes it after.
-  const addCard = (projectId: string | null) => {
-    const project = projects.find((p) => p.id === projectId);
-    create.mutate({
-      title: PLACEHOLDER_TITLE,
-      stage: 'backlog',
-      projectId,
-      repoId: project?.repoId ?? repos[0]?.id ?? null,
-    });
+  // Filed under the lane's project and the repo picked from the ghost's list,
+  // or the only repo when there is just the one. Unfiled only when there are
+  // none. The header's picker changes the repo after.
+  const addCard = (projectId: string | null, repoId: string | null) =>
+    create.mutate({ title: PLACEHOLDER_TITLE, stage: 'backlog', projectId, repoId });
+  // What the ghost offers in a lane: every repo, the project's own first and
+  // named as such, since that is what its cards usually start in. No No repo
+  // row: an unfiled card is a dead one, since no repo means no worktree and no
+  // stage can run, and the ghost is for starting work.
+  const addOptions = (projectId: string | null): DropdownOption[] => {
+    const own = projects.find((p) => p.id === projectId)?.repoId;
+    const options = repos.map((r) => ({
+      value: r.id,
+      label: r.name,
+      color: r.laneColor ?? '#3f4754',
+      hint: r.id === own ? "project's repo" : undefined,
+    }));
+    return [...options.filter((o) => o.value === own), ...options.filter((o) => o.value !== own)];
   };
   // Filed under a repo only when there is just the one. A project's repo is
   // what its tasks default to, so the first of several, picked by nobody,
@@ -399,7 +406,8 @@ export function App() {
                       cards={cardsIn(cards, stage, lane.id)}
                       refuses={dragging !== null && blockedMoveRefusal(dragging.stage, stage, dragging.dependsOn) !== null}
                       onOpen={openAndClose.open}
-                      onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
+                      onAdd={stage === 'backlog' ? (repoId) => addCard(lane.id, repoId) : undefined}
+                      addOptions={stage === 'backlog' ? addOptions(lane.id) : undefined}
                       adding={create.isPending}
                     />
                   ))}
@@ -590,8 +598,8 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   vibes: Vibes;
 }) {
   // Only VIBES MODE's Ship it picks a repo here. On the calm board a card is
-  // added from the ghost in its lane and its repo picked in the card's header,
-  // but a shipped card is never opened, so this is its only chance.
+  // added from the ghost in its lane, which asks for its repo when there are
+  // several, but VIBES MODE's wells have no ghost, so this is its only chance.
   // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
   // run.
