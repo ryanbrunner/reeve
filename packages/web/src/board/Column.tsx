@@ -252,7 +252,9 @@ export function Column({
               key={o.value}
               type="button"
               disabled={adding}
-              onPointerMove={(e) => e.currentTarget.focus()}
+              // Without scrolling: a row half off the foot of the board would
+              // otherwise drag the board up under the pointer passing over it.
+              onPointerMove={(e) => e.currentTarget.focus({ preventScroll: true })}
               onClick={() => {
                 close(false);
                 onAdd(o.value);
