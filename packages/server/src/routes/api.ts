@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
+import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, isPlaceholderCard, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { deleteAsset } from '../assets/store.js';
 import { entryRefusal, toBoardCard } from '../board.js';
@@ -329,10 +329,11 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const refusal = stageEntryRefusal('backlog', parsed.data.stage ?? 'backlog', false);
     if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
     const created = createCard(db, parsed.data);
-    // Opened straight into its own modal on the client, with nothing said
-    // about it yet — VIBES MODE leaves it alone until that modal closes, so a
-    // title typed a moment ago is never read as consent to start work.
-    holdCard(created.id);
+    // Only the ghost and Add Project make a card this way — a placeholder
+    // title, opened straight into its own modal for a person to type over —
+    // so only those are held. A card the CLI makes with a real title and no
+    // modal to close would otherwise sit held until the server restarted.
+    if (isPlaceholderCard(created)) holdCard(created.id);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     // Made straight into a column Claude works in is entering it, the same as a drag.
     maybeStartStage(db, writer, created, repo);
