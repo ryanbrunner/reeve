@@ -30,8 +30,8 @@ const USAGE = `Usage: reeve <command> [options]
   reeve card run <card> [--follow] [--json]
       Start the stage the card is in. --follow streams the run's transcript.
   reeve card approve <card> [--notes T] / reject <card> --notes T
-      The verdict a person gives a finished stage. Approving does not move the
-      card; a human does that.
+      The verdict a person gives a finished stage. Approving moves the card
+      one column; that is the human action the move is waiting on.
   reeve card questions <card> [--json] / answer <card> <question> <answer>
       What Claude could not decide for itself, and the answer that resumes it.
   reeve card wait <card> [--timeout S] [--json]
