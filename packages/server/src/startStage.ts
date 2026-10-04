@@ -238,7 +238,7 @@ export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: stri
     } catch (e) {
       return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}, and the merge could not be aborted: ${reason(e)}`);
     }
-    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are resolved once the card is in Done`);
+    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are left for Resolve conflicts once the card is in Done`);
   }
 
   setBaseSha(db, card, fetched);
