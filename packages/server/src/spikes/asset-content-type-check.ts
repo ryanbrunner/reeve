@@ -22,7 +22,7 @@ const { app, db } = createApp();
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
   if (!ok) failures++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${ok ? 'observed' : 'FAIL    '} ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
 const card = createCard(db, { title: 'asset content-type check', kind: 'task' });
@@ -55,16 +55,18 @@ check('the HTML bytes are served verbatim', bytes === payload);
 console.log('\n--- what this adds up to ---');
 console.log(
   'An upload labelled image/png but containing HTML is accepted, stored, and served back with\n' +
-    'content-type: image/png and no X-Content-Type-Options: nosniff. An <img src> cannot run it —\n' +
-    'browsers do not execute an image destination as a document — but the asset route answers any\n' +
-    'request for /api/assets/<id>, including a top-level navigation or an <iframe src>. Without\n' +
-    "nosniff, a browser that content-sniffs the response (Chrome's \"sniff for scriptable content\"\n" +
-    'applies when the declared type is not a strict image/audio/video type it trusts outright, and\n' +
-    'its PNG-signature check would fail here) may render these bytes as HTML rather than as a\n' +
-    'broken image, turning a stored \"mockup\" or pasted image into stored XSS on the asset origin —\n' +
-    'the same origin that serves the API. This is reachable from any page that can reach the asset\n' +
-    'POST at all (see csrf-check.ts for that it needs no Origin/Host/content-type to do so), given\n' +
-    'only a card id, which /board hands out to anything that can read it.',
+    'content-type: image/png and no X-Content-Type-Options: nosniff — the server trusts the\n' +
+    "uploader's own declared MIME type and never reads the bytes to check it. That is not stored\n" +
+    'XSS by itself: per the WHATWG MIME-sniffing spec, when a server supplies an image/* type,\n' +
+    "a browser only sniffs among image signatures and keeps the declared type on a mismatch — it\n" +
+    "never upgrades image/png to text/html. Current Chrome, Firefox and Safari show a broken image\n" +
+    "on a direct navigation or in an <iframe>, not the HTML. (The 'sniff for scriptable content'\n" +
+    'behaviour that used to make this exploitable was old IE, not anything shipping today.) And\n' +
+    "CONTENT_TYPES only maps png/jpeg/webp, so text/html and image/svg+xml are rejected outright —\n" +
+    'the allowlist is doing real work here. What is real: the content-type is unverified\n' +
+    'data-integrity, worth an X-Content-Type-Options: nosniff header as defense in depth against a\n' +
+    'future browser, a future allowlist entry, or a client that does sniff, but not an exploitable\n' +
+    'path against the browsers in use today.',
 );
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
