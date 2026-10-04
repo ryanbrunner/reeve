@@ -201,9 +201,16 @@ assert.equal(posted.json.suggestedBy, null);
 console.log('[reeve] no route sets or changes who suggested a card');
 
 // --- the suggest-tasks switch ------------------------------------------------
-assert.equal(getSettings(db).suggestTasks, true, 'a fresh database suggests follow-up cards by default');
+// Through the route, not `updateSettings` directly: `settingsSchema` is what
+// actually lets the field through a PATCH, and nothing else exercises it.
+type SettingsBody = { suggestTasks: boolean };
+assert.equal((await call<SettingsBody>('GET', '/api/settings')).json.suggestTasks, true, 'fresh: on by default');
+const off = await call<SettingsBody>('PATCH', '/api/settings', { suggestTasks: false });
+assert.equal(off.json.suggestTasks, false, 'PATCH turns it off');
+assert.equal((await call<SettingsBody>('GET', '/api/settings')).json.suggestTasks, false, 'and GET reads it back');
+assert.equal(getSettings(db).suggestTasks, false, 'the row itself, not only the response, changed');
+console.log('[reeve] GET and PATCH /api/settings carry suggestTasks');
 
-updateSettings(db, { suggestTasks: false });
 const quiet = (await call<ApiCard>('POST', '/api/cards', { title: 'Quiet', repoId: repo.id })).json;
 planningStage.onPersist!(
   db, ctxFor(quiet.id),
@@ -237,9 +244,17 @@ for (const prompt of [
 }
 console.log('[reeve] suggestions off: no built prompt carries the aside section');
 
+// implementation.md never lists cards that were not made.
+const [doc] = inProgressStage.onComplete(
+  quietCtx,
+  implementationOutput.parse({ ...IMPL, suggested_tasks: tasks('Should not be written down either') }),
+);
+assert.ok(!doc!.content.includes('Suggested as separate cards'), 'the section is left out of the document too');
+console.log('[reeve] suggestions off: implementation.md has no "Suggested as separate cards" section');
+
 // What the switch was on for stays: it only stops new ones.
 assert.ok(cardsSuggestedBy(db, suggester.id).length > 0, 'cards suggested while it was on are left alone');
-updateSettings(db, { suggestTasks: true });
+assert.equal((await call<SettingsBody>('PATCH', '/api/settings', { suggestTasks: true })).json.suggestTasks, true);
 console.log('[reeve] suggestions off only stops new ones; earlier suggestions keep their Accept / Reject buttons');
 
 // --- board-wide VIBES MODE takes a suggested card like any other -------------
