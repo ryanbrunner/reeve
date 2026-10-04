@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
+import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
@@ -23,8 +24,21 @@ import type { LiveRun } from './useCardDetail.js';
  * the activity is still whatever the last run left: a revision waiting on the
  * repo's setup reads as needing review, and its buttons would only earn a 409
  * from a server that is already starting the next run.
+ *
+ * A suggestion nobody has decided on is asked about before the idle card's
+ * silence: it sits in Backlog, where no run gives it an activity, and the
+ * decision is the one thing it wants.
  */
-export function AttentionBand({ detail, live }: { detail: CardDetail; live: LiveRun | null }) {
+export function AttentionBand({
+  detail,
+  live,
+  onClose,
+}: {
+  detail: CardDetail;
+  live: LiveRun | null;
+  /** Rejecting a suggestion archives it, and the modal closes as Delete's does. */
+  onClose: () => void;
+}) {
   const { card } = detail;
   if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
     return (
@@ -37,6 +51,13 @@ export function AttentionBand({ detail, live }: { detail: CardDetail; live: Live
     return (
       <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
         <Starting detail={detail} />
+      </div>
+    );
+  }
+  if (card.pendingSuggestion) {
+    return (
+      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+        <Suggested detail={detail} onClose={onClose} />
       </div>
     );
   }
@@ -116,6 +137,113 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
         </form>
       )}
       {review.error && <p className="text-sm/5 text-red-300">{review.error.message}</p>}
+      {(detail.card.stage === 'in_progress' || detail.card.stage === 'testing') && <GlossReview detail={detail} />}
+    </div>
+  );
+}
+
+/**
+ * Review the build by using it, in Gloss, instead of only reading the report.
+ *
+ * The verdict comes from Gloss rather than from here, as Crit's does for a
+ * plan: a round of comments sends the build back, and Approve approves it.
+ * The window outlives the round, and reloads onto the revision by itself, so
+ * this only opens the review, says it is open, and stops it.
+ */
+function GlossReview({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+  // Returned rather than fired, as Crit's is, so the button stays pending
+  // until the refetch has the round in it and `live` below takes over.
+  const open = useMutation({
+    mutationFn: () => api.reviewWithGloss(detail.card.id),
+    onSuccess: invalidate,
+  });
+  const stop = useMutation({ mutationFn: (runId: string) => api.stopRun(runId), onSuccess: invalidate });
+  // The board's cache, as the Rail reads it, for whether there is a server to open.
+  const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
+  const repo = board?.repos.find((r) => r.id === detail.card.repoId);
+
+  // Newest first, so a modal opened again finds the round still waiting.
+  const last = detail.runs.find((r) => r.task === 'gloss_review');
+  const live = last && !isTerminal(last.status) ? last : null;
+
+  // An approval moves the card, and the board does not poll. The modal does,
+  // so the round ending is noticed here and passed on.
+  const isLive = Boolean(live);
+  const wasLive = useRef(isLive);
+  useEffect(() => {
+    if (wasLive.current && !isLive) void qc.invalidateQueries({ queryKey: ['board'] });
+    wasLive.current = isLive;
+  }, [isLive, qc]);
+
+  const blocked =
+    repo && !repo.serverCommand ? 'The repo has no server command, so there is no running app to open. Add one in Settings.'
+    : !detail.worktree.path || !detail.worktree.exists ? 'The worktree is missing from disk.'
+    : null;
+  const error = open.error ?? stop.error;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        {live ? (
+          <>
+            <span className="font-mono text-[11px]/4 text-(--color-muted)">Gloss is open in its own window.</span>
+            <SmallButton busy={stop.isPending} onClick={() => stop.mutate(live.id)}>
+              {stop.isPending ? 'Stopping…' : 'Stop'}
+            </SmallButton>
+          </>
+        ) : (
+          <SmallButton tone="sky" disabled={Boolean(blocked)} busy={open.isPending} onClick={() => open.mutate()}>
+            {open.isPending ? 'Opening Gloss…' : 'Review in Gloss'}
+          </SmallButton>
+        )}
+        {(live || blocked) && (
+          <p className="font-mono text-[10px]/4 text-(--color-muted)">
+            {live ? 'Submit sends your comments back as feedback, and the window reloads once Claude is done. Approve approves the build.' : blocked}
+          </p>
+        )}
+      </div>
+      {error && <p className="font-mono text-[10px]/4 text-red-300">{error.message}</p>}
+    </div>
+  );
+}
+
+/**
+ * A card a run suggested, waiting on someone to say whether it is wanted.
+ * Accepting keeps it where it is; rejecting archives it, so the modal closes
+ * behind it, the way Delete in the header does.
+ */
+function Suggested({ detail, onClose }: { detail: CardDetail; onClose: () => void }) {
+  const { card } = detail;
+  const decide = useSuggestionDecision(card.id);
+  const from = card.suggestedBy;
+  // `#142` is per repo, so a suggester in another repo says which.
+  const ref = from && `${from.repoName && from.repoName !== card.repoName ? from.repoName : ''}#${from.number}`;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 grow">
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            {from ? <>Suggested by <span className="text-(--color-sug)">{ref}</span> {from.title}</> : 'Suggested'}
+          </div>
+          <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+            Accepting keeps it in Backlog as work to do. Rejecting archives it, and it is not suggested again.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('rejected', { onSuccess: onClose })}
+          >
+            Reject
+          </Button>
+          <Button tone="suggest" disabled={decide.isPending} onClick={() => decide.mutate('accepted')}>
+            {decide.isPending ? 'Working…' : 'Accept'}
+          </Button>
+        </div>
+      </div>
+      {decide.error && <p className="text-sm/5 text-red-300">{decide.error.message}</p>}
     </div>
   );
 }

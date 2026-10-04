@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { baseUrl, isRunning } from '../client.js';
 import { EXIT, type ExitCode } from '../exit.js';
@@ -16,10 +16,16 @@ const exec = promisify(execFile);
  * installed Reeve gets a board whose first run fails for reasons that are not
  * obvious, and this is where the Homebrew caveats send them.
  *
- * Node, git and Claude credentials are required: without any one of them no
- * stage can run, and the exit status is 1. `gh`, Chromium and the web build
- * only warn, because each serves one feature — pull requests, screenshots,
- * `reeve serve` — and the board works without it. The server and the data
+ * Node, git, Claude credentials and a SQLite binding that loads are required:
+ * without any one of them no stage can run, and the exit status is 1. The
+ * binding is the one an install gets wrong silently — `better-sqlite3`'s
+ * native binary has to match whatever Node ran `npm install`, Homebrew's, say,
+ * rather than a shell's `nvm` one — and it is tried on an in-memory database,
+ * never the board's. `gh`, Chromium and the web build only warn, because each
+ * serves one feature — pull requests, screenshots, `reeve serve` — and the
+ * board works without it. Playwright never downloads Chromium on install, by
+ * design, so a fresh install is expected to warn about it until a person runs
+ * the one command the line names. The server and the data
  * paths are information. Like `status`, a failed check is set as the exit
  * status rather than thrown: it is an answer, not a command that broke.
  *
@@ -50,6 +56,9 @@ const HEALTHZ_TIMEOUT_MS = 5_000;
 const GIT_FIX = 'install git: on macOS `xcode-select --install` or `brew install git`, elsewhere https://git-scm.com/downloads';
 const CLAUDE_FIX = 'run `claude` and log in, or set ANTHROPIC_API_KEY';
 const GH_FIX = 'only pull requests need it: install it from https://cli.github.com if it is missing, then `gh auth login`';
+const SQLITE_FIX = 'reinstall Reeve with the Node that runs it, so better-sqlite3 gets a native binary built for that Node';
+// `checkChromium`'s own detail already ends in the command that installs it.
+const CHROMIUM_FIX = 'only screenshots need it: Testing still runs without Chromium, and reports them as unavailable';
 
 /**
  * A check's line from whether it passed. A required check that did not is a
@@ -110,13 +119,44 @@ export function nodeCheck(version: string, range: string | null): Check {
   );
 }
 
-function readEngine(root: string): string | null {
-  try {
-    const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { engines?: { node?: unknown } };
-    return typeof pkg.engines?.node === 'string' ? pkg.engines.node : null;
-  } catch {
-    return null;
+/**
+ * The `engines.node` of the nearest package.json above this file that has
+ * one: the CLI's own, both in a checkout (`src/commands/`) and in the
+ * published bundle (`dist/`, or a chunk below it), which sit at different
+ * depths. Not asked of the server's `config.root`, because this has to answer
+ * when the server would not load.
+ */
+function readEngine(): string | null {
+  for (let dir = import.meta.dirname; ; dir = dirname(dir)) {
+    try {
+      const pkg = JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8')) as { engines?: { node?: unknown } };
+      if (typeof pkg.engines?.node === 'string') return pkg.engines.node;
+    } catch {
+      // No package.json here, or not one this can read: keep climbing.
+    }
+    if (dirname(dir) === dir) return null;
   }
+}
+
+/**
+ * Where the web app should be, and what to do without it. The fix depends on
+ * whether the server's root is a checkout or an install, the same split
+ * `serve` makes when it refuses for want of one: telling someone to
+ * `npm run build` inside a Homebrew Cellar would be nonsense.
+ */
+function webBuildCheck(server: Server): Check {
+  const { root, webDist } = server.config;
+  const built = existsSync(webDist);
+  const checkout = existsSync(resolve(root, '.git'));
+  return verdict(
+    'web build',
+    'optional',
+    built,
+    built ? webDist
+    : checkout ? 'the web app has not been built'
+    : `this install is missing its web app (${webDist})`,
+    checkout ? `only \`reeve serve\` needs it: run \`npm run build\` in ${root}` : 'only `reeve serve` needs it: reinstall Reeve',
+  );
 }
 
 /** Errors worth a line, not a paragraph. */
@@ -186,34 +226,27 @@ export async function doctor(args: string[]): Promise<void> {
     broken = `could not load Reeve's server: ${firstLine(e)}`;
   }
   const unloaded = (name: string, level: CheckLevel) => verdict(name, level, false, broken, 'reinstall Reeve');
-  // Where config.ts would say, for a server that would not load.
-  const root = server?.config.root ?? resolve(import.meta.dirname, '../../../..');
 
   const running = isRunning(url);
   // In parallel, printed in this order. The credentials probe starts the
   // Claude CLI and is the slowest by far; its own timeout bounds the command.
   const checks = await Promise.all([
-    nodeCheck(process.versions.node, readEngine(root)),
+    nodeCheck(process.versions.node, readEngine()),
     gitCheck(),
     server ?
       server.accountProbe().then((r) => verdict('claude', 'required', r.ok, `${r.detail}, as this shell sees it`, CLAUDE_FIX))
     : unloaded('claude', 'required'),
+    server ?
+      (() => {
+        const r = server.checkSqlite();
+        return verdict('sqlite', 'required', r.ok, r.detail, SQLITE_FIX);
+      })()
+    : unloaded('sqlite', 'required'),
     server ? server.ghProbe().then((r) => verdict('gh', 'optional', r.ok, r.detail, GH_FIX)) : unloaded('gh', 'optional'),
     server ?
-      server
-        .browserProbe()
-        .then((r) => verdict('chromium', 'optional', r.ok, r.detail, `only screenshots need it. ${server.INSTALL_CHROMIUM}`))
+      server.checkChromium().then((r) => verdict('chromium', 'optional', r.ok, r.detail, CHROMIUM_FIX))
     : unloaded('chromium', 'optional'),
-    server ?
-      verdict(
-        'web build',
-        'optional',
-        existsSync(server.config.webDist),
-        existsSync(server.config.webDist) ? server.config.webDist : 'the web app has not been built',
-        // What `serve` says when it refuses for want of one.
-        `only \`reeve serve\` needs it: run \`npm run build\` in ${root}`,
-      )
-    : unloaded('web build', 'optional'),
+    server ? webBuildCheck(server) : unloaded('web build', 'optional'),
     running.then((up) =>
       verdict(
         'server',

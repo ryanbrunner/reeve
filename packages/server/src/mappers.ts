@@ -48,6 +48,7 @@ export function toApiRepo(p: Repo): ApiRepo {
     defaultBranch: p.defaultBranch,
     setupCommand: p.setupCommand,
     testCommand: p.testCommand,
+    seedCommand: p.seedCommand,
     serverCommand: p.serverCommand,
     serverUrl: p.serverUrl,
     teardownCommand: p.teardownCommand,
@@ -141,7 +142,8 @@ export function toApiCard(
   activity: CardActivity,
   derived: Pick<
     ApiCard,
-    'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage' | 'implemented'
+    | 'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage'
+    | 'implemented' | 'pendingSuggestion'
   >,
   links: Pick<ApiCard, 'dependsOn' | 'dependents' | 'suggestedBy' | 'suggestions'>,
 ): ApiCard {
@@ -178,8 +180,13 @@ export function toApiCard(
   };
 }
 
-export function toApiProject(c: Card, laneColor: string | null, taskCount: number): ApiProject {
-  return { id: c.id, title: c.title, repoId: c.repoId, laneColor, taskCount, vibes: c.vibes };
+export function toApiProject(
+  c: Card,
+  laneColor: string | null,
+  taskCount: number,
+  archivedDoneCount: number,
+): ApiProject {
+  return { id: c.id, title: c.title, repoId: c.repoId, laneColor, taskCount, archivedDoneCount, vibes: c.vibes };
 }
 
 export function toApiCardEvent(e: CardEvent): ApiCardEvent {

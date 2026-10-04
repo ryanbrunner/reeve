@@ -66,12 +66,29 @@
   --color-sug: #f9a8d4;
   --color-sug-fill: #ec489926;
   --color-sug-ring: #f472b6;
+  /* A suggestion nobody has decided on yet glows in the same pink, the way
+     merged does in its green: a card fact, not an activity. The ring's pink
+     is its mark. */
+  --color-sug-border: #ec489999;
+
+  /* A project's progress bar, one segment per column. Slate, although slate
+     is otherwise left to utilities, because these name a column rather than a
+     shade: every hue a card can wear already says something, and a sky In
+     Progress segment would read as a running card. So the open columns step
+     from dark to light as work moves right, and Done alone takes a colour,
+     merged's green. The shades alone cannot name a column, which is why the
+     bar's tooltip does. */
+  --color-stage-backlog: #475569;
+  --color-stage-planning: #64748b;
+  --color-stage-in-progress: #94a3b8;
+  --color-stage-testing: #cbd5e1;
 
   --shadow-card-glow-running: inset 0 0 18px 0 #00a6f459, inset 0 0 4px 0 #00a6f466, 0 0 18px -8px #00a6f48c;
   --shadow-card-glow-review: inset 0 0 18px 0 #00bc7d59, inset 0 0 4px 0 #00bc7d66, 0 0 18px -8px #00bc7d8c;
   --shadow-card-glow-input: inset 0 0 18px 0 #fe9a0059, inset 0 0 4px 0 #fe9a0066, 0 0 18px -8px #fe9a008c;
   --shadow-card-glow-error: inset 0 0 18px 0 #fb2c3659, inset 0 0 4px 0 #fb2c3666, 0 0 18px -8px #fb2c368c;
   --shadow-card-glow-merged: inset 0 0 18px 0 #22c55e59, inset 0 0 4px 0 #22c55e66, 0 0 18px -8px #22c55e8c;
+  --shadow-card-glow-suggested: inset 0 0 18px 0 #ec489959, inset 0 0 4px 0 #ec489966, 0 0 18px -8px #ec48998c;
   --shadow-btn-error-glow: 0 0 10px -4px #fb2c3680;
 
   /* The modal wears a card's glow at ten times the size, so it also throws a
@@ -82,6 +99,7 @@
   --shadow-modal-bloom-input: 0 0 60px -20px #fe9a0040;
   --shadow-modal-bloom-error: 0 0 60px -20px #fb2c3640;
   --shadow-modal-bloom-merged: 0 0 60px -20px #22c55e40;
+  --shadow-modal-bloom-suggested: 0 0 60px -20px #ec489940;
 }
 
 html, body, #root { height: 100%; }
@@ -93,7 +111,8 @@ body { background: var(--color-ink); color: var(--color-text); }
    * it, and a radial of the core on top that darkens the middle. With the glow
    * shadow that is light rising from all four borders and fading inward — which
    * no utility can say, so the four states live here and ACTIVITY_STYLE points
-   * at them, with merged beside them as MERGED_STYLE. `overflow: hidden` is
+   * at them, with merged and a pending suggestion beside them as MERGED_STYLE
+   * and SUGGESTION_STYLE. `overflow: hidden` is
    * what clips the mark and the rail.
    */
   .card-glow { overflow: hidden; }
@@ -143,6 +162,15 @@ body { background: var(--color-ink); color: var(--color-text); }
     box-shadow: var(--shadow-card-glow-merged);
   }
 
+  .card-glow-suggested {
+    border-color: var(--color-sug-border);
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 50%, var(--color-card-core) 0%, transparent 100%),
+      linear-gradient(var(--color-sug-fill), var(--color-sug-fill)),
+      var(--color-card-core);
+    box-shadow: var(--shadow-card-glow-suggested);
+  }
+
   /*
    * The detail modal is a card that got bigger, so it takes the same five
    * skins and adds the outer bloom. Composed rather than redefined: if the
@@ -154,6 +182,7 @@ body { background: var(--color-ink); color: var(--color-text); }
   .modal-glow-input { box-shadow: var(--shadow-card-glow-input), var(--shadow-modal-bloom-input); }
   .modal-glow-error { box-shadow: var(--shadow-card-glow-error), var(--shadow-modal-bloom-error); }
   .modal-glow-merged { box-shadow: var(--shadow-card-glow-merged), var(--shadow-modal-bloom-merged); }
+  .modal-glow-suggested { box-shadow: var(--shadow-card-glow-suggested), var(--shadow-modal-bloom-suggested); }
 
   /*
    * The mark sits behind the header rather than the whole panel: centred in
@@ -164,7 +193,8 @@ body { background: var(--color-ink); color: var(--color-text); }
   .modal-glow-review .card-mark,
   .modal-glow-input .card-mark,
   .modal-glow-error .card-mark,
-  .modal-glow-merged .card-mark {
+  .modal-glow-merged .card-mark,
+  .modal-glow-suggested .card-mark {
     top: 50px;
   }
 
@@ -203,6 +233,11 @@ body { background: var(--color-ink); color: var(--color-text); }
   .card-glow-merged .card-mark {
     stroke: var(--color-merged-mark);
     filter: drop-shadow(0 0 2px var(--color-merged-mark)) drop-shadow(0 0 8px var(--color-merged-mark));
+  }
+
+  .card-glow-suggested .card-mark {
+    stroke: var(--color-sug-ring);
+    filter: drop-shadow(0 0 2px var(--color-sug-ring)) drop-shadow(0 0 8px var(--color-sug-ring));
   }
 
   /*

@@ -1,0 +1,1 @@
+ALTER TABLE `repo` ADD `seed_command` text;

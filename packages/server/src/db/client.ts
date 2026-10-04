@@ -5,7 +5,9 @@ import { dirname } from 'node:path';
 import * as schema from './schema.js';
 
 export function openDatabase(file: string) {
-  // data/ is gitignored, so a fresh clone has no directory for SQLite to create the file in.
+  // SQLite will not make the directory it is asked to create the file in: a
+  // fresh clone has no data/, since it is gitignored, and an installed copy's
+  // first run has no ~/.reeve. This is what creates either.
   mkdirSync(dirname(file), { recursive: true });
   const sqlite = new Database(file);
   // WAL so the SSE readers never block the writer.

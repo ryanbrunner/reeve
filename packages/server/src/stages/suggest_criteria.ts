@@ -11,8 +11,8 @@ import type { ClaudeTask } from './types.js';
  * real run, because it costs money and a person should be able to see in the
  * card's history that Claude wrote those words rather than they did.
  *
- * Read-only, like Planning, for the same reason: there is nothing here it
- * should be able to change.
+ * Told to change nothing, like Planning, for the same reason: there is nothing
+ * here it should change.
  *
  * Out of band: a card awaiting review of its plan is still awaiting review of
  * its plan after someone asks for suggestions. The only thing that shows this
@@ -22,8 +22,6 @@ export const suggestCriteriaTask: ClaudeTask<CriteriaOutput> = {
   id: 'suggest_criteria',
   outOfBand: true,
   schema: criteriaOutput,
-  permissionMode: 'plan',
-  allowedTools: ['Read', 'Glob', 'Grep'],
   maxBudgetUsd: 1,
   maxTurns: 20,
   effort: 'medium',

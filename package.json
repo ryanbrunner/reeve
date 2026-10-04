@@ -1,5 +1,12 @@
 {
   "name": "reeve",
+  "description": "A local kanban board where Claude plans, builds and tests each card in its own git worktree",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanbrunner/reeve.git"
+  },
+  "homepage": "https://github.com/ryanbrunner/reeve#readme",
   "private": true,
   "type": "module",
   "workspaces": [

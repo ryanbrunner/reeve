@@ -12,8 +12,11 @@ Read enough of the codebase to plan this concretely. Look for existing
 functions, components and patterns you can reuse — prefer extending what is
 there over adding parallel machinery.
 
-You have read-only access. Do not attempt to edit files; return the plan as
-structured output instead. The harness writes it to disk.
+Read, search and run whatever read-only commands help, with the repo's own
+tooling in whatever language it is written. But change nothing: do not edit,
+create or delete files, install anything or commit. Return the plan as
+structured output instead. The harness writes it to disk, and the next stage
+starts from this worktree exactly as you leave it.
 
 ## What makes a good plan here
 
@@ -52,7 +55,7 @@ independent of each other.
 `captures` names the states worth a screenshot when this is tested. Only states
 reachable by URL alone: the capturer opens a path at a viewport width and takes
 a picture, it does not click through a journey. Leave it empty for work with no
-visible surface.
+visible surface. {{seed}}
 
 Leave `mockups` empty unless a Mockups section below asks you to draw them.
 

@@ -7,21 +7,41 @@ command has a `--json` mode.
 
 ## Install
 
-From the checkout:
+Published as `reeve-board` (`reeve` was taken on npm):
+
+```sh
+npm install -g reeve-board
+```
+
+From the checkout instead:
 
 ```sh
 npm install
-npm link -w @reeve/cli
+npm run build -w reeve-board   # makes dist/reeve.js, the bin's target
+npm link -w reeve-board
 ```
 
 `reeve` is now on your PATH in any directory. Without linking, `npm run cli --`
-runs the same thing, though npm runs it from the checkout's root, so that is the
-directory it infers a repo or card from.
+runs the same thing from source (no build needed), though npm runs it from the
+checkout's root, so that is the directory it infers a repo or card from.
+
+`reeve --version` prints the installed version. `reeve doctor` says what this
+install is missing and how to fix it, including the two things an install can
+get wrong silently: that the native SQLite binding loads, and that a Chromium
+is there for Testing's screenshots (Playwright never downloads one on install;
+`doctor` says the command that does). See [Checking an install](#checking-an-install).
 
 Reeve itself has to be running (`npm run dev`, or `npm start`). The CLI talks to
 it over HTTP and never opens the database: creating or moving a card starts runs
 the server holds in memory. It looks for Reeve at `$REEVE_URL`, else
 `http://127.0.0.1:$REEVE_PORT`, else `http://127.0.0.1:4317`.
+
+The board, its database and its images, lives in the checkout's gitignored
+`data/` when Reeve runs from a git checkout, and in `~/.reeve` when it runs
+from an installed copy (the same on macOS and Linux; `XDG_DATA_HOME` plays no
+part). Either is created on first run, and the server prints the database's
+path when it starts. `REEVE_DB` and `REEVE_ASSETS`, or `reeve serve --db` and
+`--assets`, put it anywhere else.
 
 ## Checking an install
 
@@ -36,9 +56,13 @@ found, and for anything missing how to fix it.
   `engines.node` in Reeve's `package.json`, `git` on PATH, and credentials the
   Agent SDK can use, either a Claude login or `ANTHROPIC_API_KEY`. The CLI is
   asked for these, so the answer is the one a run will get. A key is reported
-  as found and never tried, because trying it would spend credit.
+  as found and never tried, because trying it would spend credit. And the
+  native SQLite binding has to load: `better-sqlite3`'s binary must match the
+  Node that runs Reeve. It is tried on an in-memory database, never the
+  board's.
 - **Warnings**, which still exit 0: `gh` installed and logged in (only pull
-  requests need it), Chromium for Playwright (only screenshots need it), and
+  requests need it), Chromium for Playwright (only screenshots need it; the
+  line names the `npx … playwright install chromium` that fetches it), and
   the built web app (only `reeve serve` needs it; `npm run dev` never has one).
 - **Information**: whether a server answers at the URL `reeve status` would
   ask, and where the database and assets are. The paths are a running server's
@@ -74,8 +98,9 @@ reeve card wait <card> [--timeout S] [--json]
 reeve run follow <run> [--json] / reeve run stop <run>
 ```
 
-Approving does not move the card. Claude never moves a card; a human does, and
-from here that is `card move`.
+Claude never moves a card; a human does. Approving is that human action for a
+finished stage: it passes the gate and moves the card one column, where
+`card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
 exit status: 0 it finished and awaits review, 3 Claude asked questions, 4 the
@@ -92,6 +117,10 @@ reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
 reeve card archive <card> [--detach-open]
 reeve card restore <card>
+reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--seed CMD] [--server CMD] …
+reeve repos show <repo> [--json]
+reeve card accept <card>
+reeve card dismiss <card>
 ```
 
 `reeve card move --help`, and the same for every command that writes, says what
@@ -112,6 +141,21 @@ still applies, and a refusal says what `gh` said.
 yet Done is refused, and the refusal names them; `--detach-open` archives it
 anyway and moves them to No project. Restoring the project brings back the Done
 cards that went with it, and leaves the moved ones where they are.
+
+`repos add` and `repos edit` take the Settings form's fields as flags, and a
+blank one clears it. `--seed` is the command Testing runs before its
+screenshots, after stopping the card's dev server and before starting it again,
+so the pictures show fixture data rather than an empty page. `repos show`
+prints it as the Seed row.
+
+**`card accept` and `card dismiss` are for cards a run suggested**, the Accept
+and Reject buttons on a suggestion's face; `card approve` and `card reject` are
+the review gate, and have nothing to do with them. Accepting leaves the card in
+Backlog and takes away its badge. Dismissing archives it, which also stops the
+same title being suggested again, and `card restore` brings it back. Anything
+else — a card a person made, one already decided, one out of Backlog — is
+refused, and the refusal says which. A script finds the ones waiting in
+`board --json`, as the `cards` with `pendingSuggestion` true.
 
 Criteria are numbered from 1, as `criteria list` shows them. There is no
 `criteria check`: a verdict is Testing's, and belongs to the run that reached it.
@@ -143,15 +187,17 @@ as the web app gets it, typed by `@reeve/shared` — while anything said to a
 person goes to stderr. `doctor` is the one exception, since it asks no API: its
 report is described above.
 
-| Command            | Endpoint                      | Type                  |
-| ------------------ | ----------------------------- | --------------------- |
-| `board`            | `GET /api/board`              | `BoardResponse`       |
-| `board --archived` | `GET /api/cards/archived`     | `ApiCard[]`           |
-| `card show`        | `GET /api/cards/:id/detail`   | `CardDetail`          |
-| `repos`            | `GET /api/repos`              | `ApiRepo[]`           |
-| `runs`             | `GET /api/cards/:id/runs`     | `ApiRunSummary[]`     |
-| `card archive`     | `POST /api/cards/:id/archive` | `ArchiveCardResponse` |
-| `card restore`     | `POST /api/cards/:id/restore` | `ApiCard`             |
+| Command            | Endpoint                         | Type                  |
+| ------------------ | -------------------------------- | --------------------- |
+| `board`            | `GET /api/board`                 | `BoardResponse`       |
+| `board --archived` | `GET /api/cards/archived`        | `ApiCard[]`           |
+| `card show`        | `GET /api/cards/:id/detail`      | `CardDetail`          |
+| `repos`            | `GET /api/repos`                 | `ApiRepo[]`           |
+| `runs`             | `GET /api/cards/:id/runs`        | `ApiRunSummary[]`     |
+| `card archive`     | `POST /api/cards/:id/archive`    | `ArchiveCardResponse` |
+| `card restore`     | `POST /api/cards/:id/restore`    | `ApiCard`             |
+| `card accept`      | `POST /api/cards/:id/suggestion` | `ApiCard`             |
+| `card dismiss`     | `POST /api/cards/:id/suggestion` | `ApiCard`             |
 
 `board`'s filters narrow the arrays in that document and leave its shape
 alone: `cards` loses what does not match, and `projects` loses projects outside

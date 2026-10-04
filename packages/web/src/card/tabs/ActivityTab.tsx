@@ -57,8 +57,8 @@ export function ActivityTab({ detail, vibes = false }: { detail: CardDetail; vib
                 {(e.kind === 'answered' || e.kind === 'note') && e.body && (
                   <p className="text-sm/5 text-(--color-muted)">{e.body}</p>
                 )}
-                {/* Line breaks kept: feedback from Crit is one paragraph per comment. */}
-                {(e.kind === 'reviewed' || e.kind === 'crit_reviewed') && e.body && (
+                {/* Line breaks kept: feedback from Crit or Gloss is one paragraph per comment. */}
+                {(e.kind === 'reviewed' || e.kind === 'crit_reviewed' || e.kind === 'gloss_reviewed') && e.body && (
                   <p className="text-sm/5 whitespace-pre-line text-(--color-muted)">{e.body}</p>
                 )}
                 {(e.kind === 'pr_opened' || e.kind === 'merged') && <PullRequestLink event={e} />}
@@ -202,8 +202,9 @@ function matches(e: ApiCardEvent, filter: Filter): boolean {
   if (filter === 'runs') return e.kind === 'run_started' || e.kind === 'run_finished';
   return (
     e.kind === 'answered' || e.kind === 'note' || e.kind === 'question_asked' || e.kind === 'reviewed' ||
-    e.kind === 'crit_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed' ||
-    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed' || e.kind === 'merge_failed'
+    e.kind === 'crit_reviewed' || e.kind === 'gloss_reviewed' || e.kind === 'merged' || e.kind === 'pr_opened' || e.kind === 'pr_failed' ||
+    e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed' || e.kind === 'merge_failed' ||
+    e.kind === 'suggestion_accepted'
   );
 }
 
@@ -222,6 +223,9 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'reviewed':
       if (e.meta?.['via'] === 'crit') {
         return e.meta?.['decision'] === 'approved' ? 'approved the plan in Crit' : 'sent the plan back from Crit';
+      }
+      if (e.meta?.['via'] === 'gloss') {
+        return e.meta?.['decision'] === 'approved' ? 'approved the build in Gloss' : 'sent the build back from Gloss';
       }
       return e.meta?.['decision'] === 'approved' ? 'approved the work' : 'sent the work back';
     case 'question_asked':
@@ -251,7 +255,10 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
     case 'archived':
       return e.meta?.['reason'] === 'merged' ? 'archived the card once it had merged'
         : e.meta?.['reason'] === 'project' ? 'archived the card with its project'
+        : e.meta?.['rejectedSuggestion'] ? 'rejected the suggestion'
         : 'archived the card';
+    case 'suggestion_accepted':
+      return 'accepted the suggestion';
     case 'left_project': {
       // Named from the event: the card no longer points at the project.
       const title = e.meta?.['projectTitle'];
@@ -266,6 +273,15 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return outcome === 'cancelled' ? 'stopped a review in Crit'
         : outcome === 'not_applied' ? 'finished a review in Crit that was not applied'
         : 'could not finish a review in Crit';
+    }
+    case 'gloss_reviewed': {
+      // `ended` is a loop that stopped after a round was applied: the revision
+      // came back with questions, or not at all, rather than ready for review.
+      const outcome = e.meta?.['outcome'];
+      return outcome === 'cancelled' ? 'stopped a review in Gloss'
+        : outcome === 'not_applied' ? 'finished a round in Gloss that was not applied'
+        : outcome === 'ended' ? 'ended a review in Gloss after a revision'
+        : 'could not finish a round in Gloss';
     }
     case 'conflicts_resolved': {
       const base = typeof e.meta?.['base'] === 'string' ? e.meta['base'] : 'the base branch';

@@ -16,6 +16,11 @@ and proposing what "done" should mean for it.
 Look at enough of the codebase to be specific rather than generic. Then propose
 acceptance criteria: the things that must be true for this card to be finished.
 
+Read, search and run read-only commands as you need, but change nothing: do
+not edit, create or delete files, install anything or commit. This may be the
+person's own checkout rather than a card's worktree, with their work in it.
+The server adds the criteria from what you return.
+
 - Write each as something a person could observe and check off, not as a task
   to perform. "Saved items survive a page reload", not "add persistence".
 - Make them independent of each other, so one can fail without confusing the

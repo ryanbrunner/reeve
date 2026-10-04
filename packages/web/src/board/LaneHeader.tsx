@@ -1,8 +1,10 @@
 import type { ApiCard } from '@reeve/shared';
 import { ACTIVITY_DOTS, ACTIVITY_LABELS } from './activity.js';
+import { ProjectProgress } from './ProjectProgress.js';
 
 /**
- * A lane's header: the chevron that folds it, its colour, and its name.
+ * A lane's header: the chevron that folds it, its colour, its name, and how
+ * far through its tasks the project is.
  *
  * The chevron and the name are two buttons side by side, never one inside the
  * other — the name opens the project, and folding a lane should not.
@@ -12,13 +14,27 @@ import { ACTIVITY_DOTS, ACTIVITY_LABELS } from './activity.js';
  * touched. A shut lane must never hide a card waiting on a person, because
  * nothing on the board moves until one acts. Open, the columns say it already.
  */
-export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, onOpen, bodyId, vibes, solo }: {
+export function LaneHeader({
+  laneId,
+  name,
+  color,
+  cards,
+  archivedDone,
+  collapsed,
+  onToggle,
+  onOpen,
+  bodyId,
+  vibes,
+  solo,
+}: {
   /** The lane's project; null is No project, which has nothing to open. */
   laneId: string | null;
   name: string;
   color: string | null;
   /** Every card in the lane, whatever its column. */
   cards: ApiCard[];
+  /** The project's `archivedDoneCount`: finished tasks the sweep took off the board. */
+  archivedDone: number;
   collapsed: boolean;
   onToggle: () => void;
   onOpen: (id: string) => void;
@@ -66,11 +82,11 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
           type="button"
           onClick={() => onOpen(laneId)}
           title="Open the project"
-          className={`uppercase hover:text-(--color-text) ${vibes ? 'sk-lane-name' : ''}`}
+          className={`min-w-0 truncate uppercase hover:text-(--color-text) ${vibes ? 'sk-lane-name' : ''}`}
         >
           {name}
         </button>
-      : <span className={vibes ? 'sk-lane-name' : ''}>{name}</span>}
+      : <span className={`min-w-0 truncate ${vibes ? 'sk-lane-name' : ''}`}>{name}</span>}
       {/* The chip a card in VIBES MODE on its own wears, here because the
           project's switch is what put its cards there. Folded, it is the only
           sign left that they are moving with nobody watching. */}
@@ -82,6 +98,9 @@ export function LaneHeader({ laneId, name, color, cards, collapsed, onToggle, on
           <span>vibes</span>
         </span>
       )}
+      {/* Before the tallies, so it stays put when the lane folds. No project
+          is not a piece of work with an end, so it has none. */}
+      {laneId && <ProjectProgress tasks={cards} archivedDone={archivedDone} className="ml-1.5" />}
       {collapsed && <Summary cards={cards} />}
     </h2>
   );

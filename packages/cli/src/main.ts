@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { DEFAULT_PORT } from '@reeve/shared';
 import { board } from './commands/board.js';
 import { card } from './commands/card.js';
@@ -14,6 +16,14 @@ import { vibes } from './commands/vibes.js';
 import { EXIT } from './exit.js';
 import { CliError, note, print, usageError } from './output.js';
 
+// One level up from this file's own location, in a checkout
+// (packages/cli/src/main.ts) and in a published install, where this file is
+// bundled into dist/reeve.js: either way that is this package's own
+// package.json, so `reeve --version` reads the same version a formula test
+// would see installed.
+const VERSION = (JSON.parse(readFileSync(resolve(import.meta.dirname, '../package.json'), 'utf8')) as { version: string })
+  .version;
+
 const USAGE = `Usage: reeve <command> [options]
 
   reeve board [--repo NAME] [--project TITLE|ID] [--stage S] [--archived] [--json]
@@ -21,8 +31,9 @@ const USAGE = `Usage: reeve <command> [options]
       and title, then the projects. --archived lists what is off the board.
   reeve card show <card> [--json]
       A card in full: its facts, criteria, open questions, plan and runs.
-  reeve card add <title> / edit / move / note / criteria / archive / restore
+  reeve card add <title> / edit / move / note / criteria / archive / restore / accept / dismiss
       Write a card: the calls the card's modal makes, from a terminal.
+      accept and dismiss decide on a card a run suggested, not a review.
       reeve card <verb> --help says what each one takes.
   reeve project add <title>
       A project to file cards under. Editing its brief and archiving it are
@@ -30,8 +41,8 @@ const USAGE = `Usage: reeve <command> [options]
   reeve card run <card> [--follow] [--json]
       Start the stage the card is in. --follow streams the run's transcript.
   reeve card approve <card> [--notes T] / reject <card> --notes T
-      The verdict a person gives a finished stage. Approving does not move the
-      card; a human does that.
+      The verdict a person gives a finished stage. Approving moves the card
+      one column; that is the human action the move is waiting on.
   reeve card questions <card> [--json] / answer <card> <question> <answer>
       What Claude could not decide for itself, and the answer that resumes it.
   reeve card wait <card> [--timeout S] [--json]
@@ -51,8 +62,9 @@ const USAGE = `Usage: reeve <command> [options]
       Whether a Reeve is answering: exit 0 if one is, 1 if not.
   reeve doctor [--url U] [--json]
       What this install is missing, one line per check, and how to fix it:
-      Node, git and Claude credentials, which exit 1 when absent; gh,
-      Chromium and the web build, which only warn; the server and its data.
+      Node, git, Claude credentials and a SQLite binding that loads, which
+      exit 1 when absent; gh, Chromium and the web build, which only warn;
+      the server and its data.
   reeve open [<card>]
       Open the board in a browser, on a card if one is named.
   reeve settings [...] / reeve models [--json]
@@ -64,6 +76,8 @@ const USAGE = `Usage: reeve <command> [options]
       The repos cards can be made in, and how each one is set up.
   reeve run follow <run> [--json] / run stop <run>
       Stream a run already going, or stop it.
+  reeve --version
+      This install's version, read off its own package.json.
 
 <card>   a card's id, or any prefix of it no other card shares. The board
          shows the first 8 characters, which are what its branch is named
@@ -112,6 +126,7 @@ const SELF_HELP = new Set(['card', 'project']);
 
 async function main(argv: string[]): Promise<void> {
   const [first] = argv;
+  if (first === '--version' || first === '-v') return print(VERSION);
   if (first === undefined || first === 'help' || first === '--help' || first === '-h') return print(USAGE);
   const command = Object.hasOwn(COMMANDS, first) ? COMMANDS[first] : undefined;
   if (!command) throw usageError(`unknown command '${first}'`);

@@ -11,6 +11,7 @@ import type { Db } from './db/client.js';
 import {
   cardLinks,
   hasImplementationRun,
+  isPendingSuggestion,
   latestClaudeRunForStage,
   type CardLinks,
 } from './db/queries.js';
@@ -61,6 +62,7 @@ export function toBoardCard(
     mergingPr: isMergingPr(card.id),
     startingStage: isStartingStage(card.id),
     implemented: hasImplementationRun(db, card.id),
+    pendingSuggestion: isPendingSuggestion(card),
   }, links(card.id));
 }
 

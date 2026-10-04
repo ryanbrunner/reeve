@@ -18,12 +18,14 @@ import type {
   CreateRepoBody,
   CritReviewResponse,
   EffortLevel,
+  GlossReviewResponse,
   HandoffResponse,
   MergePullRequestResponse,
   ModelsResponse,
   MoveCardBody,
   ResolveConflictsResponse,
   Stage,
+  SuggestionDecisionBody,
   UpdateRepoBody,
   UpdateSettingsBody,
 } from '@reeve/shared';
@@ -67,6 +69,9 @@ export const api = {
   archiveCard: (id: string, body: ArchiveCardBody = {}) =>
     post(`/api/cards/${id}/archive`, body).then(json<ArchiveCardResponse>),
   restoreCard: (id: string) => post(`/api/cards/${id}/restore`, {}).then(json<ApiCard>),
+  /** Accept keeps a suggested card in Backlog; Reject archives it. Refused for anything else. */
+  decideSuggestion: (id: string, decision: SuggestionDecisionBody['decision']) =>
+    post(`/api/cards/${id}/suggestion`, { decision } satisfies SuggestionDecisionBody).then(json<ApiCard>),
   /** Hard, but only for a card nobody touched: the server says whether it went. */
   discardCard: (id: string) => post(`/api/cards/${id}/discard`, {}).then(json<{ deleted: boolean }>),
   archivedCards: () => fetch('/api/cards/archived').then(json<ApiCard[]>),
@@ -163,6 +168,8 @@ export const api = {
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
   /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */
   reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
+  /** Opens the running app in Gloss, or answers with the round already waiting. Each round there is a verdict. */
+  reviewWithGloss: (id: string) => post(`/api/cards/${id}/gloss`, {}).then(json<GlossReviewResponse>),
 };
 
 /** A column's cards in order, or only one lane's of them when a project is given: null is No project. */

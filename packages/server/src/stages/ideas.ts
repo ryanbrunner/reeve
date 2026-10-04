@@ -1,5 +1,5 @@
 import { STAGE_LABELS, ideasOutput, type IdeasOutput } from '@reeve/shared';
-import { addCriterion, cardsInRepo, createCard, getCard, liveProject } from '../db/queries.js';
+import { addCriterion, cardsInRepo, createCard, getCard, getSettings, liveProject } from '../db/queries.js';
 import { renderPrompt } from './template.js';
 import type { ClaudeTask } from './types.js';
 
@@ -21,15 +21,17 @@ const CARDS_LISTED = 60;
  * Out of band on the card it is started on, for the reasons Suggest is: it is
  * not that card's work, but it is a real run that costs money, and a person
  * wondering where a card came from should find the run that made it in the
- * history of the card that prompted it. Read-only like Planning, because all it
- * does is read and propose; the server makes the cards.
+ * history of the card that prompted it. Told to change nothing, like Planning,
+ * because all it does is read and propose; the server makes the cards.
+ *
+ * Governed by Settings' "Suggest follow-up cards" switch: `vibes/ideas.ts`
+ * will not start this task while it is off, and `onPersist` checks again in
+ * case a run already in flight outlasted the switch going off mid-run.
  */
 export const ideasTask: ClaudeTask<IdeasOutput> = {
   id: 'ideas',
   outOfBand: true,
   schema: ideasOutput,
-  permissionMode: 'plan',
-  allowedTools: ['Read', 'Glob', 'Grep'],
   maxBudgetUsd: 2,
   maxTurns: 30,
   effort: 'medium',
@@ -82,6 +84,7 @@ export const ideasTask: ClaudeTask<IdeasOutput> = {
    * is that work built twice.
    */
   onPersist(db, ctx, output, runId) {
+    if (!getSettings(db).suggestTasks) return;
     const repoId = ctx.card.repoId;
     if (!repoId) return;
     const have = new Set(cardsInRepo(db, repoId).map((c) => c.title.trim().toLowerCase()));

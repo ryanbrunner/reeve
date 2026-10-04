@@ -26,6 +26,18 @@ could scan. The card's work reads as a sequence of commits rather than one
 undifferentiated diff, and that is what makes a bad run something to drop
 rather than unpick.
 
+Stage files by name, `git add <path>`, never `git add -A` or `git add .`.
+`.reeve/` holds this card's stage documents. It is untracked rather than
+ignored, and must never be committed.
+
+Do not push, and do not open or touch a pull request: no `git push`, no `gh`.
+Reeve does both itself once the card is approved. Do not rewrite history you
+did not write here: no `reset`, `rebase` or amending of commits that were on
+the branch when you started.
+
+Build and test with whatever the repo already uses, in whatever language it is
+written: its own scripts, package manager and test runner.
+
 {{testCommand}}
 
 ## What makes a good result here

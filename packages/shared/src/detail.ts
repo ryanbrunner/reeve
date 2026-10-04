@@ -34,11 +34,13 @@ export type CardEventKind =
   | 'restored'
   | 'handed_off'
   | 'crit_reviewed'
+  | 'gloss_reviewed'
   | 'conflicts_resolved'
   | 'conflicts_failed'
   | 'merge_failed'
   | 'worktree_removed'
-  | 'left_project';
+  | 'left_project'
+  | 'suggestion_accepted';
 
 export interface ApiCardEvent {
   id: string;
@@ -298,6 +300,18 @@ export interface CritReviewResponse {
 }
 
 /**
+ * What `POST /cards/:id/gloss` answers with: the shell run waiting on the
+ * reviewer's round, and the page of the card's dev server that Gloss shows.
+ * Gloss opens its own window, so there is nothing here to link to.
+ */
+export interface GlossReviewResponse {
+  runId: string;
+  url: string;
+  /** A round was already waiting on the reviewer, and this is it. */
+  reused: boolean;
+}
+
+/**
  * What `POST /cards/:id/resolve-conflicts` answers with. A run id means Claude
  * is resolving and the push follows it; none means the base merged cleanly
  * and `pushed` says it has already gone to the pull request.
@@ -363,4 +377,13 @@ export interface CardDetail {
   worktree: ApiWorktree;
   assets: ApiAsset[];
   differences: ApiDifference[];
+  /**
+   * A project's tasks that were archived after finishing, by the same rule as
+   * `ApiProject.archivedDoneCount`. Here for an archived project too, which is
+   * no lane on the board and so has no count there: the Tasks tab reads this
+   * once the lane is gone, or a project whose work had all merged would open on
+   * nothing. The Done tasks archived with the project are among them; its open
+   * tasks went to No project and are not. Always 0 for a task.
+   */
+  archivedDoneCount: number;
 }

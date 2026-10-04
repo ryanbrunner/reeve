@@ -36,7 +36,7 @@ export interface ShellRunHandle {
 }
 
 /**
- * Runs a repo's command (setup, test, or the dev server) or a tool beside
+ * Runs a repo's command (setup, seed, test, or the dev server) or a tool beside
  * the stage (a review in Crit) and streams its output into run_event, so shell
  * output and Claude transcripts render through one component and one SSE
  * endpoint.
@@ -60,13 +60,21 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
   });
   const runId = run.id;
 
+  // Where this Reeve keeps its board is not the command's business. Inherited,
+  // a worktree's own Reeve would open the live database and reap its runs, and
+  // a seed would write fixtures into it; left unset, a checkout's server falls
+  // back to its own `data/`. A value the command sets itself still wins.
+  const inherited = { ...process.env };
+  delete inherited['REEVE_DB'];
+  delete inherited['REEVE_ASSETS'];
+
   const child = spawn(command, {
     cwd,
     shell: true,
     // Its own process group: `npm run dev` forks a bundler, and killing only the
     // shell leaves that orphaned holding the port.
     detached: true,
-    env: { ...process.env, ...env, ...(port ? { PORT: String(port), REEVE_PORT: String(port) } : {}) },
+    env: { ...inherited, ...env, ...(port ? { PORT: String(port), REEVE_PORT: String(port) } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

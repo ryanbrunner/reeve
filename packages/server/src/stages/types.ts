@@ -4,6 +4,7 @@ import type { Db } from '../db/client.js';
 import type { EventWriter } from '../runs/events.js';
 import type { Card, Repo } from '../db/schema.js';
 
+/** What a run's row records it was sent. Always `auto` for new runs; older rows say otherwise. */
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto';
 export type { EffortLevel };
 
@@ -35,6 +36,12 @@ export interface StageContext {
    * the run the same way all three do: as prompt.
    */
   notes?: string[];
+  /**
+   * Whether Settings allows this run to suggest cards of its own. Undefined
+   * means on, the same reading `getSettings` gives a board with no row yet, so
+   * a hand-built context (a spike) that never sets it behaves as it always did.
+   */
+  suggestTasks?: boolean;
 }
 
 export interface ArtifactDraft {
@@ -58,8 +65,9 @@ export interface ClaudeTask<Output = unknown> {
   id: string;
   schema: z.ZodType<Output>;
   buildPrompt(ctx: StageContext, prepared?: Record<string, string>): string;
-  permissionMode: PermissionMode;
-  allowedTools: string[];
+  // No permission mode and no tool list: every task asks to run in auto mode
+  // (runs/claude.ts), and what a task should and should not do is its prompt's
+  // to say.
   maxBudgetUsd: number;
   maxTurns?: number;
   model?: string;

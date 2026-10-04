@@ -1,15 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-const promptsDir = join(import.meta.dirname, 'prompts');
+import { config } from '../config.js';
 
 /**
  * Prompts live as editable files, not string literals buried in logic. They are
  * the part of this system most likely to be rewritten once real runs start, and
- * they are where stage quality actually lives.
+ * they are where stage quality actually lives. Where they live on disk is
+ * `config.promptsDir`'s call, not this file's, since that is the one place
+ * that already knows a checkout from a published package.
  */
 export function renderPrompt(name: string, vars: Record<string, string>): string {
-  const template = readFileSync(join(promptsDir, `${name}.md`), 'utf8');
+  const template = readFileSync(join(config.promptsDir, `${name}.md`), 'utf8');
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
 }
 
@@ -25,9 +26,13 @@ export function blockquote(text: string): string {
  * What to do with an aside, worded once for every stage. Its own section
  * rather than a line in each stage's list of what to return, so it reads as
  * something to keep in mind while working and not one more thing to produce.
+ *
+ * With suggestions off, the server is the guarantee — `recordSuggestions`
+ * returns early regardless of what a run sends back — so the only thing this
+ * saves is Claude's effort thinking of something nobody will see.
  */
-export function renderSuggesting(): string {
-  return renderPrompt('suggested_tasks', {});
+export function renderSuggesting(enabled: boolean): string {
+  return renderPrompt(enabled ? 'suggested_tasks' : 'no_suggested_tasks', {});
 }
 
 /** The notes block, or nothing at all when there are none. Every stage renders it. */

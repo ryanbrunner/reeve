@@ -1,166 +1,146 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import type { PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
 
 /**
  * Answering the permission prompts nobody is there to answer.
  *
- * A stage's `allowedTools` is the policy, and the SDK applies it without help.
- * This is what happens to everything else — and it exists because of what the
- * SDK does instead. `permissionPrompts: 'none'` denies an unmatched call with a
- * message that says anything else requiring approval will fail too. That is
- * true of the session and false of the stage, and a run that reads it
- * generalises: on card #22 a Testing run had three probes denied — one subshell
- * and two `git -C <its own worktree>` forms — announced "Bash is blocked, so
- * I'll check the work with Read/Grep only", then made five edits, committed
- * none of them and ran no tests. `git commit` was on its list the whole time.
+ * Every run asks for auto mode, so the SDK's classifier is the policy: it
+ * approves what Claude Code's auto mode would approve and refuses the rest, in
+ * any language's toolchain. A pinned model that doesn't take auto mode (see
+ * `fitToModel` in runs/claude.ts) runs in the SDK's own default mode instead,
+ * where this callback is still wired the same way and still only ever
+ * refuses — just asked about more, since default mode escalates every edit
+ * rather than only what its own classifier cannot decide. Stages used to
+ * carry their own lists instead, and the lists were Node's: a Rust repo could
+ * not build, and `ls | head` was refused everywhere. What a stage should and
+ * should not do is now said in its prompt.
  *
- * So a denial here names the command, names the list, and says plainly that the
- * rest of the toolbox still works. The run rewrites it and carries on, which is
- * the behaviour we want and the one no prompt could buy: the SDK's own refusal
- * text is not ours to edit, and this is the only way to replace it.
+ * What reaches this callback is what the classifier escalated rather than
+ * decided, and the answer is always no. Nobody is watching to say yes, and a
+ * host that answered allow would be `bypassPermissions` by another name, in
+ * runs VIBES MODE starts with nobody near the board.
  *
- * This is consulted second, never first. A bare `allowedTools` name auto-approves
- * the whole tool before the callback is reached — Read and Grep never arrive
- * here — and so does a prefix pattern the command matches outright. What is left
- * is the interesting part: the forms that slipped past the patterns. Verified by
- * spikes/permission-check.ts.
+ * The refusal is still worth writing ourselves, and card #22 is why. The SDK's
+ * own says anything else requiring approval will fail too, and a run that reads
+ * it generalises: a Testing run had three probes denied, announced "Bash is
+ * blocked, so I'll check the work with Read/Grep only", then made five edits,
+ * committed none of them and ran no tests. So a denial here names the call,
+ * says plainly that it was only that call, and tells the run to find another
+ * way and carry on — the behaviour no prompt could buy, since the SDK's text
+ * is not ours to edit.
  */
 export interface ToolDecision {
   toolName: string;
   input: Record<string, unknown>;
-  /** The stage's list, exactly as the SDK was given it. */
-  allowedTools: string[];
-  worktreePath: string;
 }
 
-/**
- * Deny by default. Two things get through, and neither is a widening: the
- * `git -C` rewrite (see `withoutGitC`) and a scratch database for Reeve's own
- * spikes (see `withScratchDb`). Whatever is left after either still has to
- * match the stage's list.
- */
-export function decideToolUse({ toolName, input, allowedTools, worktreePath }: ToolDecision): PermissionResult {
-  if (toolName !== 'Bash') {
-    return { behavior: 'deny', message: toolDenial(toolName, allowedTools) };
-  }
-
+/** Deny, in words that keep the run going. See the header for why never allow. */
+export function decideToolUse({ toolName, input }: ToolDecision): PermissionResult {
   const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
-  const prefixes = bashPrefixes(allowedTools);
-  const scratch = withScratchDb(command);
-  if (scratch.db && isLiveDatabase(scratch.db, worktreePath)) {
-    return { behavior: 'deny', message: liveDbDenial(command) };
-  }
-  const plain = withoutGitC(scratch.rest, worktreePath);
-  // The assignment goes back on — unlike `-C`, it is the point of the command —
-  // and is checked with the rest, so `REEVE_DB=$(…)` is refused like anything else.
-  const run = scratch.assignment + (plain ?? '');
-  if (plain && !COMPOUND.test(run) && prefixes.some((p) => isCommand(plain, p))) {
-    return { behavior: 'allow', updatedInput: { ...input, command: run } };
-  }
-  return { behavior: 'deny', message: bashDenial(command, prefixes, worktreePath) };
+  return {
+    behavior: 'deny',
+    message: toolName === 'Bash' && command ? bashDenial(command) : toolDenial(toolName, input),
+  };
 }
 
 /**
- * `REEVE_DB=/tmp/scratch.db npx tsx …` -> the assignment, and `npx tsx …` to
- * match against the list.
+ * The one thing auto mode cannot know: which file is this server's database.
  *
- * AGENTS.md runs every spike this way, and several refuse to start without it,
- * because they move real cards on whatever board they are given. The CLI's
- * matcher knows nothing of `REEVE_DB`, so the form lands here — and on card
- * b419aadc a run had to set the variable inside a `node -e` and start `npx`
- * from there, which the list allowed all along and is far harder to read.
+ * AGENTS.md runs every spike as `REEVE_DB=<scratch> npx tsx …`, and the
+ * classifier rightly sees nothing wrong with that. Pointed at the live board,
+ * though, the spike opens the database a second time, and a second process
+ * opening it reaps the runs in flight — the one asking included. So this
+ * refuses any Bash command that sets `REEVE_DB` to the running server's own
+ * file, before the classifier is asked.
  *
- * Exactly one assignment, and only this name. It changes which file Reeve's own
- * code opens and nothing about what the command after it may do. `GIT_DIR`,
- * `NODE_OPTIONS` or `PATH` would each let an allowed prefix mean something the
- * list never said, which is why this is a name and not a pattern. A second
- * assignment is left in `rest`, where it matches no prefix and is denied.
- *
- * `db` has to be the path the shell will open, or the live-board check below is
- * comparing against something else. So only the forms whose value can be read
- * exactly are taken: wholly quoted, or bare with no quote or backslash in it,
- * and a bare `~` or `~/…` expanded as the shell expands it after `=`.
- * `REEVE_DB=…/reeve".db"` or `~someone/…` is left in `rest` and denied with
- * the rest of what this does not reason about.
+ * A hook rather than a case in `decideToolUse`, because a command the
+ * classifier approves never reaches the callback at all. And it records its
+ * own refusals through `onDenied`: the SDK says a hook's denial is never sent
+ * as a `permission_denied` event, so nothing else would put it on the card.
  */
-function withScratchDb(command: string): { assignment: string; db: string | null; rest: string } {
-  const m = /^REEVE_DB=("[^"\\]*"|'[^']*'|(?!~[^/\s])[^\s"'\\]+)\s+(.+)$/s.exec(command);
-  if (!m) return { assignment: '', db: null, rest: command };
-  const value = m[1]!;
-  const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
-  return { assignment: `REEVE_DB=${value} `, db, rest: m[2]! };
+export function liveDatabaseGuard(
+  worktreePath: string,
+  onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void,
+): HookCallback {
+  return (hook, toolUseId) => {
+    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
+    const reason = scratchDbRefusal(command, worktreePath);
+    if (!reason) return Promise.resolve({});
+    onDenied(hook.tool_name, input, hook.tool_use_id ?? toolUseId ?? '');
+    return Promise.resolve({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+    });
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
- * The board this server is running on. A spike pointed at it would open the
- * database a second time, and a second process opening it reaps the runs in
- * flight — the one asking included. Unset `REEVE_DB` is no risk of this: the
- * spike resolves its default from the worktree, not the main checkout.
+ * Every `REEVE_DB=` the command sets, wherever it sets it: first, after a
+ * `cd … &&`, behind `env` or `export`, or inside a `bash -c "…"`. Only the
+ * leading one used to matter, because anything compound was refused on its
+ * form alone. Nothing refuses it now, so the guard has to look further in.
+ */
+const ASSIGNMENT = /(?:^|[\s;&|(`"'])REEVE_DB=/g;
+
+/**
+ * The value after one `REEVE_DB=`, when it can be read exactly: wholly quoted,
+ * or bare with no quote, backslash or expansion in it, and a bare `~` or `~/…`
+ * expanded as the shell expands it after `=`. The comparison below is only as
+ * good as this, so `…/reeve".db"`, `$HOME/…` or `~someone/…` is not guessed at.
+ * Nor is a bare value a quote runs straight on from, even the one closing a
+ * `bash -c "…"`: telling that from `/tmp/"reeve.db"` is more shell than this
+ * should parse.
+ */
+const VALUE = /^("[^"\\$`]*"|'[^']*'|(?!~[^/\s])[^\s"'\\$`;&|()<>]+)(?=$|[\s;&|()<>])/;
+
+/** Why the command may not run, or null when it names no live database. */
+function scratchDbRefusal(command: string, worktreePath: string): string | null {
+  for (const m of command.matchAll(ASSIGNMENT)) {
+    const value = VALUE.exec(command.slice(m.index + m[0].length))?.[1];
+    if (!value) return unreadableDbDenial(command);
+    const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
+    if (isLiveDatabase(db, worktreePath)) return liveDbDenial(command);
+  }
+  return null;
+}
+
+/**
+ * The board this server is running on. Unset `REEVE_DB` is no risk of this:
+ * a spike resolves its default from the worktree, not the main checkout.
  */
 function isLiveDatabase(db: string, worktreePath: string): boolean {
   return samePath(resolve(worktreePath, db), resolve(config.dbFile));
-}
-
-/**
- * `git -C <the worktree> log …` -> `git log …`.
- *
- * Runs reach for this form constantly, and Claude Code's own guidance is what
- * teaches it: prefer an absolute path to a `cd`. In a stage run it is pure
- * noise — the run's cwd already IS the worktree — so the rewrite allows exactly
- * the command the stage allowed, in the spelling it allowed, and nothing new
- * becomes possible. Returns the command unchanged when there is no `-C`.
- *
- * Only the worktree root itself, never a directory inside it: `git status` run
- * one level down means something else as soon as a relative pathspec is
- * involved, and silently moving it would be worse than a denial.
- */
-function withoutGitC(command: string, worktreePath: string): string | null {
-  const m = /^git\s+-C\s+("[^"]*"|'[^']*'|\S+)\s+(.+)$/s.exec(command);
-  if (!m) return command;
-  const at = m[1]!.replace(/^["']|["']$/g, '');
-  return samePath(resolve(worktreePath, at), worktreePath) ? `git ${m[2]!}` : null;
 }
 
 function samePath(a: string, b: string): boolean {
   return realOrSelf(a) === realOrSelf(b);
 }
 
-/**
- * Shell we will not reason about, so that matching a prefix can never mean less
- * than it says: `git log --oneline $(curl …)` starts with `git log` and is not a
- * `git log`. A command carrying any of this is denied rather than rewritten —
- * the CLI's own matcher has already had its turn at the compound forms it does
- * understand, and second-guessing it here would be the one mistake that matters.
- */
-const COMPOUND = /[$`;&|<>()\n]/;
-
-/** The command prefixes in a stage's list: `Bash(git log *)` -> `git log`. */
-function bashPrefixes(allowedTools: string[]): string[] {
-  return allowedTools.flatMap((t) => {
-    const m = /^Bash\(([^)]*)\)$/.exec(t);
-    return m ? [m[1]!.replace(/\*$/, '').trim()] : [];
-  });
-}
-
-/** Word-boundary prefix match, so `git logs-everything` is not `git log`. */
-function isCommand(command: string, prefix: string): boolean {
-  return command === prefix || command.startsWith(`${prefix} `);
-}
-
-function bashDenial(command: string, prefixes: string[], worktreePath: string): string {
+function bashDenial(command: string): string {
   return [
     `Denied: \`${short(command)}\`.`,
-    prefixes.length
-      ? `This stage's shell is limited to these commands: ${prefixes.join(', ')}.`
-      : 'This stage has no shell at all.',
-    `Run one of them as a single plain command — you are already in ${worktreePath}, so no \`cd\` and no \`git -C\`,`,
-    'and nothing wrapped in a loop, a subshell or a command substitution.',
-    'The one variable it may start with is `REEVE_DB=<scratch path>`, for Reeve\'s own spikes.',
-    'This is about the form of that one command and nothing else: every command on the list above still runs,',
-    'and the rest of your tools are untouched. Rewrite it and carry on.',
+    'Auto mode would not approve this one command, and nobody is watching this run to approve it by hand.',
+    'Only this call was refused. Every other command and every other tool still works:',
+    "find another way to do what this one was for — a narrower command, one that stays inside the worktree, or a",
+    'different tool — and carry on. Running the same command again will be refused again.',
+  ].join(' ');
+}
+
+function toolDenial(toolName: string, input: Record<string, unknown>): string {
+  const what = Object.values(identifying(input))[0];
+  return [
+    `Denied: this ${toolName} call${what ? ` (\`${short(what)}\`)` : ''}.`,
+    'Auto mode would not approve it, and nobody is watching this run to approve it by hand.',
+    `Only this call was refused, not ${toolName} and not your other tools: find another way to do what it was for`,
+    'and carry on.',
   ].join(' ');
 }
 
@@ -173,12 +153,13 @@ function liveDbDenial(command: string): string {
   ].join(' ');
 }
 
-function toolDenial(toolName: string, allowedTools: string[]): string {
-  const named = allowedTools.filter((t) => !t.startsWith('Bash('));
-  return (
-    `Denied: this stage has no ${toolName}. What it has: ${named.length ? named.join(', ') : 'no tools but Bash'}` +
-    `${bashPrefixes(allowedTools).length ? ', plus a scoped shell' : ''}. Those all work — use them and carry on.`
-  );
+function unreadableDbDenial(command: string): string {
+  return [
+    `Denied: \`${short(command)}\`.`,
+    `Reeve refuses any \`REEVE_DB\` that names the database its server is using (${config.dbFile}),`,
+    'and it can only tell when the path is written out plainly: no `$`, no backslash, no quote part-way through.',
+    'Name a scratch file directly — `REEVE_DB=/tmp/scratch.db` — and run the command again.',
+  ].join(' ');
 }
 
 /** Enough of the command to recognise it, on one line. Commit messages are long. */
@@ -213,10 +194,10 @@ export interface ToolDenialRecord {
  * refused.
  *
  * Two ways in, because there are two kinds of refusal. `refused` is ours, made
- * in `decideToolUse`; `observe` catches the ones decided before anyone asked us
- * — a permission mode that forbids tools outright, which is how Planning works.
- * They do not overlap in practice, and are deduplicated by tool_use_id in case
- * a release makes them.
+ * in `decideToolUse` or `liveDatabaseGuard`; `observe` catches the ones decided
+ * before anyone asked us — auto mode's classifier turning a call down itself,
+ * which is most of them. They do not overlap in practice, and are deduplicated
+ * by tool_use_id in case a release makes them.
  */
 export interface DenialRecorder {
   /** A denial this host just made. Returns the list when it grew, else null. */

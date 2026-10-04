@@ -11,8 +11,8 @@ import { continueStage, isStartingStage, maybeStartStage } from './startStage.js
  * The two verdicts the human gate can reach, whoever reaches them.
  *
  * Out of the route because more than a button says them now: a review in Crit
- * ends in one or the other, and two copies of what approving means would
- * drift apart the first time one of them grew a step.
+ * or a round in Gloss ends in one or the other, and two copies of what
+ * approving means would drift apart the first time one of them grew a step.
  */
 
 /**
@@ -60,7 +60,7 @@ export function approveStage(
 }
 
 export type Revision =
-  | { ok: true; revisionRunId: string; forkedFrom: string | null }
+  | { ok: true; revisionRunId: string; forkedFrom: string | null; done: Promise<void> }
   | { ok: false; error: string; status: 409 | 501 };
 
 /**
@@ -105,5 +105,5 @@ export async function sendBackForRevision(
     parentRunId: lastRun.id,
   });
   if (!revision.ok) return { ok: false, error: revision.error, status: 409 };
-  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId };
+  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId, done: revision.done };
 }

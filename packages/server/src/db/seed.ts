@@ -10,7 +10,10 @@ if (listRepos(db).length === 0) {
     defaultBranch: 'main',
     setupCommand: 'npm install',
     testCommand: 'npm run typecheck',
-    serverCommand: 'npm run dev',
+    seedCommand: null,
+    // Builds first, so the tsx server on Reeve's port serves this worktree's
+    // UI, not a stale `dist` (see AGENTS.md's Worktrees section).
+    serverCommand: 'npm run build && npm start',
     teardownCommand: null,
     finishCommand: null,
     laneColor: '#6b7db3',

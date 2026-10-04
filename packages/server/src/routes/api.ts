@@ -7,6 +7,7 @@ import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedMove } from '../blockers.js';
 import type { Db } from '../db/client.js';
 import {
+  acceptSuggestion,
   archiveCard,
   archiveProject,
   archivedCards,
@@ -18,6 +19,7 @@ import {
   discardIfBlank,
   getCard,
   getSettings,
+  isPendingSuggestion,
   listRepos,
   liveProject,
   liveTasksInProject,
@@ -36,7 +38,7 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
-import { SERVER_VARS, unknownVars } from '../runs/serverUrl.js';
+import { SERVER_VARS, unknownVars, usesVar } from '../runs/serverUrl.js';
 import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
@@ -84,6 +86,10 @@ const archiveCardSchema = z.object({
   detachOpen: z.boolean().optional(),
 });
 
+const suggestionDecisionSchema = z.object({
+  decision: z.enum(['accepted', 'rejected']),
+});
+
 /**
  * Note the absence of `.default()`. `repoSchema.partial()` used to carry
  * `defaultBranch: z.string().default('main')` into PATCH, where zod applied
@@ -99,6 +105,14 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
+  // Filled like the server's, but it runs before the server has been given a
+  // port, so a `{{port}}` here would reach the shell as written.
+  seedCommand: z
+    .string()
+    .nullable()
+    .optional()
+    .superRefine(knownVarsOnly('Seed command'))
+    .refine((v) => !v || !usesVar(v, 'port'), 'Seed command runs before the server has a port, so it cannot use {{port}}'),
   serverCommand: z.string().nullable().optional().superRefine(knownVarsOnly('Server command')),
   serverUrl: z
     .string()
@@ -141,6 +155,7 @@ const issuesText = (error: z.ZodError) =>
 const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
   vibes: z.boolean().optional(),
+  suggestTasks: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
     .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
@@ -202,7 +217,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const links = cardLinks(db);
     const body: BoardResponse = {
       repos: listRepos(db).map(toApiRepo),
-      projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount)),
+      projects: boardProjects(db).map((p) => toApiProject(p.card, p.laneColor, p.taskCount, p.archivedDoneCount)),
       cards: rows.map((r) => toBoardCard(db, r.card, r.repoName, r.laneColor, links)),
       // On the board response rather than its own endpoint: every number in it
       // changes on the same beat as the cards, and the board is already polling.
@@ -487,6 +502,42 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       });
     }
     return c.json({ ok: true } satisfies ArchiveCardResponse);
+  });
+
+  /**
+   * A person's decision on a card a run suggested, from the card's face or its
+   * modal. Accepting stamps it and leaves it where it is. Rejecting archives
+   * it rather than deleting it: the Archive can still bring it back, and
+   * `recordSuggestions` skips an archived title, so the same idea is not
+   * suggested again. Its own route rather than a flag on archive, so the
+   * check that this is a suggestion still waiting on someone is made once.
+   */
+  api.post('/cards/:id/suggestion', async (c) => {
+    const parsed = suggestionDecisionSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid decision', detail: parsed.error.message }, 400);
+    const id = c.req.param('id');
+    const existing = getCard(db, id);
+    if (!existing) return c.json({ error: 'not found' }, 404);
+    if (!isPendingSuggestion(existing)) {
+      return c.json({
+        error: 'not a pending suggestion',
+        detail: !existing.suggestedById ? 'a person made this card'
+          : existing.archivedAt ? 'the card is archived'
+          : existing.suggestionAcceptedAt ? 'the suggestion was already accepted'
+          : 'the card has left Backlog',
+      }, 409);
+    }
+    const accepted = parsed.data.decision === 'accepted';
+    // The archive route's rule about runs holds for a rejection too. A Backlog
+    // card runs no stage, but its brief's Suggest can be going, and would
+    // carry on spending out of sight.
+    if (!accepted && runRegistry.all().some((r) => r.cardId === id)) {
+      return c.json({ error: 'card is running', detail: 'stop its run before rejecting the suggestion' }, 409);
+    }
+    const decided =
+      (accepted ? acceptSuggestion(db, id) : archiveCard(db, id, { rejectedSuggestion: true })) ?? existing;
+    const repo = decided.repoId ? listRepos(db).find((p) => p.id === decided.repoId) : undefined;
+    return c.json(toBoardCard(db, decided, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
   // Asked whenever a card closes, of every card, and it is the server that

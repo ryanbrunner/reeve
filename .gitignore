@@ -6,3 +6,11 @@ data/
 *.db-shm
 .DS_Store
 .env
+
+# packages/cli/scripts/build.mjs copies these in beside dist/ so the
+# published tarball is self-contained; they are copies of files tracked
+# elsewhere, not sources of their own.
+packages/cli/drizzle/
+packages/cli/web/
+packages/cli/prompts/
+packages/cli/*.tgz

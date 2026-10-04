@@ -12,8 +12,8 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { checkChromium } from '../doctor.js';
 import { accountProbe } from '../runs/models.js';
-import { browserProbe } from '../capture/screenshot.js';
 import { ghProbe } from '../git/github.js';
 
 const empty = mkdtempSync(join(tmpdir(), 'reeve-doctor-'));
@@ -29,7 +29,7 @@ const cases: Array<[string, Promise<{ ok: boolean; detail: string }>, boolean | 
     true,
   ],
   ['gh', ghProbe(), null],
-  ['chromium', browserProbe(), null],
+  ['chromium', checkChromium(), null],
 ];
 
 let failed = 0;

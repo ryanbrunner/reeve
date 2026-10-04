@@ -40,16 +40,29 @@ import { VibesTicker } from './vibes/Ticker.js';
 import { useVibes, type Vibes } from './vibes/useVibes.js';
 import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
+import { Dropdown, type DropdownOption } from './lib/Dropdown.js';
 
 export function App() {
   const qc = useQueryClient();
   const [archiveOpen, showArchive] = useArchiveParam();
-  // Which pane Settings opens on, or null while it is shut.
-  const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(null);
+  // Which pane Settings opens on, or null while it is shut. `?settings` opens
+  // it on Runs, so Settings can be linked to and photographed by URL; the
+  // button beside it still picks its own pane and leaves the URL alone.
+  const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(() =>
+    new URLSearchParams(window.location.search).has('settings') ? { kind: 'runs' } : null,
+  );
   // Stable, because the modal's focus effect depends on it and the board
   // re-renders this component on every poll: a fresh arrow each time would
   // re-run that effect and yank focus out of whichever field was being typed in.
-  const closeSettings = useCallback(() => setSettingsOpen(null), []);
+  // The param goes by replaceState, as `?archive` does, leaving no history.
+  const closeSettings = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('settings')) {
+      url.searchParams.delete('settings');
+      window.history.replaceState(null, '', url);
+    }
+    setSettingsOpen(null);
+  }, []);
   // Stable for the same reason: the Archive's focus effect depends on it too.
   const closeArchive = useCallback(() => showArchive(false), [showArchive]);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
@@ -81,7 +94,12 @@ export function App() {
           qc.setQueryData<BoardResponse>(['board'], {
             ...prev,
             cards: prev.cards.map((c) =>
-              c.id === id ? { ...c, stage, position, ...(projectId !== undefined ? { projectId } : {}) } : c,
+              c.id === id ? {
+                ...c, stage, position, ...(projectId !== undefined ? { projectId } : {}),
+                // Leaving Backlog takes a suggestion on, as the server records it;
+                // left pink until the refetch, it would glow in the wrong column.
+                pendingSuggestion: c.pendingSuggestion && stage === 'backlog',
+              } : c,
             ),
           });
         }
@@ -211,20 +229,35 @@ export function App() {
   }, [data]);
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
 
-  // Filed under the lane's project and that project's repo, falling back to
-  // the first repo: an unfiled card is a dead one, since no repo means no
-  // worktree and no stage can run. The header's picker changes it after.
-  const addCard = (projectId: string | null) => {
-    const project = projects.find((p) => p.id === projectId);
-    create.mutate({
-      title: PLACEHOLDER_TITLE,
-      stage: 'backlog',
-      projectId,
-      repoId: project?.repoId ?? repos[0]?.id ?? null,
-    });
+  // Filed under the lane's project and the repo picked from the ghost's list,
+  // or the only repo when there is just the one. Unfiled only when there are
+  // none. The header's picker changes the repo after.
+  const addCard = (projectId: string | null, repoId: string | null) =>
+    create.mutate({ title: PLACEHOLDER_TITLE, stage: 'backlog', projectId, repoId });
+  // What the ghost offers in a lane: every repo, the project's own first and
+  // named as such, since that is what its cards usually start in. No No repo
+  // row: an unfiled card is a dead one, since no repo means no worktree and no
+  // stage can run, and the ghost is for starting work.
+  const addOptions = (projectId: string | null): DropdownOption[] => {
+    const own = projects.find((p) => p.id === projectId)?.repoId;
+    const options = repos.map((r) => ({
+      value: r.id,
+      label: r.name,
+      color: r.laneColor ?? '#3f4754',
+      hint: r.id === own ? "project's repo" : undefined,
+    }));
+    return [...options.filter((o) => o.value === own), ...options.filter((o) => o.value !== own)];
   };
+  // Filed under a repo only when there is just the one. A project's repo is
+  // what its tasks default to, so the first of several, picked by nobody,
+  // would spread to every card split from it. With more, it starts with none
+  // and its header's chip asks; nothing of it runs until that is answered.
   const addProject = () =>
-    create.mutate({ title: PLACEHOLDER_PROJECT_TITLE, kind: 'project', repoId: repos[0]?.id ?? null });
+    create.mutate({
+      title: PLACEHOLDER_PROJECT_TITLE,
+      kind: 'project',
+      repoId: repos.length === 1 ? (repos[0]?.id ?? null) : null,
+    });
   // VIBES MODE's Ship it: named already, so it is not opened, and under no
   // project, since the header has no lane to file it in.
   const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
@@ -305,8 +338,14 @@ export function App() {
 
   // A lane per project, oldest first, then everything that belongs to none.
   const lanes = [
-    ...projects.map((p) => ({ id: p.id as string | null, name: p.title, color: p.laneColor, solo: p.vibes })),
-    { id: null, name: 'No project', color: null, solo: false },
+    ...projects.map((p) => ({
+      id: p.id as string | null,
+      name: p.title,
+      color: p.laneColor,
+      solo: p.vibes,
+      archivedDone: p.archivedDoneCount,
+    })),
+    { id: null, name: 'No project', color: null, solo: false, archivedDone: 0 },
   ];
 
   /*
@@ -334,6 +373,7 @@ export function App() {
               name={lane.name}
               color={lane.color}
               cards={laneCards}
+              archivedDone={lane.archivedDone}
               collapsed={collapsed}
               onToggle={() => collapsedLanes.toggle(key)}
               onOpen={openAndClose.open}
@@ -366,7 +406,8 @@ export function App() {
                       cards={cardsIn(cards, stage, lane.id)}
                       refuses={dragging !== null && blockedMoveRefusal(dragging.stage, stage, dragging.dependsOn) !== null}
                       onOpen={openAndClose.open}
-                      onAdd={stage === 'backlog' ? () => addCard(lane.id) : undefined}
+                      onAdd={stage === 'backlog' ? (repoId) => addCard(lane.id, repoId) : undefined}
+                      addOptions={stage === 'backlog' ? addOptions(lane.id) : undefined}
                       adding={create.isPending}
                     />
                   ))}
@@ -557,8 +598,8 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   vibes: Vibes;
 }) {
   // Only VIBES MODE's Ship it picks a repo here. On the calm board a card is
-  // added from the ghost in its lane and its repo picked in the card's header,
-  // but a shipped card is never opened, so this is its only chance.
+  // added from the ghost in its lane, which asks for its repo when there are
+  // several, but VIBES MODE's wells have no ghost, so this is its only chance.
   // Filed under the first repo unless told otherwise, because an unfiled
   // card is a dead one: no repo means no worktree, which means no stage can
   // run.
@@ -600,19 +641,16 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
       >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
         {on && repos.length > 0 && (
-          <select
+          <Dropdown
+            label="Repo for the new card"
             value={filedUnder}
-            onChange={(e) => setRepoId(e.target.value)}
-            aria-label="Repo for the new card"
-            className={`rounded-md border border-(--color-edge) bg-(--color-panel) px-2 py-1.5 font-mono text-[11px]/4 text-(--color-muted) outline-none focus:border-sky-600 ${
-              on ? 'sk-field' : ''
-            }`}
-          >
-            {repos.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-            <option value="">No repo</option>
-          </select>
+            options={[
+              ...repos.map((p) => ({ value: p.id, label: p.name, color: p.laneColor ?? '#3f4754' })),
+              { value: '', label: 'No repo', color: '#3f4754' },
+            ]}
+            onChange={setRepoId}
+            className="sk-field rounded-md bg-(--color-panel) px-2 py-1.5 whitespace-nowrap text-(--color-muted)"
+          />
         )}
         {on && (
           <>

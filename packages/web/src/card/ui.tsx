@@ -121,7 +121,7 @@ export function Code({ children }: { children: ReactNode }) {
   );
 }
 
-type ButtonTone = 'plain' | 'sky' | 'review' | 'input' | 'error';
+type ButtonTone = 'plain' | 'sky' | 'review' | 'input' | 'error' | 'suggest';
 
 const TONES: Record<ButtonTone, string> = {
   plain: 'border-(--color-edge) text-(--color-text) hover:border-slate-600',
@@ -131,6 +131,7 @@ const TONES: Record<ButtonTone, string> = {
   review: 'border-(--color-activity-review-border) bg-(--color-activity-review-fill) text-emerald-200',
   input: 'border-(--color-activity-input-border) bg-(--color-activity-input-fill) text-amber-100',
   error: 'border-(--color-btn-error-border) bg-(--color-btn-error-fill) text-red-200 shadow-(--shadow-btn-error-glow)',
+  suggest: 'border-(--color-sug-border) bg-(--color-sug-fill) text-pink-100 hover:border-(--color-sug-ring)',
 };
 
 /**

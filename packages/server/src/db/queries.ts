@@ -108,8 +108,18 @@ export function inVibes(db: Db, c: Card): boolean {
 }
 
 /**
+ * A project's task that finished and was then archived, by the merge sweep or
+ * with its project: what `archivedDoneCount` counts. `archiveCard` leaves the
+ * stage alone, so an archived card still in Done is one that finished, and one
+ * archived from any other column was dropped on purpose. One definition for
+ * the lane and the modal, so the two can never count differently.
+ */
+const isArchivedDone = and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'done'), isNotNull(card.projectId));
+
+/**
  * The board's lanes: every live project, oldest first, with its default repo's
- * colour and how many live tasks it has.
+ * colour, how many live tasks it has, and how many it finished before the
+ * sweep archived them (see `ApiProject.archivedDoneCount`).
  */
 export function boardProjects(db: Db) {
   const tasks = db
@@ -118,14 +128,42 @@ export function boardProjects(db: Db) {
     .where(and(isTask, isNull(card.archivedAt), isNotNull(card.projectId)))
     .groupBy(card.projectId)
     .as('tasks');
+  // Its own alias, not `n`, so the outer select cannot mix the two counts up.
+  const finished = db
+    .select({ projectId: card.projectId, archivedDone: sql<number>`count(*)`.as('archived_done') })
+    .from(card)
+    .where(isArchivedDone)
+    .groupBy(card.projectId)
+    .as('finished');
   return db
-    .select({ card, laneColor: repo.laneColor, taskCount: sql<number>`coalesce(${tasks.n}, 0)` })
+    .select({
+      card,
+      laneColor: repo.laneColor,
+      taskCount: sql<number>`coalesce(${tasks.n}, 0)`,
+      archivedDoneCount: sql<number>`coalesce(${finished.archivedDone}, 0)`,
+    })
     .from(card)
     .leftJoin(repo, eq(card.repoId, repo.id))
     .leftJoin(tasks, eq(tasks.projectId, card.id))
+    .leftJoin(finished, eq(finished.projectId, card.id))
     .where(and(eq(card.kind, 'project'), isNull(card.archivedAt)))
     .orderBy(asc(card.createdAt))
     .all();
+}
+
+/**
+ * One project's `archivedDoneCount`, whether or not the project is live. An
+ * archived project is no lane, so `boardProjects` has no row for it, and its
+ * modal asks here instead. Archiving a project archives its Done tasks with
+ * their `projectId` kept, so they count with the ones swept before it; its
+ * open tasks went to No project, and do not.
+ */
+export function archivedDoneCountFor(db: Db, projectId: string): number {
+  return db
+    .select({ n: sql<number>`count(*)` })
+    .from(card)
+    .where(and(isArchivedDone, eq(card.projectId, projectId)))
+    .get()?.n ?? 0;
 }
 
 /** A live project, or nothing: the check behind every card put under one. */
@@ -490,9 +528,13 @@ export function moveCard(
 ) {
   const before = getCard(db, id);
   const position = positionForSlot(db, stage, index, id);
+  // Moving a suggestion on is taking it on, whoever moves it: a drag, or VIBES
+  // MODE sweeping it. Stamped here so a drag back to Backlog never asks again.
+  const accepted =
+    before && isPendingSuggestion(before) && stage !== 'backlog' ? { suggestionAcceptedAt: new Date() } : {};
   const updated = db
     .update(card)
-    .set({ stage, position, ...(projectId !== undefined ? { projectId } : {}), updatedAt: new Date() })
+    .set({ stage, position, ...(projectId !== undefined ? { projectId } : {}), ...accepted, updatedAt: new Date() })
     .where(eq(card.id, id))
     .returning()
     .get();
@@ -508,6 +550,41 @@ export function moveCard(
   }
   renormaliseIfNeeded(db, stage);
   return updated;
+}
+
+/**
+ * A card a run suggested that nobody has decided on yet: still in Backlog,
+ * neither accepted nor archived. The board lights it up and offers Accept and
+ * Reject, and the suggestion route refuses any card this says no to. Only in
+ * Backlog, because a suggestion moved on has been taken on (`moveCard`
+ * stamps it), and one that was made before the stamp existed and has since
+ * left was stamped by the migration.
+ *
+ * A rejected suggestion restored from the Archive is pending again, which is
+ * the right answer: the person has changed their mind, and not yet said to
+ * what.
+ */
+export function isPendingSuggestion(c: Card): boolean {
+  return (
+    c.suggestedById !== null && c.suggestionAcceptedAt === null && c.archivedAt === null
+    && c.kind === 'task' && c.stage === 'backlog'
+  );
+}
+
+/**
+ * Take a suggested card on where it stands. It stays in Backlog, and keeps
+ * its link to the card that suggested it, which is still where it came from.
+ */
+export function acceptSuggestion(db: Db, id: string, actor: CardEventActor = 'human') {
+  const now = new Date();
+  const accepted = db
+    .update(card)
+    .set({ suggestionAcceptedAt: now, updatedAt: now })
+    .where(and(eq(card.id, id), isNull(card.suggestionAcceptedAt)))
+    .returning()
+    .get();
+  if (accepted) insertCardEvent(db, { cardId: id, actor, kind: 'suggestion_accepted', stage: accepted.stage });
+  return accepted;
 }
 
 /**
@@ -795,6 +872,7 @@ export function getSettings(db: Db): ApiSettings {
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
     vibesSince: row?.vibesSince?.getTime() ?? null,
+    suggestTasks: row?.suggestTasks ?? true,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,

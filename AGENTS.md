@@ -14,10 +14,10 @@ The rule the whole board is built around: **Claude never moves a card; a human
 action does**, whether a drag or an approval. A run finishing on its own
 changes the card's activity, not its column. VIBES MODE
 (`packages/server/src/vibes/`) is the deliberate exception: a sweep that
-approves, answers and advances cards with nobody watching, and, with the
-board's switch on, asks Claude for the next cards once a repo has run out of
-work (`vibes/ideas.ts`). It takes off Reeve's own human gates and nothing
-else.
+approves, answers, advances and resolves the conflicts of cards with nobody
+watching, and, with the board's switch on, asks Claude for the next cards once
+a repo has run out of work (`vibes/ideas.ts`). It takes off Reeve's own human
+gates and nothing else.
 
 This file describes the project. What a stage run should do is in its prompt,
 under `packages/server/src/stages/prompts/`, and that wins.
@@ -34,12 +34,20 @@ npm workspaces, four packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   VIBES MODE's styles are scoped under `.vibes` in `packages/web/src/vibes.css`.
-- `packages/cli` (`@reeve/cli`) — the `reeve` command. `serve` is the only
-  command that imports the server; everything else goes through a running
-  server's HTTP API and never its database, because runs live in the server's
-  memory and a second process opening the database reaps them. Its `--json`
-  output is the API's own wire types from `@reeve/shared`, unreshaped, except
-  `doctor`'s, which asks no API; see its README. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
+- `packages/cli` (npm name `reeve-board`; `reeve` was taken) — the `reeve`
+  command, and the one package actually published. `serve` and `doctor` are
+  the only commands that import the server; everything else goes through a
+  running server's HTTP API and never its database, because runs live in the
+  server's memory and a second process opening the database reaps them. Its
+  `--json` output is the API's own wire types from `@reeve/shared`, unreshaped,
+  except `doctor`'s, which asks no API; see its README. In the checkout, `bin/reeve.js` registers tsx and imports
+  `src/main.ts`; published, `npm run build` (`packages/cli/scripts/build.mjs`)
+  bundles this workspace, `@reeve/server` and `@reeve/shared` with esbuild into
+  `dist/reeve.js`, code-split so commands other than `serve`/`doctor` never
+  load better-sqlite3, Playwright or the Agent SDK, and copies the drizzle
+  migrations, the stage prompts and the built web app in beside it — `prepack`
+  runs the same build before `npm pack`/`publish`. `config.ts` tells the two
+  layouts apart the same way it already told a checkout from an install.
 
 ## Commands
 
@@ -60,8 +68,9 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `npm run cli -- <args>` — the `reeve` command, run from the repo root.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
 - `npm run -s cli -- <args>` — the CLI, against a server that is already
-  running; see its README. `npm link -w @reeve/cli` puts `reeve` on your PATH
-  instead.
+  running; see its README. `npm link -w reeve-board` puts `reeve` on your PATH
+  instead, once `npm run build -w reeve-board` has made `dist/reeve.js` for
+  its `bin` entry to point at.
 - `reeve serve` — the same server as `npm start`, opening the board once it is
   up, and doing nothing but opening it when one is already running. `--port`,
   `--db`, `--assets` and `--max-concurrent` set `REEVE_PORT`, `REEVE_DB`,
@@ -70,19 +79,27 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `reeve status` — exits 0 if a server answers and 1 if not, so a script can
   ask before starting one.
 - `reeve doctor` — one line per requirement, with the fix for each one that is
-  missing. It exits 1 only when Node, git or Claude credentials are missing,
-  and only warns about `gh`, Chromium and the web build. Its probes live beside
-  the server code they predict failures in (`accountProbe`, `browserProbe`,
-  `ghProbe`), and it never opens the database.
+  missing. It exits 1 only when Node, git, Claude credentials or a SQLite
+  binding that loads are missing, and only warns about `gh`, Chromium and the
+  web build. Its probes live beside the server code they predict failures in
+  (`accountProbe`, `ghProbe`, and `checkSqlite` and `checkChromium` in
+  `packages/server/src/doctor.ts`), and it never opens the board's database;
+  the SQLite check opens an in-memory one.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
-`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBES_SWEEP_MS`. By default the database is
-`data/reeve.db` and mockups and screenshots go in `data/assets/`; `data/` is
-gitignored and created at runtime. The server binds to 127.0.0.1 only.
-Its default paths, and the built web app's, are resolved from the repo root
-rather than the working directory, so the server behaves the same wherever it
-is started.
+`REEVE_AUTO_ARCHIVE_MS`, `REEVE_VIBES_SWEEP_MS`. Where the board lives
+depends on whether the package root has a `.git` (a card's worktree counts).
+In a checkout the database is `data/reeve.db` and mockups and screenshots go
+in `data/assets/`; `data/` is gitignored. An installed copy, which has no
+`.git`, uses `~/.reeve/reeve.db` and `~/.reeve/assets/` instead, on every
+platform, so a Homebrew upgrade into a new Cellar directory keeps the board.
+Either directory is created on first run. `REEVE_DB` and `REEVE_ASSETS`, or
+`reeve serve --db` and `--assets`, win over both. The server binds to
+127.0.0.1 only. The migrations and the built web app are part of the install
+and always resolve from the package's own location, as does `data/` in a
+checkout, never from the working directory, so the server behaves the same
+wherever it is started.
 
 The CLI's commands other than `serve` find the server at `--url`, then
 `REEVE_URL`, then `http://127.0.0.1:4317`. A server started on another port
@@ -91,7 +108,7 @@ needs one of the first two.
 ## Checking a change
 
 `npm run typecheck` is the gate. The only tests are the CLI's card and cwd
-resolution, `npm test -w @reeve/cli`; the server and web app have none.
+resolution, `npm test -w reeve-board`; the server and web app have none.
 
 Behaviour is checked by the throwaway scripts in `packages/server/src/spikes/`,
 each a standalone `tsx` file that builds an app, drives it and prints what it
@@ -163,8 +180,8 @@ switched on.
 - **Claude returns data; the server writes the documents.** Each stage's
   output is a zod schema in `packages/shared/src/contracts.ts`, and the server
   composes `.reeve/plan.md`, `.reeve/implementation.md` and
-  `.reeve/test-report.md` from it. That inversion is what lets Planning run
-  with no write tools at all.
+  `.reeve/test-report.md` from it. That inversion is why Planning, which
+  could edit files, is told to change nothing.
 - **`.reeve/` is untracked stage output and must never be committed.** It is
   not in `.gitignore` — it is written into whatever repo a card belongs to —
   so `git add -A` or `git add .` would sweep it in. The pull request and
@@ -186,14 +203,32 @@ switched on.
   spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
-- **Tool permissions deny by default.** A stage's `allowedTools` is the
-  policy; `packages/server/src/runs/permissions.ts` answers everything else.
-  It allows two things, and neither is a widening: rewriting
-  `git -C <the worktree> …` to plain `git …`, and one leading `REEVE_DB=…` on
-  an otherwise allowed command, so a stage can run a spike the way this file
-  says to. It refuses a `REEVE_DB` that names the running server's own
-  database, and any other variable. VIBES MODE does not widen permissions
-  either.
+- **Every run asks for auto mode, and nothing wider, but not every model takes
+  it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
+  `allowedTools`, so the SDK's classifier decides what a run may do in any
+  language's toolchain, as it does in Claude Code. Stages declare no mode and
+  no tool list. What a stage should not do (change files while planning,
+  push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
+  model the CLI lists without `supportsAutoMode: true` — Haiku, today — has
+  `permissionMode` left unset instead, so it starts in the SDK's own default
+  mode; `canUseTool` still denies every edit and risky command the session
+  asks it, same as auto mode's escalations, so such a stage can read and
+  respond, and run whatever default mode's own heuristics wave through
+  unasked, but not edit a file. What still fails the run before Claude takes a
+  turn is a session whose `init` message reports a mode other than `'auto'`
+  despite auto mode having been asked for — an account setting or
+  `disableAutoMode` turning it off underneath a request that should have
+  gotten it.
+- **What the classifier escalates is denied.**
+  `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
+  answers allow. Nobody is watching, and allowing would be `bypassPermissions`
+  by another name. Its refusal names the call and tells Claude to carry on
+  another way.
+- **A spike never opens the live board.** A PreToolUse hook on Bash refuses
+  any command that sets `REEVE_DB` to the running server's own database, or
+  to a value it cannot read plainly. It is a hook because a command the
+  classifier approves never reaches `canUseTool`. VIBES MODE does not widen
+  permissions either.
 
 ## Database migrations
 
@@ -216,21 +251,89 @@ Migrations live in `packages/server/drizzle/` and run on every boot.
   merge usually means renumbering the later migration and giving it a `when`
   above everything already merged.
 
+## Publishing
+
+`packages/cli` is the one package `npm publish` (or `npm pack`) actually
+ships, as `reeve-board`; the root package and every other workspace stay
+`private`. `npm run build -w reeve-board` (or `prepack`, which runs the same
+script before pack/publish) bundles this workspace with `@reeve/server` and
+`@reeve/shared` into `dist/reeve.js`, and copies the drizzle migrations, the
+stage prompts and `packages/web/dist` in beside it — none of those three are
+reachable by a relative import once this workspace is the only one left, so
+they travel as files instead. `config.ts` resolves `root`, `migrationsFolder`,
+`webDist` and `promptsDir` for both layouts off the same checkout-or-install
+check it already used for `dataDir`.
+
+`better-sqlite3`, Playwright, the Agent SDK, Hono and `drizzle-orm` stay
+external to the bundle — real `dependencies` of the published package,
+installed the normal npm way, so `better-sqlite3`'s prebuilt binary and the
+Agent SDK's own `cli.js` resolve against whatever Node ran `npm install`
+rather than whatever ran the bundler. Playwright does not download Chromium
+on install; that stays a separate, explicit `npx playwright install
+chromium`, since a sandboxed install (Homebrew's) cannot reach the network
+during one. `reeve doctor` checks both: that the native SQLite binding
+actually loads, which it requires, and that a Chromium is there for Testing's
+screenshots, which it only warns about.
+
+The bundle is code-split (`splitting: true` in `scripts/build.mjs`), not one
+file, because `serve.ts` reaches `@reeve/server` through a dynamic `import()`
+so that `reeve board` and the rest never load better-sqlite3, Playwright or
+the Agent SDK; a single-file bundle would hoist those imports to the top
+regardless of which command ran.
+
+`reeve --version` reads this package's own `package.json`, so a Homebrew
+formula test has something to check.
+
 ## Worktrees
 
 A card's worktree is a fresh checkout. It has no `node_modules` unless the
 repo's setup command installed them, which starts in the background when the
 worktree is made (`packages/server/src/startStage.ts`). A stage waits for it
 before Claude starts, and a reused worktree whose setup never succeeded runs it
-again on its next start. Never symlink the main
-checkout's `node_modules` into a worktree: removing the worktree deletes the
-real one through the link.
+again on its next start. Never symlink the main checkout's `node_modules`
+into a worktree: removing the worktree deletes the real one through the link.
+
+Each stage start in a worktree the card already has fetches `origin/<base>`
+and merges it in (`mergeLatestBase` in `packages/server/src/startStage.ts`),
+whatever the repo's setting for keeping its own checkout up to date, and runs
+setup again if that brought commits in. The card's `baseSha` follows, so its
+diff stays its own work. A dirty tree or a conflict leaves the branch as it
+was, with a note on the card, and the stage starts anyway. Revisions and
+answered questions carry on in the tree as it is.
 
 As in Claude Code, gitignored files that match the repo's `.worktreeinclude`
 (`.gitignore` syntax) are copied from the main checkout when a worktree is
 made, before the setup command starts (`copyWorktreeIncludes` in
 `packages/server/src/git/worktree.ts`). They are copied, never linked, and
 never over a file the worktree already has. A reused worktree gets nothing.
+
+A repo has six lifecycle commands: setup, test, seed, server, teardown and
+finish. The seed is for Testing's screenshots, which a fresh worktree's server
+would otherwise take of an empty page. When a card has captures to take,
+Testing stops the card's dev server, runs the seed in the worktree, and then
+starts the server again (`seedForCapture` in
+`packages/server/src/stages/testing.ts`). A seed that fails is reported in the
+prompt, and the pictures are taken anyway. Resetting old data is the command's
+job. The planning prompt names the seed, so a plan whose capture needs a state
+the seed lacks extends the seed script. Repo commands never inherit the host's
+`REEVE_DB` or `REEVE_ASSETS`, so a worktree's own Reeve opens its own
+`data/reeve.db`. For Reeve's own repo the seed is:
+
+    rm -f data/reeve.db data/reeve.db-wal data/reeve.db-shm && REEVE_DB=data/reeve.db npx tsx packages/server/src/spikes/seed-card-detail.ts
+
+It runs from the worktree root, so it writes the database the dev server then
+opens. Its merged card is archived on the server's first merge-sync tick
+unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
+
+For the same repo the server command is `npm run build && npm start`, not
+`npm run dev`: dev runs Vite alongside the tsx API server, and Vite proxies
+`/api` to the live board's hardcoded 4317 and binds whatever port it likes,
+while the tsx server quietly answers the port Reeve tracks, serving
+`packages/web/dist` as of whenever it was last built — stale next to the
+card's own changes. Building before every start keeps what Testing and
+Preview see current. No `{{port}}`: `REEVE_PORT` already reaches the command
+in its environment, and the server announces `[reeve] http://127.0.0.1:<port>`
+for `announcedUrl` to read.
 
 ## Conventions
 

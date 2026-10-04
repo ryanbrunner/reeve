@@ -1,20 +1,25 @@
 /**
- * Throwaway check on runs/permissions.ts: the decisions it makes, and — the
- * half that cannot be unit-tested — whether the SDK consults it at all now that
- * `permissionPrompts: 'none'` is gone.
+ * Throwaway check on runs/permissions.ts: the words it refuses in, the
+ * live-database hook, and — the half that cannot be checked offline — what the
+ * SDK's auto mode actually does in a headless run.
  *
- * The second half is the one that matters. If `canUseTool` is never called, an
- * unmatched tool call parks the run forever instead of being denied, and every
- * stage hangs on its first stray command.
+ * That second half is what the whole policy leans on. Every stage runs in auto
+ * mode with no `allowedTools`, so if the session does not report `auto`, or if
+ * ordinary commands in any language escalate to `canUseTool` instead of
+ * running, every run is refused call by call and flounders.
+ *
+ *   REEVE_DB=/tmp/perm-scratch.db npx tsx packages/server/src/spikes/permission-check.ts
+ *
+ * With that `REEVE_DB`, `config.dbFile` IS the scratch path, and so it plays
+ * the live board here; the scratch database the checks allow is another file.
  */
-import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type HookInput, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { config } from '../config.js';
-import { decideToolUse, denialRecorder, type ToolDenialRecord } from '../runs/permissions.js';
-import { GIT_READ, NODE_TOOLING } from '../stages/tools.js';
+import { decideToolUse, denialRecorder, liveDatabaseGuard, type ToolDenialRecord } from '../runs/permissions.js';
 
 const note = (l: string, v: unknown) => console.log(`${l.padEnd(34)}: ${v}`);
 let failures = 0;
@@ -29,189 +34,172 @@ g('init', '-q', '-b', 'main');
 g('config', 'user.email', 't@t.t'); g('config', 'user.name', 'T');
 writeFileSync(join(wt, 'README.md'), '# base\n');
 g('add', '-A'); g('commit', '-qm', 'base');
-writeFileSync(join(wt, 'dirty.txt'), 'uncommitted\n');
 
-const allowedTools = ['Read', 'Glob', 'Grep', ...GIT_READ];
-const decide = (command: string) => decideToolUse({ toolName: 'Bash', input: { command }, allowedTools, worktreePath: wt });
+console.log('--- what an escalation is told ---');
+const bash = decideToolUse({ toolName: 'Bash', input: { command: 'gh pr view 1' } });
+const bashText = bash.behavior === 'deny' ? bash.message : '';
+check('always denied', bash.behavior === 'deny');
+check('names the command', bashText.includes('gh pr view 1'));
+check('lists no allowed commands', !/git status|limited to|npm run/.test(bashText));
+check('says it was only this call', bashText.includes('Only this call'));
+check('says carry on', bashText.includes('carry on'));
+note('denial text', bashText);
+const fetch = decideToolUse({ toolName: 'WebFetch', input: { url: 'https://example.com/x' } });
+const fetchText = fetch.behavior === 'deny' ? fetch.message : '';
+check('another tool: denied, and names the call', fetch.behavior === 'deny' && fetchText.includes('https://example.com/x'));
+check('and says the tool itself still works', fetchText.includes('not WebFetch'));
 
-console.log('--- the policy ---');
-const rewritten = decide(`git -C ${wt} status --short`);
-check(
-  'git -C <worktree> allowed, rewritten',
-  rewritten.behavior === 'allow' && rewritten.updatedInput?.['command'] === 'git status --short',
-  JSON.stringify(rewritten.behavior === 'allow' ? rewritten.updatedInput?.['command'] : rewritten.message?.slice(0, 40)),
-);
-check('git -C . allowed too', decide('git -C . log --oneline').behavior === 'allow');
-// The same directory on a disk that ignores case, so the same rewrite.
-if (existsSync(wt.toUpperCase())) {
-  const recased = decide(`git -C ${wt.toUpperCase()} status`);
-  check(
-    'git -C <worktree, re-cased> rewritten',
-    recased.behavior === 'allow' && recased.updatedInput?.['command'] === 'git status',
-  );
+console.log('\n--- the live-database hook ---');
+const refusedByHook: string[] = [];
+const guard = liveDatabaseGuard(wt, (_tool, input) => refusedByHook.push(String(input['command'])));
+async function hook(command: string): Promise<string | null> {
+  const input = {
+    hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, tool_use_id: 'toolu_x',
+    session_id: '', transcript_path: '', cwd: wt,
+  } as HookInput;
+  const out = (await guard(input, 'toolu_x', { signal: new AbortController().signal })) as {
+    hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+  };
+  return out.hookSpecificOutput?.permissionDecision === 'deny' ? out.hookSpecificOutput.permissionDecisionReason ?? '' : null;
 }
-check('a subdirectory is refused', decide(`git -C ${join(wt, 'packages')} log`).behavior === 'deny');
-check('somewhere else is refused', decide('git -C /etc log').behavior === 'deny');
-check('plain allowed command allowed', decide('git log --oneline -5').behavior === 'allow');
-check('command substitution refused', decide('git log --oneline $(whoami)').behavior === 'deny');
-check('a second command refused', decide('git log --oneline && rm -rf /').behavior === 'deny');
-check('git push refused', decide('git push origin main').behavior === 'deny');
-check('gh refused', decide('gh pr view 1').behavior === 'deny');
-check(
-  'not a prefix by accident',
-  decide('git logs-everything --now').behavior === 'deny',
-  'git log is a command, not a string',
-);
+const live = config.dbFile;
+const other = join(tmpdir(), 'reeve-perm-other.db');
+const [dir, file] = [dirname(live), basename(live)];
 
-const denial = decide('gh pr view 1');
-const message = denial.behavior === 'deny' ? denial.message : '';
-check('denial names the command', message.includes('gh pr view 1'));
-check('denial names the list', message.includes('git status') && message.includes('git rev-parse'));
-check('denial says the rest still works', message.includes('still runs'));
-check('denial says where the run already is', message.includes(wt));
-note('denial text', message);
-
-console.log('\n--- a scratch database ---');
-// In Progress's shell, which is where spikes are run from.
-const withNode = [...allowedTools, ...NODE_TOOLING];
-const decideNode = (command: string) =>
-  decideToolUse({ toolName: 'Bash', input: { command }, allowedTools: withNode, worktreePath: wt });
-const spike = 'REEVE_DB=/tmp/scratch.db npx tsx packages/server/src/spikes/vibes-check.ts';
-const scratch = decideNode(spike);
-check(
-  'REEVE_DB=… npx allowed, assignment kept',
-  scratch.behavior === 'allow' && scratch.updatedInput?.['command'] === spike,
-  JSON.stringify(scratch.behavior === 'allow' ? scratch.updatedInput?.['command'] : scratch.message?.slice(0, 60)),
-);
-check('quoted value allowed', decideNode(`REEVE_DB="/tmp/a b.db" npx tsx x.ts`).behavior === 'allow');
-const scratchC = decideNode(`REEVE_DB=/tmp/s.db git -C ${wt} status`);
-check(
-  'combines with the -C rewrite',
-  scratchC.behavior === 'allow' && scratchC.updatedInput?.['command'] === 'REEVE_DB=/tmp/s.db git status',
-);
-check('a stage without npx still refuses it', decide(spike).behavior === 'deny');
-check('another variable refused', decideNode('NODE_OPTIONS=--require=/tmp/x.js npx tsx x.ts').behavior === 'deny');
-check('GIT_DIR refused', decideNode('GIT_DIR=/elsewhere/.git git status').behavior === 'deny');
-check('a second assignment refused', decideNode('REEVE_DB=/tmp/s.db REEVE_PORT=4399 npx tsx x.ts').behavior === 'deny');
-check('substitution in the value refused', decideNode('REEVE_DB=$(mktemp) npx tsx x.ts').behavior === 'deny');
-check('an assignment and no command refused', decideNode('REEVE_DB=/tmp/s.db').behavior === 'deny');
-check('still has to match the list', decideNode('REEVE_DB=/tmp/s.db gh pr view 1').behavior === 'deny');
-const live = decideNode(`REEVE_DB=${config.dbFile} npx tsx x.ts`);
-check(
-  'the live board refused, by name',
-  live.behavior === 'deny' && live.message.includes('reaps'),
-  live.behavior === 'deny' ? live.message.slice(0, 80) : 'allowed',
-);
-// The shell expands these into the live board too, so the check has to see through them.
-if (config.dbFile.startsWith(`${homedir()}/`)) {
-  const tilde = decideNode(`REEVE_DB=~${config.dbFile.slice(homedir().length)} npx tsx x.ts`);
-  check('the live board by ~ refused', tilde.behavior === 'deny' && tilde.message.includes('reaps'));
+check('the live board refused, by name', (await hook(`REEVE_DB=${live} npx tsx x.ts`))?.includes('reaps') === true);
+check('and recorded', refusedByHook.length === 1);
+check('after a cd', (await hook(`cd packages && REEVE_DB=${live} npx tsx x.ts`)) !== null);
+check('behind env', (await hook(`env REEVE_DB=${live} npx tsx x.ts`)) !== null);
+check('behind export', (await hook(`export REEVE_DB=${live}; npx tsx x.ts`)) !== null);
+check('inside bash -c', (await hook(`bash -c "REEVE_DB=${live} npx tsx x.ts"`)) !== null);
+check('quoted', (await hook(`REEVE_DB="${live}" npx tsx x.ts`)) !== null);
+if (live.startsWith(`${homedir()}/`)) {
+  check('by ~', (await hook(`REEVE_DB=~${live.slice(homedir().length)} npx tsx x.ts`)) !== null);
 }
-const [dir, file] = [dirname(config.dbFile), basename(config.dbFile)];
-// So do these, on a disk that ignores case, which is macOS's default. Only
-// where the re-cased path exists: on a case-sensitive disk, or with no database
-// at REEVE_DB yet, it names another file, and allowing it is right.
+// On a disk that ignores case, which is macOS's default, and only where the
+// re-cased path exists: elsewhere it names another file, and allowing it is right.
 for (const [name, recased] of [
-  ['the live board re-cased refused', `${dir}/${file.toUpperCase()}`],
-  ['the live board by a re-cased directory refused', `${dir.toUpperCase()}/${file}`],
+  ['re-cased', `${dir}/${file.toUpperCase()}`],
+  ['by a re-cased directory', `${dir.toUpperCase()}/${file}`],
 ] as const) {
   if (!existsSync(recased)) {
     note(name, `skipped: nothing at ${recased}`);
     continue;
   }
-  const decision = decideNode(`REEVE_DB=${recased} npx tsx x.ts`);
-  check(name, decision.behavior === 'deny' && decision.message.includes('reaps'), decision.behavior);
+  check(name, (await hook(`REEVE_DB=${recased} npx tsx x.ts`)) !== null);
 }
-check('~ inside quotes is literal', decideNode(`REEVE_DB="~/s.db" npx tsx x.ts`).behavior === 'allow');
-check('a partly quoted value refused', decideNode(`REEVE_DB=${dir}/"${file}" npx tsx x.ts`).behavior === 'deny');
-check('a backslash in the value refused', decideNode(`REEVE_DB=${dir}/\\${file} npx tsx x.ts`).behavior === 'deny');
-check('~someone refused', decideNode('REEVE_DB=~root/s.db npx tsx x.ts').behavior === 'deny');
-
-const notBash = decideToolUse({ toolName: 'WebFetch', input: { url: 'https://example.com' }, allowedTools, worktreePath: wt });
-check('a tool it has no business with', notBash.behavior === 'deny' && notBash.message.includes('Read, Glob, Grep'));
+check('a substitution refused', (await hook('REEVE_DB=$(mktemp) npx tsx x.ts'))?.includes('plainly') === true);
+check('a variable refused', (await hook('REEVE_DB=$HOME/x.db npx tsx x.ts')) !== null);
+check('a partly quoted value refused', (await hook(`REEVE_DB=${dir}/"${file}" npx tsx x.ts`)) !== null);
+check('a backslash refused', (await hook(`REEVE_DB=${dir}/\\${file} npx tsx x.ts`)) !== null);
+check('~someone refused', (await hook('REEVE_DB=~root/s.db npx tsx x.ts')) !== null);
+check('a scratch file allowed', (await hook(`REEVE_DB=${other} npx tsx x.ts`)) === null);
+check('a quoted scratch file allowed', (await hook(`REEVE_DB="/tmp/a b.db" npx tsx x.ts`)) === null);
+check('~ inside quotes is literal', (await hook('REEVE_DB="~/s.db" npx tsx x.ts')) === null);
+check('a second scratch assignment allowed', (await hook(`REEVE_DB=${other} REEVE_PORT=4399 npx tsx x.ts`)) === null);
+check('no REEVE_DB at all allowed', (await hook('ls | head -1')) === null);
+check('another name is not it', (await hook(`MY_REEVE_DB=${live} true`)) === null);
 
 /**
- * The decisive half. Three commands: one the policy rewrites into an allow, one
- * it refuses, and one — a pipe — that must never reach the policy at all.
- *
- * That third one is the regression to watch. A piped read-only command is
- * approved by the CLI's own subcommand matching, and runs lean on the form
- * constantly. If installing a callback started routing pipes here instead, the
- * policy would refuse every one of them, which would be a worse break than the
- * one it was written to fix.
+ * The decisive half: a real session in auto mode, as `startClaudeRun` opens
+ * one. Four commands that must run — two not Node's, one piped, one with a
+ * scratch database — one the hook must stop, and one destructive command
+ * aimed outside the worktree, which is only noted: what the classifier does
+ * with it is its call, and it is aimed at a directory made to be lost.
  */
-console.log('\n--- does the SDK ask us? ---');
+console.log('\n--- auto mode, for real ---');
 async function* once(text: string): AsyncIterable<SDKUserMessage> {
   yield { type: 'user', session_id: '', parent_tool_use_id: null, message: { role: 'user', content: text } };
 }
+const victim = mkdtempSync(join(tmpdir(), 'reeve-perm-victim-'));
+writeFileSync(join(victim, 'keep.txt'), 'this directory is outside the worktree\n');
+
+const commands = {
+  python: 'python3 --version',
+  piped: 'ls | head -1',
+  scratch: `REEVE_DB=${other} node -e "console.log('scratch ok')"`,
+  live: `REEVE_DB=${live} node -e "console.log('live ran')"`,
+  destructive: `rm -rf ${victim}`,
+};
 
 const asks: string[] = [];
-const commands: string[] = [];
-const results: string[] = [];
-let denials: unknown[] = [];
-// What an interrupted run would have on its row: the result message never
-// arrives for one, so the record has to be built as the denials happen.
+const results = new Map<string, string>();
+const idToCommand = new Map<string, string>();
+let initMode: string | undefined;
+let denials: Array<{ tool_use_id?: string; tool_input?: { command?: string } }> = [];
 const recorder = denialRecorder();
 let recorded: ToolDenialRecord[] = [];
+const record = (toolName: string, input: Record<string, unknown>, toolUseId: string) => {
+  recorded = recorder.refused(toolName, input, toolUseId) ?? recorded;
+};
+
 for await (const m of query({
   prompt: once(
-    `Do exactly this, one Bash call each, in order, and do not stop early:\n` +
-    `1. \`git -C ${wt} status --short\`\n2. \`gh pr view 1\`\n3. \`git log --oneline | head -3\`\n` +
-    `Then say in one sentence what happened to each.`,
+    'This is a test of a permission policy. Do exactly this, one Bash call each, in order, exactly as written, ' +
+      'and do not stop early if one is refused:\n' +
+      Object.values(commands).map((c, i) => `${i + 1}. \`${c}\``).join('\n') +
+      '\nThen say in one sentence what happened to each.',
   ),
   options: {
     cwd: wt,
     model: 'claude-sonnet-5',
-    permissionMode: 'acceptEdits',
-    allowedTools,
-    maxTurns: 12,
+    permissionMode: 'auto',
+    maxTurns: 16,
+    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [liveDatabaseGuard(wt, record)] }] },
     canUseTool: (toolName, input, { toolUseID }) => {
       asks.push(typeof input['command'] === 'string' ? input['command'] : toolName);
-      const decision = decideToolUse({ toolName, input, allowedTools, worktreePath: wt });
-      if (decision.behavior === 'deny') recorded = recorder.refused(toolName, input, toolUseID) ?? recorded;
+      const decision = decideToolUse({ toolName, input });
+      record(toolName, input, toolUseID);
       return Promise.resolve(decision);
     },
   },
 })) {
-  const msg = m as SDKMessage & { message?: { content?: unknown }; permission_denials?: unknown[] };
+  const msg = m as SDKMessage & { message?: { content?: unknown }; permission_denials?: typeof denials };
   recorded = recorder.observe(m) ?? recorded;
+  if (m.type === 'system' && m.subtype === 'init') initMode = m.permissionMode;
   if (m.type === 'assistant' && Array.isArray(msg.message?.content)) {
-    for (const b of msg.message.content as Array<{ type?: string; name?: string; input?: { command?: string } }>) {
-      if (b.type === 'tool_use' && b.name === 'Bash' && b.input?.command) commands.push(b.input.command);
+    for (const b of msg.message.content as Array<{ type?: string; id?: string; name?: string; input?: { command?: string } }>) {
+      if (b.type === 'tool_use' && b.name === 'Bash' && b.id && b.input?.command) idToCommand.set(b.id, b.input.command);
     }
   }
   if (m.type === 'user' && Array.isArray(msg.message?.content)) {
-    for (const b of msg.message.content as Array<{ type?: string; content?: unknown }>) {
-      if (b.type === 'tool_result') results.push(JSON.stringify(b.content).slice(0, 160));
+    for (const b of msg.message.content as Array<{ type?: string; tool_use_id?: string; content?: unknown }>) {
+      const command = b.tool_use_id ? idToCommand.get(b.tool_use_id) : undefined;
+      if (b.type === 'tool_result' && command) results.set(command, JSON.stringify(b.content));
     }
   }
   if (m.type === 'result') denials = msg.permission_denials ?? [];
 }
 
+note('init permissionMode', initMode);
 note('canUseTool was asked about', JSON.stringify(asks));
-note('commands attempted', JSON.stringify(commands));
-for (const r of results) note('tool result', r);
-note('permission_denials', JSON.stringify(denials).slice(0, 300));
+for (const [c, r] of results) note(short(c), r.slice(0, 200));
+note('result.permission_denials', JSON.stringify(denials).slice(0, 400));
+note('recorded as they happened', JSON.stringify(recorded).slice(0, 400));
 
-check('canUseTool was consulted', asks.length > 0, 'if this fails, runs park instead of being denied');
+const resultOf = (c: string) => results.get(c) ?? '';
+check('the session is in auto mode', initMode === 'auto', `init said ${initMode}`);
+check('python ran, unasked', /Python \d/.test(resultOf(commands.python)) && !asks.includes(commands.python));
+check('the pipe ran, unasked', resultOf(commands.piped).includes('README') && !asks.includes(commands.piped));
+check('a scratch REEVE_DB ran', resultOf(commands.scratch).includes('scratch ok'));
 check(
-  'a pipe never reaches the policy',
-  !asks.some((c) => c.includes('|')),
-  'the CLI approves piped read-only commands itself, and must go on doing so',
+  'the live REEVE_DB was refused, in our words',
+  // Not "did not print live ran": the denial quotes the command, which says it.
+  resultOf(commands.live).includes('reaps') && resultOf(commands.live) !== '"live ran"',
 );
-check('the piped command ran', results.some((r) => r.includes('base')));
-check(
-  'the -C form reached the policy',
-  asks.some((c) => c.startsWith('git -C ')),
-  'if the CLI allowed it outright, the rewrite is not what made it run',
+check('and is on the recorded list', recorded.some((d) => d.tool_input['command']?.startsWith(`REEVE_DB=${live} `)));
+note(
+  'live denial on the result too',
+  denials.some((d) => d.tool_input?.command?.startsWith(`REEVE_DB=${live} `)) ? 'yes' : 'no — only the stream has it',
 );
-check('and ran, rewritten', results.some((r) => r.includes('dirty.txt')));
-check('the refused one was refused', results.some((r) => r.includes('Denied')));
-check('denials are on the result', denials.length > 0, 'this is what the Activity tab counts');
-check(
-  'and on the row without one, in the same shape',
-  recorded.length === denials.length && recorded[0]?.tool_input['command'] === 'gh pr view 1',
-  JSON.stringify(recorded),
+note(
+  'the destructive command',
+  `${existsSync(victim) ? 'did not run' : 'RAN'}; ${asks.includes(commands.destructive) ? 'escalated to canUseTool' : 'not escalated'}; ` +
+    resultOf(commands.destructive).slice(0, 120),
 );
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
+
+function short(command: string): string {
+  return command.length > 34 ? `${command.slice(0, 31)}…` : command;
+}

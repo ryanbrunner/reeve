@@ -15,6 +15,7 @@ import {
   type StageRunDefaults,
 } from '@reeve/shared';
 import { api } from '../lib/api.js';
+import { Dropdown, type DropdownOption } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { Button, Empty, SectionHead, SmallButton } from '../card/ui.js';
 
@@ -48,9 +49,14 @@ export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onC
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // Same rule as the card: Escape gets you out of a field before it gets
-      // you out of the dialog, so a half-typed path survives one keystroke.
+      // you out of the dialog, so a half-typed path survives one keystroke. A
+      // dropdown counts as a field; its open list has already had the first
+      // Escape to itself.
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.getAttribute('role') === 'combobox')
+      ) {
         target.blur();
         return;
       }
@@ -195,6 +201,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   const qc = useQueryClient();
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
+  const [suggestTasks, setSuggestTasks] = useState(settings.suggestTasks);
   const [saved, setSaved] = useState(false);
   // Asked of the CLI once per server process, so there is nothing to refetch.
   const { data: catalogue } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
@@ -206,7 +213,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   };
 
   const save = useMutation({
-    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults }),
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults, suggestTasks }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -240,6 +247,26 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
             mono
           />
         </Field>
+        {/* Not a Field: that is a label around its control, and here the
+            control is the label's own first child, as a checkbox's is. */}
+        <div className="flex flex-col gap-1">
+          <label className="flex w-fit cursor-pointer items-center gap-2 font-mono text-[11px]/4 text-(--color-text)">
+            <input
+              type="checkbox"
+              checked={suggestTasks}
+              onChange={(e) => {
+                setSaved(false);
+                setSuggestTasks(e.target.checked);
+              }}
+              className="accent-sky-600"
+            />
+            Suggest follow-up cards
+          </label>
+          <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+            Off stops a stage adding cards to Backlog on its own, and stops VIBES MODE coming up with ideas once a
+            repo runs dry. Cards already in Backlog stay.
+          </span>
+        </div>
       </section>
 
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
@@ -316,6 +343,7 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     defaultBranch: repo?.defaultBranch ?? '',
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
+    seedCommand: repo?.seedCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
     serverUrl: repo?.serverUrl ?? '',
     teardownCommand: repo?.teardownCommand ?? '',
@@ -352,6 +380,7 @@ function RepoForm({
         repoPath: form.repoPath.trim(),
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
+        seedCommand: blankIsNull(form.seedCommand),
         serverCommand: blankIsNull(form.serverCommand),
         serverUrl: blankIsNull(form.serverUrl),
         teardownCommand: blankIsNull(form.teardownCommand),
@@ -444,6 +473,12 @@ function RepoForm({
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
         </Field>
         <Field
+          label="Seed"
+          hint="Fixture data for Testing's screenshots. Before it takes them, Testing stops the card's dev server, runs this, then starts the server again, so a Preview open on the card restarts on this data. Sees REEVE_WORKTREE and REEVE_SLUG."
+        >
+          <Text value={form.seedCommand} onChange={set('seedCommand')} placeholder="npm run db:seed" mono />
+        </Field>
+        <Field
           label="Server"
           hint="The dev server behind Preview. Put {{port}} where it takes a port, or Reeve waits for it to print a localhost URL; PORT alone is not proof it listened there."
         >
@@ -514,25 +549,19 @@ function Select({
   label: string;
   value: string | null;
   empty: string;
-  options: Array<{ value: string; label: string }>;
+  options: DropdownOption[];
   disabled?: boolean;
   onChange: (v: string | null) => void;
 }) {
   return (
-    <select
-      aria-label={label}
+    <Dropdown
+      label={label}
       value={value ?? ''}
+      options={[{ value: '', label: empty }, ...options]}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full rounded-md border border-(--color-edge) bg-(--color-ink) px-2 py-1.5 font-mono text-[11px]/[18px] outline-none focus:border-sky-600 disabled:opacity-50"
-    >
-      <option value="">{empty}</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      onChange={(v) => onChange(v || null)}
+      className="w-full rounded-md bg-(--color-ink) px-2 py-1.5 text-(--color-text)"
+    />
   );
 }
 

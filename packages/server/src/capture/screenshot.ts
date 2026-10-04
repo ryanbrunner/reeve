@@ -1,6 +1,20 @@
+import { createRequire } from 'node:module';
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
 import { imageSize } from '../assets/store.js';
-import type { ProbeResult } from '../runs/models.js';
+
+// `npx playwright install chromium` on its own fetches whatever Playwright is
+// newest, which can be a different release than the one actually driving the
+// browser here — and then downloads a Chromium revision this install's
+// Playwright does not recognise. Pinning the version in the hint, read off
+// the package actually resolved at runtime rather than hardcoded, keeps the
+// two in step. `createRequire` rather than a JSON import so this is a plain
+// runtime lookup esbuild has no static import to bundle.
+const PLAYWRIGHT_VERSION = (createRequire(import.meta.url)('playwright/package.json') as { version: string }).version;
+
+/** The command that gets a missing or mismatched Chromium, named consistently wherever one is missing. */
+export function installChromiumHint(): string {
+  return `npx --package=playwright@${PLAYWRIGHT_VERSION} playwright install chromium`;
+}
 
 /**
  * Taking the pictures the Preview tab compares against the mockups.
@@ -49,32 +63,6 @@ export interface CaptureResult {
 /** Tall enough that a full-page shot of a normal page needs no scrolling. */
 const VIEWPORT_HEIGHT = 900;
 const NAVIGATION_TIMEOUT_MS = 15_000;
-/** Playwright's own default is three minutes, which `reeve doctor` would sit through. */
-const PROBE_LAUNCH_TIMEOUT_MS = 20_000;
-
-/**
- * What to do when the browser will not start. One sentence for both places
- * that say it — a Testing run's missing pictures and `reeve doctor` — so the
- * two cannot drift.
- */
-export const INSTALL_CHROMIUM = 'Run `npx playwright install chromium`.';
-
-/**
- * Whether a screenshot could be taken, for `reeve doctor`. Launching is the
- * step that fails in `photograph` when the browser is missing, so it is the
- * step tried: started and closed, with nothing opened in between.
- */
-export async function browserProbe(): Promise<ProbeResult> {
-  let browser: Browser;
-  try {
-    browser = await chromium.launch({ timeout: PROBE_LAUNCH_TIMEOUT_MS });
-  } catch (cause) {
-    return { ok: false, detail: `could not start Chromium (${firstLine(cause)})` };
-  }
-  const version = browser.version();
-  await browser.close().catch(() => {});
-  return { ok: true, detail: `Chromium ${version} starts` };
-}
 
 /**
  * Never throws.
@@ -135,7 +123,11 @@ async function photograph<T extends CaptureTarget>(
     browser = await chromium.launch();
   } catch (cause) {
     const detail = firstLine(cause);
-    return { captures: [], failures: [], unavailable: `could not start a browser (${detail}). ${INSTALL_CHROMIUM}` };
+    return {
+      captures: [],
+      failures: [],
+      unavailable: `could not start a browser (${detail}). Run \`${installChromiumHint()}\`.`,
+    };
   }
 
   const captures: Capture[] = [];
@@ -181,7 +173,7 @@ async function photograph<T extends CaptureTarget>(
 }
 
 /** Playwright errors carry a whole essay; the first line is the useful part. */
-function firstLine(cause: unknown): string {
+export function firstLine(cause: unknown): string {
   const text = cause instanceof Error ? cause.message : String(cause);
   return text.split('\n')[0] ?? text;
 }

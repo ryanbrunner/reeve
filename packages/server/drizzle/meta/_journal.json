@@ -155,6 +155,34 @@
       "when": 1790447555476,
       "tag": "0021_card_suggested_by",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790561859655,
+      "tag": "0022_suggestion_accepted",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1790592784748,
+      "tag": "0023_repo_seed_command",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1790678557535,
+      "tag": "0024_drop_repo_allowed_tools",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791118411200,
+      "tag": "0025_settings_suggest_tasks",
+      "breakpoints": true
     }
   ]
 }

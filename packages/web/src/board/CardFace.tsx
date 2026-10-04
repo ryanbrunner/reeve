@@ -2,6 +2,7 @@ import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
 import { tok, tokenTitle } from '../card/format.js';
 import {
   ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
+  SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
 } from './activity.js';
 import { NeededByGlyph, SuggestedGlyph, WaitsGlyph } from './Glyph.js';
 import { useLinks, type LinkRole } from './links.js';
@@ -22,6 +23,7 @@ const LINK_STYLE: Record<LinkRole, string> = {
 };
 import { MergeButton } from './MergeButton.js';
 import { RunButton } from './RunButton.js';
+import { SuggestionButtons } from './SuggestionButtons.js';
 
 export function CardFace({
   card,
@@ -43,16 +45,20 @@ export function CardFace({
 }) {
   const run = card.latestRun;
   const activity = shownActivity(card);
-  const label = card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity];
   // A merged card is finished, and on the calm board it says so in green. VIBES
   // MODE has a louder skin of its own for landing on main, and no mark: its
   // marks spin, and nothing there colours this one.
   const merged = isMerged(card);
+  // A suggestion waiting on a person, which VIBES MODE does not wait for: its
+  // sweep takes the card on as it would any other in Backlog.
+  const suggested = !vibes && !merged && card.pendingSuggestion;
+  const label = suggested ? SUGGESTION_LABEL : card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity];
   const skin =
     vibes && card.mergedAt != null ? 'sk-merged'
     : merged ? MERGED_STYLE
+    : suggested ? SUGGESTION_STYLE
     : ACTIVITY_STYLE[activity];
-  const mark = merged ? (vibes ? null : MERGED_MARK) : ACTIVITY_MARKS[activity];
+  const mark = merged ? (vibes ? null : MERGED_MARK) : suggested ? SUGGESTION_MARK : ACTIVITY_MARKS[activity];
   const links = useLinks();
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.
@@ -161,6 +167,8 @@ export function CardFace({
           </span>
         )}
         {!vibes && !dragging && !card.startingStage && canStartRun(card) && <RunButton card={card} />}
+        {/* Backlog runs nothing, so these are never beside Run. */}
+        {suggested && !dragging && <SuggestionButtons card={card} />}
         {/* Never beside Run: that is for a column Claude works in, and this is
             Done's alone. Gone while a push or a resolution is changing the
             branch GitHub's verdict was about. */}

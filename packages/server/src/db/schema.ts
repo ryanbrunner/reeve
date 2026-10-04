@@ -68,6 +68,9 @@ export const CARD_EVENT_KINDS = [
   // finished after the plan had already moved on. One that reached a verdict
   // writes `reviewed` instead, the same as the buttons.
   'crit_reviewed',
+  // The same for a round of a review in Gloss: stopped, ended without a
+  // verdict, or answered after the build had moved on. `meta.round` is Gloss's.
+  'gloss_reviewed',
   // The Done band's Resolve conflicts: the base branch merged in and pushed to
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
@@ -81,6 +84,10 @@ export const CARD_EVENT_KINDS = [
   // An open card moved to No project because its project was archived. `meta`
   // names the project, which the card no longer points at.
   'left_project',
+  // A suggested card taken on with Accept. Moving one out of Backlog takes it
+  // on too, and says so with the `moved` it already writes. Rejecting one
+  // writes `archived`, with `meta.rejectedSuggestion`.
+  'suggestion_accepted',
 ] as const;
 export type CardEventKind = (typeof CARD_EVENT_KINDS)[number];
 
@@ -92,9 +99,13 @@ export const repo = sqliteTable('repo', {
   repoPath: text('repo_path').notNull(),
   worktreeRoot: text('worktree_root').notNull(),
   defaultBranch: text('default_branch').notNull().default('main'),
-  // Any of the four lifecycle commands may be blank.
+  // Any of the six lifecycle commands may be blank.
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
+  // Puts fixture data where the dev server will read it. Testing runs it, with
+  // the card's server stopped, before taking its screenshots, so a capture
+  // shows the state the mockup draws rather than an empty page.
+  seedCommand: text('seed_command'),
   serverCommand: text('server_command'),
   // Where the dev server can be reached when the repo knows better than the
   // server's own output, e.g. `https://{{slug}}.test` behind a local proxy.
@@ -102,7 +113,6 @@ export const repo = sqliteTable('repo', {
   serverUrl: text('server_url'),
   teardownCommand: text('teardown_command'),
   finishCommand: text('finish_command'),
-  allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
   laneColor: text('lane_color'),
   // Fast-forward the repo's own default branch once one of its cards' pull
   // requests is merged. Off unless asked for: it moves the person's checkout,
@@ -129,6 +139,14 @@ export const card = sqliteTable(
      * `../stages/ideas.ts` write it; no route takes it.
      */
     suggestedById: text('suggested_by_id').references((): AnySQLiteColumn => card.id, { onDelete: 'set null' }),
+    /**
+     * When a person took a suggested card on: pressed Accept, or moved it out
+     * of Backlog, which `moveCard` counts as the same thing. Until then the
+     * card is a pending suggestion (`isPendingSuggestion`), and the board asks
+     * for a decision. Rejecting archives the card instead, so it never needs a
+     * stamp of its own. Always null on a card a person made.
+     */
+    suggestionAcceptedAt: timestamp('suggestion_accepted_at'),
     repoId: text('repo_id').references(() => repo.id, { onDelete: 'restrict' }),
     /**
      * Per-repo, monotonic, and the only human-sized name a card has: `#142`.
@@ -552,6 +570,13 @@ export const settings = sqliteTable('settings', {
    * is the mode's old one, kept for the same reason as the card's `sicko` column.
    */
   vibesSince: timestamp('sicko_since'),
+  /**
+   * Whether Claude may put cards of its own in Backlog: a stage's "Things you
+   * notice along the way", and VIBES MODE's ideas once a repo runs dry. Null
+   * means on, the same reading as `maxConcurrentRuns`, so every board that
+   * existed before this column keeps doing what it already did.
+   */
+  suggestTasks: integer('suggest_tasks', { mode: 'boolean' }),
   /**
    * The one exception to typed columns: a model and effort per runnable stage.
    * This is a map keyed by stage, not a handful of knobs, and a stage added

@@ -19,16 +19,14 @@ import type { ClaudeTask } from './types.js';
  * its own the first time a brief is saved, and again from the brief's Split
  * button.
  *
- * Out of band for the same reasons Suggest is, and read-only for the same
- * reasons Planning is. The cards it makes land in Backlog and start nothing:
- * a person reads them before anything is spent on building one.
+ * Out of band for the same reasons Suggest is, and told to change nothing for
+ * the same reasons Planning is. The cards it makes land in Backlog and start
+ * nothing: a person reads them before anything is spent on building one.
  */
 export const splitProjectTask: ClaudeTask<ProjectSplitOutput> = {
   id: 'split_project',
   outOfBand: true,
   schema: projectSplitOutput,
-  permissionMode: 'plan',
-  allowedTools: ['Read', 'Glob', 'Grep'],
   maxBudgetUsd: 2,
   maxTurns: 30,
   effort: 'medium',
