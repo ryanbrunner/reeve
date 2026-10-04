@@ -193,10 +193,15 @@ switched on.
   language's toolchain, as it does in Claude Code. Stages declare no mode and
   no tool list. What a stage should not do (change files while planning,
   push, open pull requests, commit `.reeve/`) is its prompt's to say.
-- **No auto mode, no run.** A pinned model that reports
-  `supportsAutoMode: false`, or a session whose `init` message reports another
-  mode, fails the run before Claude takes a turn, with the reason as its
-  `errorMessage`. Reeve never falls back to another mode.
+- **A model without auto mode runs in its own default mode instead.** A
+  pinned model that reports `supportsAutoMode: false` has `permissionMode`
+  left unset rather than sent `'auto'`, so it starts however the SDK defaults
+  it; `canUseTool` still denies everything the session asks it, so such a
+  stage can read and respond but not edit or run commands. What still fails
+  the run before Claude takes a turn is a session whose `init` message reports
+  a mode other than `'auto'` despite auto mode having been asked for — an
+  account setting or `disableAutoMode` turning it off underneath a request
+  that should have gotten it.
 - **What the classifier escalates is denied.**
   `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
   answers allow. Nobody is watching, and allowing would be `bypassPermissions`
