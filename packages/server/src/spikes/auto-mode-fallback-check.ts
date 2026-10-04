@@ -22,8 +22,10 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ApiModel } from '@reeve/shared';
+import { jsonSchemaFor } from '@reeve/shared';
 import { fitToModel } from '../runs/claude.js';
 import { decideToolUse, denialRecorder } from '../runs/permissions.js';
+import { STAGE_DEFINITIONS } from '../stages/index.js';
 
 const note = (l: string, v: unknown) => console.log(`${l.padEnd(34)}: ${v}`);
 let failures = 0;
@@ -138,6 +140,40 @@ note('init permissionMode', initMode);
 note('canUseTool was asked about', JSON.stringify(asks));
 check('the session did not start in auto mode', initMode !== 'auto', `init said ${initMode}`);
 check('Edit escalated to canUseTool and was denied, as in auto mode', asks.includes('Edit') && editDenied);
+
+/**
+ * The rest of what `startClaudeRun` actually sends alongside the dropped
+ * `permissionMode`: `effort`, adaptive thinking, and the structured
+ * `outputFormat` every stage asks for. `fitToModel` leaves all three of
+ * those on for Haiku — only `supportsAutoMode` is read the stricter way —
+ * so a Haiku-pinned run needs them to work too, not just start.
+ */
+console.log("\n--- Haiku, with the rest of a stage's real options, not just permissionMode ---");
+{
+  const ac = new AbortController();
+  let subtype: string | undefined;
+  for await (const m of query({
+    prompt: (async function* () {
+      yield {
+        type: 'user', session_id: '', parent_tool_use_id: null,
+        message: { role: 'user', content: 'Say hello and return minimal structured output satisfying the schema.' },
+      } as SDKUserMessage;
+    })(),
+    options: {
+      cwd: '/tmp',
+      model: 'haiku',
+      effort: 'high',
+      thinking: { type: 'adaptive', display: 'summarized' },
+      outputFormat: { type: 'json_schema', schema: jsonSchemaFor(STAGE_DEFINITIONS.planning!.schema) },
+      maxTurns: 3,
+      abortController: ac,
+    },
+  })) {
+    if (m.type === 'result') subtype = m.subtype;
+  }
+  note('result subtype', subtype);
+  check("Haiku's own options — effort, adaptive thinking, structured output — all still work", subtype === 'success');
+}
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
 process.exit(failures === 0 ? 0 : 1);
