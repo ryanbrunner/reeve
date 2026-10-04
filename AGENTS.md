@@ -101,7 +101,7 @@ needs one of the first two.
 ## Checking a change
 
 `npm run typecheck` is the gate. The only tests are the CLI's card and cwd
-resolution, `npm test -w @reeve/cli`; the server and web app have none.
+resolution, `npm test -w reeve-board`; the server and web app have none.
 
 Behaviour is checked by the throwaway scripts in `packages/server/src/spikes/`,
 each a standalone `tsx` file that builds an app, drives it and prints what it

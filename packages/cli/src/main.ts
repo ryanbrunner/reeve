@@ -71,7 +71,7 @@ const USAGE = `Usage: reeve <command> [options]
       The repos cards can be made in, and how each one is set up.
   reeve run follow <run> [--json] / run stop <run>
       Stream a run already going, or stop it.
-  reeve doctor
+  reeve doctor [--json]
       Checks this install can actually run a stage: a native SQLite binding
       that loads, and a Chromium Testing can launch for its screenshots.
   reeve --version

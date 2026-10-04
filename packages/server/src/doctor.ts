@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { chromium } from 'playwright';
-import { firstLine } from './capture/screenshot.js';
+import { firstLine, installChromiumHint } from './capture/screenshot.js';
 
 export interface DoctorCheck {
   ok: boolean;
@@ -38,6 +38,6 @@ export async function checkChromium(): Promise<DoctorCheck> {
     await browser.close();
     return { ok: true, detail: `chromium launches (${chromium.executablePath()})` };
   } catch (cause) {
-    return { ok: false, detail: `${firstLine(cause)}. Run \`npx playwright install chromium\`.` };
+    return { ok: false, detail: `${firstLine(cause)}. Run \`${installChromiumHint()}\`.` };
   }
 }

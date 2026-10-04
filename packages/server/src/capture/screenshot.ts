@@ -1,5 +1,20 @@
+import { createRequire } from 'node:module';
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
 import { imageSize } from '../assets/store.js';
+
+// `npx playwright install chromium` on its own fetches whatever Playwright is
+// newest, which can be a different release than the one actually driving the
+// browser here — and then downloads a Chromium revision this install's
+// Playwright does not recognise. Pinning the version in the hint, read off
+// the package actually resolved at runtime rather than hardcoded, keeps the
+// two in step. `createRequire` rather than a JSON import so this is a plain
+// runtime lookup esbuild has no static import to bundle.
+const PLAYWRIGHT_VERSION = (createRequire(import.meta.url)('playwright/package.json') as { version: string }).version;
+
+/** The command that gets a missing or mismatched Chromium, named consistently wherever one is missing. */
+export function installChromiumHint(): string {
+  return `npx --package=playwright@${PLAYWRIGHT_VERSION} playwright install chromium`;
+}
 
 /**
  * Taking the pictures the Preview tab compares against the mockups.
@@ -111,7 +126,7 @@ async function photograph<T extends CaptureTarget>(
     return {
       captures: [],
       failures: [],
-      unavailable: `could not start a browser (${detail}). Run \`npx playwright install chromium\`.`,
+      unavailable: `could not start a browser (${detail}). Run \`${installChromiumHint()}\`.`,
     };
   }
 

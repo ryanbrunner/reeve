@@ -8,7 +8,8 @@
 // Run by `npm run build` here, and by `prepack` before `npm pack`/`publish`
 // so a forgotten build never ships a stale or missing dist/.
 import { build } from 'esbuild';
-import { cpSync, existsSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,6 +19,12 @@ const repoRoot = resolve(pkgRoot, '../..');
 for (const dir of ['dist', 'drizzle', 'web', 'prompts']) {
   rmSync(resolve(pkgRoot, dir), { recursive: true, force: true });
 }
+
+// Built fresh every time rather than only when missing, so a stale
+// packages/web/dist from an earlier session can never ship silently; this is
+// also what lets `npm pack`/`publish` work from a clean clone with no manual
+// build step first.
+execFileSync('npm', ['run', 'build', '--workspace', '@reeve/web'], { cwd: repoRoot, stdio: 'inherit' });
 
 // Left external so npm installs them the normal way: better-sqlite3 and
 // Playwright both carry native/browser binaries bundling would not help
@@ -54,9 +61,4 @@ await build({
 
 cpSync(resolve(repoRoot, 'packages/server/src/stages/prompts'), resolve(pkgRoot, 'prompts'), { recursive: true });
 cpSync(resolve(repoRoot, 'packages/server/drizzle'), resolve(pkgRoot, 'drizzle'), { recursive: true });
-
-const webDist = resolve(repoRoot, 'packages/web/dist');
-if (!existsSync(webDist)) {
-  throw new Error('packages/web/dist is missing. Run `npm run build --workspace @reeve/web` first.');
-}
-cpSync(webDist, resolve(pkgRoot, 'web/dist'), { recursive: true });
+cpSync(resolve(repoRoot, 'packages/web/dist'), resolve(pkgRoot, 'web/dist'), { recursive: true });
