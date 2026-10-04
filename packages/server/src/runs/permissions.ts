@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
@@ -103,51 +103,71 @@ const VALUE = /^("[^"\\$`]*"|'[^']*'|(?!~[^/\s])[^\s"'\\$`;&|()<>]+)(?=$|[\s;&|(
 
 /** Why the command may not run, or null when it names no live database. */
 function scratchDbRefusal(command: string, worktreePath: string): string | null {
-  const cwd = leadingCwd(command, worktreePath);
+  // One answer for the whole command, not one per `REEVE_DB=`: a `cd` after an
+  // `export`ed assignment moves where that assignment is actually read from
+  // just as much as one before it does, since the shell keeps the variable
+  // past the statement that set it. Computed once because it does not depend
+  // on which assignment is being checked.
+  const candidates = cwdCandidates(command, worktreePath);
   for (const m of command.matchAll(ASSIGNMENT)) {
     const value = VALUE.exec(command.slice(m.index + m[0].length))?.[1];
     if (!value) return unreadableDbDenial(command);
     const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
-    // A relative value is only as good as the cwd it is read against. A plain
-    // leading `cd` chain moves that cwd away from worktreePath, so a relative
-    // REEVE_DB can land on the live database one directory removed from how
-    // it is written — see live-db-relative-path-check.ts. A `cd` whose own
-    // target we could not read plainly leaves that cwd unknown, and an
-    // unknown cwd is exactly the shape of thing a relative value could hide
-    // behind, so it is refused rather than guessed at.
-    if (cwd === null) return unreadableDbDenial(command);
-    if (isLiveDatabase(db, cwd)) return liveDbDenial(command);
+    // An absolute value reads the same wherever the shell happens to be, so
+    // worktreePath — where every Bash call in a run actually starts — is the
+    // only cwd that matters, and a `cd` this cannot follow is no reason to
+    // refuse it. A relative one is only as good as the cwd it is read
+    // against, and that is what `candidates` is working out.
+    if (isAbsolute(db)) {
+      if (isLiveDatabase(db, worktreePath)) return liveDbDenial(command);
+      continue;
+    }
+    if (candidates === null) return unreadableDbDenial(command);
+    if (candidates.some((cwd) => isLiveDatabase(db, cwd))) return liveDbDenial(command);
   }
   return null;
 }
 
 /**
- * The directory `REEVE_DB`'s value, wherever it falls in the command, would
- * actually be read against: `worktreePath`, moved by every plain `cd <dir>`
- * chained off the front with `&&` or `;` before anything else runs. Only a
- * leading chain, because that is the one shape a shell resolves the same way
- * every time — `cmd && cd dir && …` runs `cmd` from the old cwd first, and
- * what that leaves behind is `cmd`'s to know, not this guard's.
+ * Every directory a relative `REEVE_DB` anywhere in the command could really
+ * be read against: `worktreePath` itself, always — a leading `cd` can fail,
+ * or sit behind a `||` that never runs it, and the command then runs exactly
+ * where it started — plus wherever a plain `cd <dir>` chain off the front,
+ * connected by `&&` or `;`, actually lands when it does run.
  *
- * Null when a leading `cd`'s own target cannot be read as plainly as `VALUE`
- * requires: the cwd from there on is genuinely unknown, not just unmoved.
+ * Null when this cannot vouch for that being the whole story: a `cd` whose
+ * own target cannot be read as plainly as `VALUE` requires, a `cd -` or
+ * `-`-prefixed target (the previous directory, which this has no way to
+ * know), or a `cd`/`pushd`/`popd` anywhere else in the command once the
+ * leading chain is accounted for — before the assignment, as `env FOO=bar
+ * cd x` would read oddly but shells allow, or after it, as `export
+ * REEVE_DB=x; cd dir; …` actually runs. Any of those make the real cwd a
+ * guess, and a guess is not grounds to allow what a known cwd would deny.
  */
-function leadingCwd(command: string, worktreePath: string): string | null {
+function cwdCandidates(command: string, worktreePath: string): string[] | null {
   let cwd = worktreePath;
-  let rest = command;
+  let pos = 0;
   for (;;) {
-    const cd = /^\s*cd\s+/.exec(rest);
-    if (!cd) return cwd;
-    rest = rest.slice(cd[0].length);
-    const value = VALUE.exec(rest)?.[1];
-    if (!value) return null;
+    const cd = /^\s*cd\s+/.exec(command.slice(pos));
+    if (!cd) break;
+    const afterCd = pos + cd[0].length;
+    const value = VALUE.exec(command.slice(afterCd))?.[1];
+    if (!value || value.startsWith('-')) return null;
     const dir = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
     cwd = resolve(cwd, dir);
-    rest = rest.slice(value.length);
-    const chain = /^\s*(?:&&|;)\s*/.exec(rest);
-    if (!chain) return cwd;
-    rest = rest.slice(chain[0].length);
+    const afterValue = afterCd + value.length;
+    const chain = /^\s*(?:&&|;)\s*/.exec(command.slice(afterValue));
+    if (!chain) {
+      pos = afterValue;
+      break;
+    }
+    pos = afterValue + chain[0].length;
   }
+  // The chain above only ever walks forward from a plain `cd` at its own
+  // start; anything cd-like left outside it, before or after, is exactly the
+  // shape of thing it cannot follow — refuse rather than guess what it did.
+  if (/(?:^|[\s;&|(`"'])(?:cd|pushd|popd)\b/.test(command.slice(pos))) return null;
+  return [worktreePath, cwd];
 }
 
 /**

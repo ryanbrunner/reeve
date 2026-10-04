@@ -17,7 +17,7 @@ import { query, type HookInput, type SDKMessage, type SDKUserMessage } from '@an
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { config } from '../config.js';
 import { decideToolUse, denialRecorder, liveDatabaseGuard, type ToolDenialRecord } from '../runs/permissions.js';
 
@@ -69,6 +69,38 @@ const [dir, file] = [dirname(live), basename(live)];
 check('the live board refused, by name', (await hook(`REEVE_DB=${live} npx tsx x.ts`))?.includes('reaps') === true);
 check('and recorded', refusedByHook.length === 1);
 check('after a cd', (await hook(`cd packages && REEVE_DB=${live} npx tsx x.ts`)) !== null);
+// `scratchDbRefusal` used to resolve every relative value against `wt`
+// regardless of what came before it, so `cd <live dir> && REEVE_DB=<bare
+// name>` read as some unrelated path and was waved through — the finding
+// `live-db-relative-path-check.ts` demonstrates in full. These are the
+// shapes `cwdCandidates` has to get right to close that: the bypass itself,
+// one and two directories removed; a chain of `cd`s; a `cd` a real shell
+// might never reach (`;` after a directory that likely does not exist, `cd
+// -`, `pushd`) left to fail closed instead of assumed harmless; the same
+// disguised behind `bash -c` and a subshell that the chain parser cannot see
+// into; and the relative forms that stay genuinely harmless, which must stay
+// allowed.
+const up = dirname(dir);
+const dirName = basename(dir);
+check('relative after cd into the live dir, bare filename', (await hook(`cd ${dir} && REEVE_DB=${file} npx tsx x.ts`)) !== null);
+check(
+  'relative after cd one directory further up, two components',
+  (await hook(`cd ${up} && REEVE_DB=${dirName}/${file} npx tsx x.ts`)) !== null,
+);
+check('relative after a chained cd', (await hook(`cd ${up} && cd ${dirName} && REEVE_DB=${file} npx tsx x.ts`)) !== null);
+check(
+  "a cd that likely fails, then ';', still checked against wt",
+  (await hook(`cd /reeve-perm-nonexistent; REEVE_DB=${relative(wt, live)} npx tsx x.ts`)) !== null,
+);
+check('cd - refused: the previous directory is not this to guess', (await hook(`cd -; REEVE_DB=${file} npx tsx x.ts`)) !== null);
+check('pushd refused: not a cd this tracks', (await hook(`pushd ${dir} && REEVE_DB=${file} npx tsx x.ts`)) !== null);
+check(
+  'a cd disguised behind bash -c refused',
+  (await hook(`bash -c "cd ${dir} && REEVE_DB=${file} npx tsx x.ts"`)) !== null,
+);
+check('a cd disguised behind a subshell refused', (await hook(`( cd ${dir} && REEVE_DB=${file} npx tsx x.ts )`)) !== null);
+check('relative with no cd at all stays allowed', (await hook(`REEVE_DB=${file} npx tsx x.ts`)) === null);
+check('cd within the worktree, a relative scratch path, stays allowed', (await hook(`cd ${wt} && REEVE_DB=./scratch.db npx tsx x.ts`)) === null);
 check('behind env', (await hook(`env REEVE_DB=${live} npx tsx x.ts`)) !== null);
 check('behind export', (await hook(`export REEVE_DB=${live}; npx tsx x.ts`)) !== null);
 check('inside bash -c', (await hook(`bash -c "REEVE_DB=${live} npx tsx x.ts"`)) !== null);

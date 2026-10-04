@@ -1,6 +1,6 @@
 /**
- * Throwaway check for one disguise `permission-check.ts` does not try: a
- * relative `REEVE_DB` after a leading `cd`.
+ * Throwaway check for the disguises `permission-check.ts` does not try: a
+ * relative `REEVE_DB` whose real cwd is not `worktreePath`.
  *
  * `scratchDbRefusal` used to resolve every `REEVE_DB` value against the
  * stage's `worktreePath`, full stop, no matter what came before it in the
@@ -8,8 +8,10 @@
  * real shell, after the `cd`, relative to that other directory — landing
  * exactly on the live database — but the guard was resolving `<basename>`
  * against `worktreePath` instead, computing an unrelated path and letting it
- * through. This is what caught that: before the fix to `leadingCwd` in
- * runs/permissions.ts, both `cd` cases below were ALLOWED.
+ * through. Before the fix to `cwdCandidates` in runs/permissions.ts, every
+ * "denied" case below but the absolute one was ALLOWED, and the unparseable
+ * `cd` in the "allowed" case was denied even though its value is absolute and
+ * so does not depend on it.
  *
  *   REEVE_DB=/tmp/live-db-relative-check.db npx tsx packages/server/src/spikes/live-db-relative-path-check.ts
  *
@@ -63,7 +65,33 @@ check(
   await denied(`cd ${up} && REEVE_DB=${dirName}/${file} npx tsx x.ts`),
 );
 
-check('and all three were recorded', refused.length === 3);
+console.log('\n--- disguises that move or hide the cwd without naming the live db in plain cd ---');
+
+check(
+  'a cd not leading the command — behind an unrelated command first — still counts',
+  await denied(`true && cd ${dir} && REEVE_DB=${file} npx tsx x.ts`),
+);
+check('a cd inside a subshell still counts', await denied(`(cd ${dir} && REEVE_DB=${file} npx tsx x.ts)`));
+check('pushd moves the cwd the same way cd does', await denied(`pushd ${dir} && REEVE_DB=${file} npx tsx x.ts`));
+check(
+  "a flag on cd's target (`cd -P dir`) is a target this cannot read, not the previous directory",
+  await denied(`cd -P ${dir} && REEVE_DB=${file} npx tsx x.ts`),
+);
+check(
+  'REEVE_DB set before a cd that moves where it is actually read from still counts',
+  await denied(`export REEVE_DB=${file}; cd ${dir}; npx tsx x.ts`),
+);
+
+console.log('\n--- what a leading cd must not cost ---');
+
+check(
+  "an absolute value doesn't depend on cwd, so a cd whose own target can't be read plainly doesn't deny it",
+  !(await denied(`cd "$(pwd)" && REEVE_DB=/tmp/live-db-relative-scratch.db npx tsx x.ts`)),
+);
+check(
+  'a relative REEVE_DB after cd somewhere unrelated to the live db is allowed',
+  !(await denied(`cd packages && REEVE_DB=scratch.db npx tsx x.ts`)),
+);
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
 process.exitCode = failures === 0 ? 0 : 1;
