@@ -203,14 +203,19 @@ switched on.
   spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`. Binding
-  alone does not stop a page open in the same browser, or one that has
-  rebound its DNS to look loopback, from calling the API itself, so
-  `originAndHostGuard` (`packages/server/src/security.ts`) sits ahead of
-  every `/api` route and refuses a forged `Host` or `Origin`. A new route that
-  parses a JSON body with `c.req.json().catch(() => ({}))` calls
-  `requireJsonContentType` from the same file first, same as the fifteen that
-  already do, so a body sent as something other than `application/json`
-  cannot slip past unnoticed.
+  loopback is not by itself proof a request came from the board: a page in
+  another origin, or a DNS name that resolves to `127.0.0.1` only after a
+  browser's own same-origin check already passed, can still reach it.
+  `sameOriginGuard` in `packages/server/src/routes/security.ts` is mounted
+  ahead of every `/api` route and refuses a mutating request (not a GET)
+  whose Host or Origin isn't loopback. A route that calls `c.req.json()`
+  additionally opts into that file's `requireJson`, since Hono does not
+  check Content-Type itself; a new JSON route that forgets it skips that
+  check silently. A spike that drives `createApp()`'s `app.fetch` in process
+  rather than over a socket needs a loopback host in the URL it builds its
+  own `Request`s from — a relative `app.request(path)` already resolves to
+  `localhost`, but a spike that spells out `http://x` or similar is refused
+  the same as a real foreign Host.
 - **Every run asks for auto mode, and nothing wider, but not every model takes
   it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any

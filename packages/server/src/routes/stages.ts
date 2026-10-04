@@ -14,11 +14,11 @@ import {
 import { checkWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
 import { approveStage, sendBackForRevision } from '../review.js';
-import { requireJsonContentType } from '../security.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
 import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
+import { requireJson } from './security.js';
 
 const reviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
@@ -57,13 +57,11 @@ export function stageRoutes(db: Db, writer: EventWriter) {
    * live in ../review.ts, which a review in Crit ends in too. A run finishing
    * on its own still moves nothing.
    */
-  routes.post('/:id/review', async (c) => {
+  routes.post('/:id/review', requireJson, async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
     const { card, repo } = loaded;
 
-    const badType = requireJsonContentType(c);
-    if (badType) return badType;
     const parsed = reviewSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
     const { decision, notes } = parsed.data;
