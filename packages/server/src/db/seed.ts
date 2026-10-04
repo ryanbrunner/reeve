@@ -11,9 +11,16 @@ if (listRepos(db).length === 0) {
     setupCommand: 'npm install',
     testCommand: 'npm run typecheck',
     seedCommand: null,
-    // Builds first, so the tsx server on Reeve's port serves this worktree's
-    // UI, not a stale `dist` (see AGENTS.md's Worktrees section).
-    serverCommand: 'npm run build && npm start',
+    // Vite owns the port Reeve tracks, so Testing and Preview get HMR instead
+    // of whatever `dist` a build last produced; the tsx API server moves to a
+    // port of its own, found by asking the OS for a free one, with
+    // REEVE_DEV_API_PORT pointing Vite's `/api` proxy at it. `{{port}}` on
+    // Vite's own command, rather than just the `REEVE_PORT` env it already
+    // gets, puts the row's url on from the start (see `devServer.ts`'s
+    // `known`), so nothing has to pick the right line out of two servers
+    // racing to announce themselves (see AGENTS.md's Worktrees section).
+    serverCommand:
+      'API=$(node -e "const{createServer}=require(\'node:net\');const s=createServer();s.listen(0,\'127.0.0.1\',()=>{console.log(s.address().port);s.close()})"); REEVE_PORT=$API npm run dev -w @reeve/server & REEVE_DEV_API_PORT=$API npm run dev -w @reeve/web -- --port {{port}} --strictPort --host 127.0.0.1',
     teardownCommand: null,
     finishCommand: null,
     laneColor: '#6b7db3',

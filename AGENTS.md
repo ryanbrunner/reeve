@@ -331,15 +331,22 @@ It runs from the worktree root, so it writes the database the dev server then
 opens. Its merged card is archived on the server's first merge-sync tick
 unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
 
-For the same repo the server command is `npm run build && npm start`, not
-`npm run dev`: dev runs Vite alongside the tsx API server, and Vite proxies
-`/api` to the live board's hardcoded 4317 and binds whatever port it likes,
-while the tsx server quietly answers the port Reeve tracks, serving
-`packages/web/dist` as of whenever it was last built — stale next to the
-card's own changes. Building before every start keeps what Testing and
-Preview see current. No `{{port}}`: `REEVE_PORT` already reaches the command
-in its environment, and the server announces `[reeve] http://127.0.0.1:<port>`
-for `announcedUrl` to read.
+For the same repo the server command runs `npm run dev` for both halves, not
+`npm run build && npm start`: Vite binds whatever port it likes and the tsx
+API server quietly answers the port Reeve tracks, so a plain `dev` would have
+had Testing and Preview screenshot Vite's own, unknown, port while nothing
+answered the one Reeve polls. Instead the command picks a free port of its
+own for the tsx server (asking the OS for one, then passing it as that
+server's own `REEVE_PORT`) and gives it to Vite's dev proxy as
+`REEVE_DEV_API_PORT`, so Vite's `/api` calls still land on this worktree's own
+backend; Vite itself binds the port Reeve tracks, with `{{port}}` on its own
+`--port` flag rather than just the `REEVE_PORT` env it already gets, which
+puts that url on the run row before either server has printed a line (see
+`known` in `devServer.ts`) — otherwise the row would depend on whichever of
+the two `[reeve] http://127.0.0.1:<port>` banners `announcedUrl` read first,
+and a hop could land on the API server's port instead of Vite's. Giving up
+the build gets back HMR for Preview, at the cost of the worktree always
+running two servers instead of one.
 
 ## Conventions
 
