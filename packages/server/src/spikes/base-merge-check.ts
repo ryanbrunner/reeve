@@ -4,19 +4,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
-import { cardEventsFor, createCard, createRepo, getCard } from '../db/queries.js';
+import { cardEventsFor, createCard, createRepo, getCard, insertRun, runsForCard, updateSettings } from '../db/queries.js';
 import type { Card } from '../db/schema.js';
 import { commitsSince, diffSince } from '../git/worktree.js';
-import { ensureWorktree, mergeLatestBase } from '../startStage.js';
+import { EventWriter } from '../runs/events.js';
+import { ensureWorktree, mergeLatestBase, startStage } from '../startStage.js';
 
 /**
  * What a stage start does to a reused worktree once the base has moved, against
- * a throwaway repo whose `origin` is a bare repo on disk. Calls
- * `mergeLatestBase` directly, since `startStage` would go on to start Claude.
- * Proves a landed commit is merged in and `baseSha` follows it, so the diff and
+ * a throwaway repo whose `origin` is a bare repo on disk. Mostly calls
+ * `mergeLatestBase` directly; the last part goes through `startStage` with the
+ * concurrency cap at 0, so it does everything up to starting Claude. Proves a landed commit is merged in and `baseSha` follows it, so the diff and
  * commits stay the card's own; a branch already up to date is left alone; and a
  * dirty tree, a conflict, or an unreachable origin each leave the branch where
- * it was, with a note on the card. Never touches the local `main`.
+ * it was, with a note on the card. Through `startStage`, setup runs again after
+ * a merge, and a start beside a live stage run merges nothing. Never touches
+ * the local `main`.
  *
  *   npx tsx packages/server/src/spikes/base-merge-check.ts
  */
@@ -154,6 +157,41 @@ const offline = await mergeLatestBase(db, e.card, repo, e.path);
 note('E outcome', JSON.stringify(offline).slice(0, 100));
 check('E skipped for the fetch', offline.state === 'skipped' && /fetching origin\/main failed/.test(offline.why));
 check('E HEAD unchanged', head(e.path) === headE);
+
+g('remote', 'set-url', 'origin', origin);
+
+// --- 7. Through startStage: setup again after a merge, nothing beside a run -
+// The setup's log is outside the tree, since an untracked file would read as
+// uncommitted work and skip the merge.
+const setupLog = join(root, 'setup.log');
+const withSetup = createRepo(db, {
+  name: 'base-merge-setup', repoPath, worktreeRoot, defaultBranch: 'main',
+  setupCommand: `echo ran >> ${setupLog}`, testCommand: null, serverCommand: null,
+  teardownCommand: null, finishCommand: null, laneColor: null,
+});
+const realWriter = new EventWriter(db);
+updateSettings(db, { maxConcurrentRuns: 0 });
+const f = createCard(db, { title: 'Through startStage', repoId: withSetup.id, stage: 'in_progress' });
+const first = await startStage(db, realWriter, f, withSetup);
+note('F first start', JSON.stringify(first));
+const setupRuns = () => runsForCard(db, f.id).filter((r) => r.kind === 'shell' && r.status === 'succeeded').length;
+check('F first start refused only at the cap', !first.ok && first.status === 429);
+check('F setup ran once for the new tree', setupRuns() === 1);
+const fPath = getCard(db, f.id)!.worktreePath!;
+const landed6 = land('pr-6.txt', 'PR #6');
+const second = await startStage(db, realWriter, getCard(db, f.id)!, withSetup);
+check('F second start refused only at the cap', !second.ok && second.status === 429);
+check('F reused tree has the landed commit', head(fPath) === landed6);
+check('F setup ran again after the merge', setupRuns() === 2);
+const third = await startStage(db, realWriter, getCard(db, f.id)!, withSetup);
+check('F third start, nothing landed: no setup', !third.ok && third.status === 429 && setupRuns() === 2);
+
+insertRun(db, { id: crypto.randomUUID(), cardId: f.id, kind: 'claude', stage: 'in_progress', status: 'running', cwd: fPath });
+land('pr-7.txt', 'PR #7');
+const beside = await startStage(db, realWriter, getCard(db, f.id)!, withSetup);
+note('F start beside a live run', JSON.stringify(beside));
+check('F start beside a live run is refused', !beside.ok && beside.status === 409);
+check('F nothing merged beside it', head(fPath) === landed6);
 
 check('local main never moved', g('rev-parse', 'main') === localMain);
 note('scratch', root);
