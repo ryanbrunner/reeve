@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { PLACEHOLDER_TITLE, type BoardResponse, type VibesState } from '@reeve/shared';
+import { PLACEHOLDER_TITLE, type ApiSettings, type BoardResponse, type VibesState } from '@reeve/shared';
 import { api } from '../client.js';
 import { formatTokens, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 
@@ -24,7 +24,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * as the sweep in the server's vibes/engine.ts: a card with no repo is left
  * alone, and so is a Backlog card nobody has written anything on yet.
  */
-function whatComesOff(board: BoardResponse): string[] {
+function whatComesOff(board: BoardResponse, settings: ApiSettings): string[] {
   const live = board.cards.filter((c) => c.repoId !== null);
   const backlog = live.filter(
     (c) => c.stage === 'backlog' && !(c.title.trim() === PLACEHOLDER_TITLE && c.body.trim() === ''),
@@ -32,6 +32,9 @@ function whatComesOff(board: BoardResponse): string[] {
   const reviews = live.filter((c) => c.activity === 'needs_review').length;
   const questions = live.filter((c) => c.activity === 'needs_input').length;
   const done = live.filter((c) => c.stage === 'done' && !c.mergedAt).length;
+  const whatToBuild = settings.suggestTasks
+    ? '  What to build   Claude decides: a repo with nothing left to do gets up to three cards of its own'
+    : '  What to build   you decide: suggestions are off, so a repo with nothing left to do sits idle';
   return [
     'VIBES MODE takes you out of the loop. Until `reeve vibes off`:',
     `  Human review    off: plans, work and test reports are approved unread (${reviews} waiting now)`,
@@ -40,7 +43,7 @@ function whatComesOff(board: BoardResponse): string[] {
     `  Planning        skipped: Backlog goes straight to In Progress (${plural(backlog, 'card')} there now)`,
     `  Merge to main   automatic: Done opens its pull request and merges it (${plural(done, 'card')} in Done now)`,
     '  New ideas       run on arrival: a card added to Backlog starts once it has a title or a brief',
-    '  What to build   Claude decides: a repo with nothing left to do gets up to three cards of its own',
+    whatToBuild,
     "Tool permissions, the concurrency cap and the repository's branch protection stay as they are.",
   ];
 }
@@ -72,7 +75,7 @@ async function on(json: boolean): Promise<void> {
     if (json) return printJson(await api.settings());
     return;
   }
-  for (const line of whatComesOff(board)) note(line);
+  for (const line of whatComesOff(board, await api.settings())) note(line);
   const saved = await api.updateSettings({ vibes: true });
   if (json) return printJson(saved);
   print('VIBES MODE is on.');

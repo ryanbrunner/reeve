@@ -571,6 +571,13 @@ export const settings = sqliteTable('settings', {
    */
   vibesSince: timestamp('sicko_since'),
   /**
+   * Whether Claude may put cards of its own in Backlog: a stage's "Things you
+   * notice along the way", and VIBES MODE's ideas once a repo runs dry. Null
+   * means on, the same reading as `maxConcurrentRuns`, so every board that
+   * existed before this column keeps doing what it already did.
+   */
+  suggestTasks: integer('suggest_tasks', { mode: 'boolean' }),
+  /**
    * The one exception to typed columns: a model and effort per runnable stage.
    * This is a map keyed by stage, not a handful of knobs, and a stage added
    * later should not need a migration. A stage missing from it is unset.

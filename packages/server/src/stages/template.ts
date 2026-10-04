@@ -26,9 +26,13 @@ export function blockquote(text: string): string {
  * What to do with an aside, worded once for every stage. Its own section
  * rather than a line in each stage's list of what to return, so it reads as
  * something to keep in mind while working and not one more thing to produce.
+ *
+ * With suggestions off, the server is the guarantee — `recordSuggestions`
+ * returns early regardless of what a run sends back — so the only thing this
+ * saves is Claude's effort thinking of something nobody will see.
  */
-export function renderSuggesting(): string {
-  return renderPrompt('suggested_tasks', {});
+export function renderSuggesting(enabled: boolean): string {
+  return renderPrompt(enabled ? 'suggested_tasks' : 'no_suggested_tasks', {});
 }
 
 /** The notes block, or nothing at all when there are none. Every stage renders it. */

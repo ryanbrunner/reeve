@@ -116,6 +116,7 @@ export function stageContextFor(
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
     notes: unreadNotesFor(db, base.card.id),
+    suggestTasks: getSettings(db).suggestTasks,
   };
 }
 
@@ -166,19 +167,22 @@ export function modelAndEffortFor(
 }
 
 /**
- * Every run's permission mode. The classifier decides what a run may do, as it
- * does in Claude Code's auto mode, and each stage's prompt says what it should
- * do; see runs/permissions.ts for what is left for us to answer.
+ * The permission mode every run asks for. The classifier decides what a run
+ * may do, as it does in Claude Code's auto mode, and each stage's prompt says
+ * what it should do; see runs/permissions.ts for what is left for us to
+ * answer. Not every pinned model takes it — see `fitToModel`, below, for the
+ * one that is left to run without it instead.
  */
 const PERMISSION_MODE = 'auto' satisfies PermissionMode;
 
 /**
- * Thrown when a run could only go ahead without auto mode.
+ * Thrown when a session's own init message reports a mode other than the one
+ * actually asked for.
  *
- * Refused rather than run in some other mode, because there is no other mode
- * worth running in: `default` sends every edit and command to a callback that
- * can only say no, and anything wider is more than auto mode would allow, in
- * runs nobody is watching. The message is what the card shows.
+ * Refused rather than carried on, because that mismatch means something
+ * outside this run's control — an account setting, `disableAutoMode` — turned
+ * auto mode off after we asked for it: not the expected fallback for a model
+ * that never claimed to support it. The message is what the card shows.
  */
 class AutoModeUnavailable extends Error {}
 
@@ -187,25 +191,40 @@ class AutoModeUnavailable extends Error {}
  * never reaches it. Only a pinned model the CLI listed is checked: no model is
  * the CLI's default, which takes everything the stages ask for, and a model the
  * CLI did not list is sent as asked. A capability the CLI did not report is
- * assumed — the same reading the pickers give it.
+ * assumed — the same reading the pickers give it — for every field except
+ * `supportsAutoMode`.
  *
- * Auto mode is the one it cannot trim away. A model that says it has none
- * fails the run here, before anything is spent.
+ * That one field is read the other way around: only an explicit `true` keeps
+ * `permissionMode: 'auto'` in the request. Haiku is why — the CLI lists it
+ * with no `supportsAutoMode` at all, the same as its other capability fields,
+ * and a session asked to run it in auto mode reports back `default` in its
+ * own `init` message; "not reported" means "doesn't take it" for this model,
+ * not "take everything" the way an unreported effort level does. Checked by
+ * spike, since it is exactly the gap between what the CLI lists and what a
+ * session actually does that this function exists to close.
+ *
+ * Auto mode is trimmed the same way as effort and adaptive thinking once that
+ * is decided: a model that doesn't take it runs anyway, just without
+ * `permissionMode` sent to it, so it starts in its own default mode instead of
+ * the run being refused.
  */
-async function fitToModel(
+// Exported, and the lookup injectable, only so a spike can hand it a model the
+// CLI itself does not list with a working `supportsAutoMode` today — nothing
+// in production calls it with a second argument.
+export async function fitToModel(
   model: string | null,
   effort: EffortLevel | null,
-): Promise<{ effort: EffortLevel | null; adaptiveThinking: boolean }> {
-  const caps = model ? await capabilitiesFor(model) : undefined;
-  if (!caps) return { effort, adaptiveThinking: true };
-  if (caps.supportsAutoMode === false) {
-    throw new AutoModeUnavailable(
-      `Auto mode is unavailable for ${model}, so Reeve will not run it: pick another model for this card or stage.`,
-    );
-  }
+  lookup: typeof capabilitiesFor = capabilitiesFor,
+): Promise<{ effort: EffortLevel | null; adaptiveThinking: boolean; autoMode: boolean }> {
+  const caps = model ? await lookup(model) : undefined;
+  if (!caps) return { effort, adaptiveThinking: true, autoMode: true };
   const takesEffort =
     effort !== null && caps.supportsEffort !== false && (caps.supportedEffortLevels?.includes(effort) ?? true);
-  return { effort: takesEffort ? effort : null, adaptiveThinking: caps.supportsAdaptiveThinking !== false };
+  return {
+    effort: takesEffort ? effort : null,
+    adaptiveThinking: caps.supportsAdaptiveThinking !== false,
+    autoMode: caps.supportsAutoMode === true,
+  };
 }
 
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
@@ -236,9 +255,9 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     forkedFromSessionId: resumeSessionId ?? null,
     model,
     // What was asked for. Corrected below if the model turns out not to take it,
-    // so the row always says what was actually sent.
+    // so the row always says what was actually sent. permissionMode is filled in
+    // the same way, once fitToModel says whether this model takes auto mode.
     effort,
-    permissionMode: PERMISSION_MODE,
     maxBudgetUsd: stage.maxBudgetUsd,
     // Filled in once the prompt exists. A stage that has to prepare something
     // first — Testing takes its screenshots — writes the prompt after that, so
@@ -282,7 +301,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     ...(resumeSessionId ? { resume: resumeSessionId, forkSession: true } : {}),
     sessionId,
     // No `allowedTools`: a list is exactly what this replaced. See PERMISSION_MODE.
-    permissionMode: PERMISSION_MODE,
+    // permissionMode itself is filled in below, once fitToModel says whether this
+    // model takes it.
     ...(stage.directories ? { additionalDirectories: stage.directories(db) } : {}),
     hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [liveDatabaseGuard(worktreePath, refuse)] }] },
     // Nobody is watching to approve anything, and a run that parks on what the
@@ -306,6 +326,14 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       const fitted = await fitToModel(model, effort);
       if (fitted.effort !== effort) setRunStatus(db, runId, { effort: fitted.effort });
       if (fitted.effort) options.effort = fitted.effort;
+      // A model without auto mode is left to start in its own default mode:
+      // options.permissionMode stays unset, the SDK's own default, rather than
+      // sending a mode it does not take. The row is corrected again once the
+      // session's init message says what it actually started in.
+      if (fitted.autoMode) {
+        options.permissionMode = PERMISSION_MODE;
+        setRunStatus(db, runId, { permissionMode: PERMISSION_MODE });
+      }
       // The card modal shows what Claude is reasoning about. Left to default,
       // adaptive thinking omits the text and stores an empty block with only a
       // signature. A model without adaptive thinking is left to its own default
@@ -343,15 +371,21 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         // Stored above like any other message; this only moves the board's readout.
         if (message.type === 'rate_limit_event') recordRateLimit(message, Date.now());
         // What `fitToModel` could not see: an account or a setting that turns
-        // auto mode off. The session says which mode it really started in, and
-        // it says so before Claude has taken a turn. Thrown out of the loop,
-        // which closes the query, into the catch below that fails the run.
-        if (message.type === 'system' && message.subtype === 'init' && message.permissionMode !== PERMISSION_MODE) {
-          abortController.abort();
-          throw new AutoModeUnavailable(
-            `Auto mode is unavailable to this session, which started in ${message.permissionMode} mode, so Reeve ` +
-              'stopped it before Claude began: check the account Claude Code signs in with, and any `disableAutoMode` setting.',
-          );
+        // auto mode off, when auto mode was actually asked for. A model that
+        // never asked for it — fitted.autoMode false — is expected to report
+        // something else and is corrected below instead, not refused. The
+        // session says which mode it really started in, and it says so before
+        // Claude has taken a turn. Thrown out of the loop, which closes the
+        // query, into the catch below that fails the run.
+        if (message.type === 'system' && message.subtype === 'init') {
+          if (fitted.autoMode && message.permissionMode !== PERMISSION_MODE) {
+            abortController.abort();
+            throw new AutoModeUnavailable(
+              `Auto mode is unavailable to this session, which started in ${message.permissionMode} mode, so Reeve ` +
+                'stopped it before Claude began: check the account Claude Code signs in with, and any `disableAutoMode` setting.',
+            );
+          }
+          if (!fitted.autoMode) setRunStatus(db, runId, { permissionMode: message.permissionMode });
         }
 
         // The refusals nobody asked us about: auto mode's classifier turning a
@@ -413,6 +447,12 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       return;
     }
 
+    // Re-read rather than trusted from when the run started: a switch flipped
+    // mid-run must still be the one `onComplete` sees, the same as the
+    // guarantee `recordSuggestions` makes for itself in `onPersist` below —
+    // otherwise `.reeve/implementation.md` could list suggestions that
+    // `recordSuggestions` then declines to turn into cards.
+    ctx.suggestTasks = getSettings(db).suggestTasks;
     materialiseArtifacts(db, card, worktreePath, runId, stage, ctx, parsed.data, runStage);
     // Files first, then rows, then the run is marked done — so nothing can read
     // a succeeded run whose plan or questions have not landed yet.

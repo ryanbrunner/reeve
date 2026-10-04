@@ -155,6 +155,7 @@ const issuesText = (error: z.ZodError) =>
 const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
   vibes: z.boolean().optional(),
+  suggestTasks: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
     .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))

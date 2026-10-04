@@ -14,10 +14,10 @@ The rule the whole board is built around: **Claude never moves a card; a human
 action does**, whether a drag or an approval. A run finishing on its own
 changes the card's activity, not its column. VIBES MODE
 (`packages/server/src/vibes/`) is the deliberate exception: a sweep that
-approves, answers and advances cards with nobody watching, and, with the
-board's switch on, asks Claude for the next cards once a repo has run out of
-work (`vibes/ideas.ts`). It takes off Reeve's own human gates and nothing
-else.
+approves, answers, advances and resolves the conflicts of cards with nobody
+watching, and, with the board's switch on, asks Claude for the next cards once
+a repo has run out of work (`vibes/ideas.ts`). It takes off Reeve's own human
+gates and nothing else.
 
 This file describes the project. What a stage run should do is in its prompt,
 under `packages/server/src/stages/prompts/`, and that wins.
@@ -196,16 +196,22 @@ switched on.
   spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
-- **Every run is in auto mode, and nothing wider.** `startClaudeRun` in
-  `packages/server/src/runs/claude.ts` sends `permissionMode: 'auto'` and no
+- **Every run asks for auto mode, and nothing wider, but not every model takes
+  it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
   language's toolchain, as it does in Claude Code. Stages declare no mode and
   no tool list. What a stage should not do (change files while planning,
-  push, open pull requests, commit `.reeve/`) is its prompt's to say.
-- **No auto mode, no run.** A pinned model that reports
-  `supportsAutoMode: false`, or a session whose `init` message reports another
-  mode, fails the run before Claude takes a turn, with the reason as its
-  `errorMessage`. Reeve never falls back to another mode.
+  push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
+  model the CLI lists without `supportsAutoMode: true` — Haiku, today — has
+  `permissionMode` left unset instead, so it starts in the SDK's own default
+  mode; `canUseTool` still denies every edit and risky command the session
+  asks it, same as auto mode's escalations, so such a stage can read and
+  respond, and run whatever default mode's own heuristics wave through
+  unasked, but not edit a file. What still fails the run before Claude takes a
+  turn is a session whose `init` message reports a mode other than `'auto'`
+  despite auto mode having been asked for — an account setting or
+  `disableAutoMode` turning it off underneath a request that should have
+  gotten it.
 - **What the classifier escalates is denied.**
   `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
   answers allow. Nobody is watching, and allowing would be `bypassPermissions`
@@ -310,6 +316,16 @@ the seed lacks extends the seed script. Repo commands never inherit the host's
 It runs from the worktree root, so it writes the database the dev server then
 opens. Its merged card is archived on the server's first merge-sync tick
 unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
+
+For the same repo the server command is `npm run build && npm start`, not
+`npm run dev`: dev runs Vite alongside the tsx API server, and Vite proxies
+`/api` to the live board's hardcoded 4317 and binds whatever port it likes,
+while the tsx server quietly answers the port Reeve tracks, serving
+`packages/web/dist` as of whenever it was last built — stale next to the
+card's own changes. Building before every start keeps what Testing and
+Preview see current. No `{{port}}`: `REEVE_PORT` already reaches the command
+in its environment, and the server announces `[reeve] http://127.0.0.1:<port>`
+for `announcedUrl` to read.
 
 ## Conventions
 
