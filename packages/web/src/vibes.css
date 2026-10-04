@@ -470,9 +470,13 @@
 
 /* ----------------------------------------------------------------- cards --- */
 
+/* Covers every column, but a well's own ghost now lives underneath it — so
+   the overlay itself lets the pointer through, and only a slot, where a card
+   actually is, takes it back. */
 .sk-cards {
   position: absolute;
   inset: 0;
+  pointer-events: none;
   --sk-cols: 5;
   --sk-gap: 12px;
 }
@@ -494,6 +498,7 @@
   height: 88px;
   transform: translate(calc(var(--sk-i) * (100% + 30px) + 9px), var(--sk-y)) rotate(var(--sk-rot));
   transition: transform 0.5s cubic-bezier(0.3, 1.45, 0.45, 1), opacity 0.4s ease;
+  pointer-events: auto;
 }
 
 .sk-bounce,

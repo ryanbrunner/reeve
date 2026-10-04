@@ -225,21 +225,24 @@ export function Column({
           place in the tab order. Held while a card is being made, since a
           double-click would otherwise make two and open both. In VIBES MODE
           only Backlog gets one — `onAdd` is only ever passed for that stage —
-          and it is pinned to the well's foot, below where its own flying cards
-          land, rather than riding up under the header as an empty well's only
-          content would otherwise put it. With two repos or more, its first
-          click turns the same dashed box into a list of where the card starts:
-          the lane sets its project, but only a person can say which repo, and
-          the first of several, picked by nobody, filed cards in the wrong
-          one. The list is held at full opacity, so it does not fade under a
-          pointer that has left the column. */}
+          and it is pinned to the well's foot, rather than riding up under the
+          header as an empty well's only content would otherwise put it, and
+          given its own stacking context above the flying cards (`sk-cards`,
+          which otherwise paints over the well): a card fanned out deep enough
+          to reach the foot must not be able to cover the one way to add
+          another. With two repos or more, its first click turns the same
+          dashed box into a list of where the card starts: the lane sets its
+          project, but only a person can say which repo, and the first of
+          several, picked by nobody, filed cards in the wrong one. The list is
+          held at full opacity, so it does not fade under a pointer that has
+          left the column. */}
       {onAdd && !active && (picking ?
         <div
           ref={list}
           role="group"
           aria-labelledby={`${pickerId}-heading`}
           onKeyDown={onPickerKeyDown}
-          className={`${vibes ? 'mt-auto' : cards.length ? 'mt-2' : ''} flex flex-col rounded-md border border-dashed border-slate-500 py-1`}
+          className={`${vibes ? 'relative z-10 mt-auto' : cards.length ? 'mt-2' : ''} flex flex-col rounded-md border border-dashed border-slate-500 py-1`}
         >
           <div
             id={`${pickerId}-heading`}
@@ -277,7 +280,7 @@ export function Column({
           onClick={add}
           disabled={adding}
           aria-label="Add a card"
-          className={`${vibes ? 'mt-auto' : cards.length ? 'mt-2' : ''} flex h-[3.75rem] items-center justify-center rounded-md border border-dashed border-(--color-edge) text-lg text-(--color-muted) opacity-0 transition-opacity group-hover:opacity-100 hover:border-slate-500 hover:text-(--color-text) focus-visible:opacity-100 focus-visible:outline-none focus-visible:border-sky-600 disabled:cursor-wait`}
+          className={`${vibes ? 'relative z-10 mt-auto' : cards.length ? 'mt-2' : ''} flex h-[3.75rem] items-center justify-center rounded-md border border-dashed border-(--color-edge) text-lg text-(--color-muted) opacity-0 transition-opacity group-hover:opacity-100 hover:border-slate-500 hover:text-(--color-text) focus-visible:opacity-100 focus-visible:outline-none focus-visible:border-sky-600 disabled:cursor-wait`}
         >
           +
         </button>
