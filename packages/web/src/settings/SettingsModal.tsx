@@ -15,7 +15,7 @@ import {
   type StageRunDefaults,
 } from '@reeve/shared';
 import { api } from '../lib/api.js';
-import { Dropdown } from '../lib/Dropdown.js';
+import { Dropdown, type DropdownOption } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { Button, Empty, SectionHead, SmallButton } from '../card/ui.js';
 
@@ -549,7 +549,7 @@ function Select({
   label: string;
   value: string | null;
   empty: string;
-  options: Array<{ value: string; label: string }>;
+  options: DropdownOption[];
   disabled?: boolean;
   onChange: (v: string | null) => void;
 }) {
