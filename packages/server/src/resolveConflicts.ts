@@ -22,6 +22,7 @@ import { claimResolving, forgetConflict, isMergingPr, isOpeningPr, releaseResolv
 import { startClaudeRun, type ClaudeRunHandle, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
+import { setBaseSha } from './startStage.js';
 import { RESOLVE_CONFLICTS_TASK, resolveConflictsTask } from './stages/resolve_conflicts.js';
 
 export type ResolveResult =
@@ -298,6 +299,11 @@ async function pushResolution(
   }
   // GitHub's verdict was about the branch before this push. The next sync asks again.
   forgetConflict(facts.cardId);
+  // The branch now contains the base as fetched, on both the clean path and
+  // Claude's: the Diff tab and the commit list count from `baseSha`, and
+  // would otherwise show everything just merged as the card's own work.
+  const fresh = getCard(db, facts.cardId);
+  if (fresh) setBaseSha(db, fresh, facts.baseSha);
   const output = resolved?.output;
   record(db, facts.cardId, 'conflicts_resolved', actor, runId, output?.summary ?? null, {
     url: facts.prUrl,
