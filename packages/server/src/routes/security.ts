@@ -68,7 +68,8 @@ export const sameOriginGuard: MiddlewareHandler = async (c, next) => {
  */
 export const requireJson: MiddlewareHandler = async (c, next) => {
   const length = c.req.header('content-length');
-  if (!length || length === '0') return next();
+  const chunked = c.req.header('transfer-encoding');
+  if ((!length || length === '0') && !chunked) return next();
 
   const type = c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase();
   if (type !== 'application/json') {
