@@ -54,8 +54,9 @@ reeve card wait <card> [--timeout S] [--json]
 reeve run follow <run> [--json] / reeve run stop <run>
 ```
 
-Approving does not move the card. Claude never moves a card; a human does, and
-from here that is `card move`.
+Claude never moves a card; a human does. Approving is that human action for a
+finished stage: it passes the gate and moves the card one column, where
+`card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
 exit status: 0 it finished and awaits review, 3 Claude asked questions, 4 the
