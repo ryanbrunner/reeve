@@ -396,6 +396,16 @@ async function run(args: string[]): Promise<void> {
  * or their script chose to, which is what keeps it a human action. VIBES MODE
  * is the switch for approving with nobody deciding.
  */
+const APPROVE_USAGE = `  reeve card approve <card> [--notes <text> | --notes-file <path>] [--json]
+      Pass the gate: the card moves one column on, from whichever needs a person to say so.
+      --notes or --notes-file attach a note to the approval; neither is required.
+      --json prints the server's answer: the stage it left and the one it landed in, if any.`;
+
+const REJECT_USAGE = `  reeve card reject <card> --notes <text> | --notes-file <path> [--follow | -f] [--json]
+      Send a card back for revision: the notes become the next run's prompt, so one is required.
+      --follow streams the revision run's transcript instead of printing its id.
+      --json prints the started run, or its outcome too when combined with --follow.`;
+
 async function approve(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() =>
     parseArgs({
@@ -575,8 +585,8 @@ function failure(card: ApiCard, outcome: WaitExit): string {
 const VERBS: Record<string, Command> = {
   show: { usage: '', run: show },
   run: { usage: '', run },
-  approve: { usage: '', run: approve },
-  reject: { usage: '', run: reject },
+  approve: { usage: APPROVE_USAGE, run: approve },
+  reject: { usage: REJECT_USAGE, run: reject },
   questions: { usage: '', run: questions },
   answer: { usage: '', run: answer },
   wait: { usage: '', run: wait },
