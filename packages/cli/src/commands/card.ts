@@ -568,15 +568,33 @@ function failure(card: ApiCard, outcome: WaitExit): string {
  * `reeve card <verb>`: everything done to one card, under the noun it is done
  * to — reading it, driving the stage it is in, and writing it.
  *
- * The verbs that came with the board's own reader are plain functions and take
- * their help from the one usage page in `main.ts`; the ones that write a card
- * carry their own, and `--help` after such a verb prints that.
+ * Most of the verbs that read or drive a run are plain functions and take
+ * their help from the one usage page in `main.ts`; approve and reject are the
+ * exception, because they are the human gate and a script needs to know what
+ * passing or failing it sets off without guessing from `main.ts`'s summary.
+ * The ones that write a card carry their own too, and `--help` after any verb
+ * with usage text prints that.
  */
+const APPROVE_USAGE = `  reeve card approve <card> [--notes TEXT | --notes-file PATH|-] [--json]
+      Pass the gate: the review is recorded, and the card moves to the stage after the one it's
+      in, the same as a drag there would — starting a run there if that stage is Planning, In
+      Progress or Testing, or pushing the branch and opening a pull request if it's Done.
+      Approving a card already in Done leaves it there: there is nowhere further to go.
+      --notes or --notes-file are kept with the review in the card's history; neither is required.
+      --json prints the server's answer: the stage the card left and the one it landed in, if moved.`;
+
+const REJECT_USAGE = `  reeve card reject <card> (--notes TEXT | --notes-file PATH|-) [--follow | -f] [--json]
+      Send a card back for revision: the notes become the prompt for the run that revises it, so
+      one of --notes or --notes-file is required.
+      --follow streams that run's transcript instead of printing its id. Combined with --json, the
+      output is \`run follow\`'s own JSON events, not this command's result.
+      --json alone prints the started run as JSON.`;
+
 const VERBS: Record<string, Command> = {
   show: { usage: '', run: show },
   run: { usage: '', run },
-  approve: { usage: '', run: approve },
-  reject: { usage: '', run: reject },
+  approve: { usage: APPROVE_USAGE, run: approve },
+  reject: { usage: REJECT_USAGE, run: reject },
   questions: { usage: '', run: questions },
   answer: { usage: '', run: answer },
   wait: { usage: '', run: wait },
