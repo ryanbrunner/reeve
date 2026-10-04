@@ -186,7 +186,16 @@ switched on.
   which `packages/server/src/main.ts` and `reeve serve` call, because the
   spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
-  `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
+  `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`. Binding
+  loopback is not by itself proof a request came from the board: a page in
+  another origin, or a DNS name that resolves to `127.0.0.1` only after a
+  browser's own same-origin check already passed, can still reach it.
+  `sameOriginGuard` in `packages/server/src/routes/security.ts` is mounted
+  ahead of every `/api` route and refuses a mutating request (not a GET)
+  whose Host or Origin isn't loopback. A route that calls `c.req.json()`
+  additionally opts into that file's `requireJson`, since Hono does not
+  check Content-Type itself; a new JSON route that forgets it skips that
+  check silently.
 - **Every run asks for auto mode, and nothing wider, but not every model takes
   it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
