@@ -23,12 +23,12 @@ import { createPortal } from 'react-dom';
  * `e.target.value || null` becomes `v || null` and nothing else changes. `''`
  * is an ordinary option — "No repo", "Settings default" — not a special case.
  *
- * `warn` is for a choice that is there but costs something to take — today
- * only a model with no auto mode, which fails every run started on it. Shown
- * in both the list and the trigger, so picking it is never a surprise and
- * living with it already picked is never silent.
+ * `warn`, when set, is shown in amber instead of `hint`'s muted grey: the
+ * option is a real choice, but one that costs something to take. Shown in
+ * both the list and the trigger, so picking it is never a surprise and living
+ * with it already picked is never silent.
  */
-export type DropdownOption = { value: string; label: string; hint?: string; color?: string; warn?: boolean };
+export type DropdownOption = { value: string; label: string; hint?: string; color?: string; warn?: string };
 export type DropdownGroup = { group: string; options: DropdownOption[] };
 
 type Row = { kind: 'group'; label: string; id: string } | { kind: 'option'; option: DropdownOption; index: number };
@@ -297,12 +297,8 @@ export function Dropdown({
         {variant === 'chip' ?
           (selected?.label ?? placeholder)
         : <>
-            <span className="min-w-0 grow truncate">
-              {selected?.label ?? placeholder}
-              {/* The model picked for this card or stage has no auto mode: every run
-                  needs it, so this choice fails at start rather than merely limping. */}
-              {selected?.warn && <span className="ml-1.5 text-amber-300">no auto mode</span>}
-            </span>
+            <span className="min-w-0 grow">{selected?.label ?? placeholder}</span>
+            {selected?.warn && <span className="shrink-0 text-amber-300">{selected.warn}</span>}
             <svg aria-hidden="true" viewBox="0 0 10 10" className="h-2.5 w-2.5 shrink-0 text-(--color-muted)">
               <path d="M2.5 4 5 6.5 7.5 4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
@@ -401,7 +397,7 @@ function Option({ id, index, option, active, selected, onHover, onPick }: {
         <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: option.color }} />
       )}
       <span className="min-w-0 grow truncate">{option.label}</span>
-      {option.warn && <span className="shrink-0 text-amber-300">no auto mode</span>}
+      {option.warn && <span className="shrink-0 text-amber-300">{option.warn}</span>}
       {option.hint && <span className="shrink-0 text-(--color-muted)">{option.hint}</span>}
       <span aria-hidden="true" className="w-3 shrink-0 text-right text-sky-400">
         {selected ? '✓' : ''}

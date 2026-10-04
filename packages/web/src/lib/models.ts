@@ -27,14 +27,22 @@ export function effortLevelsFor(models: ApiModel[], model: string | null): reado
  * did not list — it could not be asked, or has retired the id — is kept as a
  * choice of its own, or the select would show one model while holding another.
  *
- * `warn` marks a model whose capabilities did not report `supportsAutoMode:
- * true`: every run asks for auto mode, so picking one here fails at start
- * every time, not just under some condition. A model a stored choice could
- * not be matched to is left unmarked — nothing is known about it either way.
+ * Every run asks for auto mode, and a model whose capabilities did not report
+ * `supportsAutoMode: true` runs without it instead, in its own default mode —
+ * where `canUseTool` still denies every edit, same as auto mode's own
+ * escalations (see `fitToModel` in `packages/server/src/runs/claude.ts`). Such
+ * a model can read and answer but not change a file, which barely matters for
+ * Planning and cripples In Progress and Testing, so it is marked rather than
+ * hidden. A model a stored choice could not be matched to is left unmarked —
+ * nothing is known about it either way.
  */
 export function modelOptions(models: ApiModel[], current: string | null): DropdownOption[] {
-  const options = models.map((m) => ({ value: m.value, label: m.displayName, warn: m.supportsAutoMode !== true }));
-  if (current && !findModel(models, current)) options.push({ value: current, label: current, warn: false });
+  const options = models.map((m) => ({
+    value: m.value,
+    label: m.displayName,
+    warn: m.supportsAutoMode === true ? undefined : "no auto mode — can't edit files",
+  }));
+  if (current && !findModel(models, current)) options.push({ value: current, label: current, warn: undefined });
   return options;
 }
 
