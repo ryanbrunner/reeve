@@ -37,12 +37,12 @@ export function effortLevelsFor(models: ApiModel[], model: string | null): reado
  * nothing is known about it either way.
  */
 export function modelOptions(models: ApiModel[], current: string | null): DropdownOption[] {
-  const options = models.map((m) => ({
+  const options: DropdownOption[] = models.map((m) => ({
     value: m.value,
     label: m.displayName,
-    warn: m.supportsAutoMode === true ? undefined : "no auto mode — can't edit files",
+    warn: m.supportsAutoMode === true ? undefined : "can't edit",
   }));
-  if (current && !findModel(models, current)) options.push({ value: current, label: current, warn: undefined });
+  if (current && !findModel(models, current)) options.push({ value: current, label: current });
   return options;
 }
 
