@@ -15,6 +15,7 @@ const OFF = [
   ['Stage gates', 'off'],
   ['Planning', 'skipped'],
   ['Merge to main', 'automatic'],
+  ['Merge conflicts', 'Claude resolves'],
   ['New ideas', 'run on arrival'],
 ] as const;
 const WATCHING = ['You', 'watching'] as const;
