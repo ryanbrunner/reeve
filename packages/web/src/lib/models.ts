@@ -1,4 +1,5 @@
 import { EFFORT_LEVELS, type ApiModel, type EffortLevel } from '@reeve/shared';
+import type { DropdownOption } from './Dropdown.js';
 
 /**
  * The model the CLI listed under this alias or full id, if it did. The same
@@ -25,10 +26,15 @@ export function effortLevelsFor(models: ApiModel[], model: string | null): reado
  * The choices for a model select, by display name. A stored model the CLI
  * did not list — it could not be asked, or has retired the id — is kept as a
  * choice of its own, or the select would show one model while holding another.
+ *
+ * `warn` marks a model whose capabilities did not report `supportsAutoMode:
+ * true`: every run asks for auto mode, so picking one here fails at start
+ * every time, not just under some condition. A model a stored choice could
+ * not be matched to is left unmarked — nothing is known about it either way.
  */
-export function modelOptions(models: ApiModel[], current: string | null): Array<{ value: string; label: string }> {
-  const options = models.map((m) => ({ value: m.value, label: m.displayName }));
-  if (current && !findModel(models, current)) options.push({ value: current, label: current });
+export function modelOptions(models: ApiModel[], current: string | null): DropdownOption[] {
+  const options = models.map((m) => ({ value: m.value, label: m.displayName, warn: m.supportsAutoMode !== true }));
+  if (current && !findModel(models, current)) options.push({ value: current, label: current, warn: false });
   return options;
 }
 
