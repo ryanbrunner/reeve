@@ -1,16 +1,18 @@
 /**
  * Throwaway check on the fallback `fitToModel` now takes instead of refusing
- * a run outright: a pinned model the CLI says has `supportsAutoMode: false`
- * should still run, just without `permissionMode: 'auto'` asked for, and
- * `canUseTool` should still deny everything that reaches it exactly as it
- * does in a normal auto-mode run.
+ * a run outright: a pinned model that doesn't take auto mode should still
+ * run, just without `permissionMode: 'auto'` asked for, and `canUseTool`
+ * should still deny everything that reaches it exactly as it does in a
+ * normal auto-mode run.
  *
- * No model the CLI lists today actually reports `supportsAutoMode: false`
- * (see `model-check.ts`), so the first half stubs `capabilitiesFor` through
- * `fitToModel`'s injectable lookup — see its comment in runs/claude.ts. The
- * second half is the one thing that lookup cannot stand in for: what the SDK
- * itself does once `permissionMode` is left out, which is the risk the card
- * flagged. That part spends real API credit, the same as permission-check.ts.
+ * Haiku is the model this matters for in practice, and it is the case a stub
+ * cannot stand in for: the CLI lists it with no `supportsAutoMode` field at
+ * all — not `false` — so the fix had to read "not reported" as "doesn't take
+ * it" for this one field, the opposite of what every other capability does.
+ * `fitToModel`'s own comment has the full story. This spike checks both ends
+ * of it: the resolution against the CLI's real listing, and what a real
+ * session started without `permissionMode` actually does. The second part
+ * spends real API credit, the same as permission-check.ts.
  *
  *   REEVE_DB=/tmp/auto-mode-scratch.db npx tsx packages/server/src/spikes/auto-mode-fallback-check.ts
  */
@@ -30,7 +32,7 @@ function check(name: string, ok: boolean, detail = '') {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
-console.log('--- fitToModel, a model with no auto mode ---');
+console.log('--- fitToModel, a model the CLI explicitly says has no auto mode ---');
 const noAuto: ApiModel = {
   value: 'stub-no-auto', resolvedModel: null, displayName: 'Stub', description: 'a model with no auto mode',
   supportsEffort: true, supportedEffortLevels: ['low', 'high'], supportsAdaptiveThinking: true, supportsAutoMode: false,
@@ -38,9 +40,18 @@ const noAuto: ApiModel = {
 const fittedNoAuto = await fitToModel('stub-no-auto', 'high', async () => noAuto);
 check('does not throw, and reports autoMode: false', fittedNoAuto.autoMode === false);
 check('still trims effort normally', fittedNoAuto.effort === 'high');
-note('fitted (no auto mode)', JSON.stringify(fittedNoAuto));
+note('fitted (explicit false)', JSON.stringify(fittedNoAuto));
 
-console.log('\n--- fitToModel, a model that does support auto mode ---');
+console.log('\n--- fitToModel, a model that leaves supportsAutoMode unreported ---');
+const unreported: ApiModel = { ...noAuto, value: 'stub-unreported', supportsAutoMode: undefined };
+const fittedUnreported = await fitToModel('stub-unreported', 'high', async () => unreported);
+// The one field read the other way around from the rest: Haiku's listing
+// looks exactly like this, and a session asked to run it in auto mode comes
+// back reporting 'default' — see the real check below.
+check('unreported reads as not taking it, same as explicit false', fittedUnreported.autoMode === false);
+note('fitted (unreported)', JSON.stringify(fittedUnreported));
+
+console.log('\n--- fitToModel, a model that explicitly supports auto mode ---');
 const withAuto: ApiModel = { ...noAuto, value: 'stub-auto', supportsAutoMode: true };
 const fittedAuto = await fitToModel('stub-auto', 'high', async () => withAuto);
 check('reports autoMode: true, unaffected', fittedAuto.autoMode === true);
@@ -50,20 +61,41 @@ console.log('\n--- fitToModel, an unlisted model ---');
 const fittedUnlisted = await fitToModel('not-listed', 'high', async () => undefined);
 check('an unlisted model is still sent as asked, autoMode true', fittedUnlisted.autoMode === true);
 
+console.log('\n--- fitToModel, Haiku, against the CLI\'s real listing ---');
+const fittedHaiku = await fitToModel('haiku', 'high');
+check('the real CLI listing resolves Haiku to autoMode: false', fittedHaiku.autoMode === false, JSON.stringify(fittedHaiku));
+
 /**
- * The part a stub cannot stand in for: a session actually started with
- * `permissionMode` left out, as `startClaudeRun` now does for a model like
- * the stub above. `canUseTool` must still deny whatever reaches it, the same
- * way it denies auto mode's own classifier escalations — the whole point of
- * never widening permissions for the fallback.
+ * The part nothing above can stand in for: a real session, asked to run
+ * Haiku in auto mode exactly as `startClaudeRun` asks, to confirm it reports
+ * back a mode other than `'auto'` — proving why `fitted.autoMode` has to be
+ * false going in, not just checked after the fact — and that once
+ * `permissionMode` is left out for it, `canUseTool` still denies whatever
+ * reaches it, the same way it denies auto mode's own classifier escalations.
  *
  * `default` mode's own built-in heuristics approve plainly safe calls (a
  * read-only `ls`, an `echo`) without ever reaching `canUseTool`, same as
  * `gh pr view` and the other commands `permission-check.ts` found running
- * unasked in auto mode — so this only asserts on `Edit`, which escalates
- * reliably in both modes and is denied the same way either way.
+ * unasked in auto mode — so the denial check only asserts on `Edit`, which
+ * escalates reliably in both modes and is denied the same way either way.
  */
-console.log('\n--- a session with no permissionMode sent, for real ---');
+console.log('\n--- Haiku, asked for auto mode anyway, reports back a different one ---');
+{
+  const ac = new AbortController();
+  let haikuInitMode: string | undefined;
+  for await (const m of query({
+    prompt: (async function* () {
+      yield { type: 'user', session_id: '', parent_tool_use_id: null, message: { role: 'user', content: 'say hi' } } as SDKUserMessage;
+    })(),
+    options: { cwd: '/tmp', model: 'haiku', permissionMode: 'auto', abortController: ac },
+  })) {
+    if (m.type === 'system' && m.subtype === 'init') { haikuInitMode = m.permissionMode; ac.abort(); break; }
+  }
+  note('Haiku init permissionMode, auto asked for', haikuInitMode);
+  check('Haiku does not actually start in auto mode', haikuInitMode !== 'auto', `init said ${haikuInitMode}`);
+}
+
+console.log('\n--- Haiku, with no permissionMode sent, as startClaudeRun now sends it ---');
 const wt = mkdtempSync(join(tmpdir(), 'reeve-automode-'));
 const g = (...a: string[]) => execFileSync('git', ['-C', wt, ...a], { encoding: 'utf8' });
 g('init', '-q', '-b', 'main');
@@ -86,9 +118,9 @@ for await (const m of query({
   prompt: once('Run `echo hi` with Bash, then edit README.md to add a line, then say in one sentence what happened to each.'),
   options: {
     cwd: wt,
-    model: 'claude-sonnet-5',
-    // No permissionMode: exactly what startClaudeRun now sends for a pinned
-    // model that reports supportsAutoMode: false.
+    model: 'haiku',
+    // No permissionMode: exactly what startClaudeRun now sends once
+    // fitToModel says Haiku doesn't take auto mode.
     maxTurns: 8,
     canUseTool: (toolName, input, { toolUseID }) => {
       asks.push(toolName);
