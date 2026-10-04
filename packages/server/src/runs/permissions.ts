@@ -133,19 +133,24 @@ function scratchDbRefusal(command: string, worktreePath: string): string | null 
  * be read against: `worktreePath` itself, always — a leading `cd` can fail,
  * or sit behind a `||` that never runs it, and the command then runs exactly
  * where it started — plus wherever a plain `cd <dir>` chain off the front,
- * connected by `&&` or `;`, actually lands when it does run.
+ * connected by `&&` or `;`, actually lands at each step along the way. Each
+ * step, not just the last: `cd a; cd /nonexistent; …` likely fails on the
+ * second `cd` and runs the rest from `a`, so `a` has to stay a candidate
+ * alongside wherever the chain would land if every `cd` in it succeeded.
  *
  * Null when this cannot vouch for that being the whole story: a `cd` whose
  * own target cannot be read as plainly as `VALUE` requires, a `cd -` or
  * `-`-prefixed target (the previous directory, which this has no way to
- * know), or a `cd`/`pushd`/`popd` anywhere else in the command once the
- * leading chain is accounted for — before the assignment, as `env FOO=bar
- * cd x` would read oddly but shells allow, or after it, as `export
- * REEVE_DB=x; cd dir; …` actually runs. Any of those make the real cwd a
- * guess, and a guess is not grounds to allow what a known cwd would deny.
+ * know), a `cd`/`pushd`/`popd` anywhere else in the command once the leading
+ * chain is accounted for — before the assignment, as `env FOO=bar cd x`
+ * would read oddly but shells allow, or after it, as `export REEVE_DB=x; cd
+ * dir; …` actually runs — or a chain long enough that tracking every
+ * directory it might fail into would mean tracking an unbounded number of
+ * them. Any of those make the real cwd a guess, and a guess is not grounds
+ * to allow what a known cwd would deny.
  */
 function cwdCandidates(command: string, worktreePath: string): string[] | null {
-  let cwd = worktreePath;
+  let cwds = [worktreePath];
   let pos = 0;
   for (;;) {
     const cd = /^\s*cd\s+/.exec(command.slice(pos));
@@ -154,7 +159,15 @@ function cwdCandidates(command: string, worktreePath: string): string[] | null {
     const value = VALUE.exec(command.slice(afterCd))?.[1];
     if (!value || value.startsWith('-')) return null;
     const dir = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
-    cwd = resolve(cwd, dir);
+    // Every candidate so far might be where this `cd` actually runs from — a
+    // prior one in the chain could have failed just as this one might — so
+    // each gains the directory this one would leave it in, rather than
+    // replacing them with just that.
+    cwds = [...new Set([...cwds, ...cwds.map((c) => resolve(c, dir))])];
+    // A chain this long is no script a stage would write; it is this guard
+    // being made to track more directories than it can hold, since a run of
+    // relative `cd`s doubles the set each time.
+    if (cwds.length > 32) return null;
     const afterValue = afterCd + value.length;
     const chain = /^\s*(?:&&|;)\s*/.exec(command.slice(afterValue));
     if (!chain) {
@@ -167,7 +180,7 @@ function cwdCandidates(command: string, worktreePath: string): string[] | null {
   // start; anything cd-like left outside it, before or after, is exactly the
   // shape of thing it cannot follow — refuse rather than guess what it did.
   if (/(?:^|[\s;&|(`"'])(?:cd|pushd|popd)\b/.test(command.slice(pos))) return null;
-  return [worktreePath, cwd];
+  return cwds;
 }
 
 /**

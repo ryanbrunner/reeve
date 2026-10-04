@@ -92,6 +92,10 @@ check(
   "a cd that likely fails, then ';', still checked against wt",
   (await hook(`cd /reeve-perm-nonexistent; REEVE_DB=${relative(wt, live)} npx tsx x.ts`)) !== null,
 );
+check(
+  'the directory before a later cd that likely fails stays a candidate too',
+  (await hook(`cd ${dir}; cd /reeve-perm-nonexistent; REEVE_DB=${file} npx tsx x.ts`)) !== null,
+);
 check('cd - refused: the previous directory is not this to guess', (await hook(`cd -; REEVE_DB=${file} npx tsx x.ts`)) !== null);
 check('pushd refused: not a cd this tracks', (await hook(`pushd ${dir} && REEVE_DB=${file} npx tsx x.ts`)) !== null);
 check(
