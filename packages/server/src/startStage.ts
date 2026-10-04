@@ -249,7 +249,13 @@ export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: stri
   return { state: 'merged', baseSha: fetched, commits };
 }
 
-function setBaseSha(db: Db, card: Card, sha: string) {
+/**
+ * Move a card's `baseSha` to a base it is now known to contain, so the Diff
+ * tab and the commit list count from there rather than from where the card
+ * started. Shared with `resolveConflicts`, which moves it the same way once
+ * a Done card's branch has the base merged into it.
+ */
+export function setBaseSha(db: Db, card: Card, sha: string) {
   if (card.baseSha === sha) return;
   db.update(cardTable).set({ baseSha: sha, updatedAt: new Date() }).where(eq(cardTable.id, card.id)).run();
 }
