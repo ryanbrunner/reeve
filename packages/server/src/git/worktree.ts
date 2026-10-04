@@ -165,7 +165,8 @@ export interface CreatedWorktree {
   path: string;
   branch: string;
   /**
-   * The base commit, captured once at creation. The implementation diff is
+   * The base commit, captured at creation and moved on only when a stage
+   * start merges the base in (`mergeLatestBase`). The implementation diff is
    * `git diff <baseSha>` with no second ref, so it covers committed AND
    * uncommitted work — Claude sometimes edits without committing, and a
    * three-dot diff would show an empty review for a run that did real work.

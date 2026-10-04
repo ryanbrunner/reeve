@@ -9,11 +9,16 @@ import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import { fetchBranch } from './git/github.js';
 import {
   GitError,
+  abortMerge,
+  behindBase,
   checkWorktree,
   copyWorktreeIncludes,
   createWorktree,
+  isAncestor,
   isDirty,
   removeWorktree,
+  startMerge,
+  type MergeStart,
 } from './git/worktree.js';
 import { startClaudeRun, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
@@ -173,6 +178,82 @@ function startSetup(
   return handle.runId;
 }
 
+export type BaseMerge =
+  | { state: 'current' }
+  | { state: 'merged'; baseSha: string; commits: number }
+  | { state: 'skipped'; why: string };
+
+/**
+ * Bring what has landed on the repo's base since the card's branch was cut
+ * into its reused worktree, before a stage starts there. A card that spent a
+ * day in planning and review was otherwise built and tested against the main
+ * it started from, and met everything merged since only as conflicts in Done.
+ * Always, whatever the repo's "keep the default branch up to date" says: that
+ * moves the person's own checkout, and this only the card's.
+ *
+ * A merge rather than a rebase, because the branch may already be pushed. It
+ * is a fast-forward where the card has no commits yet. From `origin/<base>`,
+ * as a new worktree is cut, never the person's local branch.
+ *
+ * Anything short of a clean merge leaves the branch as it was found and the
+ * card says why: a fetch that fails, uncommitted work a merge could tangle
+ * with, or conflicts, which are aborted and left for Done's resolve. The stage
+ * starts either way. Once the base is in the branch, `baseSha` moves to it,
+ * since the Diff tab and the commit list count from there and would otherwise
+ * show everything just merged as the card's own work.
+ */
+export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: string): Promise<BaseMerge> {
+  const base = repo.defaultBranch;
+  const skip = (why: string): BaseMerge => {
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+      body: `Started without the latest ${base}, because ${why}.`,
+    });
+    return { state: 'skipped', why };
+  };
+
+  let fetched: string;
+  try {
+    fetched = await fetchBranch(repo.repoPath, base);
+  } catch (e) {
+    return skip(`fetching origin/${base} failed: ${reason(e)}`);
+  }
+  if (await isAncestor(path, fetched)) {
+    setBaseSha(db, card, fetched);
+    return { state: 'current' };
+  }
+  // `.reeve/` is every stage's untracked record, not work. See openPullRequest.
+  if (await isDirty(path, { ignore: ['.reeve'] })) return skip('the worktree has uncommitted changes');
+
+  const commits = (await behindBase(path, base)) ?? 0;
+  let merge: MergeStart;
+  try {
+    merge = await startMerge(path, `origin/${base}`);
+  } catch (e) {
+    return skip(`merging origin/${base} failed: ${reason(e)}`);
+  }
+  if (!merge.clean) {
+    try {
+      await abortMerge(path);
+    } catch (e) {
+      return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}, and the merge could not be aborted: ${reason(e)}`);
+    }
+    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are resolved once the card is in Done`);
+  }
+
+  setBaseSha(db, card, fetched);
+  insertCardEvent(db, {
+    cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+    body: `Merged ${commits} new commit${commits === 1 ? '' : 's'} from origin/${base} (${fetched.slice(0, 7)}) before the stage started.`,
+  });
+  return { state: 'merged', baseSha: fetched, commits };
+}
+
+function setBaseSha(db: Db, card: Card, sha: string) {
+  if (card.baseSha === sha) return;
+  db.update(cardTable).set({ baseSha: sha, updatedAt: new Date() }).where(eq(cardTable.id, card.id)).run();
+}
+
 /**
  * How the card's setup command ended, once it has, or null when none is
  * running. Asked straight away, so a setup that finished before the start
@@ -242,8 +323,8 @@ export async function removeCardWorktree(
 }
 
 /**
- * Start the card's current stage: make its worktree if need be, then its
- * Claude run. The Run button and a card entering a runnable column both come
+ * Start the card's current stage: make its worktree if need be, or bring the
+ * base into the one it has, then its Claude run. The Run button and a card entering a runnable column both come
  * through here, so they refuse the same things for the same reasons.
  */
 export async function startStage(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<StartStageResult> {
@@ -273,8 +354,9 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
 
   try {
     let path: string;
+    let reused: boolean;
     try {
-      ({ path } = await ensureWorktree(db, writer, card, repo));
+      ({ path, reused } = await ensureWorktree(db, writer, card, repo));
     } catch (e) {
       return { ok: false, status: 500, error: 'could not create the worktree', detail: reason(e) };
     }
@@ -288,7 +370,21 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
     // stopping its run. One that failed does not hold the stage back — under
     // VIBES that would rerun it every sweep and never start — but the card
     // says so, since the stage's own checks will fail for the same reason.
-    const setup = await setupSettled(card.id);
+    let setup = await setupSettled(card.id);
+
+    // A new worktree was cut from the base just now. A reused one is brought
+    // up to it, once setup has stopped writing to the tree and only if no
+    // stage is running there: a Run pressed beside one is refused below, and
+    // must not merge underneath it first. A merge that brought commits in
+    // may have brought dependencies with them, so setup runs again.
+    if (reused) {
+      const live = liveStageRun(db, card.id);
+      if (live) return { ok: false, status: 409, error: 'a run is already active for this card', detail: live.id };
+      const merged = await mergeLatestBase(db, card, repo, path);
+      if (merged.state === 'merged' && startSetup(db, writer, card, repo, path, card.branchName)) {
+        setup = await setupSettled(card.id);
+      }
+    }
 
     // Read again, and nothing awaited from here to the run: the worktree has
     // just been written to the row, and the card may have been dragged on, or
