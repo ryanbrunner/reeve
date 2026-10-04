@@ -11,7 +11,9 @@ if (listRepos(db).length === 0) {
     setupCommand: 'npm install',
     testCommand: 'npm run typecheck',
     seedCommand: null,
-    serverCommand: 'npm run dev',
+    // Builds first, so the tsx server on Reeve's port serves this worktree's
+    // UI, not a stale `dist` (see AGENTS.md's Worktrees section).
+    serverCommand: 'npm run build && npm start',
     teardownCommand: null,
     finishCommand: null,
     laneColor: '#6b7db3',

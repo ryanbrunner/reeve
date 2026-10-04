@@ -73,7 +73,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       answers,
       mockups: prepared?.['mockups'] ?? '',
       seed: seedGuidance(ctx.repo.seedCommand),
-      suggesting: renderSuggesting(),
+      suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
     });
   },

@@ -123,7 +123,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
       testCommand: ctx.repo.testCommand
         ? `Run \`${ctx.repo.testCommand}\`.`
         : 'This repo defines no test command, so verify by reading and by the screenshots.',
-      suggesting: renderSuggesting(),
+      suggesting: renderSuggesting(ctx.suggestTasks !== false),
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });
