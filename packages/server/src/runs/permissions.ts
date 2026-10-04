@@ -103,21 +103,59 @@ const VALUE = /^("[^"\\$`]*"|'[^']*'|(?!~[^/\s])[^\s"'\\$`;&|()<>]+)(?=$|[\s;&|(
 
 /** Why the command may not run, or null when it names no live database. */
 function scratchDbRefusal(command: string, worktreePath: string): string | null {
+  const cwd = leadingCwd(command, worktreePath);
   for (const m of command.matchAll(ASSIGNMENT)) {
     const value = VALUE.exec(command.slice(m.index + m[0].length))?.[1];
     if (!value) return unreadableDbDenial(command);
     const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
-    if (isLiveDatabase(db, worktreePath)) return liveDbDenial(command);
+    // A relative value is only as good as the cwd it is read against. A plain
+    // leading `cd` chain moves that cwd away from worktreePath, so a relative
+    // REEVE_DB can land on the live database one directory removed from how
+    // it is written — see live-db-relative-path-check.ts. A `cd` whose own
+    // target we could not read plainly leaves that cwd unknown, and an
+    // unknown cwd is exactly the shape of thing a relative value could hide
+    // behind, so it is refused rather than guessed at.
+    if (cwd === null) return unreadableDbDenial(command);
+    if (isLiveDatabase(db, cwd)) return liveDbDenial(command);
   }
   return null;
+}
+
+/**
+ * The directory `REEVE_DB`'s value, wherever it falls in the command, would
+ * actually be read against: `worktreePath`, moved by every plain `cd <dir>`
+ * chained off the front with `&&` or `;` before anything else runs. Only a
+ * leading chain, because that is the one shape a shell resolves the same way
+ * every time — `cmd && cd dir && …` runs `cmd` from the old cwd first, and
+ * what that leaves behind is `cmd`'s to know, not this guard's.
+ *
+ * Null when a leading `cd`'s own target cannot be read as plainly as `VALUE`
+ * requires: the cwd from there on is genuinely unknown, not just unmoved.
+ */
+function leadingCwd(command: string, worktreePath: string): string | null {
+  let cwd = worktreePath;
+  let rest = command;
+  for (;;) {
+    const cd = /^\s*cd\s+/.exec(rest);
+    if (!cd) return cwd;
+    rest = rest.slice(cd[0].length);
+    const value = VALUE.exec(rest)?.[1];
+    if (!value) return null;
+    const dir = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
+    cwd = resolve(cwd, dir);
+    rest = rest.slice(value.length);
+    const chain = /^\s*(?:&&|;)\s*/.exec(rest);
+    if (!chain) return cwd;
+    rest = rest.slice(chain[0].length);
+  }
 }
 
 /**
  * The board this server is running on. Unset `REEVE_DB` is no risk of this:
  * a spike resolves its default from the worktree, not the main checkout.
  */
-function isLiveDatabase(db: string, worktreePath: string): boolean {
-  return samePath(resolve(worktreePath, db), resolve(config.dbFile));
+function isLiveDatabase(db: string, cwd: string): boolean {
+  return samePath(resolve(cwd, db), resolve(config.dbFile));
 }
 
 function samePath(a: string, b: string): boolean {
