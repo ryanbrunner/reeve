@@ -576,15 +576,17 @@ const QUESTIONS_USAGE = `  reeve card questions <card> [--json]
       whether each has been answered yet.`;
 
 const ANSWER_USAGE = `  reeve card answer <card> <question> <answer...> [--json]
-      reeve card answer <card> <question> --suggestion N | -s N [--json]
+  reeve card answer <card> <question> --suggestion N | -s N [--json]
       Answer one of a card's open questions, by its number (1 for the first) or its id. The
       answer is the rest of the command line, or, with --suggestion, one of the question's own
       suggestions instead. Once every question on the run is answered, Claude resumes on its
       own and the resumed run's id is on stdout.`;
 
 const WAIT_USAGE = `  reeve card wait <card> [--timeout S] [--json]
-      Block until the card's run wants a person, and say which by exit status: see the table in
-      \`reeve --help\`. A card that already needs one returns at once.`;
+      Block until the card's run wants a person, and say which by exit status: ${EXIT.ok} it is
+      waiting for review, ${EXIT.needsInput} it has questions, ${EXIT.failed} the run failed,
+      ${EXIT.idle} nothing is running, ${EXIT.timeout} --timeout ran out first. A card that already
+      needs a person returns at once.`;
 
 const WORKTREE_USAGE = `  reeve card worktree [<card>] [--remove] [--json]
       The card's worktree path, making one first if it has none — which also starts the repo's
