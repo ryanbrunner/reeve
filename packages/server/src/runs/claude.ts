@@ -116,6 +116,7 @@ export function stageContextFor(
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
     notes: unreadNotesFor(db, base.card.id),
+    suggestTasks: getSettings(db).suggestTasks,
   };
 }
 
