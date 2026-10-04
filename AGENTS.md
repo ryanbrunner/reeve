@@ -39,8 +39,8 @@ npm workspaces, four packages:
   the only commands that import the server; everything else goes through a
   running server's HTTP API and never its database, because runs live in the
   server's memory and a second process opening the database reaps them. Its
-  `--json` output is the API's own wire types from `@reeve/shared`, unreshaped;
-  see its README. In the checkout, `bin/reeve.js` registers tsx and imports
+  `--json` output is the API's own wire types from `@reeve/shared`, unreshaped,
+  except `doctor`'s, which asks no API; see its README. In the checkout, `bin/reeve.js` registers tsx and imports
   `src/main.ts`; published, `npm run build` (`packages/cli/scripts/build.mjs`)
   bundles this workspace, `@reeve/server` and `@reeve/shared` with esbuild into
   `dist/reeve.js`, code-split so commands other than `serve`/`doctor` never
@@ -78,6 +78,13 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   where the command is run.
 - `reeve status` — exits 0 if a server answers and 1 if not, so a script can
   ask before starting one.
+- `reeve doctor` — one line per requirement, with the fix for each one that is
+  missing. It exits 1 only when Node, git, Claude credentials or a SQLite
+  binding that loads are missing, and only warns about `gh`, Chromium and the
+  web build. Its probes live beside the server code they predict failures in
+  (`accountProbe`, `ghProbe`, and `checkSqlite` and `checkChromium` in
+  `packages/server/src/doctor.ts`), and it never opens the board's database;
+  the SQLite check opens an in-memory one.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
 `REEVE_ASSETS`, `REEVE_PORT`, `REEVE_MAX_CONCURRENT`, `REEVE_MERGE_SYNC_MS`,
@@ -265,7 +272,8 @@ rather than whatever ran the bundler. Playwright does not download Chromium
 on install; that stays a separate, explicit `npx playwright install
 chromium`, since a sandboxed install (Homebrew's) cannot reach the network
 during one. `reeve doctor` checks both: that the native SQLite binding
-actually loads, and that a Chromium is there for Testing's screenshots.
+actually loads, which it requires, and that a Chromium is there for Testing's
+screenshots, which it only warns about.
 
 The bundle is code-split (`splitting: true` in `scripts/build.mjs`), not one
 file, because `serve.ts` reaches `@reeve/server` through a dynamic `import()`
