@@ -159,6 +159,23 @@ const gone = getCard(db, inLane.id)!;
 assert.ok(gone.archivedAt, 'archived with its project');
 assert.equal(ideaAfter(gone, 'Store credit').projectId, null, 'no lane that is no longer on the board');
 
+// --- the suggest-tasks switch ------------------------------------------------
+// Off, ideaSource answers null for a repo that would otherwise get ideas, and
+// a run already in flight when it went off lands no cards.
+updateSettings(db, { vibes: true, suggestTasks: false });
+const quiet = repo('ideas-quiet');
+const quietCard = createCard(db, { title: 'Last one', repoId: quiet.id, stage: 'testing' });
+await tick();
+finish(quietCard.id);
+assert.equal(sourceOf(quiet), null, 'suggestions off: a dry repo gets no ideas');
+
+const beforeQuiet = cardsInRepo(db, quiet.id).length;
+const quietCtx = { card: getCard(db, quietCard.id)!, repo: quiet, worktreePath: quiet.repoPath } as StageContext;
+ideasTask.onPersist!(db, quietCtx, { ideas: [idea('Should not land')] }, 'run-quiet');
+assert.equal(cardsInRepo(db, quiet.id).length, beforeQuiet, 'suggestions off: an ideas run already going lands nothing');
+updateSettings(db, { suggestTasks: true });
+console.log('[reeve] suggestions off: ideaSource answers null, and onPersist lands no cards');
+
 updateSettings(db, { vibes: false });
 console.log('[reeve] ideas check passed');
 process.exit(0);
