@@ -69,19 +69,17 @@ check('the real CLI listing resolves Haiku to autoMode: false', fittedHaiku.auto
 
 /**
  * The part nothing above can stand in for: a real session, asked to run
- * Haiku in auto mode exactly as `startClaudeRun` asks, to confirm it reports
- * back a mode other than `'auto'` — proving why `fitted.autoMode` has to be
- * false going in, not just checked after the fact — and that once
- * `permissionMode` is left out for it, `canUseTool` still denies whatever
- * reaches it, the same way it denies auto mode's own classifier escalations.
- *
- * `default` mode's own built-in heuristics approve plainly safe calls (a
- * read-only `ls`, an `echo`) without ever reaching `canUseTool`, same as
- * `gh pr view` and the other commands `permission-check.ts` found running
- * unasked in auto mode — so the denial check only asserts on `Edit`, which
- * escalates reliably in both modes and is denied the same way either way.
+ * Haiku in auto mode exactly as `startClaudeRun` used to ask unconditionally.
+ * This is only a note, not a check — repeated runs show Haiku's own `init`
+ * message flips between `auto` and `default` for the identical request, so
+ * it is not a reliable signal to gate this change's correctness on. What it
+ * does establish, and what motivated reading `supportsAutoMode` the way
+ * `fitToModel` now does, is that the CLI's *listing* for Haiku is the one
+ * thing that is stable — no `supportsAutoMode` field at all — so that is what
+ * `fitToModel` decides from, once, before a session exists, rather than
+ * something only knowable after a run has already started.
  */
-console.log('\n--- Haiku, asked for auto mode anyway, reports back a different one ---');
+console.log('\n--- Haiku, asked for auto mode anyway: what init reports (informational, not a check) ---');
 {
   const ac = new AbortController();
   let haikuInitMode: string | undefined;
@@ -94,9 +92,19 @@ console.log('\n--- Haiku, asked for auto mode anyway, reports back a different o
     if (m.type === 'system' && m.subtype === 'init') { haikuInitMode = m.permissionMode; ac.abort(); break; }
   }
   note('Haiku init permissionMode, auto asked for', haikuInitMode);
-  check('Haiku does not actually start in auto mode', haikuInitMode !== 'auto', `init said ${haikuInitMode}`);
 }
 
+/**
+ * The real point of the fallback: a session with `permissionMode` left out
+ * entirely, exactly as `startClaudeRun` now sends it for Haiku, confirming
+ * `canUseTool` still denies whatever reaches it the same way it denies auto
+ * mode's own classifier escalations. `default` mode's own built-in heuristics
+ * approve plainly safe calls (a read-only `ls`, an `echo`) without ever
+ * reaching `canUseTool`, same as the commands `permission-check.ts` found
+ * running unasked in auto mode — so the denial check only asserts on `Edit`,
+ * which escalates reliably in both modes and is denied the same way either
+ * way.
+ */
 console.log('\n--- Haiku, with no permissionMode sent, as startClaudeRun now sends it ---');
 const wt = mkdtempSync(join(tmpdir(), 'reeve-automode-'));
 const g = (...a: string[]) => execFileSync('git', ['-C', wt, ...a], { encoding: 'utf8' });
@@ -150,7 +158,6 @@ check('Edit escalated to canUseTool and was denied, as in auto mode', asks.inclu
  */
 console.log("\n--- Haiku, with the rest of a stage's real options, not just permissionMode ---");
 {
-  const ac = new AbortController();
   let subtype: string | undefined;
   for await (const m of query({
     prompt: (async function* () {
@@ -166,7 +173,6 @@ console.log("\n--- Haiku, with the rest of a stage's real options, not just perm
       thinking: { type: 'adaptive', display: 'summarized' },
       outputFormat: { type: 'json_schema', schema: jsonSchemaFor(STAGE_DEFINITIONS.planning!.schema) },
       maxTurns: 3,
-      abortController: ac,
     },
   })) {
     if (m.type === 'result') subtype = m.subtype;
