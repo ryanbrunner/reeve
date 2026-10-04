@@ -566,15 +566,20 @@ function failure(card: ApiCard, outcome: WaitExit): string {
 
 /**
  * `reeve card <verb>`: everything done to one card, under the noun it is done
- * to — reading it, driving the stage it is in, and writing it.
- *
- * Most of the verbs that read or drive a run are plain functions and take
- * their help from the one usage page in `main.ts`; approve and reject are the
- * exception, because they are the human gate and a script needs to know what
- * passing or failing it sets off without guessing from `main.ts`'s summary.
- * The ones that write a card carry their own too, and `--help` after any verb
- * with usage text prints that.
+ * to — reading it, driving the stage it is in, and writing it. Every verb
+ * carries its own usage text, so `reeve card <verb> --help` prints that
+ * rather than falling through to `parseArgs` and its bare "Unknown option".
  */
+const SHOW_USAGE = `  reeve card show <card> [--json]
+      A card in full: its facts, criteria, open questions, plan and runs.
+      --json prints the detail endpoint's answer as it came.`;
+
+const RUN_USAGE = `  reeve card run <card> [--follow | -f] [--json]
+      Start the stage the card is in, and print the run's id.
+      --follow streams its transcript instead of printing the id. Combined with --json, the output
+      is \`run follow\`'s own JSON events, not this command's result.
+      --json alone prints the started run as JSON.`;
+
 const APPROVE_USAGE = `  reeve card approve <card> [--notes TEXT | --notes-file PATH|-] [--json]
       Pass the gate: the review is recorded, and the card moves to the stage after the one it's
       in, the same as a drag there would — starting a run there if that stage is Planning, In
@@ -590,14 +595,76 @@ const REJECT_USAGE = `  reeve card reject <card> (--notes TEXT | --notes-file PA
       output is \`run follow\`'s own JSON events, not this command's result.
       --json alone prints the started run as JSON.`;
 
+const QUESTIONS_USAGE = `  reeve card questions <card> [--json]
+      What Claude asked in the stage the card is in, answered or not.
+      --json prints the list as the server returned it.`;
+
+const ANSWER_USAGE = `  reeve card answer <card> <question> (<answer…> | --suggestion N) [--json]
+      Answer one question, named by its number (1 is the first) or its id. The answer is either
+      the rest of the command line, or one of the question's own suggestions, picked by number.
+      Once every open question on the card is answered, the run resumes and its id is printed.
+      --json prints the server's answer.`;
+
+const WAIT_USAGE = `  reeve card wait <card> [--timeout SECONDS] [--json]
+      Block until the card needs a person: a run finished, Claude asked questions, or nothing is
+      running — a card that needs one already returns at once. --timeout gives up after that many
+      seconds instead, exiting ${EXIT.timeout}.
+      Exits ${EXIT.ok} waiting for review, ${EXIT.needsInput} Claude asked questions, ${EXIT.failed} the run failed,
+      ${EXIT.idle} idle (nothing running, or a start was refused).
+      --json prints the card as the server returned it, instead of the one line said on stderr.`;
+
+const WORKTREE_USAGE = `  reeve card worktree [<card>] [--remove] [--json]
+      Print the card's worktree path, making one first if it has none — starting the repo's setup
+      command in the background, as entering Planning would. With no card, the one whose worktree
+      the current directory is in.
+      --remove stops the dev server, runs the repo's teardown command, and deletes the directory,
+      uncommitted work included; the branch stays.
+      --json prints the server's answer instead of the bare path.`;
+
+const PR_USAGE = `  reeve card pr [<card>] [--json]
+      Push a Done card's branch and open its pull request, or push to the one already open. With
+      no card, the one whose worktree the current directory is in.
+      --json prints the server's answer instead of the bare URL.`;
+
+const RESOLVE_CONFLICTS_USAGE = `  reeve card resolve-conflicts [<card>] [--json]
+      Merge the base branch into a Done card's branch and push it. A clean merge pushes before
+      this returns; a conflicted one starts a run of Claude's own to resolve it, and the push
+      waits for that. With no card, the one whose worktree the current directory is in.
+      --json prints the server's answer.`;
+
+const MERGE_USAGE = `  reeve card merge [<card>] [--json]
+      Merge a Done card's pull request on GitHub, as the board's Merge button does, and only when
+      GitHub says it merges cleanly. With no card, the one whose worktree the current directory is
+      in.
+      --json prints the server's answer.`;
+
+const SERVER_USAGE = `  reeve card server [<card>] [--stop] [--json]
+      Start the repo's dev server in the card's worktree and print its URL; one already running is
+      not an error, and its URL is the answer either way. With no card, the one whose worktree the
+      current directory is in.
+      --stop stops it instead.
+      --json prints the server's answer instead of the bare URL.`;
+
+const DIFF_USAGE = `  reeve card diff [<card>] [--stat] [--json]
+      What the card has changed against the commit its worktree started from, committed or not —
+      or the commit it landed as, once merged. With no card, the one whose worktree the current
+      directory is in.
+      --stat prints a summary of files and line counts instead of the diff itself.
+      --json prints the parsed diff the Diff tab reads, instead of git's own text.`;
+
+const COMMITS_USAGE = `  reeve card commits [<card>] [--json]
+      The card's commits, newest first, the same list as the rail. With no card, the one whose
+      worktree the current directory is in.
+      --json prints the list as the server returned it.`;
+
 const VERBS: Record<string, Command> = {
-  show: { usage: '', run: show },
-  run: { usage: '', run },
+  show: { usage: SHOW_USAGE, run: show },
+  run: { usage: RUN_USAGE, run },
   approve: { usage: APPROVE_USAGE, run: approve },
   reject: { usage: REJECT_USAGE, run: reject },
-  questions: { usage: '', run: questions },
-  answer: { usage: '', run: answer },
-  wait: { usage: '', run: wait },
+  questions: { usage: QUESTIONS_USAGE, run: questions },
+  answer: { usage: ANSWER_USAGE, run: answer },
+  wait: { usage: WAIT_USAGE, run: wait },
   add,
   edit,
   criteria,
@@ -607,26 +674,17 @@ const VERBS: Record<string, Command> = {
   restore,
   accept,
   dismiss,
-  worktree: { usage: '', run: worktree },
-  pr: { usage: '', run: pr },
-  'resolve-conflicts': { usage: '', run: resolveConflicts },
-  merge: { usage: '', run: merge },
-  server: { usage: '', run: server },
-  diff: { usage: '', run: diff },
-  commits: { usage: '', run: commits },
+  worktree: { usage: WORKTREE_USAGE, run: worktree },
+  pr: { usage: PR_USAGE, run: pr },
+  'resolve-conflicts': { usage: RESOLVE_CONFLICTS_USAGE, run: resolveConflicts },
+  merge: { usage: MERGE_USAGE, run: merge },
+  server: { usage: SERVER_USAGE, run: server },
+  diff: { usage: DIFF_USAGE, run: diff },
+  commits: { usage: COMMITS_USAGE, run: commits },
 };
 
-/** The verbs that carry help, and a line for the ones that take theirs from `main.ts`. */
-const CARD_USAGE = [
-  `reeve card <verb>. Reading and driving a run: ${Object.entries(VERBS)
-    .filter(([, c]) => !c.usage)
-    .map(([name]) => name)
-    .join(', ')} — see reeve --help.`,
-  '',
-  ...Object.values(VERBS)
-    .map((c) => c.usage)
-    .filter(Boolean),
-].join('\n');
+/** Every verb now carries its own usage text, so the page is just all of them in a row. */
+const CARD_USAGE = ['reeve card <verb>:', '', ...Object.values(VERBS).map((c) => c.usage).filter(Boolean)].join('\n');
 
 export async function card(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
