@@ -5,6 +5,7 @@ import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, S
 import { deleteAsset } from '../assets/store.js';
 import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedMove } from '../blockers.js';
+import { holdCard, releaseCard } from '../cardHold.js';
 import type { Db } from '../db/client.js';
 import {
   acceptSuggestion,
@@ -328,6 +329,10 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const refusal = stageEntryRefusal('backlog', parsed.data.stage ?? 'backlog', false);
     if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
     const created = createCard(db, parsed.data);
+    // Opened straight into its own modal on the client, with nothing said
+    // about it yet — VIBES MODE leaves it alone until that modal closes, so a
+    // title typed a moment ago is never read as consent to start work.
+    holdCard(created.id);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     // Made straight into a column Claude works in is entering it, the same as a drag.
     maybeStartStage(db, writer, created, repo);
@@ -545,10 +550,17 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   // references, pictures and tasks as they are right now. It is conditional,
   // which is why it is a POST: a DELETE would read as "get rid of it", and
   // nothing a person does on the board removes a card outright.
+  //
+  // This is also the one place a card's modal is known to have closed, held
+  // or not, so it is where VIBES MODE's hold on a fresh card comes off —
+  // after the deletion check, since a card that is about to be thrown away
+  // has nothing left to hold.
   api.post('/cards/:id/discard', (c) => {
     const id = c.req.param('id');
     if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
-    return c.json({ deleted: discardIfBlank(db, id) });
+    const deleted = discardIfBlank(db, id);
+    releaseCard(id);
+    return c.json({ deleted });
   });
 
   api.post('/cards/:id/restore', (c) => {
