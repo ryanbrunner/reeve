@@ -1,0 +1,73 @@
+name: Release
+
+# Cutting a release is pushing a tag: `npm version`, then `git push --tags`
+# (see RELEASING.md). Everything else happens here so every release is built
+# and checked the same way, and the formula always has a real sha256 to pin.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17.0
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # packages/cli/package.json carries the version the formula will
+      # pin to; a tag that drifted from it would publish something the
+      # formula can never match.
+      - name: Check the tag matches the package version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version=$(node -p "require('./packages/cli/package.json').version")
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match packages/cli's version $pkg_version" >&2
+            exit 1
+          fi
+
+      # `npm pack` runs the same `prepack` build npm publish would, so the
+      # tarball packed here and the one published below are the same
+      # bytes, and the sha256 in the release notes is the one Homebrew
+      # (or anyone else) will actually see.
+      - name: Build and pack the package
+        working-directory: packages/cli
+        run: npm pack --pack-destination /tmp/pack
+
+      - name: Compute the tarball's sha256
+        id: tarball
+        run: |
+          tarball=$(ls /tmp/pack/*.tgz)
+          sha256=$(shasum -a 256 "$tarball" | cut -d' ' -f1)
+          echo "path=$tarball" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        working-directory: packages/cli
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create the GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.tarball.outputs.path }}" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Published to npm as reeve-board@${GITHUB_REF_NAME#v}.
+
+          sha256 of the published tarball, for the Homebrew formula:
+
+              ${{ steps.tarball.outputs.sha256 }}"
