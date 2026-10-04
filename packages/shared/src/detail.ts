@@ -37,6 +37,7 @@ export type CardEventKind =
   | 'gloss_reviewed'
   | 'conflicts_resolved'
   | 'conflicts_failed'
+  | 'conflicts_refused'
   | 'merge_failed'
   | 'worktree_removed'
   | 'left_project'
