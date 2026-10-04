@@ -1,3 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api.js';
+
 /**
  * Two seconds of arming, spent naming every guardrail that is coming off.
  *
@@ -12,12 +15,18 @@ const OFF = [
   ['Stage gates', 'off'],
   ['Planning', 'skipped'],
   ['Merge to main', 'automatic'],
+  ['Merge conflicts', 'Claude resolves'],
   ['New ideas', 'run on arrival'],
-  ['What to build', 'Claude decides'],
-  ['You', 'watching'],
 ] as const;
+const WATCHING = ['You', 'watching'] as const;
 
 export function VibesArming() {
+  // Up for about two seconds; if this has not answered yet it falls through
+  // to the on-by-default reading, which is fine — the server is what actually
+  // enforces the setting, this overlay is only naming it.
+  const { data } = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const suggestTasks = data?.suggestTasks ?? true;
+
   return (
     <div className="sk-arm" role="status">
       {/* Three copies, stacked: the white one is the text, the other two are
@@ -29,7 +38,11 @@ export function VibesArming() {
       </div>
       <p className="sk-arm-sub">Taking the human out of the loop…</p>
       <div className="sk-arm-list">
-        {OFF.map(([label, value], i) => (
+        {[
+          ...OFF,
+          ['What to build', suggestTasks ? 'Claude decides' : 'you decide (suggestions off)'],
+          WATCHING,
+        ].map(([label, value], i) => (
           <div key={label} className="sk-arm-row" style={{ '--sk-i': i } as React.CSSProperties}>
             <span>{label}</span>
             <span className="sk-lead" aria-hidden="true" />

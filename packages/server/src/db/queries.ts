@@ -872,6 +872,7 @@ export function getSettings(db: Db): ApiSettings {
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
     vibesSince: row?.vibesSince?.getTime() ?? null,
+    suggestTasks: row?.suggestTasks ?? true,
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
     ) as StageRunDefaults,

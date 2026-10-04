@@ -31,8 +31,17 @@ process.env.REEVE_DB ??= join(scratch, 'app.db');
 
 const { config } = await import('../config.js');
 const { createApp } = await import('../index.js');
-const { cardEventsFor, cardsSuggestedBy, createCard, createRepo, getCard, insertRun, archiveCard, updateSettings } =
-  await import('../db/queries.js');
+const {
+  cardEventsFor,
+  cardsSuggestedBy,
+  createCard,
+  createRepo,
+  getCard,
+  getSettings,
+  insertRun,
+  archiveCard,
+  updateSettings,
+} = await import('../db/queries.js');
 const { planningStage } = await import('../stages/planning.js');
 const { inProgressStage } = await import('../stages/in_progress.js');
 const { testingStage } = await import('../stages/testing.js');
@@ -190,6 +199,63 @@ assert.equal(posted.status, 201);
 assert.equal(getCard(db, posted.json.id)!.suggestedById, null, 'POST ignores it too');
 assert.equal(posted.json.suggestedBy, null);
 console.log('[reeve] no route sets or changes who suggested a card');
+
+// --- the suggest-tasks switch ------------------------------------------------
+// Through the route, not `updateSettings` directly: `settingsSchema` is what
+// actually lets the field through a PATCH, and nothing else exercises it.
+type SettingsBody = { suggestTasks: boolean };
+assert.equal((await call<SettingsBody>('GET', '/api/settings')).json.suggestTasks, true, 'fresh: on by default');
+const off = await call<SettingsBody>('PATCH', '/api/settings', { suggestTasks: false });
+assert.equal(off.json.suggestTasks, false, 'PATCH turns it off');
+assert.equal((await call<SettingsBody>('GET', '/api/settings')).json.suggestTasks, false, 'and GET reads it back');
+assert.equal(getSettings(db).suggestTasks, false, 'the row itself, not only the response, changed');
+console.log('[reeve] GET and PATCH /api/settings carry suggestTasks');
+
+const quiet = (await call<ApiCard>('POST', '/api/cards', { title: 'Quiet', repoId: repo.id })).json;
+planningStage.onPersist!(
+  db, ctxFor(quiet.id),
+  planningOutput.parse({ ...PLAN, suggested_tasks: tasks('Should not land') }),
+  runFor(quiet.id, 'planning'),
+);
+inProgressStage.onPersist!(
+  db, ctxFor(quiet.id),
+  implementationOutput.parse({ ...IMPL, suggested_tasks: tasks('Should not land either') }),
+  runFor(quiet.id, 'in_progress'),
+);
+testingStage.onPersist!(
+  db, ctxFor(quiet.id),
+  testingOutput.parse({ ...TESTS, suggested_tasks: tasks('Nor this') }),
+  runFor(quiet.id, 'testing'),
+);
+assert.equal(cardsSuggestedBy(db, quiet.id).length, 0, 'suggestions off: no stage makes a card');
+console.log('[reeve] suggestions off: Planning, In Progress and Testing make no cards');
+
+// The prompt built for each stage, with the switch off, leaves out the aside
+// and tells Claude to leave suggested_tasks empty.
+const quietCtx = ctxFor(quiet.id);
+assert.equal(quietCtx.suggestTasks, false, 'stageContextFor reads the switch off the settings row');
+for (const prompt of [
+  planningStage.buildPrompt(quietCtx, {}),
+  inProgressStage.buildPrompt(quietCtx, {}),
+  testingStage.buildPrompt(quietCtx, {}),
+]) {
+  assert.ok(!prompt.includes('Things you notice along the way'), 'the aside section is left out');
+  assert.ok(prompt.includes('Leave `suggested_tasks`'), 'Claude is told to leave it empty');
+}
+console.log('[reeve] suggestions off: no built prompt carries the aside section');
+
+// implementation.md never lists cards that were not made.
+const [doc] = inProgressStage.onComplete(
+  quietCtx,
+  implementationOutput.parse({ ...IMPL, suggested_tasks: tasks('Should not be written down either') }),
+);
+assert.ok(!doc!.content.includes('Suggested as separate cards'), 'the section is left out of the document too');
+console.log('[reeve] suggestions off: implementation.md has no "Suggested as separate cards" section');
+
+// What the switch was on for stays: it only stops new ones.
+assert.ok(cardsSuggestedBy(db, suggester.id).length > 0, 'cards suggested while it was on are left alone');
+assert.equal((await call<SettingsBody>('PATCH', '/api/settings', { suggestTasks: true })).json.suggestTasks, true);
+console.log('[reeve] suggestions off only stops new ones; earlier suggestions keep their Accept / Reject buttons');
 
 // --- board-wide VIBES MODE takes a suggested card like any other -------------
 // No worktree here, so the stage it starts fails at the worktree. What is being

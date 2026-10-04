@@ -1,6 +1,6 @@
 import type { PlanningOutput } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { cardsSuggestedBy, createCard, getCard, liveProject } from './db/queries.js';
+import { cardsSuggestedBy, createCard, getCard, getSettings, liveProject } from './db/queries.js';
 import type { StageContext } from './stages/types.js';
 
 /** One stage's suggestion: the three contracts share the fragment. */
@@ -28,8 +28,13 @@ const MAX_PER_RUN = 5;
  * or resumed after its questions were answered, does not suggest the same
  * thing twice. The cap is counted after that, so a rerun can still add what is
  * new.
+ *
+ * The board's switch is read here, when the run finishes, rather than at the
+ * point the prompt was built: a switch turned off mid-run still wins, since
+ * this is the one place a suggestion becomes a card.
  */
 export function recordSuggestions(db: Db, ctx: StageContext, tasks: SuggestedTask[]): void {
+  if (!getSettings(db).suggestTasks) return;
   const have = new Set(cardsSuggestedBy(db, ctx.card.id).map((c) => key(c.title)));
   // Read now rather than off `ctx`, which is the card as it was when the run
   // started: it may have been dragged into another lane while Claude worked.
