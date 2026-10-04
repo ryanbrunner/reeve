@@ -61,6 +61,11 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
  *
  * The card holds the resolving lock from here until the push or the rollback,
  * which is what stops a drag into Done pushing a branch halfway through a merge.
+ *
+ * `actor` names who pressed the button, for the clean path only: a run that
+ * actually resolves something is always Claude's work regardless of who asked
+ * for it, the same way `landPullRequest` tells a merge it did on its own from
+ * one a person clicked.
  */
 export async function resolveConflicts(
   db: Db,
@@ -68,6 +73,7 @@ export async function resolveConflicts(
   card: Card,
   repo: Repo,
   startRun: StartRun = startClaudeRun,
+  actor: 'human' | 'claude' = 'human',
 ): Promise<ResolveResult> {
   const refuse = (status: 400 | 409 | 429 | 502, error: string, detail: string): ResolveResult =>
     ({ ok: false, status, error, detail });
@@ -138,7 +144,7 @@ export async function resolveConflicts(
         await resetTo(path, facts.before);
         return refuse(409, 'nothing was pushed', unchecked);
       }
-      const pushed = await pushResolution(db, facts, null);
+      const pushed = await pushResolution(db, facts, null, actor);
       return pushed.ok ? { ok: true, runId: null, pushed: true } : refuse(502, 'push to origin failed', pushed.detail);
     }
 
@@ -207,7 +213,7 @@ async function finishResolution(db: Db, facts: MergeFacts, conflicts: string[], 
       await rollBack(db, facts, runId, problem);
       return;
     }
-    await pushResolution(db, facts, { runId, output: output.data });
+    await pushResolution(db, facts, { runId, output: output.data }, 'claude');
   } catch (e) {
     await rollBack(db, facts, runId, reason(e));
   }
@@ -279,8 +285,8 @@ async function pushResolution(
   db: Db,
   facts: MergeFacts,
   resolved: { runId: string; output: ConflictResolutionOutput } | null,
+  actor: 'human' | 'claude',
 ): Promise<{ ok: true } | { ok: false; detail: string }> {
-  const actor = resolved ? 'claude' : 'human';
   const runId = resolved?.runId ?? null;
   try {
     await pushBranch(facts.worktreePath, facts.branch);

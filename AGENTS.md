@@ -14,10 +14,10 @@ The rule the whole board is built around: **Claude never moves a card; a human
 action does**, whether a drag or an approval. A run finishing on its own
 changes the card's activity, not its column. VIBES MODE
 (`packages/server/src/vibes/`) is the deliberate exception: a sweep that
-approves, answers and advances cards with nobody watching, and, with the
-board's switch on, asks Claude for the next cards once a repo has run out of
-work (`vibes/ideas.ts`). It takes off Reeve's own human gates and nothing
-else.
+approves, answers, advances and resolves the conflicts of cards with nobody
+watching, and, with the board's switch on, asks Claude for the next cards once
+a repo has run out of work (`vibes/ideas.ts`). It takes off Reeve's own human
+gates and nothing else.
 
 This file describes the project. What a stage run should do is in its prompt,
 under `packages/server/src/stages/prompts/`, and that wins.
