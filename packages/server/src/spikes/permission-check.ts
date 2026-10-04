@@ -65,6 +65,10 @@ async function hook(command: string): Promise<string | null> {
 const live = config.dbFile;
 const other = join(tmpdir(), 'reeve-perm-other.db');
 const [dir, file] = [dirname(live), basename(live)];
+// The re-cased checks below only mean anything once this file exists to be
+// found under a different case; a run with a fresh scratch `REEVE_DB` would
+// otherwise skip them every time.
+if (!existsSync(live)) writeFileSync(live, '');
 
 check('the live board refused, by name', (await hook(`REEVE_DB=${live} npx tsx x.ts`))?.includes('reaps') === true);
 check('and recorded', refusedByHook.length === 1);
