@@ -1,8 +1,8 @@
 name: Release
 
-# Cutting a release is pushing a tag: `npm version`, then `git push --tags`
-# (see RELEASING.md). Everything else happens here so every release is built
-# and checked the same way, and the formula always has a real sha256 to pin.
+# Cutting a release is pushing a tag (see RELEASING.md). Everything else
+# happens here so every release is built and checked the same way, and the
+# formula always has a real sha256 to pin.
 on:
   push:
     tags:
@@ -54,9 +54,13 @@ jobs:
           echo "path=$tarball" >> "$GITHUB_OUTPUT"
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
 
+      # Publishes the exact tarball already hashed above, rather than letting
+      # `npm publish` run prepack again and pack a second one: nothing then
+      # guarantees the two builds are byte-identical, and a mismatch means
+      # the sha256 in the release notes doesn't match what the registry
+      # actually serves.
       - name: Publish to npm
-        working-directory: packages/cli
-        run: npm publish
+        run: npm publish "${{ steps.tarball.outputs.path }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
