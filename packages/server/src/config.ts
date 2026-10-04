@@ -3,7 +3,22 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { DEFAULT_PORT } from '@reeve/shared';
 
-const root = resolve(import.meta.dirname, '../../..');
+// Where this file's own code lives, in each of the two layouts it runs from.
+// In a checkout (tsx running this file in place) that is the repo root, three
+// levels above `packages/server/src/config.ts`. Published and bundled into
+// `dist/reeve.js`, every module ends up in that one file, so `import.meta.dirname`
+// is the package's own `dist/`, one level below the package root.
+const checkoutRoot = resolve(import.meta.dirname, '../../..');
+const packageRoot = resolve(import.meta.dirname, '..');
+
+// "Is there a .git" at the checkout candidate, rather than sniffing the path
+// for a Cellar or node_modules, so it holds for any packaging. In a card's
+// worktree `.git` is a file rather than a directory, and still counts: every
+// worktree and every spike run in one is a checkout. An installed copy has no
+// `.git` above it either way, so this is also what tells the two layouts
+// apart for `root`, `migrationsFolder`, `webDist` and `promptsDir` below.
+const isCheckout = existsSync(resolve(checkoutRoot, '.git'));
+const root = isCheckout ? checkoutRoot : packageRoot;
 
 /**
  * Where the board lives when neither `REEVE_DB` nor `REEVE_ASSETS` says.
@@ -21,11 +36,7 @@ export function defaultDataDir({ checkout, root, home }: { checkout: boolean; ro
   return checkout ? resolve(root, 'data') : resolve(home, '.reeve');
 }
 
-// "Is there a .git", rather than sniffing the path for a Cellar or
-// node_modules, so it holds for any packaging. In a card's worktree `.git` is
-// a file rather than a directory, and still counts: every worktree and every
-// spike run in one keeps its `data/`.
-const dataDir = defaultDataDir({ checkout: existsSync(resolve(root, '.git')), root, home: homedir() });
+const dataDir = defaultDataDir({ checkout: isCheckout, root, home: homedir() });
 
 export const config = {
   root,
@@ -40,9 +51,17 @@ export const config = {
   /** Mockups and screenshots, beside the database. Blobs do not belong in SQLite. */
   assetsDir: process.env.REEVE_ASSETS ?? resolve(dataDir, 'assets'),
   // Part of the install rather than the user's board, so these stay beside the
-  // code wherever the board goes.
-  migrationsFolder: resolve(root, 'packages/server/drizzle'),
-  webDist: resolve(root, 'packages/web/dist'),
+  // code wherever the board goes. In a checkout they are where they have
+  // always been, inside the server and web workspaces; in a published
+  // package the build copies them beside `dist/` (see packages/cli/scripts).
+  migrationsFolder: isCheckout ? resolve(checkoutRoot, 'packages/server/drizzle') : resolve(packageRoot, 'drizzle'),
+  webDist: isCheckout ? resolve(checkoutRoot, 'packages/web/dist') : resolve(packageRoot, 'web/dist'),
+  // The stage prompts, read by `renderPrompt` (stages/template.ts). Same
+  // split as above: a checkout reads them from source, a published package
+  // from the copy the build places beside `dist/`.
+  promptsDir: isCheckout
+    ? resolve(checkoutRoot, 'packages/server/src/stages/prompts')
+    : resolve(packageRoot, 'prompts'),
   port: Number(process.env.REEVE_PORT ?? DEFAULT_PORT),
   /** Loopback only: there is no auth and this runs arbitrary code in your repos. */
   hostname: '127.0.0.1',
