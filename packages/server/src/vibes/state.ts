@@ -88,6 +88,8 @@ function logLine(e: Entry): string | null {
       return e.actor === 'claude' ? `Claude resolved conflicts on ${it}` : null;
     case 'conflicts_failed':
       return e.actor === 'claude' ? `Could not resolve conflicts on ${it} · ${e.body ?? 'no reason given'}` : null;
+    case 'conflicts_refused':
+      return `Could not even start resolving conflicts on ${it} · ${e.body ?? 'no reason given'}`;
     case 'run_finished': {
       const status = (e.meta as { status?: string } | null)?.status;
       return status === 'failed' || status === 'interrupted'
