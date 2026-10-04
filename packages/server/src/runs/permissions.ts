@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -208,15 +209,17 @@ function isLiveDatabase(db: string, cwd: string): boolean {
 
 /**
  * Whether `a` and `b` name the same file, real symlinks and all — without
- * requiring either to exist yet. `realOrSelf` on the whole path answers that
- * only once the database file itself is there to `realpath`; before a
- * server's first boot, or in a spike's scratch path, it is not, and
- * `realpathSync` throws on a missing leaf regardless of how real everything
- * above it is. Dereferencing the parent instead, and comparing the basename
- * literally, asks exactly as much of the filesystem as is actually there.
+ * requiring either to exist yet. `realOrSelf` on the whole path is the right
+ * answer once the database file itself is there to `realpath`: it also
+ * fixes a re-cased leaf and follows a symlink made of the file itself, which
+ * dereferencing only the parent would miss. But `realpathSync` throws on a
+ * missing leaf no matter how real everything above it is, and the database
+ * genuinely may not exist yet — before a server's first boot, or in a
+ * spike's scratch path — so a path that does not exist falls back to
+ * dereferencing just its parent, literal basename and all.
  */
 function samePath(a: string, b: string): boolean {
-  const real = (p: string) => join(realOrSelf(dirname(p)), basename(p));
+  const real = (p: string) => (existsSync(p) ? realOrSelf(p) : join(realOrSelf(dirname(p)), basename(p)));
   return real(a) === real(b);
 }
 

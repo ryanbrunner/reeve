@@ -19,7 +19,7 @@
  * live board here; the paths derived from it below are what a command would
  * have to write to land on it for real.
  */
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
@@ -104,6 +104,21 @@ try {
   );
 } finally {
   rmSync(link);
+}
+
+console.log('\n--- a symlink to the live db file itself ---');
+
+// samePath has to dereference the whole path, not just its parent, once the
+// file is actually there — otherwise a symlink made of the live database
+// itself, pointed at from an unrelated absolute path, reads as a different
+// file than the one it names.
+if (!existsSync(live)) writeFileSync(live, '');
+const alias = join(tmpdir(), `reeve-live-db-alias-${process.pid}.db`);
+symlinkSync(live, alias);
+try {
+  check('an absolute REEVE_DB that is a symlink to the live db file is denied', await denied(`REEVE_DB=${alias} npx tsx x.ts`));
+} finally {
+  rmSync(alias);
 }
 
 console.log('\n--- what a leading cd must not cost ---');
