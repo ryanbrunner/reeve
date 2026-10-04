@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `suggest_tasks` integer;

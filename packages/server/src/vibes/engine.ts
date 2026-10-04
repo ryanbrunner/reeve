@@ -15,7 +15,8 @@ import {
   vibesCards,
 } from '../db/queries.js';
 import type { Card, Question, Repo, Run } from '../db/schema.js';
-import { isOpeningPr, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
+import { isOpeningPr, isPrConflicting, isResolvingConflicts, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
+import { resolveConflicts } from '../resolveConflicts.js';
 import { approveStage } from '../review.js';
 import type { EventWriter } from '../runs/events.js';
 import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
@@ -35,7 +36,7 @@ import { thinkOfIdeas } from './ideas.js';
  * was not ready and the `gh` call that timed out without one line of code
  * knowing that is what it is doing.
  *
- * Exactly the seven things the arming overlay promises, and nothing else — the
+ * Exactly the eight things the arming overlay promises, and nothing else — the
  * last of them, deciding what to build once a repo runs dry, in `ideas.ts`.
  * Reeve's own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
@@ -45,11 +46,11 @@ import { thinkOfIdeas } from './ideas.js';
  *
  * A card can also be put in VIBES MODE on its own, and so can a project, which
  * puts every task in its lane there with it. With the board's switch off the
- * sweep looks at those cards and no others, and does the same five things to
- * each — landing its pull request included — while the rest of the board waits
- * for a person as usual. The project itself is never swept: it is a lane, not
- * a piece of work. With the board's switch on, every card goes whatever its
- * flag or its project's says.
+ * sweep looks at those cards and no others, and does the same six things to
+ * each — landing its pull request and resolving its conflicts included —
+ * while the rest of the board waits for a person as usual. The project itself
+ * is never swept: it is a lane, not a piece of work. With the board's switch
+ * on, every card goes whatever its flag or its project's says.
  */
 
 /** What the review gate is told, and what the card's history will say for ever. */
@@ -72,6 +73,23 @@ const NO_ONE_HOME =
 const RETRY_LAND_MS = 5 * 60_000;
 
 const lastLandAttempt = new Map<string, number>();
+
+/** After a resolution that still left the pull request conflicting, how long before trying again. */
+const RETRY_RESOLVE_MS = 5 * 60_000;
+
+const lastResolveAttempt = new Map<string, number>();
+
+/**
+ * Runs that tried and failed to resolve the same pull request's conflicts,
+ * keyed by its URL. Cleared the moment nothing is conflicting on record,
+ * whether that pull request never conflicted or a run just pushed a fix for
+ * it — so a repo where conflicts are routine, from cards landing on each
+ * other's heels, is not what this counts. What it stops is a card stuck on
+ * one conflict no run resolves, which past this many tries is left in Done
+ * for a person instead of spending another $5 run every five minutes.
+ */
+const MAX_RESOLVE_ATTEMPTS = 3;
+const resolveAttempts = new Map<string, number>();
 
 let sweeping = false;
 
@@ -119,14 +137,36 @@ export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
 async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<void> {
   const stage = card.stage as Stage;
 
-  // Done: open the pull request, then land it. Entering Done already tries to
-  // open one on its own; this is what makes it keep trying, and what merges it.
+  // Done: open the pull request, resolve whatever it conflicts on, then land
+  // it. Entering Done already tries to open one on its own; this is what makes
+  // it keep trying, what takes the Resolve conflicts button's place, and what
+  // merges it.
   if (stage === 'done') {
     if (card.mergedAt || isOpeningPr(card.id)) return;
     if (!card.prUrl) {
       maybeOpenPullRequest(db, card, repo);
       return;
     }
+    if (isResolvingConflicts(card.id)) return;
+    if (isPrConflicting(card)) {
+      const prUrl = card.prUrl;
+      if ((resolveAttempts.get(prUrl) ?? 0) >= MAX_RESOLVE_ATTEMPTS) return;
+      const lastResolve = lastResolveAttempt.get(card.id) ?? 0;
+      if (Date.now() - lastResolve < RETRY_RESOLVE_MS) return;
+      const result = await resolveConflicts(db, writer, card, repo, undefined, 'claude');
+      // A refusal before a run even started — the cap was full, `gh` failed,
+      // the tree was dirty — spent nothing and is not this conflict's fault,
+      // so it is only throttled, never counted against the cap. A 429 is not
+      // even throttled: the cap is meant to be retried on the very next sweep.
+      if (!result.ok && result.status === 429) return;
+      lastResolveAttempt.set(card.id, Date.now());
+      if (result.ok && result.runId) resolveAttempts.set(prUrl, (resolveAttempts.get(prUrl) ?? 0) + 1);
+      return;
+    }
+    // Nothing conflicting on record for this pull request: never was, or a
+    // pushed resolution just forgot it. Either way the count of runs that
+    // failed to resolve it does not carry into whatever conflicts it next.
+    resolveAttempts.delete(card.prUrl);
     // A repository that requires a review refuses every time, and each refusal
     // is written to the card. Without this the log would be nothing else.
     const last = lastLandAttempt.get(card.id) ?? 0;

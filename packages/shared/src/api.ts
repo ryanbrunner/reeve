@@ -439,6 +439,11 @@ export interface ApiSettings {
   /** When VIBES MODE was switched on; null while it is off. */
   vibesSince: number | null;
   /**
+   * Whether a stage may add cards of its own to Backlog, and VIBES MODE may
+   * think up ideas once a repo runs dry. On by default.
+   */
+  suggestTasks: boolean;
+  /**
    * Every runnable stage is present, so the form can loop over them. A null in
    * one falls through to what the stage's own module asks for.
    */
@@ -455,12 +460,18 @@ export interface UpdateSettingsBody {
    * on would otherwise wipe every number the HUD is showing.
    */
   vibes?: boolean;
+  /** Off stops a stage suggesting tasks and VIBES MODE thinking up ideas. */
+  suggestTasks?: boolean;
 }
 
 /**
  * One model the Claude CLI offers, as its `supportedModels()` reports it.
  * The capability flags are optional there and here: absent means the CLI did
- * not say, and is treated as "yes" so an unannotated model is not crippled.
+ * not say, and is treated as "yes" so an unannotated model is not crippled —
+ * for every flag except `supportsAutoMode`, where absent is read as "no".
+ * Haiku is why: the CLI lists it with none of these flags set, and a session
+ * asked to run it in auto mode reports back a different one. See `fitToModel`
+ * in `packages/server/src/runs/claude.ts`.
  */
 export interface ApiModel {
   /** What to send as `model`: an alias like `opus`, or a full id. */
@@ -472,7 +483,7 @@ export interface ApiModel {
   supportsEffort?: boolean;
   supportedEffortLevels?: EffortLevel[];
   supportsAdaptiveThinking?: boolean;
-  /** Every run is in auto mode, so a model that reports `false` cannot run a stage. */
+  /** Every run asks for auto mode; a model that doesn't report `true` here runs without it instead. */
   supportsAutoMode?: boolean;
 }
 

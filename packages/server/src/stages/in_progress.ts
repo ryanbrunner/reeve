@@ -53,14 +53,14 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       testCommand: ctx.repo.testCommand
         ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
         : 'This repo defines no test command, so there is nothing to run.',
-      suggesting: renderSuggesting(),
+      suggesting: renderSuggesting(ctx.suggestTasks !== false),
       reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });
   },
 
-  onComplete(_ctx, output) {
-    return [{ kind: 'summary', content: composeNotes(output), path: '.reeve/implementation.md' }];
+  onComplete(ctx, output) {
+    return [{ kind: 'summary', content: composeNotes(output, ctx.suggestTasks !== false), path: '.reeve/implementation.md' }];
   },
 
   // The only rows this stage writes: what it noticed, or deliberately left
@@ -81,7 +81,7 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
 };
 
 /** `.reeve/implementation.md` — what Testing reads, and what the Changes tab shows. */
-function composeNotes(output: ImplementationOutput): string {
+function composeNotes(output: ImplementationOutput, suggestTasks: boolean): string {
   const out: string[] = [`> ${output.summary}`, ''];
 
   if (output.deviations_from_plan.length) {
@@ -90,8 +90,9 @@ function composeNotes(output: ImplementationOutput): string {
     out.push('');
   }
   // Testing reads this, and work left out on purpose is worth it knowing about
-  // before it fails a criterion for it.
-  if (output.suggested_tasks.length) {
+  // before it fails a criterion for it. Left out with the switch off: no card
+  // was made for any of these, and the document must not say otherwise.
+  if (suggestTasks && output.suggested_tasks.length) {
     out.push('## Suggested as separate cards', '');
     for (const t of output.suggested_tasks) out.push(`- ${t.title}`);
     out.push('');
