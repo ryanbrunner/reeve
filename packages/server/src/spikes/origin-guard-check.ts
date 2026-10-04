@@ -150,10 +150,14 @@ function postWithHost(path: string, host: string, body: string): Promise<number>
 }
 
 // The multipart asset upload: no JSON body, must not be caught by requireJson.
+// A real PNG signature, since the route now sniffs the bytes against the
+// declared type — unrelated to this card, but a fake one would be refused
+// for that instead of proving the guards let multipart through.
 {
   const card2 = createCard(db, { title: 'origin guard check (assets)', repoId: repo.id });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA6fptVAAAACklEQVR4AWMAAQAABQABDQottAAAAABJRU5ErkJggg==', 'base64');
   const form = new FormData();
-  form.set('file', new File([Buffer.from([0, 1, 2, 3])], 'x.png', { type: 'image/png' }));
+  form.set('file', new File([png], 'x.png', { type: 'image/png' }));
   const res = await fetch(`${url}/api/cards/${card2.id}/assets`, { method: 'POST', body: form });
   await check('multipart upload reaches the handler untouched', res.status, 201);
 }
