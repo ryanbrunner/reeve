@@ -75,6 +75,11 @@ export const CARD_EVENT_KINDS = [
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
+  // Resolving refused before a run ever started — a dirty tree, a missing
+  // worktree, `gh` not answering, a failed fetch of the base. Written only for
+  // VIBES MODE's own attempts: the button's refusal is an HTTP error the UI
+  // already shows inline, so a person pressing it leaves no second record here.
+  'conflicts_refused',
   // `gh` refused to merge the pull request: from the Done band's Merge, or
   // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',

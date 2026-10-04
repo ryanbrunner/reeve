@@ -1,6 +1,6 @@
 import { conflictResolutionOutput, type ConflictResolutionOutput } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { getCard, getRun, getSettings, insertCardEvent, liveTaskRun } from './db/queries.js';
+import { cardEventsFor, getCard, getRun, getSettings, insertCardEvent, liveTaskRun } from './db/queries.js';
 import type { Card, Repo } from './db/schema.js';
 import { fetchBranch, pullRequestState, pushBranch, type PullRequestState } from './git/github.js';
 import {
@@ -65,7 +65,10 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
  * `actor` names who pressed the button, for the clean path only: a run that
  * actually resolves something is always Claude's work regardless of who asked
  * for it, the same way `landPullRequest` tells a merge it did on its own from
- * one a person clicked.
+ * one a person clicked. It also stands in for who is calling at all: only
+ * VIBES MODE passes `'claude'`, which is what a refusal past the locks checks
+ * before writing itself to the card — the button's own refusal is the HTTP
+ * error the UI already shows, and doubling it there would say nothing new.
  */
 export async function resolveConflicts(
   db: Db,
@@ -92,13 +95,36 @@ export async function resolveConflicts(
   // Taken before the first await, so no second press can slip in between.
   if (!claimResolving(card.id)) return refuse(409, 'already resolving conflicts', `#${card.number}`);
 
+  // Every refusal from here on found a real problem rather than a lock or a
+  // precondition, so it is the one kind worth a card event — but only for
+  // VIBES MODE's own attempt: the button's refusal is an HTTP error the UI
+  // already shows inline, and a person pressing it does not need a second
+  // copy of it on the card.
+  //
+  // The sweep retries every few minutes (`RETRY_RESOLVE_MS` in
+  // vibes/engine.ts), and a card stuck on the same problem would otherwise get
+  // a fresh event every time, drowning the timeline and the HUD's log. What
+  // stops that is comparing against the newest `conflicts_refused` already on
+  // the card: the same `error` writes nothing more, and anything else —
+  // a different reason, or a resolution that was later attempted and
+  // recorded — is news again.
+  const refuseNoted = (status: 409 | 502, error: string, detail: string): ResolveResult => {
+    if (actor === 'claude') {
+      const last = cardEventsFor(db, card.id).find((e) => e.kind === 'conflicts_refused' || e.kind === 'conflicts_failed' || e.kind === 'conflicts_resolved');
+      if (last?.kind !== 'conflicts_refused' || last.meta?.['error'] !== error) {
+        record(db, card.id, 'conflicts_refused', actor, null, `${error}: ${detail}`, { error });
+      }
+    }
+    return refuse(status, error, detail);
+  };
+
   // Once the run exists its `done` chain owns the lock and lets it go. Every
   // return before that point lets it go here.
   let handedOff = false;
   try {
     const health = await checkWorktree(repo.repoPath, worktreePath);
     if (health.state !== 'ok') {
-      return refuse(409, 'worktree missing', health.state === 'missing' ? health.reason : worktreePath);
+      return refuseNoted(409, 'worktree missing', health.state === 'missing' ? health.reason : worktreePath);
     }
     const path = health.path;
 
@@ -106,9 +132,9 @@ export async function resolveConflicts(
     try {
       pr = await pullRequestState(repo.repoPath, prUrl);
     } catch (e) {
-      return refuse(502, 'could not ask GitHub about the pull request', reason(e));
+      return refuseNoted(502, 'could not ask GitHub about the pull request', reason(e));
     }
-    if (pr.state !== 'OPEN') return refuse(409, `the pull request is ${pr.state.toLowerCase()}`, prUrl);
+    if (pr.state !== 'OPEN') return refuseNoted(409, `the pull request is ${pr.state.toLowerCase()}`, prUrl);
     const base = pr.base || repo.defaultBranch;
 
     // A restart during a run skips everything that would have finished or
@@ -117,14 +143,14 @@ export async function resolveConflicts(
     if (await mergeInProgress(path)) await abortMerge(path);
     // `.reeve/` is every stage's untracked record, not work. See openPullRequest.
     if (await isDirty(path, { ignore: ['.reeve'] })) {
-      return refuse(409, 'the card has uncommitted changes', 'the merge needs a clean tree — commit or discard them in the worktree first');
+      return refuseNoted(409, 'the card has uncommitted changes', 'the merge needs a clean tree — commit or discard them in the worktree first');
     }
 
     let baseSha: string;
     try {
       baseSha = await fetchBranch(path, base);
     } catch (e) {
-      return refuse(502, `could not fetch ${base} from origin`, reason(e));
+      return refuseNoted(502, `could not fetch ${base} from origin`, reason(e));
     }
     const facts: MergeFacts = {
       cardId: card.id, prUrl, prNumber: card.prNumber, worktreePath: path, branch, base, baseSha,
@@ -135,14 +161,14 @@ export async function resolveConflicts(
     try {
       merge = await startMerge(path, `origin/${base}`);
     } catch (e) {
-      return refuse(409, `could not merge ${base}`, reason(e));
+      return refuseNoted(409, `could not merge ${base}`, reason(e));
     }
 
     if (merge.clean) {
       const unchecked = await uncheckedMarkers(facts);
       if (unchecked) {
         await resetTo(path, facts.before);
-        return refuse(409, 'nothing was pushed', unchecked);
+        return refuseNoted(409, 'nothing was pushed', unchecked);
       }
       const pushed = await pushResolution(db, facts, null, actor);
       return pushed.ok ? { ok: true, runId: null, pushed: true } : refuse(502, 'push to origin failed', pushed.detail);
@@ -316,7 +342,7 @@ async function pushResolution(
 function record(
   db: Db,
   cardId: string,
-  kind: 'conflicts_resolved' | 'conflicts_failed',
+  kind: 'conflicts_resolved' | 'conflicts_failed' | 'conflicts_refused',
   actor: 'human' | 'claude',
   runId: string | null,
   body: string | null,
