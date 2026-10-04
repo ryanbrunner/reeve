@@ -53,7 +53,9 @@ export function createApp() {
   app.route('/api/cards', stageRoutes(db, writer));
   app.route('/api/cards', detailRoutes(db, writer));
   app.route(ASSET_ROUTE, assetRoutes(db));
-  app.get('/healthz', (c) => c.json({ ok: true }));
+  // The paths too, for `reeve doctor`: `reeve serve --db f` sets REEVE_DB in the
+  // server's process only, so the doctor's own config can name the wrong file.
+  app.get('/healthz', (c) => c.json({ ok: true, dbFile: config.dbFile, assetsDir: config.assetsDir }));
 
   // In production the built frontend is served from the same origin and port.
   // In dev, Vite serves it and proxies /api here, so this is absent and skipped.
@@ -155,3 +157,7 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
 }
 
 export { config };
+// For `reeve doctor`: each predicts a failure from beside the code that would have it.
+export { accountProbe, type ProbeResult } from './runs/models.js';
+export { checkChromium, checkSqlite } from './doctor.js';
+export { ghProbe } from './git/github.js';

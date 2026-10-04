@@ -756,11 +756,17 @@ function Conflicts({ detail, pushing }: { detail: CardDetail; pushing: boolean }
 
   const resolving = resolve.isPending || card.resolvingConflicts || live !== null;
   // Events are newest first, so this is how the latest attempt ended.
-  const outcome = detail.events.find((e) => e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed');
+  const outcome = detail.events.find(
+    (e) => e.kind === 'conflicts_resolved' || e.kind === 'conflicts_failed' || e.kind === 'conflicts_refused',
+  );
   // A failure that kept its merge is still worth saying once GitHub stops
-  // calling it conflicting; any other is about a conflict that has gone.
+  // calling it conflicting; any other is about a conflict that has gone. A
+  // refusal never touched the worktree, so it is worth saying for as long as
+  // GitHub still calls the pull request conflicting, same as a failure that
+  // kept nothing.
   const failure =
-    outcome?.kind === 'conflicts_failed' && (card.prConflicting || outcome.meta?.['kept'] === true)
+    (outcome?.kind === 'conflicts_failed' && (card.prConflicting || outcome.meta?.['kept'] === true)) ||
+    (outcome?.kind === 'conflicts_refused' && card.prConflicting)
       ? (outcome.body ?? 'reason unrecorded')
       : null;
   const untested = outcome?.kind === 'conflicts_resolved' && outcome.meta?.['testsPassed'] === false;

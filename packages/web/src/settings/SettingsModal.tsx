@@ -15,7 +15,7 @@ import {
   type StageRunDefaults,
 } from '@reeve/shared';
 import { api } from '../lib/api.js';
-import { Dropdown } from '../lib/Dropdown.js';
+import { Dropdown, type DropdownOption } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
 import { Button, Empty, SectionHead, SmallButton } from '../card/ui.js';
 
@@ -33,13 +33,26 @@ export type SettingsPane = { kind: 'runs' } | { kind: 'repo'; id: string | null 
  * validation that matters lives on the server — it is the only side that can
  * stat a path or ask git what branches exist — and this shows whatever it says.
  */
-export function SettingsModal({ initial, onClose }: { initial: SettingsPane; onClose: () => void }) {
+export function SettingsModal({
+  initial,
+  onClose,
+  onPaneChange,
+}: {
+  initial: SettingsPane;
+  onClose: () => void;
+  /** Keeps `?settings=` current as the nav picks a different pane, so a reload or a copied link lands where this one is. */
+  onPaneChange: (pane: SettingsPane) => void;
+}) {
   const { data } = useQuery({ queryKey: ['board'], queryFn: api.board });
   const repos = data?.repos ?? [];
   const panel = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
 
-  const [pane, setPane] = useState<SettingsPane>(initial);
+  const [pane, setPaneState] = useState<SettingsPane>(initial);
+  const setPane = (next: SettingsPane) => {
+    setPaneState(next);
+    onPaneChange(next);
+  };
   const selected = pane.kind === 'repo' ? pane.id : undefined;
   const editing = repos.find((p) => p.id === selected) ?? null;
 
@@ -549,7 +562,7 @@ function Select({
   label: string;
   value: string | null;
   empty: string;
-  options: Array<{ value: string; label: string }>;
+  options: DropdownOption[];
   disabled?: boolean;
   onChange: (v: string | null) => void;
 }) {
