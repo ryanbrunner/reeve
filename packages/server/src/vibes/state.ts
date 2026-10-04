@@ -84,6 +84,10 @@ function logLine(e: Entry): string | null {
       return `Could not ship ${it} · ${e.body ?? 'no reason given'}`;
     case 'merge_failed':
       return `Could not merge ${it} · ${e.body ?? 'no reason given'}`;
+    case 'conflicts_resolved':
+      return e.actor === 'claude' ? `Claude resolved conflicts on ${it}` : null;
+    case 'conflicts_failed':
+      return e.actor === 'claude' ? `Could not resolve conflicts on ${it} · ${e.body ?? 'no reason given'}` : null;
     case 'run_finished': {
       const status = (e.meta as { status?: string } | null)?.status;
       return status === 'failed' || status === 'interrupted'

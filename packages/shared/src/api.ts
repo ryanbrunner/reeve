@@ -467,7 +467,11 @@ export interface UpdateSettingsBody {
 /**
  * One model the Claude CLI offers, as its `supportedModels()` reports it.
  * The capability flags are optional there and here: absent means the CLI did
- * not say, and is treated as "yes" so an unannotated model is not crippled.
+ * not say, and is treated as "yes" so an unannotated model is not crippled —
+ * for every flag except `supportsAutoMode`, where absent is read as "no".
+ * Haiku is why: the CLI lists it with none of these flags set, and a session
+ * asked to run it in auto mode reports back a different one. See `fitToModel`
+ * in `packages/server/src/runs/claude.ts`.
  */
 export interface ApiModel {
   /** What to send as `model`: an alias like `opus`, or a full id. */
@@ -479,7 +483,7 @@ export interface ApiModel {
   supportsEffort?: boolean;
   supportedEffortLevels?: EffortLevel[];
   supportsAdaptiveThinking?: boolean;
-  /** Every run is in auto mode, so a model that reports `false` cannot run a stage. */
+  /** Every run asks for auto mode; a model that doesn't report `true` here runs without it instead. */
   supportsAutoMode?: boolean;
 }
 
