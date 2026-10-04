@@ -19,7 +19,7 @@
  * live board here; the paths derived from it below are what a command would
  * have to write to land on it for real.
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
@@ -81,6 +81,30 @@ check(
   'REEVE_DB set before a cd that moves where it is actually read from still counts',
   await denied(`export REEVE_DB=${file}; cd ${dir}; npx tsx x.ts`),
 );
+
+console.log('\n--- shell behaviour the cd parser cannot model, refused rather than guessed ---');
+
+check(
+  'a glob in the cd target is denied rather than resolved literally',
+  await denied(`cd ${dir.slice(0, -1)}* && REEVE_DB=${file} npx tsx x.ts`),
+);
+check(
+  "trailing text after a cd target, the shape zsh's \`cd old new\` substitution leaves, is denied",
+  await denied(`cd ${dir} extra && REEVE_DB=${file} npx tsx x.ts`),
+);
+
+console.log('\n--- a symlinked cwd ---');
+
+const link = join(tmpdir(), `reeve-live-db-link-${process.pid}`);
+symlinkSync(dir, link);
+try {
+  check(
+    'cd through a symlink to the live db directory still lands on it',
+    await denied(`cd ${link} && REEVE_DB=${file} npx tsx x.ts`),
+  );
+} finally {
+  rmSync(link);
+}
 
 console.log('\n--- what a leading cd must not cost ---');
 

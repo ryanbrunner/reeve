@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
@@ -122,7 +122,7 @@ function scratchDbRefusal(command: string, worktreePath: string): string | null 
       if (isLiveDatabase(db, worktreePath)) return liveDbDenial(command);
       continue;
     }
-    if (candidates === null) return unreadableDbDenial(command);
+    if (candidates === null) return cdUnreadableDenial(command);
     if (candidates.some((cwd) => isLiveDatabase(db, cwd))) return liveDbDenial(command);
   }
   return null;
@@ -153,12 +153,23 @@ function cwdCandidates(command: string, worktreePath: string): string[] | null {
   let cwds = [worktreePath];
   let pos = 0;
   for (;;) {
-    const cd = /^\s*cd\s+/.exec(command.slice(pos));
+    const cd = /^\s*(?:cd|chdir)\s+/.exec(command.slice(pos));
     if (!cd) break;
     const afterCd = pos + cd[0].length;
     const value = VALUE.exec(command.slice(afterCd))?.[1];
     if (!value || value.startsWith('-')) return null;
+    // A quoted target is literal, same as everywhere else `VALUE` is read.
+    // A bare one is glob-expanded by the shell before `cd` ever sees it, so
+    // `cd ../some-dir*` lands wherever that glob happens to match, not on
+    // the literal text — not this guard's to resolve.
+    if (!/^["']/.test(value) && /[*?[{]/.test(value)) return null;
     const dir = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
+    const afterValue = afterCd + value.length;
+    // A bare `cd <dir>` ends the command, or runs into `&&`, `;`, `|` or
+    // `||` — anything else trailing the target, such as zsh's `cd old new`
+    // substituting inside `$PWD`, means the directory this computed is not
+    // what actually happens, and that is not this guard's shell to model.
+    if (!/^\s*(?:&&|\|\|?|;|$)/.test(command.slice(afterValue))) return null;
     // Every candidate so far might be where this `cd` actually runs from — a
     // prior one in the chain could have failed just as this one might — so
     // each gains the directory this one would leave it in, rather than
@@ -168,7 +179,6 @@ function cwdCandidates(command: string, worktreePath: string): string[] | null {
     // being made to track more directories than it can hold, since a run of
     // relative `cd`s doubles the set each time.
     if (cwds.length > 32) return null;
-    const afterValue = afterCd + value.length;
     const chain = /^\s*(?:&&|;)\s*/.exec(command.slice(afterValue));
     if (!chain) {
       pos = afterValue;
@@ -179,20 +189,35 @@ function cwdCandidates(command: string, worktreePath: string): string[] | null {
   // The chain above only ever walks forward from a plain `cd` at its own
   // start; anything cd-like left outside it, before or after, is exactly the
   // shape of thing it cannot follow — refuse rather than guess what it did.
-  if (/(?:^|[\s;&|(`"'])(?:cd|pushd|popd)\b/.test(command.slice(pos))) return null;
+  if (/(?:^|[\s;&|(`"'])(?:cd|chdir|pushd|popd)\b/.test(command.slice(pos))) return null;
   return cwds;
 }
 
 /**
  * The board this server is running on. Unset `REEVE_DB` is no risk of this:
  * a spike resolves its default from the worktree, not the main checkout.
+ *
+ * `cwd` is dereferenced first: a relative value's `..` walks up from where
+ * the shell physically is, not from a symlink's own apparent location, so
+ * `cd /tmp/link-to-elsewhere && REEVE_DB=../reeve.db` has to resolve the same
+ * way the shell would — off the real directory, not the lexical one.
  */
 function isLiveDatabase(db: string, cwd: string): boolean {
-  return samePath(resolve(cwd, db), resolve(config.dbFile));
+  return samePath(resolve(realOrSelf(cwd), db), resolve(config.dbFile));
 }
 
+/**
+ * Whether `a` and `b` name the same file, real symlinks and all — without
+ * requiring either to exist yet. `realOrSelf` on the whole path answers that
+ * only once the database file itself is there to `realpath`; before a
+ * server's first boot, or in a spike's scratch path, it is not, and
+ * `realpathSync` throws on a missing leaf regardless of how real everything
+ * above it is. Dereferencing the parent instead, and comparing the basename
+ * literally, asks exactly as much of the filesystem as is actually there.
+ */
 function samePath(a: string, b: string): boolean {
-  return realOrSelf(a) === realOrSelf(b);
+  const real = (p: string) => join(realOrSelf(dirname(p)), basename(p));
+  return real(a) === real(b);
 }
 
 function bashDenial(command: string): string {
@@ -230,6 +255,16 @@ function unreadableDbDenial(command: string): string {
     `Reeve refuses any \`REEVE_DB\` that names the database its server is using (${config.dbFile}),`,
     'and it can only tell when the path is written out plainly: no `$`, no backslash, no quote part-way through.',
     'Name a scratch file directly — `REEVE_DB=/tmp/scratch.db` — and run the command again.',
+  ].join(' ');
+}
+
+function cdUnreadableDenial(command: string): string {
+  return [
+    `Denied: \`${short(command)}\`.`,
+    `Reeve refuses any \`REEVE_DB\` that names the database its server is using (${config.dbFile}),`,
+    "and a relative path only means one thing once this can tell where every `cd` along the way actually lands,",
+    'which it cannot here.',
+    'Point it at an absolute scratch path instead — a fresh path under /tmp — and run the same command again.',
   ].join(' ');
 }
 
