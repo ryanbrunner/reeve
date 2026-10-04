@@ -278,17 +278,27 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /** Run the repo's test command against the worktree. */
-  routes.post('/:id/test', (c) => {
+  routes.post('/:id/test', async (c) => {
     const cardId = c.req.param('id');
     const card = getCard(db, cardId);
     if (!card) return c.json({ error: 'not found' }, 404);
     if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const repo = repoFor(card.repoId);
     if (!repo?.testCommand) return c.json({ error: 'repo has no test command' }, 400);
-    if (!card.worktreePath) return c.json({ error: 'card has no worktree' }, 400);
+    // A stored path is never trusted on its own — it can be deleted, pruned, or
+    // the branch checked out somewhere else — so this is the same check the
+    // stage-start paths make before Claude is handed the tree, not just a null
+    // check on `worktreePath`.
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
+    if (health.state !== 'ok') {
+      return c.json(
+        { error: 'card has no usable worktree', detail: health.state === 'missing' ? health.reason : 'not created' },
+        409,
+      );
+    }
     const handle = startShellRun({
       db, writer, cardId, stage: card.stage,
-      command: repo.testCommand, cwd: card.worktreePath,
+      command: repo.testCommand, cwd: health.path,
     });
     return c.json({ ok: true, runId: handle.runId }, 201);
   });
