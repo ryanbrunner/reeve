@@ -343,13 +343,17 @@ polls. This command gives the tsx server a free port of its own instead
 (asked of the OS, then passed in as that server's own `REEVE_PORT`) and
 points Vite's dev proxy at it with `REEVE_DEV_API_PORT`, so Vite's `/api`
 calls still land on this worktree's own backend; Vite itself binds the port
-Reeve tracks, with `{{port}}` on its own `--port` flag rather than just the
+Reeve tracks. It runs through `npm run dev -w @reeve/web` rather than the
+root's own `dev:web`, because that script is itself a nested `npm run`, which
+swallows a `--port` meant for Vite as more arguments to npm instead. Vite
+takes `{{port}}` on its own `--port` flag rather than just the
 `REEVE_PORT` env it already gets, which puts that url on the run row before
 either server has printed a line (see `known` in `devServer.ts`) — otherwise
-the row would depend on whichever of the two `[reeve] http://127.0.0.1:<port>`
-banners `announcedUrl` read first, and a hop could land on the API server's
-port instead of Vite's. Giving up the build gets back HMR for Preview, at the
-cost of the worktree always running two servers instead of one.
+the row would depend on whichever server's banner `announcedUrl` read first,
+tsx's `[reeve] http://127.0.0.1:<port>` or Vite's own `Local:` line, and a
+race lost to the API server would leave the row pointing at the wrong port.
+Giving up the build gets back HMR for Preview, at the cost of the worktree
+always running two servers instead of one.
 
 ## Conventions
 
