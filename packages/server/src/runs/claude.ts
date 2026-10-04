@@ -166,9 +166,11 @@ export function modelAndEffortFor(
 }
 
 /**
- * Every run's permission mode. The classifier decides what a run may do, as it
- * does in Claude Code's auto mode, and each stage's prompt says what it should
- * do; see runs/permissions.ts for what is left for us to answer.
+ * The permission mode every run asks for. The classifier decides what a run
+ * may do, as it does in Claude Code's auto mode, and each stage's prompt says
+ * what it should do; see runs/permissions.ts for what is left for us to
+ * answer. Not every pinned model takes it — see `fitToModel`, below, for the
+ * one that is left to run without it instead.
  */
 const PERMISSION_MODE = 'auto' satisfies PermissionMode;
 
@@ -188,15 +190,26 @@ class AutoModeUnavailable extends Error {}
  * never reaches it. Only a pinned model the CLI listed is checked: no model is
  * the CLI's default, which takes everything the stages ask for, and a model the
  * CLI did not list is sent as asked. A capability the CLI did not report is
- * assumed — the same reading the pickers give it.
+ * assumed — the same reading the pickers give it — for every field except
+ * `supportsAutoMode`.
  *
- * Auto mode is trimmed the same way as effort and adaptive thinking: a model
- * that says it has none runs anyway, just without `permissionMode` sent to it,
- * so it starts in its own default mode instead of the run being refused.
+ * That one field is read the other way around: only an explicit `true` keeps
+ * `permissionMode: 'auto'` in the request. Haiku is why — the CLI lists it
+ * with no `supportsAutoMode` at all, the same as its other capability fields,
+ * and a session asked to run it in auto mode reports back `default` in its
+ * own `init` message; "not reported" means "doesn't take it" for this model,
+ * not "take everything" the way an unreported effort level does. Checked by
+ * spike, since it is exactly the gap between what the CLI lists and what a
+ * session actually does that this function exists to close.
+ *
+ * Auto mode is trimmed the same way as effort and adaptive thinking once that
+ * is decided: a model that doesn't take it runs anyway, just without
+ * `permissionMode` sent to it, so it starts in its own default mode instead of
+ * the run being refused.
  */
 // Exported, and the lookup injectable, only so a spike can hand it a model the
-// CLI itself has never listed with `supportsAutoMode: false` — nothing in
-// production calls it with a second argument.
+// CLI itself does not list with a working `supportsAutoMode` today — nothing
+// in production calls it with a second argument.
 export async function fitToModel(
   model: string | null,
   effort: EffortLevel | null,
@@ -209,7 +222,7 @@ export async function fitToModel(
   return {
     effort: takesEffort ? effort : null,
     adaptiveThinking: caps.supportsAdaptiveThinking !== false,
-    autoMode: caps.supportsAutoMode !== false,
+    autoMode: caps.supportsAutoMode === true,
   };
 }
 
