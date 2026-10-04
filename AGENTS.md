@@ -187,16 +187,22 @@ switched on.
   spikes build an app and must not start any of it.
 - **Loopback only, no auth.** The server runs arbitrary code in your repos;
   `hostname` in `packages/server/src/config.ts` stays `127.0.0.1`.
-- **Every run is in auto mode, and nothing wider.** `startClaudeRun` in
-  `packages/server/src/runs/claude.ts` sends `permissionMode: 'auto'` and no
+- **Every run asks for auto mode, and nothing wider, but not every model takes
+  it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
   language's toolchain, as it does in Claude Code. Stages declare no mode and
   no tool list. What a stage should not do (change files while planning,
-  push, open pull requests, commit `.reeve/`) is its prompt's to say.
-- **No auto mode, no run.** A pinned model that reports
-  `supportsAutoMode: false`, or a session whose `init` message reports another
-  mode, fails the run before Claude takes a turn, with the reason as its
-  `errorMessage`. Reeve never falls back to another mode.
+  push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
+  model the CLI lists without `supportsAutoMode: true` — Haiku, today — has
+  `permissionMode` left unset instead, so it starts in the SDK's own default
+  mode; `canUseTool` still denies every edit and risky command the session
+  asks it, same as auto mode's escalations, so such a stage can read and
+  respond, and run whatever default mode's own heuristics wave through
+  unasked, but not edit a file. What still fails the run before Claude takes a
+  turn is a session whose `init` message reports a mode other than `'auto'`
+  despite auto mode having been asked for — an account setting or
+  `disableAutoMode` turning it off underneath a request that should have
+  gotten it.
 - **What the classifier escalates is denied.**
   `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
   answers allow. Nobody is watching, and allowing would be `bypassPermissions`
