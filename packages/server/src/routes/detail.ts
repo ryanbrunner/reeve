@@ -35,6 +35,7 @@ import {
   deleteAsset,
   imageSize,
   relativeAssetPath,
+  sniffContentType,
   writeAsset,
 } from '../assets/store.js';
 import { startClaudeRun } from '../runs/claude.js';
@@ -325,6 +326,16 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
+    // `CONTENT_TYPES` trusts the label the upload gave itself; this checks the
+    // bytes agree with it, so a PNG-labelled file that is actually something
+    // else (HTML, say) is refused before it is ever written or served back.
+    const sniffed = sniffContentType(bytes);
+    if (sniffed !== file.type) {
+      return c.json(
+        { error: 'file contents do not match declared type', detail: `declared ${file.type}, looks like ${sniffed ?? 'something else'}` },
+        415,
+      );
+    }
     const id = crypto.randomUUID();
     const rel = relativeAssetPath(cardId, id, file.type);
     writeAsset(rel, bytes);
