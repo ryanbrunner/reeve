@@ -270,6 +270,16 @@ It runs from the worktree root, so it writes the database the dev server then
 opens. Its merged card is archived on the server's first merge-sync tick
 unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
 
+For the same repo the server command is `npm run build && npm start`, not
+`npm run dev`: dev runs Vite alongside the tsx API server, and Vite proxies
+`/api` to the live board's hardcoded 4317 and binds whatever port it likes,
+while the tsx server quietly answers the port Reeve tracks, serving
+`packages/web/dist` as of whenever it was last built — stale next to the
+card's own changes. Building before every start keeps what Testing and
+Preview see current. No `{{port}}`: `REEVE_PORT` already reaches the command
+in its environment, and the server announces `[reeve] http://127.0.0.1:<port>`
+for `announcedUrl` to read.
+
 ## Conventions
 
 - Strict TypeScript with `noUncheckedIndexedAccess` and `verbatimModuleSyntax`
