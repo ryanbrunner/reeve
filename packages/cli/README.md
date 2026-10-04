@@ -7,16 +7,28 @@ command has a `--json` mode.
 
 ## Install
 
-From the checkout:
+Published as `reeve-board` (`reeve` was taken on npm):
+
+```sh
+npm install -g reeve-board
+```
+
+From the checkout instead:
 
 ```sh
 npm install
-npm link -w @reeve/cli
+npm run build -w reeve-board   # makes dist/reeve.js, the bin's target
+npm link -w reeve-board
 ```
 
 `reeve` is now on your PATH in any directory. Without linking, `npm run cli --`
-runs the same thing, though npm runs it from the checkout's root, so that is the
-directory it infers a repo or card from.
+runs the same thing from source (no build needed), though npm runs it from the
+checkout's root, so that is the directory it infers a repo or card from.
+
+`reeve --version` prints the installed version. `reeve doctor` checks the two
+things an install can get wrong silently: that the native SQLite binding
+loads, and that a Chromium is there for Testing's screenshots (Playwright
+never downloads one on install; `doctor` says the command that does).
 
 Reeve itself has to be running (`npm run dev`, or `npm start`). The CLI talks to
 it over HTTP and never opens the database: creating or moving a card starts runs

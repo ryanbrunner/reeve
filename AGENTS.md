@@ -34,12 +34,20 @@ npm workspaces, four packages:
 - `packages/web` (`@reeve/web`) — Vite, React 19, TanStack Query, Tailwind v4.
   Design tokens are in the `@theme` block of `packages/web/src/index.css`;
   VIBES MODE's styles are scoped under `.vibes` in `packages/web/src/vibes.css`.
-- `packages/cli` (`@reeve/cli`) — the `reeve` command. `serve` is the only
-  command that imports the server; everything else goes through a running
-  server's HTTP API and never its database, because runs live in the server's
-  memory and a second process opening the database reaps them. Its `--json`
-  output is the API's own wire types from `@reeve/shared`, unreshaped; see its
-  README. Its `bin/reeve.js` registers tsx and imports `src/main.ts`.
+- `packages/cli` (npm name `reeve-board`; `reeve` was taken) — the `reeve`
+  command, and the one package actually published. `serve` and `doctor` are
+  the only commands that import the server; everything else goes through a
+  running server's HTTP API and never its database, because runs live in the
+  server's memory and a second process opening the database reaps them. Its
+  `--json` output is the API's own wire types from `@reeve/shared`, unreshaped;
+  see its README. In the checkout, `bin/reeve.js` registers tsx and imports
+  `src/main.ts`; published, `npm run build` (`packages/cli/scripts/build.mjs`)
+  bundles this workspace, `@reeve/server` and `@reeve/shared` with esbuild into
+  `dist/reeve.js`, code-split so commands other than `serve`/`doctor` never
+  load better-sqlite3, Playwright or the Agent SDK, and copies the drizzle
+  migrations, the stage prompts and the built web app in beside it — `prepack`
+  runs the same build before `npm pack`/`publish`. `config.ts` tells the two
+  layouts apart the same way it already told a checkout from an install.
 
 ## Commands
 
@@ -60,8 +68,9 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
 - `npm run cli -- <args>` — the `reeve` command, run from the repo root.
 - `npm run db:generate` — drizzle-kit; see Database migrations below.
 - `npm run -s cli -- <args>` — the CLI, against a server that is already
-  running; see its README. `npm link -w @reeve/cli` puts `reeve` on your PATH
-  instead.
+  running; see its README. `npm link -w reeve-board` puts `reeve` on your PATH
+  instead, once `npm run build -w reeve-board` has made `dist/reeve.js` for
+  its `bin` entry to point at.
 - `reeve serve` — the same server as `npm start`, opening the board once it is
   up, and doing nothing but opening it when one is already running. `--port`,
   `--db`, `--assets` and `--max-concurrent` set `REEVE_PORT`, `REEVE_DB`,
@@ -228,6 +237,38 @@ Migrations live in `packages/server/drizzle/` and run on every boot.
 - Parallel cards each generate the same next number from the same base, so a
   merge usually means renumbering the later migration and giving it a `when`
   above everything already merged.
+
+## Publishing
+
+`packages/cli` is the one package `npm publish` (or `npm pack`) actually
+ships, as `reeve-board`; the root package and every other workspace stay
+`private`. `npm run build -w reeve-board` (or `prepack`, which runs the same
+script before pack/publish) bundles this workspace with `@reeve/server` and
+`@reeve/shared` into `dist/reeve.js`, and copies the drizzle migrations, the
+stage prompts and `packages/web/dist` in beside it — none of those three are
+reachable by a relative import once this workspace is the only one left, so
+they travel as files instead. `config.ts` resolves `root`, `migrationsFolder`,
+`webDist` and `promptsDir` for both layouts off the same checkout-or-install
+check it already used for `dataDir`.
+
+`better-sqlite3`, Playwright, the Agent SDK, Hono and `drizzle-orm` stay
+external to the bundle — real `dependencies` of the published package,
+installed the normal npm way, so `better-sqlite3`'s prebuilt binary and the
+Agent SDK's own `cli.js` resolve against whatever Node ran `npm install`
+rather than whatever ran the bundler. Playwright does not download Chromium
+on install; that stays a separate, explicit `npx playwright install
+chromium`, since a sandboxed install (Homebrew's) cannot reach the network
+during one. `reeve doctor` checks both: that the native SQLite binding
+actually loads, and that a Chromium is there for Testing's screenshots.
+
+The bundle is code-split (`splitting: true` in `scripts/build.mjs`), not one
+file, because `serve.ts` reaches `@reeve/server` through a dynamic `import()`
+so that `reeve board` and the rest never load better-sqlite3, Playwright or
+the Agent SDK; a single-file bundle would hoist those imports to the top
+regardless of which command ran.
+
+`reeve --version` reads this package's own `package.json`, so a Homebrew
+formula test has something to check.
 
 ## Worktrees
 
