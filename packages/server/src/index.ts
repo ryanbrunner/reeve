@@ -155,3 +155,4 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
 }
 
 export { config };
+export { checkChromium, checkSqlite } from './doctor.js';
