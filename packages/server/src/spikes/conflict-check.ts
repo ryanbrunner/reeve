@@ -224,6 +224,17 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('dirty tree not merged', head(wt.path) === wt.before && !(await mergeInProgress(wt.path)));
   check('dirty refusal starts no run', stand.seen.task === undefined);
   check('dirty refusal releases the lock', !isResolvingConflicts(wt.id));
+  check('a human’s refusal writes nothing', events(wt.id, 'conflicts_refused').length === 0);
+
+  // The same refusal, with VIBES MODE as the caller: the HTTP error above has
+  // nobody reading it, so this is the one path that writes it to the card.
+  const sweep = await resolveConflicts(db, writer, getCard(db, wt.id)!, repo, stand.start, 'claude');
+  check('sweep’s refusal also refused', !sweep.ok && sweep.status === 409);
+  const refusals = events(wt.id, 'conflicts_refused');
+  check('sweep’s refusal written once', refusals.length === 1 && (refusals[0]?.body?.includes('uncommitted') ?? false));
+  const again = await resolveConflicts(db, writer, getCard(db, wt.id)!, repo, stand.start, 'claude');
+  check('a repeat of the same refusal refused', !again.ok && again.status === 409);
+  check('a repeat of the same reason writes no second event', events(wt.id, 'conflicts_refused').length === 1);
 
   const backlog = createCard(db, { title: 'Not done', repoId: repo.id, stage: 'testing' });
   const notDone = await resolveConflicts(db, writer, backlog, repo, stand.start);
