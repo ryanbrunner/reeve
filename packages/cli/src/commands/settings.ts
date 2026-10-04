@@ -20,14 +20,18 @@ import { parseStage } from '../resolve.js';
  * in there on the wire, but not here — see ./vibes.ts for why.
  */
 
-const KEYS = 'max-concurrent-runs, or <stage>.model or <stage>.effort for planning, in-progress or testing';
+const KEYS = 'max-concurrent-runs, suggest-tasks, or <stage>.model or <stage>.effort for planning, in-progress or testing';
 
-type Key = { kind: 'maxConcurrentRuns' } | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' };
+type Key =
+  | { kind: 'maxConcurrentRuns' }
+  | { kind: 'suggestTasks' }
+  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
 function parseKey(input: string): Key {
   const kebab = (s: string) => s.trim().replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase().replace(/[\s_]+/g, '-');
   if (kebab(input) === 'max-concurrent-runs') return { kind: 'maxConcurrentRuns' };
+  if (kebab(input) === 'suggest-tasks') return { kind: 'suggestTasks' };
   if (kebab(input) === 'vibes' || kebab(input) === 'vibes-mode') {
     throw usageError('VIBES MODE is not a setting to set in passing. Use `reeve vibes on` or `reeve vibes off`');
   }
@@ -37,6 +41,14 @@ function parseKey(input: string): Key {
   if (stage && isRunnable(stage) && (field === 'model' || field === 'effort')) return { kind: 'stage', stage, field };
   if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model or effort`);
   throw usageError(`'${input}' is not a setting. Settings: ${KEYS}`);
+}
+
+/** `on`/`off`/`true`/`false`, any case. Thrown for anything else, which is almost certainly a typo. */
+function requireBoolean(key: string, value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (v === 'on' || v === 'true') return true;
+  if (v === 'off' || v === 'false') return false;
+  throw usageError(`'${value}' is not on or off for ${key}`);
 }
 
 function requireEffort(value: string): EffortLevel {
@@ -58,6 +70,10 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
     if (n < 1) throw usageError('max-concurrent-runs must be at least 1');
     return { maxConcurrentRuns: n };
   }
+  if (key.kind === 'suggestTasks') {
+    // Unset goes back to on, the same default a board with no row ever reads.
+    return { suggestTasks: value === null ? true : requireBoolean('suggest-tasks', value) };
+  }
   const next = { ...current.stageDefaults[key.stage] };
   if (key.field === 'effort') next.effort = value === null ? null : requireEffort(value);
   else next.model = value;
@@ -75,6 +91,7 @@ function layered(value: string | null, builtIn: string | null | undefined): stri
 function render(settings: ApiSettings, models: ModelsResponse | null): string {
   const rows: Array<[string, string]> = [
     ['Max concurrent runs', String(settings.maxConcurrentRuns)],
+    ['Suggest follow-up cards', settings.suggestTasks ? 'on' : 'off'],
     ['VIBES MODE', settings.vibesSince === null ? 'off' : `ON since ${formatTime(settings.vibesSince)}`],
   ];
   const width = Math.max(...rows.map(([label]) => label.length));
@@ -118,6 +135,9 @@ async function set(args: string[], unset: boolean): Promise<void> {
   if (values.json) return printJson(saved);
   if (key.kind === 'maxConcurrentRuns') {
     return print(`Max concurrent runs: ${saved.maxConcurrentRuns}`);
+  }
+  if (key.kind === 'suggestTasks') {
+    return print(`Suggest follow-up cards: ${saved.suggestTasks ? 'on' : 'off'}`);
   }
   const stored = saved.stageDefaults[key.stage][key.field];
   print(`${STAGE_LABELS[key.stage]} ${key.field}: ${stored ?? 'back to the default'}`);
