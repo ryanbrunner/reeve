@@ -15,6 +15,14 @@ import { absoluteAssetPath } from '../assets/store.js';
 export function assetRoutes(db: Db) {
   const routes = new Hono();
 
+  // Defense in depth: the upload route already checks that an asset's bytes
+  // match its declared type, but nosniff means a browser never second-guesses
+  // that type from the bytes itself, on this response or the 404/410 beside it.
+  routes.use('*', async (c, next) => {
+    await next();
+    c.res.headers.set('X-Content-Type-Options', 'nosniff');
+  });
+
   routes.get('/:id', (c) => {
     const row = getAsset(db, c.req.param('id'));
     if (!row) return c.json({ error: 'not found' }, 404);
