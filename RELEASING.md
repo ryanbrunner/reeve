@@ -12,19 +12,22 @@ To cut one:
 
 ```sh
 npm version <patch|minor|major> -w reeve-board
-git push --follow-tags
+git add packages/cli/package.json package-lock.json
+git commit -m "Release v<version>"
+git tag v<version>
+git push && git push origin v<version>
 ```
 
-`npm version -w reeve-board` bumps `packages/cli/package.json` only — the
-root package and the other workspaces stay unversioned — commits that change,
-and tags it `v<version>`. `--follow-tags` pushes the commit and the tag
-together; the workflow only runs once the tag lands.
+`npm version -w reeve-board` bumps `packages/cli/package.json` (and the
+lockfile) only — the root package and the other workspaces stay unversioned.
+Run with `-w`, it never commits or tags on its own the way a bare `npm
+version` does, so both are a separate, explicit step here; the tag is what
+the workflow waits for, so it has to be pushed, not just created.
 
 The workflow publishes under the `NPM_TOKEN` repository secret, an npm
 automation token with publish rights on `reeve-board`; it is never committed.
 `GITHUB_TOKEN` is the one GitHub Actions already provides for the Release.
 
 A tag whose version doesn't match `packages/cli/package.json` fails the
-workflow before anything publishes, so a release is always the commit
-`npm version` made, not whatever HEAD happened to be when someone typed
-`git tag`.
+workflow before anything publishes, so check that the version bump landed
+before pushing the tag.
