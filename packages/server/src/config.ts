@@ -14,10 +14,13 @@ const packageRoot = resolve(import.meta.dirname, '..');
 // "Is there a .git" at the checkout candidate, rather than sniffing the path
 // for a Cellar or node_modules, so it holds for any packaging. In a card's
 // worktree `.git` is a file rather than a directory, and still counts: every
-// worktree and every spike run in one is a checkout. An installed copy has no
-// `.git` above it either way, so this is also what tells the two layouts
-// apart for `root`, `migrationsFolder`, `webDist` and `promptsDir` below.
-const isCheckout = existsSync(resolve(checkoutRoot, '.git'));
+// worktree and every spike run in one is a checkout. But a published install
+// can itself sit inside someone else's git repo (`npm install reeve-board`
+// into a project under version control), three levels above `dist/` landing
+// back inside that project's own root — which does have a `.git`, just not
+// this package's `packages/server/drizzle`. So both have to be true, which
+// only a checkout of this repo ever satisfies.
+const isCheckout = existsSync(resolve(checkoutRoot, '.git')) && existsSync(resolve(checkoutRoot, 'packages/server/drizzle'));
 const root = isCheckout ? checkoutRoot : packageRoot;
 
 /**
