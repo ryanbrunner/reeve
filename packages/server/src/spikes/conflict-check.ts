@@ -245,6 +245,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('clean merge pushed', remoteSha(wt.branch) === head(wt.path));
   check('clean merge is a merge of main', parents(wt.path).includes(wt.before) && parents(wt.path).includes(g('rev-parse', 'main').trim()));
   check('clean merge written as resolved', events(wt.id, 'conflicts_resolved')[0]?.meta?.['clean'] === true);
+  check('clean merge moves baseSha to main', getCard(db, wt.id)!.baseSha === g('rev-parse', 'main').trim());
 }
 
 // --- Claude resolves, the server checks and pushes -----------------------------
@@ -292,6 +293,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('merge commit pushed', remoteSha(wt.branch) === local);
   check('pushed without force', remoteBefore !== null && run(wt.path, 'merge-base', '--is-ancestor', remoteBefore, local) === '');
   check('merge contains the base head', parents(wt.path).includes(mainHead));
+  check('resolved merge moves baseSha to main', getCard(db, wt.id)!.baseSha === mainHead);
   const resolved = events(wt.id, 'conflicts_resolved')[0];
   check('conflicts_resolved written', resolved !== undefined && resolved.runId === runId);
   check('event carries the per-file notes', (resolved?.meta?.['files'] as unknown[] | undefined)?.length === 1);
@@ -316,6 +318,7 @@ for (const behaviour of ['fail', 'stop', 'markers'] as const) {
   check(`${behaviour}: nothing pushed`, remoteSha(wt.branch) === remoteBefore);
   check(`${behaviour}: conflicts_failed written`, failed !== undefined && events(wt.id, 'conflicts_resolved').length === 0);
   check(`${behaviour}: .reeve left alone`, existsSync(join(wt.path, '.reeve', 'plan.md')));
+  check(`${behaviour}: baseSha unchanged`, getCard(db, wt.id)!.baseSha === wt.baseSha);
 }
 
 // --- a push that fails keeps the merge, and pressing again pushes it -----------
