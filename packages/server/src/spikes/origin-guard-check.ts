@@ -7,7 +7,6 @@
  *
  *   REEVE_DB=/tmp/reeve-origin-guard.db npx tsx packages/server/src/spikes/origin-guard-check.ts
  */
-import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { serve } from '@hono/node-server';
