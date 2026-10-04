@@ -77,6 +77,20 @@ export function deleteAsset(relative: string): void {
 }
 
 /**
+ * What these bytes actually are, by the same signatures `imageSize` already
+ * parses (JPEG's checked one byte stricter) — not full validation, just
+ * enough to catch a file whose multipart `Content-Type` lies about it.
+ * Returns null for anything else, including a well-formed image of some
+ * other kind, which the caller treats the same as a mismatch.
+ */
+export function sniffContentType(bytes: Buffer): string | null {
+  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47) return 'image/png';
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (bytes.length >= 3 && bytes.readUInt16BE(0) === 0xffd8 && bytes[2] === 0xff) return 'image/jpeg';
+  return null;
+}
+
+/**
  * Pixel dimensions, read out of the file's own header.
  *
  * Thirty lines against a dependency: the modal needs an aspect ratio so a
