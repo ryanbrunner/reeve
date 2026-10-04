@@ -158,7 +158,7 @@ async function photograph<T extends CaptureTarget>(
 }
 
 /** Playwright errors carry a whole essay; the first line is the useful part. */
-function firstLine(cause: unknown): string {
+export function firstLine(cause: unknown): string {
   const text = cause instanceof Error ? cause.message : String(cause);
   return text.split('\n')[0] ?? text;
 }

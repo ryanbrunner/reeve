@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { DEFAULT_PORT } from '@reeve/shared';
 import { board } from './commands/board.js';
 import { card } from './commands/card.js';
+import { doctor } from './commands/doctor.js';
 import { project } from './commands/project.js';
 import { open } from './commands/open.js';
 import { repos } from './commands/repos.js';
@@ -12,6 +15,14 @@ import { runs } from './commands/runs.js';
 import { vibes } from './commands/vibes.js';
 import { EXIT } from './exit.js';
 import { CliError, note, print, usageError } from './output.js';
+
+// One level up from this file's own location, in a checkout
+// (packages/cli/src/main.ts) and in a published install, where this file is
+// bundled into dist/reeve.js: either way that is this package's own
+// package.json, so `reeve --version` reads the same version a formula test
+// would see installed.
+const VERSION = (JSON.parse(readFileSync(resolve(import.meta.dirname, '../package.json'), 'utf8')) as { version: string })
+  .version;
 
 const USAGE = `Usage: reeve <command> [options]
 
@@ -60,6 +71,11 @@ const USAGE = `Usage: reeve <command> [options]
       The repos cards can be made in, and how each one is set up.
   reeve run follow <run> [--json] / run stop <run>
       Stream a run already going, or stop it.
+  reeve doctor
+      Checks this install can actually run a stage: a native SQLite binding
+      that loads, and a Chromium Testing can launch for its screenshots.
+  reeve --version
+      This install's version, read off its own package.json.
 
 <card>   a card's id, or any prefix of it no other card shares. The board
          shows the first 8 characters, which are what its branch is named
@@ -89,6 +105,7 @@ async function run(args: string[]): Promise<void> {
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   board,
   card,
+  doctor,
   models,
   open,
   project: (args) => project.run(args),
@@ -106,6 +123,7 @@ const SELF_HELP = new Set(['card', 'project']);
 
 async function main(argv: string[]): Promise<void> {
   const [first] = argv;
+  if (first === '--version' || first === '-v') return print(VERSION);
   if (first === undefined || first === 'help' || first === '--help' || first === '-h') return print(USAGE);
   const command = Object.hasOwn(COMMANDS, first) ? COMMANDS[first] : undefined;
   if (!command) throw usageError(`unknown command '${first}'`);
