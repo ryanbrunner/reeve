@@ -297,6 +297,12 @@ regardless of which command ran.
 `reeve --version` reads this package's own `package.json`, so a Homebrew
 formula test has something to check.
 
+A `v*` tag runs `.github/workflows/release.yml`: typecheck, test, build and
+pack `reeve-board` exactly as above, check the tag against its version,
+`npm publish`, and a GitHub Release carrying the tarball's sha256 in its
+notes, for the formula to pin. See [RELEASING.md](RELEASING.md) for how to
+cut one.
+
 ## Worktrees
 
 A card's worktree is a fresh checkout. It has no `node_modules` unless the
