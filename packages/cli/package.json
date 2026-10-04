@@ -1,21 +1,48 @@
 {
-  "name": "@reeve/cli",
-  "private": true,
-  "type": "module",
-  "bin": {
-    "reeve": "./bin/reeve.js"
+  "name": "reeve-board",
+  "version": "0.1.0",
+  "description": "A local kanban board where Claude plans, builds and tests each card in its own git worktree",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanbrunner/reeve.git"
   },
+  "homepage": "https://github.com/ryanbrunner/reeve#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "reeve": "./dist/reeve.js"
+  },
+  "files": [
+    "dist",
+    "drizzle",
+    "web",
+    "prompts"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test 'src/**/*.test.ts'"
+    "test": "tsx --test 'src/**/*.test.ts'",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs"
   },
   "dependencies": {
-    "@reeve/server": "*",
-    "@reeve/shared": "*",
-    "tsx": "^4.23.15"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.281",
+    "@hono/node-server": "^2.1.1",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.3",
+    "hono": "^4.13.8",
+    "playwright": "^1.63.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@reeve/server": "*",
+    "@reeve/shared": "*",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }

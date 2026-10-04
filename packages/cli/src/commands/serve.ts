@@ -52,9 +52,16 @@ export async function serve(args: string[]): Promise<void> {
   // and no other command needs them.
   const { config, startServer } = await import('@reeve/server');
   // `npm run dev` serves the frontend from Vite, so the server treats a
-  // missing build as normal. Here it would be a blank page.
+  // missing build as normal. Here it would be a blank page. Which fix makes
+  // sense depends on whether `config.root` is a checkout or an install — the
+  // same test `config.ts` uses to place the database — since telling someone
+  // to `npm run build` inside a Homebrew Cellar would be nonsense.
   if (!existsSync(config.webDist)) {
-    throw new CliError(`the web app has not been built. Run \`npm run build\` in ${config.root}, then \`reeve\` again.`);
+    throw new CliError(
+      existsSync(resolve(config.root, '.git'))
+        ? `the web app has not been built. Run \`npm run build\` in ${config.root}, then \`reeve\` again.`
+        : `this install of Reeve is missing its web app (${config.webDist}). Reinstall Reeve.`,
+    );
   }
 
   let listening: string;
