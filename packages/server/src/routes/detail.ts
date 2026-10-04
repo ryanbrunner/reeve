@@ -38,6 +38,7 @@ import {
   sniffContentType,
   writeAsset,
 } from '../assets/store.js';
+import { requireJsonContentType } from '../security.js';
 import { startClaudeRun } from '../runs/claude.js';
 import { splitProjectTask } from '../stages/split_project.js';
 import { suggestCriteriaTask } from '../stages/suggest_criteria.js';
@@ -118,6 +119,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.post('/:id/criteria', async (c) => {
     const id = c.req.param('id');
     if (!found(id)) return c.json({ error: 'not found' }, 404);
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = criterionSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid criterion', detail: parsed.error.message }, 400);
     return c.json(toApiCriterion(addCriterion(db, id, parsed.data.text.trim(), 'human')), 201);
@@ -165,6 +168,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   });
 
   routes.patch('/:id/criteria/:criterionId', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = criterionPatchSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid criterion', detail: parsed.error.message }, 400);
     const updated = updateCriterion(db, c.req.param('criterionId'), parsed.data);
@@ -185,6 +190,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.post('/:id/refs', async (c) => {
     const id = c.req.param('id');
     if (!found(id)) return c.json({ error: 'not found' }, 404);
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = refSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid ref', detail: parsed.error.message }, 400);
     const { kind, value, label } = parsed.data;
@@ -200,6 +207,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.post('/:id/dependencies', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = dependencySchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid dependency', detail: parsed.error.message }, 400);
     const result = linkDependency(db, card, parsed.data.dependsOnId);
@@ -225,6 +234,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
 
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = answerSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid answer', detail: parsed.error.message }, 400);
 
@@ -249,6 +260,8 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   routes.post('/:id/notes', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = noteSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid note', detail: parsed.error.message }, 400);
     const event = insertCardEvent(db, {

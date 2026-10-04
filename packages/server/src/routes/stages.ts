@@ -14,6 +14,7 @@ import {
 import { checkWorktree } from '../git/worktree.js';
 import { toApiRunSummary } from '../mappers.js';
 import { approveStage, sendBackForRevision } from '../review.js';
+import { requireJsonContentType } from '../security.js';
 import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
@@ -61,6 +62,8 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
     const { card, repo } = loaded;
 
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = reviewSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
     const { decision, notes } = parsed.data;

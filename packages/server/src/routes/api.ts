@@ -35,6 +35,7 @@ import {
 } from '../db/queries.js';
 import { toApiProject, toApiRepo, toApiRunSummary } from '../mappers.js';
 import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js';
+import { requireJsonContentType } from '../security.js';
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
@@ -236,6 +237,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.patch('/settings', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
     const body: ApiSettings = updateSettings(db, parsed.data);
@@ -252,6 +255,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   api.get('/repos', (c) => c.json(listRepos(db).map(toApiRepo)));
 
   api.post('/repos', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
 
@@ -278,6 +283,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.patch('/repos/:id', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
     const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
@@ -308,6 +315,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.post('/cards', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     if (parsed.data.repoId && !listRepos(db).some((p) => p.id === parsed.data.repoId)) {
@@ -335,6 +344,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.patch('/cards/:id', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = updateCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -396,6 +407,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.post('/cards/:id/move', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = moveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid move', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -448,6 +461,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   });
 
   api.post('/cards/:id/archive', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = archiveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid archive', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -513,6 +528,8 @@ export function apiRoutes(db: Db, writer: EventWriter) {
    * check that this is a suggestion still waiting on someone is made once.
    */
   api.post('/cards/:id/suggestion', async (c) => {
+    const badType = requireJsonContentType(c);
+    if (badType) return badType;
     const parsed = suggestionDecisionSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid decision', detail: parsed.error.message }, 400);
     const id = c.req.param('id');

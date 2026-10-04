@@ -216,7 +216,9 @@ export const api = {
   updateCard: (id: string, body: UpdateCardBody) => write<ApiCard>('PATCH', `/api/cards/${enc(id)}`, body),
   /** The card it answers with has `repoName: null`; take that from the board. */
   moveCard: (id: string, body: MoveCardBody) => write<ApiCard>('POST', `/api/cards/${enc(id)}/move`, body),
-  archiveCard: (id: string, body?: ArchiveCardBody) =>
+  // A body, even empty: the route requires `content-type: application/json`
+  // now, which `write` only sends when there is a body to send it with.
+  archiveCard: (id: string, body: ArchiveCardBody = {}) =>
     write<ArchiveCardResponse>('POST', `/api/cards/${enc(id)}/archive`, body),
   restoreCard: (id: string) => write<ApiCard>('POST', `/api/cards/${enc(id)}/restore`),
   /** Accepting keeps a suggested card in Backlog; rejecting archives it. Refused for anything else. */
