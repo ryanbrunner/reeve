@@ -599,7 +599,7 @@ const QUESTIONS_USAGE = `  reeve card questions <card> [--json]
       What Claude asked in the stage the card is in, answered or not.
       --json prints the list as the server returned it.`;
 
-const ANSWER_USAGE = `  reeve card answer <card> <question> (<answer…> | --suggestion N) [--json]
+const ANSWER_USAGE = `  reeve card answer <card> <question> (<answer…> | --suggestion N | -s N) [--json]
       Answer one question, named by its number (1 is the first) or its id. The answer is either
       the rest of the command line, or one of the question's own suggestions, picked by number.
       Once every open question on the card is answered, the run resumes and its id is printed.
@@ -650,7 +650,9 @@ const DIFF_USAGE = `  reeve card diff [<card>] [--stat] [--json]
       or the commit it landed as, once merged. With no card, the one whose worktree the current
       directory is in.
       --stat prints a summary of files and line counts instead of the diff itself.
-      --json prints the parsed diff the Diff tab reads, instead of git's own text.`;
+      Without --json this is rebuilt from the parsed diff and reads like git's but has no index
+      lines, so it will not always \`git apply\`; for that, run git in the worktree.
+      --json prints the parsed diff the Diff tab reads, instead of the rendered text.`;
 
 const COMMITS_USAGE = `  reeve card commits [<card>] [--json]
       The card's commits, newest first, the same list as the rail. With no card, the one whose
@@ -683,8 +685,14 @@ const VERBS: Record<string, Command> = {
   commits: { usage: COMMITS_USAGE, run: commits },
 };
 
-/** Every verb now carries its own usage text, so the page is just all of them in a row. */
-const CARD_USAGE = ['reeve card <verb>:', '', ...Object.values(VERBS).map((c) => c.usage).filter(Boolean)].join('\n');
+/** Every verb carries its own usage text, so the page is just all of them in a row. */
+const CARD_USAGE = [
+  'reeve card <verb>. <card>, exit status and where Reeve is found: see reeve --help.',
+  '',
+  ...Object.values(VERBS)
+    .map((c) => c.usage)
+    .filter(Boolean),
+].join('\n');
 
 export async function card(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
