@@ -11,13 +11,8 @@ if (listRepos(db).length === 0) {
     setupCommand: 'npm install',
     testCommand: 'npm run typecheck',
     seedCommand: null,
-    // Not `npm run dev`: that leaves Vite serving the live board's own API
-    // (hardcoded to 4317 in `vite.config.ts`) from whatever port it picks for
-    // itself, while the worktree's own tsx server quietly answers the port
-    // Reeve actually tracks, serving `packages/web/dist` built as of whenever
-    // it was last built — stale next to the card's own changes. Building
-    // before every start keeps what Testing and Preview see current, at the
-    // cost of the reload a running Vite would give a person clicking around.
+    // Builds first, so the tsx server on Reeve's port serves this worktree's
+    // UI, not a stale `dist` (see AGENTS.md's Worktrees section).
     serverCommand: 'npm run build && npm start',
     teardownCommand: null,
     finishCommand: null,
