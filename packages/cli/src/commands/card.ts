@@ -564,22 +564,74 @@ function failure(card: ApiCard, outcome: WaitExit): string {
   return `: ${errorMessage ?? stopReason ?? card.latestRun.status}`;
 }
 
+const SHOW_USAGE = `  reeve card show <card> [--json]
+      A card in full: its facts, criteria, open questions, plan and runs.`;
+
+const RUN_USAGE = `  reeve card run <card> [--follow | -f] [--json]
+      Start the stage the card is in. --follow streams the run's transcript; combined with
+      --json, that is \`run follow\`'s own JSON events, not this command's result.`;
+
+const QUESTIONS_USAGE = `  reeve card questions <card> [--json]
+      What Claude asked in the card's current stage that it could not decide for itself, and
+      whether each has been answered yet.`;
+
+const ANSWER_USAGE = `  reeve card answer <card> <question> <answer...> [--json]
+      reeve card answer <card> <question> --suggestion N | -s N [--json]
+      Answer one of a card's open questions, by its number (1 for the first) or its id. The
+      answer is the rest of the command line, or, with --suggestion, one of the question's own
+      suggestions instead. Once every question on the run is answered, Claude resumes on its
+      own and the resumed run's id is on stdout.`;
+
+const WAIT_USAGE = `  reeve card wait <card> [--timeout S] [--json]
+      Block until the card's run wants a person, and say which by exit status: see the table in
+      \`reeve --help\`. A card that already needs one returns at once.`;
+
+const WORKTREE_USAGE = `  reeve card worktree [<card>] [--remove] [--json]
+      The card's worktree path, making one first if it has none — which also starts the repo's
+      setup command in the background. --remove deletes it instead, uncommitted work included;
+      the branch stays. With no card, the one whose worktree the cwd is in.`;
+
+const PR_USAGE = `  reeve card pr [<card>] [--json]
+      Push the card's branch and open its pull request, or push to the one already open. With
+      no card, the one whose worktree the cwd is in.`;
+
+const RESOLVE_CONFLICTS_USAGE = `  reeve card resolve-conflicts [<card>] [--json]
+      Merge the base branch into a Done card's branch and push it. A conflict is resolved by
+      Claude in a run of its own, and the push waits for that; a clean merge is pushed before
+      this returns.`;
+
+const MERGE_USAGE = `  reeve card merge [<card>] [--json]
+      Merge a Done card's pull request on GitHub, as the board's Merge button would, and only
+      when GitHub has already said the pull request merges cleanly.`;
+
+const SERVER_USAGE = `  reeve card server [<card>] [--stop] [--json]
+      Start the repo's dev server in the card's worktree and print its URL, or print it again
+      if one is already running. --stop stops it instead. With no card, the one whose worktree
+      the cwd is in.`;
+
+const DIFF_USAGE = `  reeve card diff [<card>] [--stat] [--json]
+      What the card has changed against the commit its worktree started from, committed or
+      not. --stat prints file-by-file totals instead of the diff itself.`;
+
+const COMMITS_USAGE = `  reeve card commits [<card>] [--json]
+      The card's commits, newest first, the same list as the rail.`;
+
 /**
  * `reeve card <verb>`: everything done to one card, under the noun it is done
  * to — reading it, driving the stage it is in, and writing it.
  *
- * The verbs that came with the board's own reader are plain functions and take
- * their help from the one usage page in `main.ts`; the ones that write a card
- * carry their own, and `--help` after such a verb prints that.
+ * Every verb below carries its own usage, so `--help` after it prints that
+ * and exits 0, except approve and reject, which still take theirs from the
+ * one usage page in `main.ts`.
  */
 const VERBS: Record<string, Command> = {
-  show: { usage: '', run: show },
-  run: { usage: '', run },
+  show: { usage: SHOW_USAGE, run: show },
+  run: { usage: RUN_USAGE, run },
   approve: { usage: '', run: approve },
   reject: { usage: '', run: reject },
-  questions: { usage: '', run: questions },
-  answer: { usage: '', run: answer },
-  wait: { usage: '', run: wait },
+  questions: { usage: QUESTIONS_USAGE, run: questions },
+  answer: { usage: ANSWER_USAGE, run: answer },
+  wait: { usage: WAIT_USAGE, run: wait },
   add,
   edit,
   criteria,
@@ -589,13 +641,13 @@ const VERBS: Record<string, Command> = {
   restore,
   accept,
   dismiss,
-  worktree: { usage: '', run: worktree },
-  pr: { usage: '', run: pr },
-  'resolve-conflicts': { usage: '', run: resolveConflicts },
-  merge: { usage: '', run: merge },
-  server: { usage: '', run: server },
-  diff: { usage: '', run: diff },
-  commits: { usage: '', run: commits },
+  worktree: { usage: WORKTREE_USAGE, run: worktree },
+  pr: { usage: PR_USAGE, run: pr },
+  'resolve-conflicts': { usage: RESOLVE_CONFLICTS_USAGE, run: resolveConflicts },
+  merge: { usage: MERGE_USAGE, run: merge },
+  server: { usage: SERVER_USAGE, run: server },
+  diff: { usage: DIFF_USAGE, run: diff },
+  commits: { usage: COMMITS_USAGE, run: commits },
 };
 
 /** The verbs that carry help, and a line for the ones that take theirs from `main.ts`. */
