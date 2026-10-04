@@ -7,11 +7,16 @@ import { realOrSelf } from '../git/worktree.js';
 /**
  * Answering the permission prompts nobody is there to answer.
  *
- * Every run is in auto mode, so the SDK's classifier is the policy: it approves
- * what Claude Code's auto mode would approve and refuses the rest, in any
- * language's toolchain. Stages used to carry their own lists instead, and the
- * lists were Node's: a Rust repo could not build, and `ls | head` was refused
- * everywhere. What a stage should and should not do is now said in its prompt.
+ * Every run asks for auto mode, so the SDK's classifier is the policy: it
+ * approves what Claude Code's auto mode would approve and refuses the rest, in
+ * any language's toolchain. A pinned model that doesn't take auto mode (see
+ * `fitToModel` in runs/claude.ts) runs in the SDK's own default mode instead,
+ * where this callback is still wired the same way and still only ever
+ * refuses — just asked about more, since default mode escalates every edit
+ * rather than only what its own classifier cannot decide. Stages used to
+ * carry their own lists instead, and the lists were Node's: a Rust repo could
+ * not build, and `ls | head` was refused everywhere. What a stage should and
+ * should not do is now said in its prompt.
  *
  * What reaches this callback is what the classifier escalated rather than
  * decided, and the answer is always no. Nobody is watching to say yes, and a
