@@ -109,10 +109,14 @@ const probe = new Request('http://localhost/x', { headers: { host: 'attacker.exa
 check('a forged Host survives into the Request object', probe.headers.get('host') === 'attacker.example', `got ${probe.headers.get('host')}`);
 
 console.log('\n--- plain CSRF: foreign Origin, honest loopback Host ---');
+// content-type is text/plain, not application/json: a real foreign page
+// cannot set application/json on a cross-site request without a preflight,
+// which this server's lack of CORS headers would fail. text/plain is the
+// shape a <form> or a plain fetch(..., {mode:'no-cors'}) can actually send.
 const plainCsrf = await app.request('/api/repos', {
   method: 'POST',
   headers: {
-    'content-type': 'application/json',
+    'content-type': 'text/plain',
     origin: 'http://attacker.example',
     host: '127.0.0.1:4317',
   },
@@ -156,8 +160,13 @@ check('the forged testCommand is stored and echoed back verbatim', plantedRepo.t
 
 // POST /:id/test only checks that the card has *a* worktreePath, never that
 // it is a real, checked-out worktree (checkWorktree is not called) — so a
-// card pointed at any directory is enough. Set it the same way startStage.ts
-// does after a real worktree is made, without going through Claude at all.
+// card pointed at any directory is enough. Two shortcuts here, called out
+// rather than left implicit: `createCard` is a direct database call, not the
+// `POST /api/cards` route (which is exposed the same way `/api/repos` is,
+// read above but not re-driven, to keep this chain to one HTTP call per
+// step); and the worktreePath is a direct DB write standing in for what a
+// real card already has once a stage has made it a worktree — in a real
+// attack this step does not exist at all: the victim's card already has one.
 const card = createCard(db, { title: 'csrf chain', kind: 'task', repoId: plantedRepo.id });
 db.update(cardTable).set({ worktreePath: repoDir }).where(eq(cardTable.id, card.id)).run();
 
@@ -175,14 +184,25 @@ console.log('\n--- what this adds up to ---');
 console.log(
   'POST /api/repos is reachable as a simple cross-site request (no CORS preflight to fail),\n' +
     'accepts a JSON body under any content-type, and checks neither Host nor Origin — and the\n' +
-    "repo it creates can carry an attacker-chosen testCommand. Given a card id (the same POST\n" +
-    'router mounts POST /api/cards/:id/test, which calls startShellRun -> spawn(..., {shell:true})\n' +
-    'and checks only that worktreePath is set, not that the worktree is real), a forged request\n' +
-    'with no special headers runs an attacker-chosen shell command. Under plain CSRF this is blind\n' +
-    '(ids are in unreadable responses, so the attacker needs the id some other way — e.g. the card\n' +
-    "the victim already has open); under DNS rebinding the attacker's page reads every response\n" +
-    'and can chain repo creation -> card creation (if exposed similarly) -> test, end to end, on\n' +
-    'its own.',
+    "repo it creates can carry an attacker-chosen testCommand. POST /api/cards/:id/test, mounted\n" +
+    'the same way, calls startShellRun -> spawn(..., {shell:true}) and checks only that\n' +
+    'worktreePath is set, never that the worktree is real.\n' +
+    '\n' +
+    'Plain CSRF (foreign Origin, honest loopback Host) is blind: with no Access-Control-Allow-*\n' +
+    'header, the browser never lets the foreign page read any response, and repo/card ids are\n' +
+    'UUIDs with no numbered or prefix lookup on the server (the CLI\'s short-id matching in\n' +
+    'resolve.ts runs client-side, against a board the page cannot fetch and read either). So a\n' +
+    'blind attacker can PATCH a testCommand onto a repo only if it already knows a real repo id,\n' +
+    'and otherwise is limited to planting junk repos and cards it can never point `/test` at,\n' +
+    'unless it can also predict or has independently learned a real id.\n' +
+    '\n' +
+    'DNS rebinding removes that limit: once the browser believes attacker.example is 127.0.0.1,\n' +
+    'the page is same-origin and reads every response. It can POST /api/repos, read the id back,\n' +
+    'PATCH /api/repos/:id to add a testCommand to a repo a real card already uses, or POST\n' +
+    '/api/cards (exposed the same way, not re-driven here) into a runnable stage so setupCommand\n' +
+    'runs as the worktree is made, or call /test on a card it already found a worktree for by\n' +
+    'reading GET /api/board. End to end, with nothing more than a victim leaving a rebinding page\n' +
+    'open in a tab next to Reeve.',
 );
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
