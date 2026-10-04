@@ -40,7 +40,7 @@ import { VibesTicker } from './vibes/Ticker.js';
 import { useVibes, type Vibes } from './vibes/useVibes.js';
 import { UsageMeter, UsageWarning } from './usage/UsageMeter.js';
 import { api, cardsIn } from './lib/api.js';
-import { Dropdown, type DropdownOption } from './lib/Dropdown.js';
+import type { DropdownOption } from './lib/Dropdown.js';
 
 export function App() {
   const qc = useQueryClient();
@@ -196,9 +196,10 @@ export function App() {
    * only hang off a card that exists, and a card needs a title typed into it.
    * Add Project the same way, since a project's brief is what it is for.
    *
-   * Ship it, in VIBES MODE, does not open anything: the title came with the
-   * request and the card is already on its way, so putting a modal over the
-   * board would hide the one thing worth watching.
+   * VIBES MODE adds cards through the same ghost, in the same modal: a card
+   * fresh off it is held (`packages/server/src/cardHold.ts`) until that modal
+   * closes, so the sweep never takes a card nobody has finished describing yet
+   * — the one thing a separate, no-modal "Ship it" box could not promise.
    */
   const create = useMutation({
     mutationFn: (body: CreateCardBody) => api.createCard(body),
@@ -258,10 +259,6 @@ export function App() {
       kind: 'project',
       repoId: repos.length === 1 ? (repos[0]?.id ?? null) : null,
     });
-  // VIBES MODE's Ship it: named already, so it is not opened, and under no
-  // project, since the header has no lane to file it in.
-  const shipIt = ({ repoId, title }: { repoId: string | null; title: string }) =>
-    create.mutate({ title, repoId, stage: 'backlog' });
 
   // Which cards are on main, as one string so the identity only changes when
   // the set does. The ids and not the count, because two merges landing in one
@@ -396,6 +393,9 @@ export function App() {
                   laneId={lane.id}
                   justMerged={vibes.justMerged}
                   onOpen={openAndClose.open}
+                  onAdd={(repoId) => addCard(lane.id, repoId)}
+                  addOptions={addOptions(lane.id)}
+                  adding={create.isPending}
                 />
               : <div className="grid grid-cols-5 gap-3 min-w-[920px]">
                   {STAGES.map((stage) => (
@@ -440,7 +440,6 @@ export function App() {
           <Header
             repos={repos}
             onAddProject={addProject}
-            onShip={shipIt}
             adding={create.isPending}
             addError={create.error}
             moveError={refusal}
@@ -583,11 +582,9 @@ function useArchiveParam() {
   return [open, show] as const;
 }
 
-function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibes }: {
+function Header({ repos, onAddProject, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibes }: {
   repos: ApiRepo[];
   onAddProject: () => void;
-  /** VIBES MODE's Ship it: a named card, made without opening it. */
-  onShip: (v: { repoId: string | null; title: string }) => void;
   adding: boolean;
   addError: Error | null;
   /** Why the last drag was refused, while it is still worth saying. */
@@ -597,19 +594,6 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
   usage: UsageState | null;
   vibes: Vibes;
 }) {
-  // Only VIBES MODE's Ship it picks a repo here. On the calm board a card is
-  // added from the ghost in its lane, which asks for its repo when there are
-  // several, but VIBES MODE's wells have no ghost, so this is its only chance.
-  // Filed under the first repo unless told otherwise, because an unfiled
-  // card is a dead one: no repo means no worktree, which means no stage can
-  // run.
-  // `null` is "hasn't said", `''` is "said no repo" — two different things,
-  // and collapsing them makes No repo unpickable: the fallback below would
-  // read the empty string as untouched and snap the select back to the first.
-  const [repoId, setRepoId] = useState<string | null>(null);
-  const [idea, setIdea] = useState('');
-  const chosen = repoId === '' || repos.some((p) => p.id === repoId);
-  const filedUnder = chosen ? repoId! : (repos[0]?.id ?? '');
   const on = vibes.on;
   return (
     <header className="sk-hdr flex items-center gap-3 border-b border-(--color-edge) px-4 py-3">
@@ -625,59 +609,26 @@ function Header({ repos, onAddProject, onShip, adding, addError, moveError, onOp
         </p>
       )}
       <UsageMeter usage={usage} />
-      {/* In VIBES MODE the idea is typed here rather than into a modal: the card
-          it makes is named, so the sweep can take it immediately, and nothing
-          covers the board while it goes. */}
+      {/* The same form VIBES MODE and the calm board both use: a project here,
+          a card from the ghost at the foot of each Backlog column — vibes or
+          not, nothing starts until the card it makes has been named and its
+          modal closed. */}
       <form
         className="ml-auto flex shrink-0 items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!on) return onAddProject();
-          const title = idea.trim();
-          if (!title) return;
-          onShip({ repoId: filedUnder || null, title });
-          setIdea('');
+          onAddProject();
         }}
       >
         {addError && <p className="font-mono text-[10px]/4 text-red-300">{addError.message}</p>}
-        {on && repos.length > 0 && (
-          <Dropdown
-            label="Repo for the new card"
-            value={filedUnder}
-            options={[
-              ...repos.map((p) => ({ value: p.id, label: p.name, color: p.laneColor ?? '#3f4754' })),
-              { value: '', label: 'No repo', color: '#3f4754' },
-            ]}
-            onChange={setRepoId}
-            className="sk-field rounded-md bg-(--color-panel) px-2 py-1.5 whitespace-nowrap text-(--color-muted)"
-          />
-        )}
-        {on && (
-          <>
-            <label className="sr-only" htmlFor="new-idea">New idea</label>
-            <input
-              id="new-idea"
-              type="text"
-              value={idea}
-              onChange={(e) => setIdea(e.target.value)}
-              placeholder="New idea → main"
-              className="sk-field w-56 rounded-md border border-(--color-edge) bg-(--color-panel) px-3 py-1.5 text-sm text-(--color-text) outline-none placeholder:text-(--color-muted)"
-            />
-          </>
-        )}
-        {/* Held while the card or project is being made: a double-click would
-            otherwise make two, and open both. On the calm board this makes a
-            project; cards are added from the ghost at the foot of each Backlog
-            column, in the lane they belong to. */}
+        {/* Held while the project is being made: a double-click would
+            otherwise make two, and open both. */}
         <button
           type="submit"
-          disabled={adding || (on && idea.trim() === '')}
-          className={`rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium whitespace-nowrap hover:bg-sky-600 disabled:opacity-40 ${
-            on ? 'sk-add' : ''
-          }`}
+          disabled={adding}
+          className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-medium whitespace-nowrap hover:bg-sky-600 disabled:opacity-40"
         >
-          {/* A card added while this is on does not wait in Backlog for anyone. */}
-          {on ? 'Ship it' : 'Add Project'}
+          Add Project
         </button>
       </form>
       <button

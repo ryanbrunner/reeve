@@ -1,5 +1,6 @@
 import { STAGES, type ApiCard } from '@reeve/shared';
 import { Column } from '../board/Column.js';
+import type { DropdownOption } from '../lib/Dropdown.js';
 import { VibesCards, useVibesLane } from './Cards.js';
 import { cardsIn } from '../lib/api.js';
 
@@ -12,11 +13,15 @@ import { cardsIn } from '../lib/api.js';
  * The lane grows only when a column is deep enough to need it, so on an
  * ordinary board it is exactly the height the calm one was.
  */
-export function VibesLane({ cards, laneId, justMerged, onOpen }: {
+export function VibesLane({ cards, laneId, justMerged, onOpen, onAdd, addOptions, adding }: {
   cards: ApiCard[];
   laneId: string | null | undefined;
   justMerged: ReadonlySet<string>;
   onOpen?: (id: string) => void;
+  /** The same ghost the calm board's Backlog column offers, for the same reason. */
+  onAdd?: (repoId: string | null) => void;
+  addOptions?: DropdownOption[];
+  adding?: boolean;
 }) {
   const { placed, height, hot } = useVibesLane(cards);
   return (
@@ -32,6 +37,9 @@ export function VibesLane({ cards, laneId, justMerged, onOpen }: {
             vibes
             hot={hot.has(i)}
             skipped={stage === 'planning'}
+            onAdd={stage === 'backlog' ? onAdd : undefined}
+            addOptions={stage === 'backlog' ? addOptions : undefined}
+            adding={adding}
           >
             {stage === 'planning' && <NoPlanning />}
           </Column>
