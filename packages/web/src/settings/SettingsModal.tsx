@@ -201,6 +201,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   const qc = useQueryClient();
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
+  const [suggestTasks, setSuggestTasks] = useState(settings.suggestTasks);
   const [saved, setSaved] = useState(false);
   // Asked of the CLI once per server process, so there is nothing to refetch.
   const { data: catalogue } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
@@ -212,7 +213,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   };
 
   const save = useMutation({
-    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults }),
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults, suggestTasks }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -246,6 +247,26 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
             mono
           />
         </Field>
+        {/* Not a Field: that is a label around its control, and here the
+            control is the label's own first child, as a checkbox's is. */}
+        <div className="flex flex-col gap-1">
+          <label className="flex w-fit cursor-pointer items-center gap-2 font-mono text-[11px]/4 text-(--color-text)">
+            <input
+              type="checkbox"
+              checked={suggestTasks}
+              onChange={(e) => {
+                setSaved(false);
+                setSuggestTasks(e.target.checked);
+              }}
+              className="accent-sky-600"
+            />
+            Suggest follow-up cards
+          </label>
+          <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+            Off stops a stage adding cards to Backlog on its own, and stops VIBES MODE coming up with ideas once a
+            repo runs dry. Cards already in Backlog stay.
+          </span>
+        </div>
       </section>
 
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">

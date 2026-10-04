@@ -30,6 +30,10 @@ import { ideasTask } from '../stages/ideas.js';
  * A statement about the board as it is now, like every rule in the sweep, so
  * that the cap being full or the switch going off simply means it happens on a
  * later pass or not at all.
+ *
+ * Settings' own "Suggest follow-up cards" switch governs this too: off, it
+ * means Reeve stops thinking of ideas on its own, the same as it stops a stage
+ * suggesting cards beside its own work.
  */
 
 /**
@@ -45,6 +49,7 @@ import { ideasTask } from '../stages/ideas.js';
  * worth doing — stays empty until something else in it finishes.
  */
 export function ideaSource(db: Db, repo: Repo, since: Date): Card | null {
+  if (!getSettings(db).suggestTasks) return null;
   if (repo.archivedAt) return null;
   if (openCardsInRepo(db, repo.id).length > 0) return null;
   if (liveTaskRunInRepo(db, repo.id, ideasTask.id)) return null;

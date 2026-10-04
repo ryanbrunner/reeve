@@ -439,6 +439,11 @@ export interface ApiSettings {
   /** When VIBES MODE was switched on; null while it is off. */
   vibesSince: number | null;
   /**
+   * Whether a stage may add cards of its own to Backlog, and VIBES MODE may
+   * think up ideas once a repo runs dry. On by default.
+   */
+  suggestTasks: boolean;
+  /**
    * Every runnable stage is present, so the form can loop over them. A null in
    * one falls through to what the stage's own module asks for.
    */
@@ -455,6 +460,8 @@ export interface UpdateSettingsBody {
    * on would otherwise wipe every number the HUD is showing.
    */
   vibes?: boolean;
+  /** Off stops a stage suggesting tasks and VIBES MODE thinking up ideas. */
+  suggestTasks?: boolean;
 }
 
 /**

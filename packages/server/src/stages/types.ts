@@ -36,6 +36,12 @@ export interface StageContext {
    * the run the same way all three do: as prompt.
    */
   notes?: string[];
+  /**
+   * Whether Settings allows this run to suggest cards of its own. Undefined
+   * means on, the same reading `getSettings` gives a board with no row yet, so
+   * a hand-built context (a spike) that never sets it behaves as it always did.
+   */
+  suggestTasks?: boolean;
 }
 
 export interface ArtifactDraft {

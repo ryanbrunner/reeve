@@ -116,6 +116,7 @@ export function stageContextFor(
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
     notes: unreadNotesFor(db, base.card.id),
+    suggestTasks: getSettings(db).suggestTasks,
   };
 }
 
@@ -413,6 +414,12 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       return;
     }
 
+    // Re-read rather than trusted from when the run started: a switch flipped
+    // mid-run must still be the one `onComplete` sees, the same as the
+    // guarantee `recordSuggestions` makes for itself in `onPersist` below —
+    // otherwise `.reeve/implementation.md` could list suggestions that
+    // `recordSuggestions` then declines to turn into cards.
+    ctx.suggestTasks = getSettings(db).suggestTasks;
     materialiseArtifacts(db, card, worktreePath, runId, stage, ctx, parsed.data, runStage);
     // Files first, then rows, then the run is marked done — so nothing can read
     // a succeeded run whose plan or questions have not landed yet.
