@@ -9,7 +9,7 @@
 // so a forgotten build never ships a stale or missing dist/.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { cpSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,7 +43,12 @@ const EXTERNAL = [
 await build({
   entryPoints: [resolve(pkgRoot, 'src/main.ts')],
   outdir: resolve(pkgRoot, 'dist'),
-  entryNames: 'reeve',
+  // Named 'app' rather than 'reeve', which package.json's `bin` field
+  // points at instead: dist/reeve.js is bin/dist-entry.mjs, copied in
+  // below, a plain unbundled shim that checks the Node version before
+  // dynamically importing this bundle. A static import of the bundle from
+  // that shim would be hoisted above its check, defeating it.
+  entryNames: 'app',
   bundle: true,
   platform: 'node',
   format: 'esm',
@@ -55,10 +60,20 @@ await build({
   // ran; splitting keeps the dynamic import lazy in the bundle too.
   splitting: true,
   external: EXTERNAL,
-  banner: { js: '#!/usr/bin/env node' },
   logLevel: 'info',
 });
 
 cpSync(resolve(repoRoot, 'packages/server/src/stages/prompts'), resolve(pkgRoot, 'prompts'), { recursive: true });
 cpSync(resolve(repoRoot, 'packages/server/drizzle'), resolve(pkgRoot, 'drizzle'), { recursive: true });
 cpSync(resolve(repoRoot, 'packages/web/dist'), resolve(pkgRoot, 'web/dist'), { recursive: true });
+
+// The file package.json's `bin` field actually points at: a shim that
+// guards dist/app.js the way bin/reeve.js guards tsx and src/main.ts in a
+// checkout, by statically importing check-node.mjs, which has to travel
+// with it since `bin/` is not in `files` and so ships only via this copy.
+// Both are plain JS old enough Nodes can parse, copied rather than built.
+// cpSync doesn't reliably carry over the execute bit, so it's set
+// explicitly on the one file npm actually runs.
+cpSync(resolve(pkgRoot, 'bin/check-node.mjs'), resolve(pkgRoot, 'dist/check-node.mjs'));
+cpSync(resolve(pkgRoot, 'bin/dist-entry.mjs'), resolve(pkgRoot, 'dist/reeve.js'));
+chmodSync(resolve(pkgRoot, 'dist/reeve.js'), 0o755);
