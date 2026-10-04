@@ -25,10 +25,11 @@ npm link -w reeve-board
 runs the same thing from source (no build needed), though npm runs it from the
 checkout's root, so that is the directory it infers a repo or card from.
 
-`reeve --version` prints the installed version. `reeve doctor` checks the two
-things an install can get wrong silently: that the native SQLite binding
-loads, and that a Chromium is there for Testing's screenshots (Playwright
-never downloads one on install; `doctor` says the command that does).
+`reeve --version` prints the installed version. `reeve doctor` says what this
+install is missing and how to fix it, including the two things an install can
+get wrong silently: that the native SQLite binding loads, and that a Chromium
+is there for Testing's screenshots (Playwright never downloads one on install;
+`doctor` says the command that does). See [Checking an install](#checking-an-install).
 
 Reeve itself has to be running (`npm run dev`, or `npm start`). The CLI talks to
 it over HTTP and never opens the database: creating or moving a card starts runs
@@ -41,6 +42,37 @@ from an installed copy (the same on macOS and Linux; `XDG_DATA_HOME` plays no
 part). Either is created on first run, and the server prints the database's
 path when it starts. `REEVE_DB` and `REEVE_ASSETS`, or `reeve serve --db` and
 `--assets`, put it anywhere else.
+
+## Checking an install
+
+```sh
+reeve doctor [--url U] [--json]
+```
+
+One line per thing Reeve relies on: `ok`, `warn`, `FAIL` or `info`, what was
+found, and for anything missing how to fix it.
+
+- **Required**, and the exit status is 1 without any of them: Node at the
+  `engines.node` in Reeve's `package.json`, `git` on PATH, and credentials the
+  Agent SDK can use, either a Claude login or `ANTHROPIC_API_KEY`. The CLI is
+  asked for these, so the answer is the one a run will get. A key is reported
+  as found and never tried, because trying it would spend credit. And the
+  native SQLite binding has to load: `better-sqlite3`'s binary must match the
+  Node that runs Reeve. It is tried on an in-memory database, never the
+  board's.
+- **Warnings**, which still exit 0: `gh` installed and logged in (only pull
+  requests need it), Chromium for Playwright (only screenshots need it; the
+  line names the `npx … playwright install chromium` that fetches it), and
+  the built web app (only `reeve serve` needs it; `npm run dev` never has one).
+- **Information**: whether a server answers at the URL `reeve status` would
+  ask, and where the database and assets are. The paths are a running server's
+  own when one answers, and otherwise where `reeve serve` from this shell would
+  put them. The database file is only ever checked for, never opened.
+
+It asks from your shell, whose PATH, login and `ANTHROPIC_API_KEY` may not be
+those of a server started some other way. Its `--json` is
+`{ ok, checks: [{ name, level, status, detail, fix }] }`, a shape of its own:
+no endpoint is behind it.
 
 ## Reading
 
@@ -66,8 +98,9 @@ reeve card wait <card> [--timeout S] [--json]
 reeve run follow <run> [--json] / reeve run stop <run>
 ```
 
-Approving does not move the card. Claude never moves a card; a human does, and
-from here that is `card move`.
+Claude never moves a card; a human does. Approving is that human action for a
+finished stage: it passes the gate and moves the card one column, where
+`card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
 exit status: 0 it finished and awaits review, 3 Claude asked questions, 4 the
@@ -151,7 +184,8 @@ reeve card move "$id" planning
 `card add` and `project add` print the new id on its own with `--quiet`. With
 `--json`, stdout is a single JSON document and nothing else — the API's answer
 as the web app gets it, typed by `@reeve/shared` — while anything said to a
-person goes to stderr.
+person goes to stderr. `doctor` is the one exception, since it asks no API: its
+report is described above.
 
 | Command            | Endpoint                         | Type                  |
 | ------------------ | -------------------------------- | --------------------- |
