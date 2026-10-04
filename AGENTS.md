@@ -211,7 +211,11 @@ switched on.
   whose Host or Origin isn't loopback. A route that calls `c.req.json()`
   additionally opts into that file's `requireJson`, since Hono does not
   check Content-Type itself; a new JSON route that forgets it skips that
-  check silently.
+  check silently. A spike that drives `createApp()`'s `app.fetch` in process
+  rather than over a socket needs a loopback host in the URL it builds its
+  own `Request`s from — a relative `app.request(path)` already resolves to
+  `localhost`, but a spike that spells out `http://x` or similar is refused
+  the same as a real foreign Host.
 - **Every run asks for auto mode, and nothing wider, but not every model takes
   it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
