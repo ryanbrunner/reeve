@@ -60,6 +60,11 @@ const USAGE = `Usage: reeve <command> [options]
       works just as well on its own.
   reeve status [--url U] [--json]
       Whether a Reeve is answering: exit 0 if one is, 1 if not.
+  reeve doctor [--url U] [--json]
+      What this install is missing, one line per check, and how to fix it:
+      Node, git, Claude credentials and a SQLite binding that loads, which
+      exit 1 when absent; gh, Chromium and the web build, which only warn;
+      the server and its data.
   reeve open [<card>]
       Open the board in a browser, on a card if one is named.
   reeve settings [...] / reeve models [--json]
@@ -71,9 +76,6 @@ const USAGE = `Usage: reeve <command> [options]
       The repos cards can be made in, and how each one is set up.
   reeve run follow <run> [--json] / run stop <run>
       Stream a run already going, or stop it.
-  reeve doctor [--json]
-      Checks this install can actually run a stage: a native SQLite binding
-      that loads, and a Chromium Testing can launch for its screenshots.
   reeve --version
       This install's version, read off its own package.json.
 
@@ -84,7 +86,8 @@ const USAGE = `Usage: reeve <command> [options]
 <stage>  backlog, planning, in-progress, testing or done
 
 --json prints the API's answer unchanged, filtered by any flags given, alone
-on stdout. Anything said to a person goes to stderr.
+on stdout; doctor, which asks no API, prints a report of its own. Anything
+said to a person goes to stderr.
 
 Exit status is 0 on success, 1 when Reeve refused or could not be reached, and
 2 for a mistake in the command itself. card wait says how the run ended with
