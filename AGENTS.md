@@ -277,14 +277,17 @@ opens. Its merged card is archived on the server's first merge-sync tick
 unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
 
 For the same repo the server command is `npm run build && npm start`, not
-`npm run dev`: dev runs Vite alongside the tsx API server, and Vite proxies
-`/api` to the live board's hardcoded 4317 and binds whatever port it likes,
-while the tsx server quietly answers the port Reeve tracks, serving
-`packages/web/dist` as of whenever it was last built — stale next to the
-card's own changes. Building before every start keeps what Testing and
-Preview see current. No `{{port}}`: `REEVE_PORT` already reaches the command
-in its environment, and the server announces `[reeve] http://127.0.0.1:<port>`
-for `announcedUrl` to read.
+`npm run dev`: dev runs Vite alongside the tsx API server, and Vite binds
+whatever port it likes while the tsx server quietly answers the port Reeve
+tracks, serving `packages/web/dist` as of whenever it was last built — stale
+next to the card's own changes. Building before every start keeps what
+Testing and Preview see current. No `{{port}}`: `REEVE_PORT` already reaches
+the command in its environment, and the server announces
+`[reeve] http://127.0.0.1:<port>` for `announcedUrl` to read. Vite's dev proxy
+target for `/api` defaults to the live board's own port but reads
+`REEVE_DEV_API_PORT`, so a repo command that wants `npm run dev`'s hot reload
+instead of a build can point it at its own sibling backend rather than the
+live board.
 
 ## Conventions
 
