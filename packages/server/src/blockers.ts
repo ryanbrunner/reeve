@@ -18,19 +18,14 @@ import { isOpeningPr } from './pullRequest.js';
 /**
  * The dependencies still standing in the way. What counts as standing in the
  * way is `stillBlocking`, in `db/queries.ts` — the board's chips read the same
- * rule, so a chip cannot say done while a drag is still refused for it.
- *
- * With one addition the chips do not see: a card in Done whose pull request is
- * still being opened. It has no `prUrl` yet, so `stillBlocking` reads it as a
- * card with nothing to land, and the VIBES sweep — every couple of seconds —
- * would move its dependents on before the pull request exists. For those few
- * seconds a chip may say done while the server refuses; the refusal says why.
+ * rule, so a chip cannot say done while a drag is still refused for it. That
+ * now covers a pull request not yet opened, opening, or stuck failing just the
+ * same as one open and unmerged, since all three leave the card with a branch
+ * and no `mergedAt`.
  */
 export function blockersOf(db: Db, cardId: string): Card[] {
-  return dependenciesOf(db, cardId).filter((c) => stillBlocking(c) || openingInDone(c));
+  return dependenciesOf(db, cardId).filter(stillBlocking);
 }
-
-const openingInDone = (c: Card) => c.stage === 'done' && !c.archivedAt && isOpeningPr(c.id);
 
 export type Blocked = { status: 409; error: string; detail: string };
 
@@ -53,7 +48,8 @@ export function blockedStart(db: Db, card: Card): Blocked | null {
 function where(c: Card): string {
   const column = STAGE_LABELS[c.stage as Stage];
   if (awaitingMerge(c)) return `${column}, PR not merged`;
-  if (openingInDone(c)) return `${column}, PR opening`;
+  if (c.stage === 'done' && !c.archivedAt && isOpeningPr(c.id)) return `${column}, PR opening`;
+  if (c.stage === 'done' && !c.archivedAt) return `${column}, no pull request yet`;
   return column;
 }
 

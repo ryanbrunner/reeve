@@ -1161,22 +1161,29 @@ export function deleteRef(db: Db, id: string) {
 
 /**
  * Whether a dependency is still holding up whatever waits on it: not in Done,
- * or in Done with a pull request that has not merged — and never once archived.
+ * or in Done with real work that has not landed on the default branch — and
+ * never once archived.
  *
- * Done is not enough while the pull request is open. What waits on a card
- * builds on its code, and a worktree is cut from main: start the dependent
- * before the merge and it is built without the very thing it waited for. A
- * Done card with no pull request has nothing still to land, so it clears. The
- * column is read first, so a merged card dragged back out of Done blocks again.
+ * Done is not enough while the pull request is open, or not even opened yet.
+ * What waits on a card builds on its code, and a worktree is cut from main:
+ * start the dependent before the merge and it is built without the very thing
+ * it waited for. `prUrl` covers one already open; `branchName` is set once,
+ * the moment a card's first worktree is made, and never cleared again —
+ * including by a failed or still-retrying attempt to open the pull request —
+ * so a card with either still has work that has not landed until `mergedAt`
+ * says otherwise. A Done card with neither never ran a stage and has nothing
+ * to land, so it clears the moment it arrives. The column is read first, so a
+ * merged card dragged back out of Done blocks again.
  *
  * A pull request closed without merging keeps blocking, because nothing here
  * records a close — only `mergedAt`. Archiving the dependency is the way out.
  * One merged on GitHub rather than with the Merge button clears at the next
  * merge sync, which is when `mergedAt` is set.
  *
- * `blockersOf` adds the few seconds after a card enters Done and before its
- * pull request exists, which read as "no pull request" here. That is in-memory
- * state in `pullRequest.ts`, which this file does not import.
+ * This is also what closes the race `blockersOf` used to patch with in-memory
+ * state: the few seconds (or, when `gh` keeps failing, far longer) between a
+ * card entering Done and its pull request existing, which used to read here as
+ * "nothing to land" and let a dependent start on work that had not gone out.
  *
  * An archived dependency does not hold anything up. Archiving is how a card is
  * taken off the board on purpose — dropped, superseded, or merged and swept
@@ -1190,7 +1197,8 @@ export function deleteRef(db: Db, id: string) {
 export function stillBlocking(c: Card): boolean {
   if (c.archivedAt) return false;
   if (c.stage !== 'done') return true;
-  return awaitingMerge(c);
+  if (c.mergedAt) return false;
+  return c.prUrl !== null || c.branchName !== null;
 }
 
 /** Blocking only for its pull request: in Done, on the board, and not merged yet. */
