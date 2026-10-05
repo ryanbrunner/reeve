@@ -210,7 +210,9 @@ the server words them. `card wait` has statuses of its own, above.
 
 ## Checking it
 
-There is no test suite. The spikes drive the commands against a scratch
+`npm test -w reeve-board` runs the card and cwd resolution tests — stage
+parsing, `whereAmI`, `resolveCard` and the index arithmetic behind `--repo`
+and `--project`. The spikes drive the commands themselves against a scratch
 database, without spending API credit:
 
 ```sh
