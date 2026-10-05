@@ -20,9 +20,9 @@ type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'acti
  * how many criteria, which plan version, how many files changed — and is
  * absent rather than zero when there is nothing there yet.
  *
- * In VIBES MODE there are three: what was asked, what it looks like and that
- * things happened. What was planned and what actually changed are not yours
- * to see.
+ * In VIBES MODE there are four: what was asked, what Claude says it did, what
+ * it looks like and that things happened. What was planned and the diff
+ * itself — what actually changed — are not yours to see.
  */
 export function Tabs({ detail, onOpen, vibes = false }: {
   detail: CardDetail;
@@ -39,7 +39,8 @@ export function Tabs({ detail, onOpen, vibes = false }: {
   // count that only becomes true after you click is worse than no count. A
   // card whose worktree has been removed still has its branch, and an old
   // squash-merged card its commit, and the server reads the diff from either.
-  // Not at all in VIBES MODE, where there is no tab to show it in.
+  // Not at all in VIBES MODE, where the Diff tab is withheld but the Changes
+  // tab's own notes come from the implementation record, not from here.
   const { worktree } = detail;
   const diff = useQuery({
     queryKey: ['diff', detail.card.id],
@@ -80,7 +81,7 @@ export function Tabs({ detail, onOpen, vibes = false }: {
     { id: 'preview', label: 'Preview', count: shots.length || undefined },
     { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
   ];
-  const tabs = vibes ? all.filter((t) => t.id !== 'plan' && t.id !== 'changes' && t.id !== 'diff') : all;
+  const tabs = vibes ? all.filter((t) => t.id !== 'plan' && t.id !== 'diff') : all;
   // Derived rather than reset, so a card left open on Diff when VIBES MODE
   // comes on shows something real, and goes back to Diff when it goes off.
   const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, vibes);
@@ -129,11 +130,11 @@ function defaultTab(detail: CardDetail, vibes: boolean): TabId {
   if (detail.card.kind === 'project') return 'brief';
   if (detail.card.activity === 'needs_input') return vibes ? 'brief' : 'plan';
   const shots = detail.assets.some((a) => a.kind === 'screenshot');
-  // Claude's notes once it has written them; until then — a card still running
-  // — the diff is the only account of the work there is. In VIBES MODE neither
-  // is on offer, so the work is whatever it looks like, or failing that, what
-  // was asked for.
-  const work: TabId = vibes ? (shots ? 'preview' : 'brief') : detail.implementation ? 'changes' : 'diff';
+  // Claude's notes once it has written them, in either mode; until then — a
+  // card still running — the diff is the only account of the work there is,
+  // but VIBES MODE never offers it, so there the work is whatever it looks
+  // like, or failing that, what was asked for.
+  const work: TabId = detail.implementation ? 'changes' : vibes ? (shots ? 'preview' : 'brief') : 'diff';
   switch (detail.card.stage) {
     // In VIBES MODE there is no plan to open; Planning looks like Brief until
     // it has something else to show.
