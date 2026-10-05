@@ -20,9 +20,9 @@ type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'acti
  * how many criteria, which plan version, how many files changed — and is
  * absent rather than zero when there is nothing there yet.
  *
- * In VIBES MODE there are five: what was asked, what was planned, what Claude
- * says it did, what it looks like and that things happened. The diff itself —
- * what actually changed — is not yours to see.
+ * In VIBES MODE there are four: what was asked, what Claude says it did, what
+ * it looks like and that things happened. What was planned and the diff
+ * itself — what actually changed — are not yours to see.
  */
 export function Tabs({ detail, onOpen, vibes = false }: {
   detail: CardDetail;
@@ -81,7 +81,7 @@ export function Tabs({ detail, onOpen, vibes = false }: {
     { id: 'preview', label: 'Preview', count: shots.length || undefined },
     { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
   ];
-  const tabs = vibes ? all.filter((t) => t.id !== 'diff') : all;
+  const tabs = vibes ? all.filter((t) => t.id !== 'plan' && t.id !== 'diff') : all;
   // Derived rather than reset, so a card left open on Diff when VIBES MODE
   // comes on shows something real, and goes back to Diff when it goes off.
   const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, vibes);
@@ -119,7 +119,7 @@ export function Tabs({ detail, onOpen, vibes = false }: {
         {tab === 'plan' && <PlanTab detail={detail} />}
         {tab === 'changes' && <ChangesTab detail={detail} />}
         {tab === 'diff' && <DiffTab detail={detail} diff={diff.data ?? null} loading={diff.isLoading} />}
-        {tab === 'preview' && <PreviewTab detail={detail} />}
+        {tab === 'preview' && <PreviewTab detail={detail} vibes={vibes} />}
         {tab === 'activity' && <ActivityTab detail={detail} vibes={vibes} />}
       </div>
     </div>
@@ -128,7 +128,7 @@ export function Tabs({ detail, onOpen, vibes = false }: {
 
 function defaultTab(detail: CardDetail, vibes: boolean): TabId {
   if (detail.card.kind === 'project') return 'brief';
-  if (detail.card.activity === 'needs_input') return 'plan';
+  if (detail.card.activity === 'needs_input') return vibes ? 'brief' : 'plan';
   const shots = detail.assets.some((a) => a.kind === 'screenshot');
   // Claude's notes once it has written them, in either mode; until then — a
   // card still running — the diff is the only account of the work there is,
@@ -136,7 +136,9 @@ function defaultTab(detail: CardDetail, vibes: boolean): TabId {
   // like, or failing that, what was asked for.
   const work: TabId = detail.implementation ? 'changes' : vibes ? (shots ? 'preview' : 'brief') : 'diff';
   switch (detail.card.stage) {
-    case 'planning': return 'plan';
+    // In VIBES MODE there is no plan to open; Planning looks like Brief until
+    // it has something else to show.
+    case 'planning': return vibes ? work : 'plan';
     case 'in_progress': return work;
     case 'testing': return shots ? 'preview' : work;
     case 'done': return work;

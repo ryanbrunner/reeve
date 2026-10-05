@@ -38,6 +38,7 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
+import { requireJson } from './security.js';
 import { SERVER_VARS, unknownVars, usesVar } from '../runs/serverUrl.js';
 import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
@@ -235,7 +236,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(body);
   });
 
-  api.patch('/settings', async (c) => {
+  api.patch('/settings', requireJson, async (c) => {
     const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
     const body: ApiSettings = updateSettings(db, parsed.data);
@@ -251,7 +252,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.get('/repos', (c) => c.json(listRepos(db).map(toApiRepo)));
 
-  api.post('/repos', async (c) => {
+  api.post('/repos', requireJson, async (c) => {
     const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
 
@@ -277,7 +278,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     }
   });
 
-  api.patch('/repos/:id', async (c) => {
+  api.patch('/repos/:id', requireJson, async (c) => {
     const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
     const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
@@ -307,7 +308,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     }
   });
 
-  api.post('/cards', async (c) => {
+  api.post('/cards', requireJson, async (c) => {
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     if (parsed.data.repoId && !listRepos(db).some((p) => p.id === parsed.data.repoId)) {
@@ -334,7 +335,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, created, repo?.name ?? null, repo?.laneColor ?? null), 201);
   });
 
-  api.patch('/cards/:id', async (c) => {
+  api.patch('/cards/:id', requireJson, async (c) => {
     const parsed = updateCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -395,7 +396,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, updated, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
-  api.post('/cards/:id/move', async (c) => {
+  api.post('/cards/:id/move', requireJson, async (c) => {
     const parsed = moveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid move', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -447,7 +448,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, card, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
-  api.post('/cards/:id/archive', async (c) => {
+  api.post('/cards/:id/archive', requireJson, async (c) => {
     const parsed = archiveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid archive', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -512,7 +513,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
    * suggested again. Its own route rather than a flag on archive, so the
    * check that this is a suggestion still waiting on someone is made once.
    */
-  api.post('/cards/:id/suggestion', async (c) => {
+  api.post('/cards/:id/suggestion', requireJson, async (c) => {
     const parsed = suggestionDecisionSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid decision', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
