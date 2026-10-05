@@ -13,7 +13,7 @@ type View = 'mockup' | 'build' | 'both';
  * accident of naming: the mockup's own page and width are what told the
  * capturer where to go, so the pair exists because one caused the other.
  */
-export function PreviewTab({ detail }: { detail: CardDetail }) {
+export function PreviewTab({ detail, vibes = false }: { detail: CardDetail; vibes?: boolean }) {
   const shots = detail.assets.filter((a) => a.kind === 'screenshot');
   const mockups = detail.assets.filter((a) => a.kind === 'mockup');
   const [selected, setSelected] = useState<string | null>(null);
@@ -30,9 +30,15 @@ export function PreviewTab({ detail }: { detail: CardDetail }) {
   if (shots.length === 0 && mockups.length === 0) {
     return (
       <Empty>
-        Nothing to show yet. Attach a mockup in the Plan tab, or tick Generate mockups in the Brief
-        for Claude to draw them while planning, and Testing will photograph the same page to sit
-        beside it.
+        {/* There is no Plan tab to attach one in while VIBES MODE hides it. */}
+        {vibes ? (
+          'Nothing to show yet. Tick Generate mockups in the Brief for Claude to draw them while ' +
+            'planning, and Testing will photograph the same page to sit beside it.'
+        ) : (
+          'Nothing to show yet. Attach a mockup in the Plan tab, or tick Generate mockups in the ' +
+            'Brief for Claude to draw them while planning, and Testing will photograph the same ' +
+            'page to sit beside it.'
+        )}
       </Empty>
     );
   }

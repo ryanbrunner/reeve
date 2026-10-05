@@ -2,6 +2,7 @@ import { canStartRun, isPlaceholderCard, isRunnable, nextStage, type Stage } fro
 import { recordAnswer } from '../answers.js';
 import { blockedMove } from '../blockers.js';
 import { cardActivity, entryRefusal } from '../board.js';
+import { isHeld } from '../cardHold.js';
 import type { Db } from '../db/client.js';
 import {
   boardCards,
@@ -186,7 +187,13 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // difference between the switch being fun and the switch being a trap —
     // otherwise the card is taken away mid-sentence, two seconds after the Add
     // button. Say what it is and it goes.
-    if (isPlaceholderCard(card)) return;
+    //
+    // A placeholder title is not the only way a card is still being said,
+    // though: the moment its title is typed over it stops being one, even
+    // while the brief underneath is still blank. `isHeld` is what catches
+    // that second — the card's own modal, open since the Add button, has not
+    // closed yet — so a title alone is never read as the whole card.
+    if (isPlaceholderCard(card) || isHeld(card.id)) return;
     // A card waiting on another is held in `moveOn`, which every move this
     // sweep makes goes through.
     moveOn(db, writer, card, repo);
