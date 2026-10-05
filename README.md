@@ -43,11 +43,12 @@ Homebrew is coming once the tap exists. Until then, install from source:
 git clone https://github.com/ryanbrunner/reeve.git
 cd reeve
 npm install
-npm run build
-npm link -w @reeve/cli
+npm run build -w reeve-board
+npm link -w reeve-board
 ```
 
-`npm run build` builds the web app, which `reeve serve` needs and will not
+`npm run build -w reeve-board` builds the web app and bundles the CLI, server
+and shared code into `dist/reeve.js`, which `reeve serve` needs and will not
 start without. `npm link` puts `reeve` on your PATH.
 
 ## Running it
@@ -96,7 +97,8 @@ npm run typecheck   # the check every change has to pass
 ```
 
 [AGENTS.md](AGENTS.md) describes how the code is laid out, the rules it
-depends on, and how to check a change.
+depends on, and how to check a change. [RELEASING.md](RELEASING.md) describes
+how a version is cut and published.
 
 ## License
 

@@ -224,6 +224,17 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('dirty tree not merged', head(wt.path) === wt.before && !(await mergeInProgress(wt.path)));
   check('dirty refusal starts no run', stand.seen.task === undefined);
   check('dirty refusal releases the lock', !isResolvingConflicts(wt.id));
+  check('a human’s refusal writes nothing', events(wt.id, 'conflicts_refused').length === 0);
+
+  // The same refusal, with VIBES MODE as the caller: the HTTP error above has
+  // nobody reading it, so this is the one path that writes it to the card.
+  const sweep = await resolveConflicts(db, writer, getCard(db, wt.id)!, repo, stand.start, 'claude');
+  check('sweep’s refusal also refused', !sweep.ok && sweep.status === 409);
+  const refusals = events(wt.id, 'conflicts_refused');
+  check('sweep’s refusal written once', refusals.length === 1 && (refusals[0]?.body?.includes('uncommitted') ?? false));
+  const again = await resolveConflicts(db, writer, getCard(db, wt.id)!, repo, stand.start, 'claude');
+  check('a repeat of the same refusal refused', !again.ok && again.status === 409);
+  check('a repeat of the same reason writes no second event', events(wt.id, 'conflicts_refused').length === 1);
 
   const backlog = createCard(db, { title: 'Not done', repoId: repo.id, stage: 'testing' });
   const notDone = await resolveConflicts(db, writer, backlog, repo, stand.start);
@@ -245,6 +256,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('clean merge pushed', remoteSha(wt.branch) === head(wt.path));
   check('clean merge is a merge of main', parents(wt.path).includes(wt.before) && parents(wt.path).includes(g('rev-parse', 'main').trim()));
   check('clean merge written as resolved', events(wt.id, 'conflicts_resolved')[0]?.meta?.['clean'] === true);
+  check('clean merge moves baseSha to main', getCard(db, wt.id)!.baseSha === g('rev-parse', 'main').trim());
 }
 
 // --- Claude resolves, the server checks and pushes -----------------------------
@@ -292,6 +304,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('merge commit pushed', remoteSha(wt.branch) === local);
   check('pushed without force', remoteBefore !== null && run(wt.path, 'merge-base', '--is-ancestor', remoteBefore, local) === '');
   check('merge contains the base head', parents(wt.path).includes(mainHead));
+  check('resolved merge moves baseSha to main', getCard(db, wt.id)!.baseSha === mainHead);
   const resolved = events(wt.id, 'conflicts_resolved')[0];
   check('conflicts_resolved written', resolved !== undefined && resolved.runId === runId);
   check('event carries the per-file notes', (resolved?.meta?.['files'] as unknown[] | undefined)?.length === 1);
@@ -316,6 +329,7 @@ for (const behaviour of ['fail', 'stop', 'markers'] as const) {
   check(`${behaviour}: nothing pushed`, remoteSha(wt.branch) === remoteBefore);
   check(`${behaviour}: conflicts_failed written`, failed !== undefined && events(wt.id, 'conflicts_resolved').length === 0);
   check(`${behaviour}: .reeve left alone`, existsSync(join(wt.path, '.reeve', 'plan.md')));
+  check(`${behaviour}: baseSha unchanged`, getCard(db, wt.id)!.baseSha === wt.baseSha);
 }
 
 // --- a push that fails keeps the merge, and pressing again pushes it -----------

@@ -18,6 +18,7 @@ import { startClaudeRun } from '../runs/claude.js';
 import type { EventWriter } from '../runs/events.js';
 import { stageDefinition } from '../stages/index.js';
 import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
+import { requireJson } from './security.js';
 
 const reviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
@@ -56,7 +57,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
    * live in ../review.ts, which a review in Crit ends in too. A run finishing
    * on its own still moves nothing.
    */
-  routes.post('/:id/review', async (c) => {
+  routes.post('/:id/review', requireJson, async (c) => {
     const loaded = load(c.req.param('id'));
     if ('error' in loaded) return c.json({ error: loaded.error }, loaded.status);
     const { card, repo } = loaded;

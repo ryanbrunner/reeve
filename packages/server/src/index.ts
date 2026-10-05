@@ -17,6 +17,7 @@ import { apiRoutes } from './routes/api.js';
 import { assetRoutes } from './routes/assets.js';
 import { detailRoutes } from './routes/detail.js';
 import { runRoutes } from './routes/runs.js';
+import { sameOriginGuard } from './routes/security.js';
 import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
 import { listModels } from './runs/models.js';
@@ -47,13 +48,19 @@ export function createApp() {
   const writer = new EventWriter(db);
 
   const app = new Hono();
+  // Ahead of every route: the board is the only thing that should ever reach
+  // a mutating one, and this is what tells it apart from another origin or a
+  // DNS name rebound to loopback after a browser's own check passed.
+  app.use('/api/*', sameOriginGuard);
   app.route('/api', apiRoutes(db, writer));
   app.route('/api/runs', runRoutes(db));
   app.route('/api/cards', actionRoutes(db, writer));
   app.route('/api/cards', stageRoutes(db, writer));
   app.route('/api/cards', detailRoutes(db, writer));
   app.route(ASSET_ROUTE, assetRoutes(db));
-  app.get('/healthz', (c) => c.json({ ok: true }));
+  // The paths too, for `reeve doctor`: `reeve serve --db f` sets REEVE_DB in the
+  // server's process only, so the doctor's own config can name the wrong file.
+  app.get('/healthz', (c) => c.json({ ok: true, dbFile: config.dbFile, assetsDir: config.assetsDir }));
 
   // In production the built frontend is served from the same origin and port.
   // In dev, Vite serves it and proxies /api here, so this is absent and skipped.
@@ -155,3 +162,7 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
 }
 
 export { config };
+// For `reeve doctor`: each predicts a failure from beside the code that would have it.
+export { accountProbe, type ProbeResult } from './runs/models.js';
+export { checkChromium, checkSqlite } from './doctor.js';
+export { ghProbe } from './git/github.js';

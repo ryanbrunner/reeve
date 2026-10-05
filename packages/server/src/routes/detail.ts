@@ -35,6 +35,7 @@ import {
   deleteAsset,
   imageSize,
   relativeAssetPath,
+  sniffContentType,
   writeAsset,
 } from '../assets/store.js';
 import { startClaudeRun } from '../runs/claude.js';
@@ -42,6 +43,7 @@ import { splitProjectTask } from '../stages/split_project.js';
 import { suggestCriteriaTask } from '../stages/suggest_criteria.js';
 import type { Card } from '../db/schema.js';
 import type { EventWriter } from '../runs/events.js';
+import { requireJson } from './security.js';
 
 /**
  * Everything the card detail view reads and writes that the board never needed.
@@ -114,7 +116,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     return c.json(criteriaFor(db, id).map(toApiCriterion));
   });
 
-  routes.post('/:id/criteria', async (c) => {
+  routes.post('/:id/criteria', requireJson, async (c) => {
     const id = c.req.param('id');
     if (!found(id)) return c.json({ error: 'not found' }, 404);
     const parsed = criterionSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -163,7 +165,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     return c.json({ ok: true, runId: result.runId }, 201);
   });
 
-  routes.patch('/:id/criteria/:criterionId', async (c) => {
+  routes.patch('/:id/criteria/:criterionId', requireJson, async (c) => {
     const parsed = criterionPatchSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid criterion', detail: parsed.error.message }, 400);
     const updated = updateCriterion(db, c.req.param('criterionId'), parsed.data);
@@ -181,7 +183,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     return c.json(refsFor(db, id).map(toApiCardRef));
   });
 
-  routes.post('/:id/refs', async (c) => {
+  routes.post('/:id/refs', requireJson, async (c) => {
     const id = c.req.param('id');
     if (!found(id)) return c.json({ error: 'not found' }, 404);
     const parsed = refSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -196,7 +198,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   });
 
   /** Make this card depend on another. What is refused, and why, is in ../dependencies.ts. */
-  routes.post('/:id/dependencies', async (c) => {
+  routes.post('/:id/dependencies', requireJson, async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     const parsed = dependencySchema.safeParse(await c.req.json().catch(() => ({})));
@@ -220,7 +222,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   });
 
   /** Answer one question. The work is in ../answers.ts, which VIBES MODE shares. */
-  routes.post('/:id/questions/:questionId/answer', async (c) => {
+  routes.post('/:id/questions/:questionId/answer', requireJson, async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
 
@@ -245,7 +247,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
    * rejection and an answer — and like both of those it reaches Claude as
    * prompt rather than through a channel of its own.
    */
-  routes.post('/:id/notes', async (c) => {
+  routes.post('/:id/notes', requireJson, async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     const parsed = noteSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -325,6 +327,16 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
+    // `CONTENT_TYPES` trusts the label the upload gave itself; this checks the
+    // bytes agree with it, so a PNG-labelled file that is actually something
+    // else (HTML, say) is refused before it is ever written or served back.
+    const sniffed = sniffContentType(bytes);
+    if (sniffed !== file.type) {
+      return c.json(
+        { error: 'file contents do not match declared type', detail: `declared ${file.type}, looks like ${sniffed ?? 'something else'}` },
+        415,
+      );
+    }
     const id = crypto.randomUUID();
     const rel = relativeAssetPath(cardId, id, file.type);
     writeAsset(rel, bytes);
