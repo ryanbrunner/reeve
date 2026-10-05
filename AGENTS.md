@@ -40,12 +40,19 @@ npm workspaces, four packages:
   running server's HTTP API and never its database, because runs live in the
   server's memory and a second process opening the database reaps them. Its
   `--json` output is the API's own wire types from `@reeve/shared`, unreshaped,
-  except `doctor`'s, which asks no API; see its README. In the checkout, `bin/reeve.js` registers tsx and imports
-  `src/main.ts`; published, `npm run build` (`packages/cli/scripts/build.mjs`)
-  bundles this workspace, `@reeve/server` and `@reeve/shared` with esbuild into
-  `dist/reeve.js`, code-split so commands other than `serve`/`doctor` never
-  load better-sqlite3, Playwright or the Agent SDK, and copies the drizzle
-  migrations, the stage prompts and the built web app in beside it — `prepack`
+  except `doctor`'s, which asks no API; see its README. In the checkout,
+  `bin/reeve.js` checks the Node version before registering tsx and importing
+  `src/main.ts`, so a Node too old for either fails with a sentence instead of
+  a stack trace; `bin/check-node.mjs` holds that check, imported statically
+  since it is safe on any Node that can parse `import`. Published, `npm run build`
+  (`packages/cli/scripts/build.mjs`) bundles this workspace, `@reeve/server`
+  and `@reeve/shared` with esbuild into `dist/app.js`, code-split so commands
+  other than `serve`/`doctor` never load better-sqlite3, Playwright or the
+  Agent SDK, and copies the drizzle migrations, the stage prompts and the
+  built web app in beside it. `bin/dist-entry.mjs` and `bin/check-node.mjs`
+  land beside it too, as `dist/reeve.js` (the `bin` entry) and
+  `dist/check-node.mjs`, so a Node too old to load `dist/app.js` still gets
+  the same sentence before `dist/reeve.js` dynamically imports it. `prepack`
   runs the same build before `npm pack`/`publish`. `config.ts` tells the two
   layouts apart the same way it already told a checkout from an install.
 
@@ -270,7 +277,7 @@ Migrations live in `packages/server/drizzle/` and run on every boot.
 ships, as `reeve-board`; the root package and every other workspace stay
 `private`. `npm run build -w reeve-board` (or `prepack`, which runs the same
 script before pack/publish) bundles this workspace with `@reeve/server` and
-`@reeve/shared` into `dist/reeve.js`, and copies the drizzle migrations, the
+`@reeve/shared` into `dist/app.js`, and copies the drizzle migrations, the
 stage prompts and `packages/web/dist` in beside it — none of those three are
 reachable by a relative import once this workspace is the only one left, so
 they travel as files instead. `config.ts` resolves `root`, `migrationsFolder`,
