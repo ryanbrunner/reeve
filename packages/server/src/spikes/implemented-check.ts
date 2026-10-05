@@ -43,7 +43,7 @@ const succeeded = (cardId: string, stage: 'in_progress' | 'testing', task: strin
 };
 
 const send = (method: string, path: string, body?: unknown) =>
-  app.fetch(new Request(`http://x${path}`, {
+  app.fetch(new Request(`http://127.0.0.1${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),

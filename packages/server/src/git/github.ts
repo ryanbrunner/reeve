@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import type { ProbeResult } from '../runs/models.js';
 import { GitError, failureOutput, git } from './worktree.js';
 
 const exec = promisify(execFile);
@@ -17,21 +18,59 @@ const exec = promisify(execFile);
 const PUSH_TIMEOUT_MS = 120_000;
 const GH_TIMEOUT_MS = 60_000;
 
+/**
+ * `reeve doctor` waits on its slowest check, and `gh --version` and
+ * `gh auth status` are local enough that a quarter of a pull request's allowance
+ * is plenty.
+ */
+const GH_PROBE_TIMEOUT_MS = 15_000;
+
 // Built per call rather than once, so a PATH set after import still counts.
 const unprompted = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' });
+
+/** Finished by whoever says it: the server, or `reeve doctor` in someone's shell. */
+const GH_MISSING = 'the GitHub CLI (gh) is not installed, or not on';
+
+const isMissing = (cause: unknown) => (cause as { code?: unknown }).code === 'ENOENT';
 
 async function gh(cwd: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await exec('gh', args, { cwd, env: unprompted(), timeout: GH_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
     return stdout;
   } catch (cause) {
-    const missing = (cause as { code?: unknown }).code === 'ENOENT';
     throw new GitError(
       `gh ${args.slice(0, 2).join(' ')} failed`,
-      missing ? 'the GitHub CLI (gh) is not installed, or not on the server’s PATH' : failureOutput(cause, GH_TIMEOUT_MS),
+      isMissing(cause) ? `${GH_MISSING} the server’s PATH` : failureOutput(cause, GH_TIMEOUT_MS),
     );
   }
 }
+
+/**
+ * Whether pull requests could be opened from here, for `reeve doctor`: `gh` is
+ * installed, and logged in. Asked from the doctor's shell, whose PATH and login
+ * may not be the server's.
+ */
+export async function ghProbe(): Promise<ProbeResult> {
+  const run = (args: string[]) =>
+    exec('gh', args, { env: unprompted(), timeout: GH_PROBE_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
+  let version: string;
+  try {
+    version = (await run(['--version'])).stdout.split('\n')[0]?.trim() ?? 'gh';
+  } catch (cause) {
+    return { ok: false, detail: isMissing(cause) ? `${GH_MISSING} this shell’s PATH` : firstLine(failureOutput(cause, GH_PROBE_TIMEOUT_MS)) };
+  }
+  try {
+    // `auth status` writes to stderr in some versions and stdout in others.
+    const { stdout, stderr } = await run(['auth', 'status']);
+    const account = /Logged in to (\S+) (?:account|as) (\S+)/.exec(`${stdout}\n${stderr}`);
+    return { ok: true, detail: account ? `${version}, logged in to ${account[1]} as ${account[2]}` : `${version}, logged in` };
+  } catch (cause) {
+    return { ok: false, detail: `${version}, but not logged in: ${firstLine(failureOutput(cause, GH_PROBE_TIMEOUT_MS))}` };
+  }
+}
+
+/** `gh auth status` answers in a paragraph; its first line says what is wrong. */
+const firstLine = (text: string) => text.split('\n').find((l) => l.trim())?.trim() ?? text;
 
 export interface PullRequestRef {
   url: string;

@@ -24,6 +24,9 @@ export function checkSqlite(): DoctorCheck {
   }
 }
 
+/** Playwright's own default is three minutes, which `reeve doctor` would sit through. */
+const LAUNCH_TIMEOUT_MS = 20_000;
+
 /**
  * Whether Testing has a Chromium to launch for its screenshots. Playwright
  * never downloads one on `npm install` — the download is a separate,
@@ -34,7 +37,7 @@ export function checkSqlite(): DoctorCheck {
  */
 export async function checkChromium(): Promise<DoctorCheck> {
   try {
-    const browser = await chromium.launch();
+    const browser = await chromium.launch({ timeout: LAUNCH_TIMEOUT_MS });
     await browser.close();
     return { ok: true, detail: `chromium launches (${chromium.executablePath()})` };
   } catch (cause) {

@@ -45,24 +45,11 @@ import type { DropdownOption } from './lib/Dropdown.js';
 export function App() {
   const qc = useQueryClient();
   const [archiveOpen, showArchive] = useArchiveParam();
-  // Which pane Settings opens on, or null while it is shut. `?settings` opens
-  // it on Runs, so Settings can be linked to and photographed by URL; the
-  // button beside it still picks its own pane and leaves the URL alone.
-  const [settingsOpen, setSettingsOpen] = useState<SettingsPane | null>(() =>
-    new URLSearchParams(window.location.search).has('settings') ? { kind: 'runs' } : null,
-  );
+  const [settingsOpen, showSettings] = useSettingsParam();
   // Stable, because the modal's focus effect depends on it and the board
   // re-renders this component on every poll: a fresh arrow each time would
   // re-run that effect and yank focus out of whichever field was being typed in.
-  // The param goes by replaceState, as `?archive` does, leaving no history.
-  const closeSettings = useCallback(() => {
-    const url = new URL(window.location.href);
-    if (url.searchParams.has('settings')) {
-      url.searchParams.delete('settings');
-      window.history.replaceState(null, '', url);
-    }
-    setSettingsOpen(null);
-  }, []);
+  const closeSettings = useCallback(() => showSettings(null), [showSettings]);
   // Stable for the same reason: the Archive's focus effect depends on it too.
   const closeArchive = useCallback(() => showArchive(false), [showArchive]);
   const [dragging, setDragging] = useState<ApiCard | null>(null);
@@ -443,7 +430,7 @@ export function App() {
             adding={create.isPending}
             addError={create.error}
             moveError={refusal}
-            onOpenSettings={setSettingsOpen}
+            onOpenSettings={showSettings}
             onOpenArchive={() => showArchive(true)}
             usage={data?.usage ?? null}
             vibes={vibes}
@@ -485,7 +472,9 @@ export function App() {
           vibes={vibes.on}
         />
       )}
-      {settingsOpen && <SettingsModal initial={settingsOpen} onClose={closeSettings} />}
+      {settingsOpen && (
+        <SettingsModal initial={settingsOpen} onClose={closeSettings} onPaneChange={showSettings} />
+      )}
       {archiveOpen && (
         <ArchiveModal
           onClose={closeArchive}
@@ -580,6 +569,38 @@ function useArchiveParam() {
     setOpen(next);
   }, []);
   return [open, show] as const;
+}
+
+/**
+ * Which pane Settings is open on, or null while it is shut, kept in the URL
+ * as `?settings=runs` or `?settings=repo:<id>` (bare `?settings=repo` for the
+ * new-repo form) so Settings can be linked to and photographed by URL, same
+ * as `?archive`. Replaced rather than pushed, as `?archive` is: nobody
+ * navigates within Settings the way the card modal's `?card=` lets you move
+ * from card to card, so there is no history worth keeping.
+ */
+function useSettingsParam() {
+  const parse = (value: string | null): SettingsPane | null => {
+    if (value === null) return null;
+    if (value === 'repo') return { kind: 'repo', id: null };
+    if (value.startsWith('repo:')) return { kind: 'repo', id: value.slice('repo:'.length) };
+    // A bare `?settings`, `?settings=runs`, or anything else unrecognised opens on Runs.
+    return { kind: 'runs' };
+  };
+  const [pane, setPane] = useState<SettingsPane | null>(() =>
+    parse(new URLSearchParams(window.location.search).get('settings')),
+  );
+  const show = useCallback((next: SettingsPane | null) => {
+    const url = new URL(window.location.href);
+    if (next) {
+      url.searchParams.set('settings', next.kind === 'runs' ? 'runs' : next.id ? `repo:${next.id}` : 'repo');
+    } else {
+      url.searchParams.delete('settings');
+    }
+    window.history.replaceState(null, '', url);
+    setPane(next);
+  }, []);
+  return [pane, show] as const;
 }
 
 function Header({ repos, onAddProject, adding, addError, moveError, onOpenSettings, onOpenArchive, usage, vibes }: {
