@@ -1,0 +1,49 @@
+name: Bump formula
+
+# Keeps Formula/reeve.rb pointed at the latest `reeve-board` on npm. Runs
+# daily in case a release is tagged without anyone remembering this tap, and
+# on demand right after a publish, when the version is known and there is no
+# reason to wait for the schedule.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "reeve-board version to bump to (default: npm's latest)"
+        required: false
+
+jobs:
+  bump:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump Formula/reeve.rb
+        id: bump
+        run: |
+          before="$(git rev-parse HEAD:Formula/reeve.rb 2>/dev/null || true)"
+          bin/bump-formula.sh "${{ inputs.version }}"
+          if git diff --quiet -- Formula/reeve.rb; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Audit and style
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          brew tap-new --no-git local/bump-check >/dev/null
+          cp Formula/reeve.rb "$(brew --repository local/bump-check)/Formula/reeve.rb"
+          brew style local/bump-check/reeve
+          brew audit --strict --online local/bump-check/reeve
+
+      - name: Commit and push
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          version="$(grep -oE 'reeve-board-[0-9][^"]*\.tgz' Formula/reeve.rb | sed -E 's/reeve-board-(.+)\.tgz/\1/')"
+          git config user.name "reeve-bump-bot"
+          git config user.email "actions@github.com"
+          git add Formula/reeve.rb
+          git commit -m "Bump reeve-board to ${version}"
+          git push

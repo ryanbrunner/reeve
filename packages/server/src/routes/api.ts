@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, stageEntryRefusal } from '@reeve/shared';
+import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, isPlaceholderCard, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { deleteAsset } from '../assets/store.js';
 import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedMove } from '../blockers.js';
+import { holdCard, releaseCard } from '../cardHold.js';
 import type { Db } from '../db/client.js';
 import {
   acceptSuggestion,
@@ -38,6 +39,7 @@ import { defaultWorktreeRoot, expandPath, inspectRepo } from '../git/worktree.js
 import type { EventWriter } from '../runs/events.js';
 import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
+import { requireJson } from './security.js';
 import { SERVER_VARS, unknownVars, usesVar } from '../runs/serverUrl.js';
 import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
@@ -235,7 +237,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(body);
   });
 
-  api.patch('/settings', async (c) => {
+  api.patch('/settings', requireJson, async (c) => {
     const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
     const body: ApiSettings = updateSettings(db, parsed.data);
@@ -251,7 +253,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
 
   api.get('/repos', (c) => c.json(listRepos(db).map(toApiRepo)));
 
-  api.post('/repos', async (c) => {
+  api.post('/repos', requireJson, async (c) => {
     const parsed = repoSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
 
@@ -277,7 +279,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     }
   });
 
-  api.patch('/repos/:id', async (c) => {
+  api.patch('/repos/:id', requireJson, async (c) => {
     const parsed = repoSchema.partial().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid repo', detail: issuesText(parsed.error) }, 400);
     const existing = listRepos(db).find((p) => p.id === c.req.param('id'));
@@ -307,7 +309,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     }
   });
 
-  api.post('/cards', async (c) => {
+  api.post('/cards', requireJson, async (c) => {
     const parsed = createCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     if (parsed.data.repoId && !listRepos(db).some((p) => p.id === parsed.data.repoId)) {
@@ -328,13 +330,18 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const refusal = stageEntryRefusal('backlog', parsed.data.stage ?? 'backlog', false);
     if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);
     const created = createCard(db, parsed.data);
+    // Only the ghost and Add Project make a card this way — a placeholder
+    // title, opened straight into its own modal for a person to type over —
+    // so only those are held. A card the CLI makes with a real title and no
+    // modal to close would otherwise sit held until the server restarted.
+    if (isPlaceholderCard(created)) holdCard(created.id);
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     // Made straight into a column Claude works in is entering it, the same as a drag.
     maybeStartStage(db, writer, created, repo);
     return c.json(toBoardCard(db, created, repo?.name ?? null, repo?.laneColor ?? null), 201);
   });
 
-  api.patch('/cards/:id', async (c) => {
+  api.patch('/cards/:id', requireJson, async (c) => {
     const parsed = updateCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid card', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -395,7 +402,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, updated, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
-  api.post('/cards/:id/move', async (c) => {
+  api.post('/cards/:id/move', requireJson, async (c) => {
     const parsed = moveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid move', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -447,7 +454,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(toBoardCard(db, card, repo?.name ?? null, repo?.laneColor ?? null));
   });
 
-  api.post('/cards/:id/archive', async (c) => {
+  api.post('/cards/:id/archive', requireJson, async (c) => {
     const parsed = archiveCardSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid archive', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -512,7 +519,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
    * suggested again. Its own route rather than a flag on archive, so the
    * check that this is a suggestion still waiting on someone is made once.
    */
-  api.post('/cards/:id/suggestion', async (c) => {
+  api.post('/cards/:id/suggestion', requireJson, async (c) => {
     const parsed = suggestionDecisionSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid decision', detail: parsed.error.message }, 400);
     const id = c.req.param('id');
@@ -545,10 +552,17 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   // references, pictures and tasks as they are right now. It is conditional,
   // which is why it is a POST: a DELETE would read as "get rid of it", and
   // nothing a person does on the board removes a card outright.
+  //
+  // This is also the one place a card's modal is known to have closed, held
+  // or not, so it is where VIBES MODE's hold on a fresh card comes off —
+  // after the deletion check, since a card that is about to be thrown away
+  // has nothing left to hold.
   api.post('/cards/:id/discard', (c) => {
     const id = c.req.param('id');
     if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
-    return c.json({ deleted: discardIfBlank(db, id) });
+    const deleted = discardIfBlank(db, id);
+    releaseCard(id);
+    return c.json({ deleted });
   });
 
   api.post('/cards/:id/restore', (c) => {

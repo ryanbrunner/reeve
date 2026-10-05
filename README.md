@@ -97,7 +97,8 @@ npm run typecheck   # the check every change has to pass
 ```
 
 [AGENTS.md](AGENTS.md) describes how the code is laid out, the rules it
-depends on, and how to check a change.
+depends on, and how to check a change. [RELEASING.md](RELEASING.md) describes
+how a version is cut and published.
 
 ## License
 
