@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { DevServerUrlSource, StopReason } from '@reeve/shared';
 import type { Db } from '../db/client.js';
@@ -90,13 +90,38 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
   }
 
   let stopReason: StopReason = 'completed';
+  // Set once `stop()` has armed its own grace timer, so the sweep below does
+  // not arm a second one racing it.
+  let stopping = false;
+  let sweepTimer: NodeJS.Timeout | null = null;
 
   const done = new Promise<{ exitCode: number | null; stopReason: StopReason }>((resolve) => {
     child.on('error', (err) => {
       stopReason = 'sdk_error';
       writer.append(runId, 'error', { message: err.message });
     });
+    // A server command can be two cooperating processes rather than one —
+    // `npm run dev`'s `backend & frontend` pattern backgrounds one and runs
+    // the other in the shell's own foreground. `exit` fires on whichever
+    // process we are actually tracking (the shell), but `close` waits for
+    // every stdio stream to let go too, and a backgrounded sibling still
+    // holding stdout/stderr never lets go on its own — so if the foreground
+    // half dies first, `close` would never come and the run would read
+    // `running` forever. Sweeping the group here, from `exit`, means a half
+    // left behind is stopped and the run still finishes.
+    child.on('exit', () => {
+      if (!longLived || stopping) return;
+      const left = groupSize(child.pid);
+      if (left) {
+        writer.append(runId, 'error', {
+          message: `this server's command exited, but left ${left} other process${left === 1 ? '' : 'es'} behind — stopping ${left === 1 ? 'it' : 'them'} too`,
+        });
+      }
+      killGroup(child.pid, 'SIGTERM');
+      sweepTimer = setTimeout(() => killGroup(child.pid, 'SIGKILL'), SIGKILL_GRACE_MS);
+    });
     child.on('close', (code, signal) => {
+      if (sweepTimer) clearTimeout(sweepTimer);
       writer.append(runId, 'exit', { code, signal });
       writer.finish(runId);
       const cancelled = stopReason === 'cancelled_by_user';
@@ -117,6 +142,7 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
     cardId,
     kind: longLived ? 'server' : 'shell',
     stop: async (reason) => {
+      stopping = true;
       stopReason = reason;
       setRunStatus(db, runId, { status: 'stopping' });
       killGroup(child.pid, 'SIGTERM');
@@ -126,6 +152,21 @@ export function startShellRun(opts: ShellRunOptions): ShellRunHandle {
   });
 
   return { runId, done };
+}
+
+/**
+ * How many processes are still in `pid`'s group — `detached: true` makes it
+ * the group's own id, which outlives whichever member happened to lead it.
+ * `null` means the count couldn't be taken at all, not that the group is
+ * empty; `pgrep` exits 1 for "no match", which is a real, countable zero.
+ */
+function groupSize(pid: number | undefined): number | null {
+  if (!pid) return null;
+  try {
+    return execFileSync('pgrep', ['-g', String(pid)], { encoding: 'utf8' }).split('\n').filter(Boolean).length;
+  } catch (err) {
+    return (err as { status?: number }).status === 1 ? 0 : null;
+  }
 }
 
 /** Negative pid targets the whole group — the entire point of `detached`. */
