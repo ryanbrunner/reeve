@@ -48,8 +48,8 @@ npm link -w reeve-board
 ```
 
 `npm run build -w reeve-board` builds the web app and bundles the CLI, server
-and shared code into `dist/reeve.js`, which `reeve serve` needs and will not
-start without. `npm link` puts `reeve` on your PATH.
+and shared code into `dist/`, which `reeve serve` needs and will not start
+without. `npm link` puts `reeve` on your PATH.
 
 ## Running it
 

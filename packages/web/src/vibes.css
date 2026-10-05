@@ -145,24 +145,6 @@
 
 .vibes .sk-wm { animation: sk-rgbsplit 1.3s steps(1) infinite; }
 
-.vibes .sk-field {
-  border-color: #ffffff38;
-  background: #0d0f16;
-}
-
-.vibes .sk-field:focus {
-  border-color: #fff;
-  box-shadow: 0 0 0 1px #ff2d95, 0 0 18px -4px #00d1ff;
-}
-
-.vibes .sk-add {
-  background: var(--sk-rainbow);
-  background-size: 300% 100%;
-  animation: sk-flow 1.6s linear infinite;
-  color: #0b0b10;
-  font-weight: 600;
-}
-
 /* The only thing in the header allowed to give way: on a narrow window it
    truncates rather than folding the buttons onto a second line. */
 .sk-toast {
@@ -488,9 +470,13 @@
 
 /* ----------------------------------------------------------------- cards --- */
 
+/* Covers every column, but a well's own ghost now lives underneath it — so
+   the overlay itself lets the pointer through, and only a slot, where a card
+   actually is, takes it back. */
 .sk-cards {
   position: absolute;
   inset: 0;
+  pointer-events: none;
   --sk-cols: 5;
   --sk-gap: 12px;
 }
@@ -512,6 +498,7 @@
   height: 88px;
   transform: translate(calc(var(--sk-i) * (100% + 30px) + 9px), var(--sk-y)) rotate(var(--sk-rot));
   transition: transform 0.5s cubic-bezier(0.3, 1.45, 0.45, 1), opacity 0.4s ease;
+  pointer-events: auto;
 }
 
 .sk-bounce,
@@ -1106,7 +1093,7 @@
   .sk-scan::after, .vibes .sk-stage-in, .sk-shake-a, .sk-shake-b, .sk-slam-a, .sk-slam-b,
   .vibes .sk-wob, .sk-card, .vibes .card-mark, .sk-runs, .vibes .sk-dia, .vibes .sk-wm,
   .sk-sw.sk-on, .sk-sw.sk-on .sk-sw-knob, .sk-sw.sk-on .sk-sw-track, .sk-sw.sk-on .sk-sw-label,
-  .sk-sw:hover .sk-sw-label, .sk-stat-n, .sk-pop-a, .sk-pop-b, .vibes .sk-add,
+  .sk-sw:hover .sk-sw-label, .sk-stat-n, .sk-pop-a, .sk-pop-b,
   .vibes .sk-hdr::after, .sk-hud, .sk-hud::before, .sk-stamp, .sk-arm-title, .sk-g-2, .sk-g-3,
   .sk-v, .vibes .sk-lane-dot, .sk-tape-run, .sk-sign, .sk-solo-ring::before {
     animation: none !important;

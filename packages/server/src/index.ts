@@ -17,6 +17,7 @@ import { apiRoutes } from './routes/api.js';
 import { assetRoutes } from './routes/assets.js';
 import { detailRoutes } from './routes/detail.js';
 import { runRoutes } from './routes/runs.js';
+import { sameOriginGuard } from './routes/security.js';
 import { stageRoutes } from './routes/stages.js';
 import { EventWriter } from './runs/events.js';
 import { listModels } from './runs/models.js';
@@ -47,6 +48,10 @@ export function createApp() {
   const writer = new EventWriter(db);
 
   const app = new Hono();
+  // Ahead of every route: the board is the only thing that should ever reach
+  // a mutating one, and this is what tells it apart from another origin or a
+  // DNS name rebound to loopback after a browser's own check passed.
+  app.use('/api/*', sameOriginGuard);
   app.route('/api', apiRoutes(db, writer));
   app.route('/api/runs', runRoutes(db));
   app.route('/api/cards', actionRoutes(db, writer));

@@ -32,10 +32,10 @@ const succeededPlan = (cardId: string) => {
 };
 
 const get = async <T,>(path: string): Promise<T> =>
-  (await app.fetch(new Request(`http://x${path}`))).json() as Promise<T>;
+  (await app.fetch(new Request(`http://127.0.0.1${path}`))).json() as Promise<T>;
 
 const review = (cardId: string, body: unknown) =>
-  app.fetch(new Request(`http://x/api/cards/${cardId}/review`, {
+  app.fetch(new Request(`http://127.0.0.1/api/cards/${cardId}/review`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

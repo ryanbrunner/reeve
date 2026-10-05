@@ -5,9 +5,11 @@ import { DEFAULT_PORT } from '@reeve/shared';
 
 // Where this file's own code lives, in each of the two layouts it runs from.
 // In a checkout (tsx running this file in place) that is the repo root, three
-// levels above `packages/server/src/config.ts`. Published and bundled into
-// `dist/reeve.js`, every module ends up in that one file, so `import.meta.dirname`
-// is the package's own `dist/`, one level below the package root.
+// levels above `packages/server/src/config.ts`. Published and bundled, every
+// module ends up somewhere under the package's own `dist/` — not
+// necessarily `dist/reeve.js`, which is a thin shim rather than the bundle
+// itself — so `import.meta.dirname` is that `dist/`, one level below the
+// package root, whichever of its files this one lands in.
 const checkoutRoot = resolve(import.meta.dirname, '../../..');
 const packageRoot = resolve(import.meta.dirname, '..');
 

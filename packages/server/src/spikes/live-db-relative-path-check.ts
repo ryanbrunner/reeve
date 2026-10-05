@@ -1,6 +1,9 @@
 /**
  * Throwaway check for the disguises `permission-check.ts` does not try: a
- * relative `REEVE_DB` whose real cwd is not `worktreePath`.
+ * relative `REEVE_DB` whose real cwd is not `worktreePath`. It began as the
+ * security-review card's demonstration of the gap (finding 1 in
+ * `security-review-findings.md`), which printed FAIL for the `cd` cases until
+ * the guard learned to read them; it now checks the fix instead.
  *
  * `scratchDbRefusal` used to resolve every `REEVE_DB` value against the
  * stage's `worktreePath`, full stop, no matter what came before it in the
@@ -126,6 +129,12 @@ console.log('\n--- what a leading cd must not cost ---');
 check(
   "an absolute value doesn't depend on cwd, so a cd whose own target can't be read plainly doesn't deny it",
   !(await denied(`cd "$(pwd)" && REEVE_DB=/tmp/live-db-relative-scratch.db npx tsx x.ts`)),
+);
+// Contrast: the same relative value, with no `cd`, is read against the
+// worktree as intended and (almost certainly) names nothing special there.
+check(
+  'without a cd, the bare filename alone reads as an unrelated path and is allowed',
+  !(await denied(`REEVE_DB=${file} npx tsx x.ts`)),
 );
 check(
   'a relative REEVE_DB after cd somewhere unrelated to the live db is allowed',
