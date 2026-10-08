@@ -59,6 +59,8 @@ const approve = (id: string) => post(`/api/cards/${id}/review`, { decision: 'app
 const boardCard = async (id: string) => (await (await app.request(`/api/cards/${id}`)).json()) as ApiCard;
 const setPr = (id: string, prUrl: string | null, mergedAt: Date | null) =>
   db.update(cardTable).set({ prUrl, mergedAt }).where(eq(cardTable.id, id)).run();
+const setBranch = (id: string, branchName: string) =>
+  db.update(cardTable).set({ branchName }).where(eq(cardTable.id, id)).run();
 
 // A plan waiting for review, so Approve has something to approve.
 function succeededPlan(cardId: string) {
@@ -130,6 +132,21 @@ const noPr = createCard(db, { title: 'Nothing to push', repoId: null, stage: 'do
 const afterNoPr = createCard(db, { title: 'Follows it', repoId: repo.id, stage: 'backlog' });
 addDependency(db, afterNoPr.id, noPr.id);
 const noPrMove = await move(afterNoPr.id, 'planning');
+
+// --- a dependency in Done that ran a stage but has no pull request yet ------
+// Unlike `noPr` above, this one has a branch — real commits a worktree was cut
+// for — so there is something still to land even though `maybeOpenPullRequest`
+// has not (or has tried and failed, which looks the same from here: no `prUrl`,
+// not mid-push). This is the case a failed or retrying automatic open used to
+// slip past: the card read as done with nothing to push, and let its dependent
+// start on work that had never gone out.
+const notYetOpened = createCard(db, { title: 'Built but not pushed', repoId: null, stage: 'done' });
+setBranch(notYetOpened.id, 'card/not-yet-opened');
+const afterNotYetOpened = createCard(db, { title: 'Follows it too', repoId: repo.id, stage: 'backlog' });
+addDependency(db, afterNotYetOpened.id, notYetOpened.id);
+const notYetOpenedMove = await move(afterNotYetOpened.id, 'planning');
+setPr(notYetOpened.id, 'https://example.invalid/pull/3', new Date());
+const notYetOpenedAfterMerge = await move(afterNotYetOpened.id, 'planning');
 
 // --- VIBES MODE -------------------------------------------------------------
 // A Planning card with no plan in flight, which the sweep moves on without one.
@@ -207,6 +224,11 @@ ok('and also stops once archived', afterPrArchive.status, 200);
 
 console.log('\n--- a dependency in Done with no pull request ---');
 ok('does not block', noPrMove.status, 200);
+
+console.log('\n--- a dependency in Done that ran a stage but has no pull request yet ---');
+ok('blocks all the same', notYetOpenedMove.status, 409);
+ok('labelled as not yet pushed', notYetOpenedMove.json.detail, `#${notYetOpened.number} Built but not pushed (Done, no pull request yet)`);
+ok('and clears once its pull request merges', notYetOpenedAfterMerge.status, 200);
 
 console.log('\n--- VIBES MODE ---');
 ok('the sweep leaves a blocked card in Backlog', vibesStage, 'backlog');
