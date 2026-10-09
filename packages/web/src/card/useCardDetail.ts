@@ -113,6 +113,7 @@ export function useLiveRun(
     // reaches `onmessage` — so each kind describeMessage reads is listened for.
     source.addEventListener('assistant', onEvent);
     source.addEventListener('system:thinking_tokens', onEvent);
+    source.addEventListener('system:task_progress', onEvent);
     source.addEventListener('end', () => {
       source.close();
       void qc.invalidateQueries({ queryKey: ['card', cardId] });

@@ -12,8 +12,9 @@ import type { RunnableStage } from './stages.js';
  *
  * Shallow on purpose, like transcript.ts: the stream carries forty-odd message
  * shapes, and anything not recognised here is skipped rather than guessed at.
- * A subagent's own messages are skipped too — what it was asked and what it
- * reported are already the Task call and its result.
+ * A subagent's own messages are folded under the Agent call that launched it
+ * (`agent` on that call's item), not into the thread: they are its work, and
+ * the thread is the conversation with the person.
  */
 
 /** Where a person's words came from, when not typed in the composer. */
@@ -59,13 +60,42 @@ export type ConversationItem =
        * long run's outputs would otherwise make the conversation megabytes.
        */
       result: { text: string; isError: boolean; truncated: boolean; seq: number } | null;
+      /** On an Agent call: the subagent it launched, and everything it has done. */
+      agent?: AgentView;
       at: number;
     }
-  | { kind: 'ask'; id: string; askId: string | null; request: AskView; outcome: AskOutcome | null; at: number }
+  | {
+      kind: 'ask';
+      id: string;
+      askId: string | null;
+      request: AskView;
+      outcome: AskOutcome | null;
+      /** Set when the stage's background worker asked, rather than the session the person talks to. */
+      agent?: 'worker';
+      at: number;
+    }
   /** A call auto mode's classifier refused on its own, which a person may allow once. */
   | { kind: 'refused'; id: string; toolUseId: string; toolName: string; input: Record<string, unknown>; allowed: boolean; at: number }
   | { kind: 'submitted'; id: string; summary: string; at: number }
   | { kind: 'error'; id: string; text: string; at: number };
+
+/** A subagent's own text or tool call, as it shows under the Agent call that launched it. */
+export type AgentStep = Extract<ConversationItem, { kind: 'text' }> | Omit<Extract<ConversationItem, { kind: 'tool' }>, 'agent'>;
+
+export interface AgentView {
+  /** `subagent_type` from the call: `worker` for a stage's own worker. */
+  type: string | null;
+  /** Launched to run in the background, which the lead goes on talking over. */
+  background: boolean;
+  status: 'running' | 'completed' | 'failed' | 'stopped';
+  /** Its own latest account of where it has got to, every half minute or so. */
+  progress: string | null;
+  usage: { tokens: number; toolUses: number; durationMs: number } | null;
+  /** Its latest steps, oldest first. Earlier ones are dropped, and counted. */
+  steps: AgentStep[];
+  dropped: number;
+  endedAt: number | null;
+}
 
 export interface ConversationRun {
   runId: string;
@@ -103,6 +133,12 @@ export interface RunEventInput {
 /** How much of a tool's call and output the conversation carries. The rest is in the run's events. */
 const RESULT_MAX = 500;
 const INPUT_MAX = 400;
+/**
+ * How many of a subagent's steps the conversation carries. A worker can make
+ * hundreds of calls, and the latest are what anyone opening it wants; the
+ * rest stay in the run's events.
+ */
+const STEPS_MAX = 150;
 
 /**
  * Folds one run's events into its items. Mutable and cheap to call once per
@@ -113,6 +149,8 @@ export class RunProjector {
   lastSeq = 0;
   private readonly tools = new Map<string, number>();
   private readonly asks = new Map<string, number>();
+  /** A subagent's own tool calls, by id: where its results land. */
+  private readonly steps = new Map<string, Extract<AgentStep, { kind: 'tool' }>>();
 
   constructor(prompt?: string | null) {
     if (prompt?.trim()) this.items.push({ kind: 'prompt', id: 'prompt', text: prompt });
@@ -124,17 +162,27 @@ export class RunProjector {
    */
   static resume(run: Pick<ConversationRun, 'items' | 'lastSeq'>): RunProjector {
     const p = new RunProjector();
-    p.items.push(...run.items.map((i) => ({ ...i })) as ConversationItem[]);
+    // Copied as deep as `add` writes: a subagent's view and its steps change
+    // in place as its events arrive.
+    p.items.push(...run.items.map((i) =>
+      i.kind === 'tool' && i.agent ? { ...i, agent: { ...i.agent, steps: i.agent.steps.map((s) => ({ ...s })) } } : { ...i },
+    ) as ConversationItem[]);
     p.lastSeq = run.lastSeq;
     p.items.forEach((item, index) => {
       if (item.kind === 'tool') p.tools.set(item.toolUseId, index);
       if (item.kind === 'ask' && item.askId) p.asks.set(item.askId, index);
+      if (item.kind === 'tool' && item.agent) {
+        for (const step of item.agent.steps) if (step.kind === 'tool') p.steps.set(step.toolUseId, step);
+      }
     });
     return p;
   }
 
   /** The event kinds `add` reads, for an EventSource that must name what it listens to. */
-  static readonly KINDS = ['user_message', 'assistant', 'tool_result', 'ask', 'ask_answered', 'refused', 'allowed', 'submitted', 'error'] as const;
+  static readonly KINDS = [
+    'user_message', 'assistant', 'tool_result', 'ask', 'ask_answered', 'refused', 'allowed', 'submitted', 'error',
+    'system:task_started', 'system:task_progress', 'system:task_notification',
+  ] as const;
 
   add(event: RunEventInput): void {
     if (event.seq <= this.lastSeq) return;
@@ -157,8 +205,7 @@ export class RunProjector {
         return;
 
       case 'assistant': {
-        // A subagent's own turns: its call and result already say enough.
-        if (payload['parent_tool_use_id']) return;
+        if (payload['parent_tool_use_id']) return this.addStep(payload, id, at);
         const content = (payload['message'] as { content?: unknown } | undefined)?.content;
         if (!Array.isArray(content)) return;
         content.forEach((block: unknown, i) => {
@@ -176,24 +223,76 @@ export class RunProjector {
             const { verb, target } = toolLabel(name, input);
             const toolUseId = String(block['id'] ?? bid);
             this.tools.set(toolUseId, this.items.length);
-            this.items.push({ kind: 'tool', id: bid, toolUseId, name, verb, target, input: clip(JSON.stringify(input, null, 2), INPUT_MAX).text, result: null, at });
+            const agent: AgentView | undefined = name === 'Agent' || name === 'Task'
+              ? {
+                  type: typeof input['subagent_type'] === 'string' ? input['subagent_type'] : null,
+                  background: input['run_in_background'] === true,
+                  status: 'running', progress: null, usage: null, steps: [], dropped: 0, endedAt: null,
+                }
+              : undefined;
+            this.items.push({
+              kind: 'tool', id: bid, toolUseId, name, verb, target, input: clip(JSON.stringify(input, null, 2), INPUT_MAX).text, result: null,
+              ...(agent ? { agent } : {}), at,
+            });
           }
         });
         return;
       }
 
       case 'tool_result': {
-        if (payload['parent_tool_use_id']) return;
+        const sub = Boolean(payload['parent_tool_use_id']);
         const content = (payload['message'] as { content?: unknown } | undefined)?.content;
         if (!Array.isArray(content)) return;
         for (const block of content) {
           if (!isRecord(block) || block['type'] !== 'tool_result') continue;
-          const index = this.tools.get(String(block['tool_use_id'] ?? ''));
-          const item = index === undefined ? undefined : this.items[index];
-          if (!item || item.kind !== 'tool') continue;
-          const { text, truncated } = clip(resultText(block['content']), RESULT_MAX);
-          item.result = { text, isError: block['is_error'] === true, truncated, seq: event.seq };
+          const toolUseId = String(block['tool_use_id'] ?? '');
+          const index = sub ? undefined : this.tools.get(toolUseId);
+          const top = index === undefined ? undefined : this.items[index];
+          const item = sub ? this.steps.get(toolUseId) : top?.kind === 'tool' ? top : undefined;
+          if (!item) continue;
+          const text = resultText(block['content']);
+          const isError = block['is_error'] === true;
+          item.result = { ...clip(text, RESULT_MAX), isError, seq: event.seq };
+          // A foreground subagent ends with its call. A background one's call
+          // only says it was launched; its end is a task_notification.
+          if (!sub && top?.kind === 'tool' && top.agent && (isError || !/^Async agent launched/.test(text))) {
+            top.agent.status = isError ? 'failed' : 'completed';
+            top.agent.endedAt = at;
+          } else if (!sub && top?.kind === 'tool' && top.agent) {
+            top.agent.background = true;
+          }
         }
+        return;
+      }
+
+      case 'system:task_started':
+      case 'system:task_progress':
+      case 'system:task_notification': {
+        const index = typeof payload['tool_use_id'] === 'string' ? this.tools.get(payload['tool_use_id']) : undefined;
+        const item = index === undefined ? undefined : this.items[index];
+        // The subagent's own commands report as tasks too, under ids of their
+        // own: only the task an Agent call launched is shown.
+        if (item?.kind !== 'tool' || !item.agent) return;
+        const agent = item.agent;
+        if (event.kind === 'system:task_started') {
+          if (payload['is_backgrounded'] === true) agent.background = true;
+          return;
+        }
+        const usage = payload['usage'];
+        if (isRecord(usage)) {
+          agent.usage = {
+            tokens: Number(usage['total_tokens'] ?? 0),
+            toolUses: Number(usage['tool_uses'] ?? 0),
+            durationMs: Number(usage['duration_ms'] ?? 0),
+          };
+        }
+        if (event.kind === 'system:task_progress') {
+          if (typeof payload['summary'] === 'string' && payload['summary'].trim()) agent.progress = payload['summary'].trim();
+          return;
+        }
+        const status = payload['status'];
+        agent.status = status === 'failed' ? 'failed' : status === 'stopped' ? 'stopped' : 'completed';
+        agent.endedAt = at;
         return;
       }
 
@@ -203,7 +302,7 @@ export class RunProjector {
           ? { kind: 'question', questions: (payload['questions'] as AskQuestionView[] | undefined) ?? [] }
           : { kind: 'permission', toolName: String(payload['toolName'] ?? 'a tool'), input: isRecord(payload['input']) ? payload['input'] : {} };
         if (askId) this.asks.set(askId, this.items.length);
-        this.items.push({ kind: 'ask', id, askId, request, outcome: null, at });
+        this.items.push({ kind: 'ask', id, askId, request, outcome: null, ...(payload['agent'] === 'worker' ? { agent: 'worker' as const } : {}), at });
         return;
       }
 
@@ -254,13 +353,50 @@ export class RunProjector {
     }
   }
 
-  /** The asks still waiting on a person. Only ever the last one, in practice. */
+  /** One of a subagent's own messages, under the Agent call that launched it. */
+  private addStep(payload: Record<string, unknown>, id: string, at: number): void {
+    const index = this.tools.get(String(payload['parent_tool_use_id']));
+    const parent = index === undefined ? undefined : this.items[index];
+    if (parent?.kind !== 'tool' || !parent.agent) return;
+    const agent = parent.agent;
+    const content = (payload['message'] as { content?: unknown } | undefined)?.content;
+    if (!Array.isArray(content)) return;
+    content.forEach((block: unknown, i) => {
+      if (!isRecord(block)) return;
+      const bid = `${id}.${i}`;
+      if (block['type'] === 'text' && typeof block['text'] === 'string' && block['text'].trim()) {
+        agent.steps.push({ kind: 'text', id: bid, text: block['text'], at });
+      } else if (block['type'] === 'tool_use' && typeof block['name'] === 'string') {
+        const input = isRecord(block['input']) ? block['input'] : {};
+        const { verb, target } = toolLabel(block['name'], input);
+        const step: Extract<AgentStep, { kind: 'tool' }> = {
+          kind: 'tool', id: bid, toolUseId: String(block['id'] ?? bid), name: block['name'], verb, target,
+          input: clip(JSON.stringify(input, null, 2), INPUT_MAX).text, result: null, at,
+        };
+        this.steps.set(step.toolUseId, step);
+        agent.steps.push(step);
+      }
+    });
+    while (agent.steps.length > STEPS_MAX) {
+      const gone = agent.steps.shift()!;
+      if (gone.kind === 'tool') this.steps.delete(gone.toolUseId);
+      agent.dropped++;
+    }
+  }
+
+  /**
+   * What the run is still waiting on a person for: the lead's ask before its
+   * worker's, since while a worker runs the two can each be waiting on one.
+   */
   pendingAsk(): Extract<ConversationItem, { kind: 'ask' }> | null {
+    let worker: Extract<ConversationItem, { kind: 'ask' }> | null = null;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const item = this.items[i]!;
-      if (item.kind === 'ask') return item.outcome === null && item.askId ? item : null;
+      if (item.kind !== 'ask' || item.outcome !== null || !item.askId) continue;
+      if (!item.agent) return item;
+      worker ??= item;
     }
-    return null;
+    return worker;
   }
 }
 
@@ -293,6 +429,12 @@ export function toolLabel(name: string, input: Record<string, unknown>): { verb:
     }
     case 'ToolSearch':
       return { verb: 'Find tool', target: str('query') };
+    case 'SendMessage':
+      return { verb: 'Message', target: [str('to'), str('summary') || str('message').slice(0, 80)].filter(Boolean).join(': ') };
+    case 'TaskStop':
+      return { verb: 'Stop', target: str('task_id') };
+    case 'SubagentHandback':
+      return { verb: 'Report', target: str('message').replace(/\s+/g, ' ').slice(0, 120) };
     default:
       return { verb: name.replace(/^mcp__/, '').replace(/__/g, ' · '), target: Object.values(input).find((v) => typeof v === 'string') as string ?? '' };
   }

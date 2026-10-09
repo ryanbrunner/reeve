@@ -49,6 +49,13 @@ const blocksOf = (payload: { message?: { content?: unknown } }): Block[] => {
   return Array.isArray(content) ? (content as Block[]) : [];
 };
 
+/**
+ * The Agent calls that launched a background worker, so that its end can be
+ * told from the ends of the worker's own commands. One follow is one run, so
+ * one set for the process is enough.
+ */
+const backgrounded = new Set<string>();
+
 export function renderEvent(kind: string, data: string): string[] {
   let payload: Record<string, unknown>;
   try {
@@ -57,7 +64,23 @@ export function renderEvent(kind: string, data: string): string[] {
     return [];
   }
 
+  // A background worker's own steps, set off from the lead's: the lead is the
+  // one being talked to, and the two interleave while the worker runs.
+  if (payload.parent_tool_use_id && (kind === 'assistant' || kind === 'tool_result')) {
+    return renderEvent(kind, JSON.stringify({ ...payload, parent_tool_use_id: null })).map((l) => `  │ ${l}`);
+  }
+
   switch (kind) {
+    case 'system:task_started':
+      if (!payload.is_backgrounded) return [];
+      if (typeof payload.tool_use_id === 'string') backgrounded.add(payload.tool_use_id);
+      return [`· worker started: ${oneLine(String(payload.description ?? ''))}`];
+    case 'system:task_notification':
+      // Each of the worker's own commands ends in one of these too, with
+      // nothing a person needs: only the background one's end is said.
+      if (typeof payload.tool_use_id !== 'string' || !backgrounded.delete(payload.tool_use_id)) return [];
+      return [`· worker ${String(payload.status ?? 'ended')}`];
+
     case 'system:init':
       return [`· session started${typeof payload.model === 'string' ? ` on ${payload.model}` : ''}`];
 
@@ -105,7 +128,8 @@ export function renderEvent(kind: string, data: string): string[] {
       }
       const input = (payload.input ?? {}) as Record<string, unknown>;
       const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : '';
-      return [`? Claude asks to use ${String(payload.toolName ?? 'a tool')}${what ? `: ${oneLine(what)}` : ''} — reeve card permit <card> allow|deny`];
+      const who = payload.agent === 'worker' ? 'The worker' : 'Claude';
+      return [`? ${who} asks to use ${String(payload.toolName ?? 'a tool')}${what ? `: ${oneLine(what)}` : ''} — reeve card permit <card> allow|deny`];
     }
     case 'ask_answered': {
       if (payload.kind === 'permission') return [`· ${payload.allow ? 'allowed' : 'denied'}${payload.reason ? `: ${oneLine(String(payload.reason))}` : ''}`];
