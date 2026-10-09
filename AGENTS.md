@@ -299,13 +299,15 @@ switched on.
     - A background shell holds nothing open: the SDK says idle with one
       still listed, and waiting on a dev server would keep the run open
       forever.
-    - `submit_<stage>` is refused while a worker runs.
-    - `agentGuard` refuses `isolation`, a foreground worker and a second
-      worker.
+    - `submit_<stage>` is refused while any background agent runs.
+    - `agentGuard` refuses `isolation`, a foreground worker, a second worker,
+      and any agent other than the worker in the background.
     - The worker has no `AskUserQuestion` and no reeve tools.
   - **A worker's escalation** parks the run like the lead's, marked
     `agent: 'worker'`. Only Allow or Deny settles it. Typed words still go to
     the lead.
+    - The worker is known by the `agent_id` its calls carry, learnt in a
+      PreToolUse hook. Any other subagent's calls are treated as the lead's.
   - **On the card,** the worker's messages (non-null `parent_tool_use_id`)
     nest under its Agent call (`agent` on the tool item in `RunProjector`).
     Its end is the `task_notification` naming that call, never the call's own
