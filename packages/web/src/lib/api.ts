@@ -129,6 +129,9 @@ export const api = {
     post(`/api/cards/${id}/messages`, { text }).then(
       json<{ ok: true; delivered: 'answered' | 'live' | 'resumed' | 'started'; runId: string }>,
     ),
+  /** Allow, once, a call auto mode refused, and have Claude make it again. */
+  allowOnce: (id: string, runId: string, toolUseId: string) =>
+    post(`/api/cards/${id}/allow`, { runId, toolUseId }).then(json<{ ok: true; delivered: string; runId: string }>),
   /** One stored event of a run, whole: a conversation row's full tool output. */
   runEvent: (runId: string, seq: number) =>
     fetch(`/api/runs/${runId}/events/${seq}`).then(json<{ seq: number; kind: string; payload: unknown }>),

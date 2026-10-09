@@ -62,6 +62,8 @@ export type ConversationItem =
       at: number;
     }
   | { kind: 'ask'; id: string; askId: string | null; request: AskView; outcome: AskOutcome | null; at: number }
+  /** A call auto mode's classifier refused on its own, which a person may allow once. */
+  | { kind: 'refused'; id: string; toolUseId: string; toolName: string; input: Record<string, unknown>; allowed: boolean; at: number }
   | { kind: 'submitted'; id: string; summary: string; at: number }
   | { kind: 'error'; id: string; text: string; at: number };
 
@@ -132,7 +134,7 @@ export class RunProjector {
   }
 
   /** The event kinds `add` reads, for an EventSource that must name what it listens to. */
-  static readonly KINDS = ['user_message', 'assistant', 'tool_result', 'ask', 'ask_answered', 'submitted', 'error'] as const;
+  static readonly KINDS = ['user_message', 'assistant', 'tool_result', 'ask', 'ask_answered', 'refused', 'allowed', 'submitted', 'error'] as const;
 
   add(event: RunEventInput): void {
     if (event.seq <= this.lastSeq) return;
@@ -222,6 +224,23 @@ export class RunProjector {
             outcome, at,
           });
         }
+        return;
+      }
+
+      case 'refused':
+        this.items.push({
+          kind: 'refused', id,
+          toolUseId: String(payload['toolUseId'] ?? ''),
+          toolName: String(payload['toolName'] ?? 'a tool'),
+          input: isRecord(payload['input']) ? payload['input'] : {},
+          allowed: false,
+          at,
+        });
+        return;
+
+      case 'allowed': {
+        const item = this.items.find((i) => i.kind === 'refused' && i.toolUseId === payload['toolUseId']);
+        if (item?.kind === 'refused') item.allowed = true;
         return;
       }
 

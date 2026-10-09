@@ -257,7 +257,7 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
         // voice carrying on, not a new message: no second name and avatar.
         const prev = groups[i - 1];
         const continued = g.kind === 'text' && prev !== undefined && (Array.isArray(prev) || prev.kind === 'text' || prev.kind === 'thinking');
-        return <Item key={g.id} item={g} detail={detail} live={live} stage={stage} onOpenPanel={onOpenPanel} continued={continued} />;
+        return <Item key={g.id} item={g} detail={detail} live={live} stage={stage} onOpenPanel={onOpenPanel} continued={continued} runId={run.runId} />;
       })}
       {ending && (
         <Divider tone={run.status === 'failed' ? 'error' : 'muted'}>
@@ -282,7 +282,8 @@ function group(items: ConversationItem[]): Array<ConversationItem | ToolItem[]> 
   return out;
 }
 
-function Item({ item, detail, live, stage, onOpenPanel, continued = false }: {
+function Item({ item, detail, live, stage, onOpenPanel, continued = false, runId }: {
+  runId: string;
   item: ConversationItem;
   detail: CardDetail;
   live: boolean;
@@ -311,6 +312,8 @@ function Item({ item, detail, live, stage, onOpenPanel, continued = false }: {
       return <AskItem item={item} detail={detail} live={live} />;
     case 'submitted':
       return <Submitted item={item} stage={stage} onOpenPanel={onOpenPanel} />;
+    case 'refused':
+      return <RefusedItem item={item} detail={detail} stage={stage} runId={runId} />;
     case 'error':
       return <p className="ml-8 font-mono text-[11px]/4 text-red-300">{item.text}</p>;
     case 'tool':
@@ -483,6 +486,45 @@ function Submitted({ item, stage, onOpenPanel }: {
       <div className="mt-2">
         <SmallButton tone="sky" onClick={() => onOpenPanel(panel)}>Open the {what.toLowerCase()}</SmallButton>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A call auto mode refused on its own, without asking anyone — most refusals
+ * are — offered to the person to allow once. Allowing tells Claude to make
+ * the same call again, and lets exactly that call through when it does.
+ */
+function RefusedItem({ item, detail, stage, runId }: {
+  item: Extract<ConversationItem, { kind: 'refused' }>;
+  detail: CardDetail;
+  stage: StageTab;
+  runId: string;
+}) {
+  const qc = useQueryClient();
+  const allow = useMutation({
+    mutationFn: () => api.allowOnce(detail.card.id, runId, item.toolUseId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['conversation', detail.card.id] });
+    },
+  });
+  const command = typeof item.input['command'] === 'string' ? item.input['command'] : null;
+  const shown = command ?? (typeof item.input['file_path'] === 'string' ? item.input['file_path'] : JSON.stringify(item.input));
+  const current = stage === detail.card.stage && !detail.card.vibes;
+  return (
+    <div className="ml-8 rounded-md border border-(--color-activity-error-border)/60 bg-(--color-card-core) px-3 py-2">
+      <div className="flex items-center gap-2 font-mono text-[11px]/4 text-red-300">
+        ✕ Auto mode refused this {item.toolName} call
+        <span className="grow" />
+        {item.allowed ? (
+          <span className="text-(--color-activity-review-mark)">✓ allowed once by you</span>
+        ) : current ? (
+          <SmallButton tone="sky" busy={allow.isPending} onClick={() => allow.mutate()}>Allow once and retry</SmallButton>
+        ) : null}
+      </div>
+      <pre className="mt-1 max-h-24 overflow-auto font-mono text-[11.5px]/4 whitespace-pre-wrap text-(--color-muted)">{shown}</pre>
+      {allow.error && <p className="mt-1 font-mono text-[11px] text-red-300">{allow.error.message}</p>}
     </div>
   );
 }

@@ -25,7 +25,7 @@ import {
   updateCriterion,
 } from '../db/queries.js';
 import { recordAnswer } from '../answers.js';
-import { answerAsk, conversationFor, sendToCard } from '../conversation.js';
+import { allowOnce, answerAsk, conversationFor, sendToCard } from '../conversation.js';
 import { runRegistry } from '../runs/registry.js';
 import { linkDependency } from '../dependencies.js';
 import { checkWorktree, commitAt, commitsSince, diffOfCommit, diffSince } from '../git/worktree.js';
@@ -286,6 +286,20 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       : { kind: 'permission', allow: body.decision === 'allow', reason: body.reason ?? null, actor: 'human' });
     if (!answered) return c.json({ error: 'not waiting on that', detail: 'answered already, timed out, or stopped' }, 409);
     return c.json({ ok: true });
+  });
+
+  /**
+   * Allow, once, a call auto mode refused, and have Claude make it again.
+   * See `allowOnce` in ../conversation.ts.
+   */
+  routes.post('/:id/allow', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { runId?: unknown; toolUseId?: unknown };
+    if (typeof body.runId !== 'string' || typeof body.toolUseId !== 'string') return c.json({ error: 'needs runId and toolUseId' }, 400);
+    const result = await allowOnce(db, writer, card, body.runId, body.toolUseId);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json({ ok: true, delivered: result.delivered, runId: result.runId }, 201);
   });
 
   /**

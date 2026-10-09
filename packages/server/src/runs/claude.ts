@@ -33,9 +33,9 @@ import { renderPrompt } from '../stages/template.js';
 import { recordRateLimit } from '../usage.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
-import { askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
+import { allowances, askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
 import { Inbox } from './inbox.js';
-import { decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
+import { allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -339,8 +339,12 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
    * request times out, or the run is stopped. The request and its answer go
    * into the run's events, which is where the conversation shows them.
    */
-  const askPerson = async (request: AskRequest, toolUseId: string): Promise<AskAnswer> => {
+  const askPerson = async (request: AskRequest, toolUseId: string, signal?: AbortSignal): Promise<AskAnswer> => {
     const { ask, answer } = askRegistry.wait(runId, card.id, request, config.askTimeoutMs);
+    // The SDK gives a local prompt no deadline of its own, but it can abandon
+    // the call — an interrupt, the session ending — and then nothing is
+    // waiting on the answer, so the buttons must not stay up as if it were.
+    signal?.addEventListener('abort', () => askRegistry.settle(ask.id, { kind: 'unanswered', why: 'stopped' }), { once: true });
     writer.append(runId, 'ask', { ...ask, toolUseId });
     writer.flush();
     setRunStatus(db, runId, { status: 'asking' });
@@ -360,6 +364,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     toolName: string,
     input: Record<string, unknown>,
     toolUseID: string,
+    signal?: AbortSignal,
   ): Promise<PermissionResult> => {
     // A one-off task — Suggest, a split, resolving conflicts — has no
     // conversation anyone is reading, so nothing in it can be asked: refused
@@ -384,7 +389,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         writer.append(runId, 'ask_answered', { kind: 'question', answers, actor: 'claude', at: Date.now(), vibes: true });
         return { behavior: 'allow', updatedInput: { ...input, answers } };
       }
-      const settled = await askPerson({ kind: 'question', questions }, toolUseID);
+      const settled = await askPerson({ kind: 'question', questions }, toolUseID, signal);
       if (settled.kind === 'question') return { behavior: 'allow', updatedInput: { ...input, answers: settled.answers } };
       return {
         behavior: 'deny',
@@ -398,7 +403,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       refuse(toolName, input, toolUseID);
       return decideToolUse({ toolName, input });
     }
-    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID);
+    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal);
     if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
     refuse(toolName, input, toolUseID);
     if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
@@ -429,14 +434,19 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // model takes it.
     ...(stage.directories ? { additionalDirectories: stage.directories(db) } : {}),
     hooks: {
-      PreToolUse: [{
-        matcher: 'Bash',
-        hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
-      }],
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
+        },
+        // Every tool: what a person allowed once after auto mode refused it.
+        // Only a conversation's run has anyone to allow anything.
+        ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, repo.defaultBranch, (c, t, i) => allowances.take(c, t, i))] }] : []),
+      ],
     },
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
-    canUseTool: (toolName, input, { toolUseID }) => canUseTool(toolName, input, toolUseID),
+    canUseTool: (toolName, input, { toolUseID, signal }) => canUseTool(toolName, input, toolUseID, signal),
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),
@@ -538,6 +548,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       });
 
       let thought: Thought = { activity: null, thinking: null };
+      // This run's tool calls, in full, by id: what a refusal names but does not carry.
+      const calls = new Map<string, { toolName: string; input: Record<string, unknown> }>();
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
         if (message.type === 'result') {
@@ -586,8 +598,23 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
 
         // The refusals nobody asked us about: auto mode's classifier turning a
         // call down on its own.
+        if (message.type === 'assistant') {
+          for (const block of ((message as { message?: { content?: unknown } }).message?.content as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }> | undefined) ?? []) {
+            if (block.type === 'tool_use' && block.id && block.name) calls.set(block.id, { toolName: block.name, input: block.input ?? {} });
+          }
+          // A refusal names a call from the turn it lands in; a long run's
+          // older ones, a Write's whole content among them, are not kept.
+          while (calls.size > 64) calls.delete(calls.keys().next().value!);
+        }
         const refused = denials.observe(message);
         if (refused) setRunStatus(db, runId, { permissionDenials: refused });
+        // Shown in the conversation, where a person can allow it once — but
+        // only where there is a person: an auto-mode stage, nobody in VIBES.
+        const denied = message as { type?: string; subtype?: string; tool_use_id?: string };
+        if (refused && denied.type === 'system' && denied.subtype === 'permission_denied' && stage.submit && autoMode && !unwatched()) {
+          const call = denied.tool_use_id ? calls.get(denied.tool_use_id) : undefined;
+          if (call) writer.append(runId, 'refused', { toolUseId: denied.tool_use_id, ...call, at: Date.now() });
+        }
 
         // Kept on the row whether or not anyone is watching, so the modal opens
         // on what Claude is doing now. Written only on a change: thinking_tokens

@@ -2,8 +2,11 @@ import { RUNNABLE_STAGES, RunProjector, isRunnable, isTerminal, type ApiConversa
 import type { Db } from './db/client.js';
 import {
   eventsSince,
+  getRun,
+  latestSeq,
   getSettings,
   insertCardEvent,
+  inVibes,
   latestClaudeRunForStage,
   liveStageRun,
   listRepos,
@@ -12,7 +15,7 @@ import {
 } from './db/queries.js';
 import type { Card, CardEventActor, Repo } from './db/schema.js';
 import { isResolvingConflicts } from './pullRequest.js';
-import { answerFromText, askRegistry, type AskAnswer } from './runs/asks.js';
+import { allowances, answerFromText, askRegistry, type AskAnswer } from './runs/asks.js';
 import type { MessageSource } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -157,6 +160,43 @@ export function answerAsk(card: Card, askId: string, answer: Exclude<AskAnswer, 
   return askRegistry.settle(askId, answer);
 }
 
+/**
+ * Allow, once, a call auto mode refused in one of the card's runs, and tell
+ * Claude to make it again. Refused for a run that is not the stage's current
+ * conversation, and for anything VIBES MODE is driving — nobody allows
+ * anything there.
+ */
+export async function allowOnce(db: Db, writer: EventWriter, card: Card, runId: string, toolUseId: string): Promise<SendResult> {
+  const run = getRun(db, runId);
+  if (!run || run.cardId !== card.id || run.stage !== card.stage || run.task !== null) {
+    return { ok: false, status: 409, error: 'not this stage\'s conversation', detail: 'allow it from the stage the card is in' };
+  }
+  if (getSettings(db).vibesSince !== null || inVibes(db, card)) {
+    return { ok: false, status: 409, error: 'VIBES MODE is on', detail: 'nothing is allowed by hand while it drives the card' };
+  }
+  const refused = eventsSince(db, runId, 0)
+    .filter((e) => e.kind === 'refused')
+    .map((e) => JSON.parse(e.payload) as { toolUseId?: string; toolName?: string; input?: Record<string, unknown> })
+    .find((e) => e.toolUseId === toolUseId);
+  if (!refused?.toolName || !refused.input) return { ok: false, status: 409, error: 'no such refusal in that run' };
+  if (eventsSince(db, runId, 0).some((e) => e.kind === 'allowed' && (JSON.parse(e.payload) as { toolUseId?: string }).toolUseId === toolUseId)) {
+    return { ok: false, status: 409, error: 'already allowed' };
+  }
+  allowances.grant(card.id, refused.toolName, refused.input);
+  writer.append(runId, 'allowed', { toolUseId, at: Date.now() });
+  const what = typeof refused.input['command'] === 'string' ? refused.input['command'] : `this ${refused.toolName} call`;
+  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, {
+    prompt:
+      `The person has allowed, for one use, the call auto mode refused: ${refused.toolName} \`${oneLine(what)}\`. ` +
+      'Make exactly that call again now, with the same input, and carry on.',
+  });
+}
+
+function oneLine(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat;
+}
+
 /** Whether the live run is gone within `ms`. */
 async function settles(db: Db, cardId: string, runId: string, ms: number): Promise<boolean> {
   const until = Date.now() + ms;
@@ -187,8 +227,10 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
     stages: RUNNABLE_STAGES.map((stage) => ({
       stage,
       runs: runs.filter((r) => r.stage === stage).map((r) => {
+        // Events can still land on a finished run — an allowance marks the
+        // refusal it answers — so the cache is checked against its last one.
         const cached = isTerminal(r.status) ? projected.get(r.id) : undefined;
-        if (cached && cached.status === r.status) return cached;
+        if (cached && cached.status === r.status && cached.lastSeq === latestSeq(db, r.id)) return cached;
         const projector = new RunProjector(r.parentRunId ? null : r.prompt);
         for (const e of eventsSince(db, r.id, 0)) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
         const view: ConversationRun = {

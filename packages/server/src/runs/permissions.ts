@@ -97,6 +97,34 @@ export function mergeGuard(
   };
 }
 
+/**
+ * Let through, once, a call a person allowed after auto mode refused it: see
+ * `allowances` in runs/asks.ts. Never one the guards above refuse — merging
+ * stays the person's on the board, and the live database stays shut — which
+ * this checks itself rather than trusting the order hooks run in.
+ */
+export function allowanceHook(
+  cardId: string,
+  worktreePath: string,
+  baseBranch: string,
+  take: (cardId: string, toolName: string, input: Record<string, unknown>) => boolean,
+): HookCallback {
+  return (hook) => {
+    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const command = typeof input['command'] === 'string' ? input['command'] : '';
+    if (command && (mergeRefusal(command, baseBranch) || scratchDbRefusal(command.trim(), worktreePath))) return Promise.resolve({});
+    if (!take(cardId, hook.tool_name, input)) return Promise.resolve({});
+    return Promise.resolve({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+        permissionDecisionReason: 'The person watching this run allowed this exact call, once.',
+      },
+    });
+  };
+}
+
 const MERGE_OR_CLOSE = /\bgh\s+pr\s+(merge|close)\b/;
 const GIT_PUSH = /\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g;
 

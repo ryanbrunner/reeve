@@ -102,3 +102,53 @@ export function answerFromText(ask: PendingAsk, text: string, actor: CardEventAc
   }
   return { kind: 'permission', allow: false, reason: text, actor };
 }
+
+/**
+ * Calls a person has allowed once, after auto mode's classifier refused them.
+ *
+ * The classifier decides most refusals itself, without ever asking
+ * `canUseTool`, so parking on an escalation alone would leave a person nothing
+ * to approve for the calls that are actually refused. Instead the refusal is
+ * shown in the conversation; a person's Allow once puts the exact call here,
+ * Claude is told to make it again, and the run's PreToolUse hook lets that one
+ * call through — a hook's allow is honoured over the classifier, checked by
+ * spike. Exact means the same tool and the same input: for Bash the command
+ * itself, since the description beside it is Claude's to reword.
+ */
+export interface Allowance {
+  toolName: string;
+  key: string;
+  expiresAt: number;
+}
+
+/** How long an allowance waits for Claude to make the call again. */
+const ALLOWANCE_MS = 30 * 60_000;
+
+export function callKey(toolName: string, input: Record<string, unknown>): string {
+  if (toolName === 'Bash' && typeof input['command'] === 'string') return input['command'].trim();
+  const { description: _description, ...rest } = input;
+  return JSON.stringify(rest, Object.keys(rest).sort());
+}
+
+class Allowances {
+  private readonly byCard = new Map<string, Allowance[]>();
+
+  grant(cardId: string, toolName: string, input: Record<string, unknown>): void {
+    const list = (this.byCard.get(cardId) ?? []).filter((a) => a.expiresAt > Date.now());
+    list.push({ toolName, key: callKey(toolName, input), expiresAt: Date.now() + ALLOWANCE_MS });
+    this.byCard.set(cardId, list);
+  }
+
+  /** True, once, for a call a person allowed. */
+  take(cardId: string, toolName: string, input: Record<string, unknown>): boolean {
+    const list = this.byCard.get(cardId);
+    if (!list) return false;
+    const key = callKey(toolName, input);
+    const i = list.findIndex((a) => a.toolName === toolName && a.key === key && a.expiresAt > Date.now());
+    if (i < 0) return false;
+    list.splice(i, 1);
+    return true;
+  }
+}
+
+export const allowances = new Allowances();
