@@ -90,10 +90,13 @@ export function DiffTab({
 function FileDiff({ file }: { file: ApiDiffFile }) {
   // Size both gutters to this file's own widest line number rather than a flat
   // 3rem each, so a short file (most of them) gives that width back to the code.
-  const lineNumbers = file.hunks
-    .flatMap((hunk) => hunk.lines.flatMap((line) => [line.oldLine, line.newLine]))
-    .filter((n): n is number => n != null);
-  const gutterWidth = Math.max(1, ...lineNumbers.map((n) => n.toString().length));
+  // A loop, not Math.max(...spread): the server sends a regenerated lockfile's
+  // tens of thousands of lines whole, and spreading that many arguments throws.
+  let widest = 0;
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) widest = Math.max(widest, line.oldLine ?? 0, line.newLine ?? 0);
+  }
+  const gutterWidth = Math.max(1, String(widest).length);
   // Each number column keeps its px-2 (1rem) padding, so the track needs that
   // added back on top of the digits themselves or the widest number clips.
   const gridStyle = { gridTemplateColumns: `calc(${gutterWidth}ch + 1rem) calc(${gutterWidth}ch + 1rem) 1rem minmax(0,1fr)` };
