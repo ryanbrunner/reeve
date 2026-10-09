@@ -38,7 +38,7 @@ const db = openDatabase(join(root, 'reeve.db'));
 runMigrations(db);
 const makeRepo = (name: string) => createRepo(db, {
   name, repoPath: join(root, name), worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const repo = makeRepo('discard-check');

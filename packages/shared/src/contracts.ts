@@ -140,6 +140,29 @@ export const planningOutput = z.object({
     .array(z.string())
     .describe('Repo-relative paths you expect to create or modify.'),
   risk: z.enum(['low', 'medium', 'high']).describe('How likely this is to go wrong or need rework.'),
+  /**
+   * What reading the repo taught, handed on. In Progress builds in a fresh
+   * context — its worker fresher still — and in a big codebase finding its
+   * way about again is most of the turns it spends before writing a line.
+   * Defaulted, as `mockups` is, so plans stored before it still parse.
+   */
+  orientation: z
+    .array(
+      z.object({
+        path: z.string().describe('A repo-relative file or directory.'),
+        what: z.string().describe('What it holds, and why it matters for this work, in a line.'),
+      }),
+    )
+    .default([])
+    .describe(
+      'Where the code this work touches and leans on lives, as you found it: the files and directories worth knowing before starting, including the tests that cover this area and any helper to reuse. Whoever builds this starts without your context. Five to fifteen entries is usual; fewer for a small change.',
+    ),
+  focused_tests: z
+    .string()
+    .default('')
+    .describe(
+      'The command that runs only the tests covering this change, in the repo\'s own runner (e.g. `npx vitest run src/cart`, `pytest tests/cart`), for checking work as it goes without the whole suite. Empty if there is no way to run a subset.',
+    ),
   suggested_tasks: suggestedTasks,
 });
 

@@ -49,6 +49,7 @@ export function toApiRepo(p: Repo): ApiRepo {
     defaultBranch: p.defaultBranch,
     setupCommand: p.setupCommand,
     testCommand: p.testCommand,
+    focusedTestCommand: p.focusedTestCommand,
     seedCommand: p.seedCommand,
     serverCommand: p.serverCommand,
     serverUrl: p.serverUrl,

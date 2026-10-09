@@ -194,6 +194,16 @@ function composePlan(output: PlanningOutput, mockups: PlanningOutput['mockups'])
     out.push('');
   }
 
+  if (output.orientation.length) {
+    out.push('## Where things are', '');
+    for (const o of output.orientation) out.push(`- \`${o.path}\` — ${o.what}`);
+    out.push('');
+  }
+
+  if (output.focused_tests.trim()) {
+    out.push('## Focused tests', '', `\`${output.focused_tests.trim()}\``, '');
+  }
+
   if (output.captures.length) {
     out.push('## Captures', '');
     for (const c of output.captures) out.push(`- ${c.label} — \`${c.path}\` at ${c.viewport}px`);

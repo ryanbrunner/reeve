@@ -19,6 +19,8 @@ export interface ApiRepo {
   defaultBranch: string;
   setupCommand: string | null;
   testCommand: string | null;
+  /** The tests near a change, `{{paths}}` standing for them. Named in prompts; Reeve never runs it. */
+  focusedTestCommand: string | null;
   /** Run by Testing, with the card's server stopped, before it takes screenshots. */
   seedCommand: string | null;
   serverCommand: string | null;
@@ -447,6 +449,7 @@ export interface CreateRepoBody {
   defaultBranch?: string;
   setupCommand?: string | null;
   testCommand?: string | null;
+  focusedTestCommand?: string | null;
   seedCommand?: string | null;
   serverCommand?: string | null;
   serverUrl?: string | null;

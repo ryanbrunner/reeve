@@ -114,6 +114,7 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
+  focusedTestCommand: z.string().nullable().optional(),
   // Filled like the server's, but it runs before the server has been given a
   // port, so a `{{port}}` here would reach the shell as written.
   seedCommand: z

@@ -135,7 +135,7 @@ reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
 reeve card archive <card> [--detach-open]
 reeve card restore <card>
-reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--seed CMD] [--server CMD] …
+reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--focused-test CMD] [--seed CMD] [--server CMD] …
 reeve repos show <repo> [--json]
 reeve card accept <card>
 reeve card dismiss <card>

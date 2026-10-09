@@ -15,7 +15,7 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     worktreeRoot: join(repoPath, '..', '.reeve-worktrees'),
     defaultBranch: 'main',
     setupCommand: null,
-    testCommand: null,
+    testCommand: null, focusedTestCommand: null,
     seedCommand: null,
     serverCommand: null,
     serverUrl: null,

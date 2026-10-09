@@ -2,7 +2,7 @@ import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
-import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting, renderTests } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -60,9 +60,10 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       body: ctx.brief,
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
       mockups: prepared?.['mockups'] ?? '',
-      testCommand: ctx.repo.testCommand
-        ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
-        : 'This repo defines no test command, so there is nothing to run.',
+      testCommand: renderTests(
+        ctx.repo,
+        'Before you finish, run {{command}} once on your final commit, and get it green.',
+      ),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
     });

@@ -52,7 +52,7 @@ const withServer = (name: string, serverCommand: string | null) =>
     name: `${name}-${Date.now()}`,
     // Not a git repo: whatever an approval or a revision would start next is refused.
     repoPath: dir, worktreeRoot: dir, defaultBranch: 'main',
-    setupCommand: null, testCommand: null, serverCommand,
+    setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand,
     teardownCommand: null, finishCommand: null, laneColor: null,
   });
 const repo = withServer('gloss-check', `node -e "require('http').createServer((q,s)=>s.end('ok')).listen({{port}})"`);

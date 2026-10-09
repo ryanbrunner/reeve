@@ -43,7 +43,7 @@ const teardownLog = join(root, 'teardown.log');
 const teardownCommand = `echo "$PWD" >> '${teardownLog}'`;
 const repo = createRepo(db, {
   name: `cleanup-check-${Date.now()}`, repoPath, worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand, finishCommand: null, laneColor: null,
 });
 

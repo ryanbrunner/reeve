@@ -107,6 +107,10 @@ export const repo = sqliteTable('repo', {
   // Any of the six lifecycle commands may be blank.
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
+  // The tests near a change, for a run to check its work as it goes and leave
+  // the whole suite to the end: `{{paths}}` is where the paths go. Not a
+  // lifecycle command — Reeve never runs it, only names it in the prompt.
+  focusedTestCommand: text('focused_test_command'),
   // Puts fixture data where the dev server will read it. Testing runs it, with
   // the card's server stopped, before taking its screenshots, so a capture
   // shows the state the mockup draws rather than an empty page.

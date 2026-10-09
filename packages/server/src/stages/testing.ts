@@ -17,7 +17,7 @@ import { runRegistry } from '../runs/registry.js';
 import { fillVars, serverEnv, serverVars } from '../runs/serverUrl.js';
 import { startShellRun } from '../runs/shell.js';
 import { recordSuggestions } from '../suggestions.js';
-import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting, renderTests } from './template.js';
 import type { StageContext, StageDefinition } from './types.js';
 
 /**
@@ -132,7 +132,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
       implementation: ctx.priorArtifacts?.find((a) => a.kind === 'summary')?.content ?? '_No notes were recorded._',
       screenshots: prepared?.['screenshots'] ?? 'No screenshots were taken.',
       testCommand: ctx.repo.testCommand
-        ? `Run \`${ctx.repo.testCommand}\`.`
+        ? renderTests(ctx.repo, 'Run {{command}}, the whole suite, once your fixes are in, and report how it ends.')
         : 'This repo defines no test command, so verify by reading and by the screenshots.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),

@@ -420,6 +420,7 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     defaultBranch: repo?.defaultBranch ?? '',
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
+    focusedTestCommand: repo?.focusedTestCommand ?? '',
     seedCommand: repo?.seedCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
     serverUrl: repo?.serverUrl ?? '',
@@ -457,6 +458,7 @@ function RepoForm({
         repoPath: form.repoPath.trim(),
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
+        focusedTestCommand: blankIsNull(form.focusedTestCommand),
         seedCommand: blankIsNull(form.seedCommand),
         serverCommand: blankIsNull(form.serverCommand),
         serverUrl: blankIsNull(form.serverUrl),
@@ -548,6 +550,12 @@ function RepoForm({
         </Field>
         <Field label="Test" hint="What Testing runs to check the work.">
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
+        </Field>
+        <Field
+          label="Focused tests"
+          hint="Runs only the tests near a change, so a run can check its work as it goes and leave the whole suite to the end. Put {{paths}} where the test files or directories go. Reeve never runs it; it tells Claude how."
+        >
+          <Text value={form.focusedTestCommand} onChange={set('focusedTestCommand')} placeholder="npx vitest run {{paths}}" mono />
         </Field>
         <Field
           label="Seed"

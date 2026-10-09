@@ -204,6 +204,13 @@
       "when": 1791588512581,
       "tag": "0028_index_rate_limit_events",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1791588728968,
+      "tag": "0029_repo_focused_test_command",
+      "breakpoints": true
     }
   ]
 }
