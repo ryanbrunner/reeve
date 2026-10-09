@@ -13,9 +13,10 @@ import type { StageDefinition } from './types.js';
  * request; now it is a conversation like the others.
  *
  * The server still opens the pull request when the card arrives, before this
- * starts. Claude reviews the branch, runs the repo's finish command, and
- * writes the title, description and release notes, which the server sets on
- * the pull request — Claude returns data and the server acts on it, the same
+ * starts — but nothing starts the conversation itself by default. Asked to,
+ * Claude reviews the branch, runs the repo's finish command, and writes the
+ * title, description and release notes, which the server sets on the pull
+ * request — Claude returns data and the server acts on it, the same
  * inversion every stage runs on. It may commit a small fix; the server pushes
  * it. It never merges: `mergeGuard` refuses `gh pr merge` in every stage, and
  * the Merge button is the person's.
@@ -63,8 +64,8 @@ export const releaseStage: StageDefinition<ReleaseOutput> = {
       implementation: artifact('summary', 'What was built'),
       testReport: artifact('test_report', 'The test report'),
       finishCommand: ctx.repo.finishCommand
-        ? `Run the repo's finish command, \`${ctx.repo.finishCommand}\`, from the worktree, and report what it did. It is the repo's own last check before merging.`
-        : 'This repo defines no finish command, so there is nothing extra to run.',
+        ? `The repo's finish command is \`${ctx.repo.finishCommand}\`, its own last check before merging. Run it from the worktree and report what it did, if asked.`
+        : 'This repo defines no finish command.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
     });
