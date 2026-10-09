@@ -116,6 +116,14 @@ questions` says what about — a plan's questions, the question a turn ended
 on, or a call the run wants to make — and `answer`, `reply` or `permit` is the
 way back.
 
+In Progress and Testing hand their work to a background worker, and the
+session `card reply` talks to leads it. While the worker runs, a reply gets a
+prompt answer instead of waiting for the work to finish, and a change you ask
+for is passed on to the worker. `card wait` keeps waiting through that, since
+the run is still working. A call the worker wants to make is settled only by
+`permit`, and a `reply` meanwhile still goes to the lead. `run follow` shows
+the worker's steps indented under `· worker started`.
+
 ## Writing
 
 ```sh

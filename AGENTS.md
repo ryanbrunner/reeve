@@ -283,6 +283,31 @@ switched on.
   hook lets it through — a hook's allow is honoured over the classifier. The
   hook never allows what the merge or live-database guards refuse, and nothing
   is offered under VIBES MODE or outside the stage's current conversation.
+- **In Progress and Testing lead a background worker.** A stage with
+  `worker` (`packages/server/src/stages/types.ts`) passes the Agent SDK an
+  `agents` entry built from its own brief (`prompts/worker.md` wrapped around
+  `buildPrompt`'s output, also kept in `.reeve/<stage>-brief.md` for a forked
+  follow-up). The session a person talks to opens with `prompts/lead.md`:
+  launch the worker, end the turn, answer the person and relay changes with
+  `SendMessage`, then check the work and submit.
+  - **What the SDK does** (`spikes/background-agent-check.ts`): each message
+    pushed while the worker runs is a short turn of its own that ends in a
+    `result` with no `idle`, and `idle` only comes once the worker is done.
+  - **Reeve's rules:**
+    - The input stays open while anything runs in the background, the 15s
+      fallback included.
+    - `submit_<stage>` is refused while a worker runs.
+    - `agentGuard` refuses `isolation`, a foreground worker and a second
+      worker.
+    - The worker has no `AskUserQuestion` and no reeve tools.
+  - **A worker's escalation** parks the run like the lead's, marked
+    `agent: 'worker'`. Only Allow or Deny settles it. Typed words still go to
+    the lead.
+  - **On the card,** the worker's messages (non-null `parent_tool_use_id`)
+    nest under its Agent call (`agent` on the tool item in `RunProjector`).
+    Its end is the `task_notification` naming that call, never the call's own
+    "launched" result.
+  - `spikes/worker-flow-check.ts` drives all of it with real runs.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
   since auto mode may approve them. The Merge button, and VIBES MODE, land a
