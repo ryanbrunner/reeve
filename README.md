@@ -20,7 +20,8 @@ for your answers when Claude has asked questions. You can send a stage back
 with notes instead, and they become its next prompt.
 
 VIBES MODE (`reeve vibes on`) is the one exception, and it is off until you
-switch it on: it approves, answers and advances cards with nobody watching.
+switch it on: it approves, answers, advances and resolves the conflicts of
+cards with nobody watching.
 
 ## Requirements
 
