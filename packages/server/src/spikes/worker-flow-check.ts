@@ -159,6 +159,14 @@ const revised = await until('revision worker launched', async () => {
 }, 180_000);
 check('the revision launched a fresh worker', revised);
 await until('revision finishes', () => latest('in_progress')?.id !== firstRun && ['succeeded', 'failed', 'awaiting_reply', 'cancelled'].includes(status('in_progress')), 600_000);
+if (status('in_progress') === 'awaiting_reply') {
+  // Fair: the lead may flag something about the revision before submitting
+  // (one run pointed out `node --test` stops finding a .spec.mjs file).
+  note('revision ended awaiting a reply', texts(await runOf('in_progress')).at(-1)?.slice(0, 300));
+  const waiting = latest('in_progress')!.id;
+  await api('POST', '/api/cards/c1/messages', { text: 'That is fine as it is — submit it now.' });
+  await until('revision submits', () => latest('in_progress')?.id !== waiting && ['succeeded', 'failed', 'awaiting_reply'].includes(status('in_progress')), 600_000);
+}
 check('the revision was submitted', status('in_progress') === 'succeeded', status('in_progress'));
 check('the revision did the work', existsSync(join(wt, 'greet.spec.mjs')) && !existsSync(join(wt, 'greet.test.mjs')));
 const revisionWorker = workerIn(await runOf('in_progress'));
