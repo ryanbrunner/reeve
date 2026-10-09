@@ -1,4 +1,4 @@
-import type { RunKind, StopReason } from '@reeve/shared';
+import type { ApiRunPulse, RunKind, StopReason } from '@reeve/shared';
 
 export interface ActiveRun {
   runId: string;
@@ -14,6 +14,8 @@ export interface ActiveRun {
   send?: (text: string) => boolean;
   /** Best-effort graceful stop, then force. Resolves once the run is terminal. */
   stop: (reason: StopReason) => Promise<void>;
+  /** How the run is doing right now: see ApiRunPulse. Absent on runs that keep none. */
+  pulse?: () => ApiRunPulse;
 }
 
 /**

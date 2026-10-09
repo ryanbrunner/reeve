@@ -25,6 +25,7 @@ import type {
   StopReason,
 } from '@reeve/shared';
 import { assetSrc } from './assets/store.js';
+import { runRegistry } from './runs/registry.js';
 import type {
   AcceptanceCriterion,
   Asset,
@@ -76,6 +77,9 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     finishedAt: ms(r.finishedAt),
     errorMessage: r.errorMessage,
     deniedToolUses: toApiToolDenials(r.permissionDenials),
+    // Kept by the process running it, in memory like the run itself: no row
+    // to read once it ends, and none to write on every message.
+    pulse: runRegistry.get(r.id)?.pulse?.() ?? null,
   };
 }
 

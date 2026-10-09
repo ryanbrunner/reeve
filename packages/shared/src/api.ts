@@ -88,6 +88,38 @@ export interface ApiRunSummary {
   errorMessage: string | null;
   /** Empty for almost every run. Not empty is a thing the human should see. */
   deniedToolUses: ApiToolDenial[];
+  /**
+   * How a live run is doing right now, read from the process running it: null
+   * once it has ended, and for a run this server is not the one running.
+   */
+  pulse: ApiRunPulse | null;
+}
+
+/**
+ * The signs of life of a run under way, for telling a long run from a stuck
+ * one: when it last produced anything, which calls it is waiting on and for
+ * how long, and what it has spent against its budget.
+ */
+export interface ApiRunPulse {
+  /** When the session last sent anything at all. */
+  lastEventAt: number;
+  /** Tool calls started and not yet answered, oldest first: the lead's and its worker's. */
+  inFlight: Array<{ verb: string; target: string; since: number; worker: boolean }>;
+  /**
+   * Spent so far: exact as of the last turn's end, plus an estimate for the
+   * tokens since. Null for a model with no known price before its first turn ends.
+   */
+  costUsd: number | null;
+  /** False while any of `costUsd` is an estimate. */
+  costExact: boolean;
+  /** What the run may spend before the SDK stops it. */
+  budgetUsd: number | null;
+  /**
+   * How far the furthest loop has got toward `maxTurns`, which the SDK counts
+   * per loop: the lead's current turn, or a worker's whole run.
+   */
+  turns: number;
+  maxTurns: number | null;
 }
 
 export interface ApiCard {

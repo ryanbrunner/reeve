@@ -64,6 +64,8 @@ export interface LiveRun {
   activity: string | null;
   /** The latest summary of Claude's reasoning, whole. */
   thinking: string | null;
+  /** When this stream last brought anything: the pulse's last word, between polls. */
+  lastAt: number | null;
 }
 
 /**
@@ -92,7 +94,7 @@ export function useLiveRun(
     // From when the run actually began, not from when this modal opened. A run
     // that has been going half an hour reads "31m", not "0s" counting up.
     since.current = startedAt ?? Date.now();
-    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null });
+    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null, lastAt: null });
 
     // `since=live` asks for new events only. Without it the server replays the
     // whole transcript, which for a long run is thousands of messages to learn
@@ -103,10 +105,14 @@ export function useLiveRun(
 
     const onEvent = (e: MessageEvent<string>) => {
       const line = describeMessage(e.data);
-      if (line === null) return;
+      if (line === null) {
+        setLive((prev) => (prev ? { ...prev, lastAt: Date.now() } : prev));
+        return;
+      }
       setLive((prev) => ({
         elapsedMs: prev?.elapsedMs ?? Date.now() - since.current,
         ...nextThought({ activity: prev?.activity ?? null, thinking: prev?.thinking ?? null }, line),
+        lastAt: Date.now(),
       }));
     };
     // The server names every event after its kind, and a named event never
@@ -114,6 +120,8 @@ export function useLiveRun(
     source.addEventListener('assistant', onEvent);
     source.addEventListener('system:thinking_tokens', onEvent);
     source.addEventListener('system:task_progress', onEvent);
+    // Says nothing for the band, but is a sign of life all the same.
+    source.addEventListener('tool_result', onEvent);
     source.addEventListener('end', () => {
       source.close();
       void qc.invalidateQueries({ queryKey: ['card', cardId] });

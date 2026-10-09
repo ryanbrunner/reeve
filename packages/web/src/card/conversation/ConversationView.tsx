@@ -13,7 +13,9 @@ import {
 } from '@reeve/shared';
 import { api, cardsIn } from '../../lib/api.js';
 import { Markdown } from '../Markdown.js';
+import { useNow } from '../../lib/useNow.js';
 import { duration, tok } from '../format.js';
+import { LONG_CALL_MS } from '../pulse.js';
 import { Button, SmallButton } from '../ui.js';
 import { clock } from './format.js';
 
@@ -604,14 +606,18 @@ function ToolRow({ tool, pending, runId }: { tool: ToolStep; pending: boolean; r
   });
   const text = full.data ?? result?.text ?? '';
   const lines = text ? text.split('\n').length : 0;
+  // A call still going counts up, so a test suite that takes ten minutes
+  // reads as ten minutes of work rather than as a hang.
+  const now = useNow(pending);
+  const age = now - tool.at;
   return (
     <details className="group border-t border-(--color-edge) first-of-type:border-t-0" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
         <span className="text-(--color-muted)/50 transition-transform group-open:rotate-90">›</span>
         <span className="truncate text-(--color-muted)">{tool.verb}</span>
         <span className="truncate text-[#c9d1d9]">{tool.target || tool.name}</span>
-        <span className={pending ? 'text-sky-300' : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
-          {pending ? 'running…' : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
+        <span className={pending ? (age >= LONG_CALL_MS ? 'text-(--color-activity-input-mark)' : 'text-sky-300') : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
+          {pending ? `running · ${duration(Math.max(0, age))}` : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
         </span>
         <span className="text-[10px] text-(--color-muted)/50">{clock(tool.at)}</span>
       </summary>

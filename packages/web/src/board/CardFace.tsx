@@ -1,5 +1,7 @@
-import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
+import { canStartRun, type ApiCard, type ApiCardLink, type ApiRunPulse } from '@reeve/shared';
 import { tok, tokenTitle } from '../card/format.js';
+import { readPulse } from '../card/pulse.js';
+import { useNow } from '../lib/useNow.js';
 import {
   ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
   SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
@@ -87,6 +89,9 @@ export function CardFace({
       {!vibes && card.waitingOn && (
         <p className="relative mt-1.5 line-clamp-2 text-xs/4 text-amber-100/85">{card.waitingOn}</p>
       )}
+      {/* What a working card is stuck on, or has been at a long while, so a
+          long test run and a hang can be told apart without opening it. */}
+      {!vibes && activity === 'running' && <PulseLine pulse={run?.pulse ?? null} />}
       <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${vibes ? 'sk-card-foot' : ''}`}>
         {/* The ring dresses the card; this names why, so it is not left to
             colour alone. */}
@@ -187,6 +192,20 @@ export function CardFace({
       )}
       {stamped && <span className="sk-stamp" aria-hidden="true">Merged</span>}
     </article>
+  );
+}
+
+function PulseLine({ pulse }: { pulse: ApiRunPulse | null }) {
+  const now = useNow(pulse !== null, 5_000);
+  const reading = readPulse(pulse, now);
+  if (!reading.text) return null;
+  return (
+    <p
+      className={`relative mt-1.5 truncate font-mono text-[11px]/4 ${reading.tone === 'warn' ? 'text-(--color-activity-input-mark)' : 'text-sky-200/70'}`}
+      title={reading.text}
+    >
+      {reading.text}
+    </p>
   );
 }
 

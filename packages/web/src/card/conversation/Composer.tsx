@@ -3,7 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, isTerminal, type ApiConversation, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { AttentionBand } from '../AttentionBand.js';
+import { useNow } from '../../lib/useNow.js';
 import { duration, tok } from '../format.js';
+import { readPulse, readSpend, readTurns } from '../pulse.js';
 import type { LiveRun } from '../useCardDetail.js';
 import { runningWorker, type StageTab } from './ConversationView.js';
 
@@ -171,6 +173,10 @@ function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
   const run = card.latestRun;
   let main: React.ReactNode = null;
   let side: React.ReactNode = null;
+  // The pulse is the poll's; the clock and the stream's last word are ours,
+  // so a call's time counts up and silence is noticed between polls.
+  const pulse = run?.pulse ?? null;
+  const now = useNow(pulse !== null);
 
   if (readOnly) {
     main = <span>{STAGE_LABELS[tab]} is read-only now: each stage is its own session.</span>;
@@ -185,13 +191,29 @@ function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
   } else if (card.activity === 'running') {
     const elapsed = live?.elapsedMs ?? (run?.startedAt ? Date.now() - run.startedAt : null);
     const doing = live?.activity ?? detail.thought?.activity ?? null;
+    // What it is waiting on and for how long beats the last thing it said:
+    // that is what tells a long test run from a stuck one.
+    const reading = readPulse(pulse, now, live?.lastAt);
+    const warn = reading.tone === 'warn';
+    const spend = readSpend(pulse);
+    const turns = readTurns(pulse);
     main = (
-      <span className="flex min-w-0 items-center gap-1.5 text-sky-300">
-        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-(--color-activity-running-mark)" />
-        <span className="truncate">{worker ? 'The worker is running' : 'Claude is working'}{doing ? ` · ${doing}` : ''}</span>
+      <span className={`flex min-w-0 items-center gap-1.5 ${warn ? 'text-(--color-activity-input-mark)' : 'text-sky-300'}`}>
+        <span className={`size-1.5 shrink-0 rounded-full ${warn ? 'bg-(--color-activity-input-mark)' : 'animate-pulse bg-(--color-activity-running-mark)'}`} />
+        <span className="truncate" title={warn ? 'Stop it, or send a message: Claude reads it at its next step' : undefined}>
+          {worker ? 'The worker is running' : 'Claude is working'}
+          {reading.text ? ` · ${reading.text}` : doing ? ` · ${doing}` : ''}
+        </span>
       </span>
     );
-    side = <span className="shrink-0">{duration(elapsed)}{run?.totalTokens != null ? ` · ${tok(run.totalTokens)}` : ''}</span>;
+    side = (
+      <span className="shrink-0">
+        {duration(elapsed)}
+        {spend ? <span className={spend.tone === 'warn' ? 'text-(--color-activity-input-mark)' : ''}> · {spend.text}</span> : null}
+        {turns ? <span className="text-(--color-activity-input-mark)"> · {turns}</span> : null}
+        {!spend && run?.totalTokens != null ? ` · ${tok(run.totalTokens)}` : ''}
+      </span>
+    );
   } else if (card.activity === 'needs_input') {
     main = <span className="text-(--color-activity-input-mark)">◆ Claude is waiting on your reply</span>;
     side = <span>Replying carries on the same conversation</span>;

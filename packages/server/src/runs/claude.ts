@@ -12,7 +12,7 @@ import type { z } from 'zod';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EffortLevel, MessageSource, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
-import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
+import { costOf, describeParsed, isRunnable, jsonSchemaFor, nextThought, toolLabel, type ApiRunPulse, type TokenUsage } from '@reeve/shared';
 import { PASTED_IMAGE, absoluteAssetPath, assetSrc } from '../assets/store.js';
 import type { Db } from '../db/client.js';
 import {
@@ -289,6 +289,102 @@ function trackWorkers(message: SDKMessage, workers: Map<string, string | null>, 
 }
 
 /**
+ * A live run's signs of life, folded from its stream: see ApiRunPulse.
+ *
+ * Cost is the SDK's own figure as of the last turn's end, less what a forked
+ * session inherited, plus the tokens priced since (shared/pricing.ts). An
+ * assistant message arrives once per content block, each repeating the
+ * message's usage, so usage is kept per message id rather than summed.
+ *
+ * Priced tokens alone come in well under the real figure: auto mode's
+ * classifier and the SDK's own small calls cost money and never appear as
+ * assistant messages (an Opus classifier was a fifth of one Testing run's
+ * spend; spikes/pulse-replay-check.ts). So each exact figure calibrates the
+ * next estimate: real spend over priced tokens so far, applied to what has
+ * been priced since. Until a run's first turn ends, CALIBRATION is assumed.
+ */
+/** Real spend over priced tokens, assumed before a run has an exact figure of its own. */
+const CALIBRATION = 1.4;
+
+export class Pulse {
+  private lastEventAt = Date.now();
+  private readonly inFlight = new Map<string, ApiRunPulse['inFlight'][number]>();
+  private exact: number | null = null;
+  /** Each message's priced cost, by id; their sum; and the sum when the last exact figure came. */
+  private readonly priced = new Map<string, number>();
+  private pricedTotal = 0;
+  private pricedAtExact = 0;
+  private factor = CALIBRATION;
+  private unpriced = false;
+  // API calls per loop toward maxTurns, which the SDK counts per loop: the
+  // lead's current turn (null), and each subagent's whole run, by the Agent
+  // call that launched it.
+  private readonly calls = new Map<string | null, Set<string>>();
+
+  constructor(
+    private readonly stage: ClaudeTask<never>,
+    private readonly inherited: number,
+    private readonly workerCalls: ReadonlySet<string>,
+  ) {}
+
+  observe(message: SDKMessage): void {
+    this.lastEventAt = Date.now();
+    const parent = (message as { parent_tool_use_id?: string | null }).parent_tool_use_id ?? null;
+    if (message.type === 'assistant') {
+      const m = (message as { message?: { id?: string; model?: string; usage?: TokenUsage; content?: unknown } }).message;
+      if (m?.id && m.usage) {
+        const cost = costOf(m.model, m.usage);
+        if (cost === null) this.unpriced = true;
+        this.pricedTotal += (cost ?? 0) - (this.priced.get(m.id) ?? 0);
+        this.priced.set(m.id, cost ?? 0);
+      }
+      if (m?.id) {
+        const loop = this.calls.get(parent) ?? new Set<string>();
+        loop.add(m.id);
+        this.calls.set(parent, loop);
+      }
+      for (const block of (Array.isArray(m?.content) ? m.content : []) as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }>) {
+        if (block.type !== 'tool_use' || !block.id || !block.name) continue;
+        const { verb, target } = toolLabel(block.name, block.input ?? {});
+        this.inFlight.set(block.id, { verb, target: target.slice(0, 160), since: Date.now(), worker: parent !== null && this.workerCalls.has(parent) });
+      }
+    } else if (message.type === 'user') {
+      const content = (message as { message?: { content?: unknown } }).message?.content;
+      for (const block of (Array.isArray(content) ? content : []) as Array<{ type?: string; tool_use_id?: string }>) {
+        if (block.type === 'tool_result' && block.tool_use_id) this.inFlight.delete(block.tool_use_id);
+      }
+    } else if (message.type === 'result') {
+      const r = message as { total_cost_usd?: number };
+      if (typeof r.total_cost_usd === 'number') {
+        this.exact = Math.max(0, r.total_cost_usd - this.inherited);
+        // Only from a figure big enough to say something.
+        if (this.pricedTotal > 0.02 && this.exact > 0) this.factor = Math.min(4, Math.max(1, this.exact / this.pricedTotal));
+        this.pricedAtExact = this.pricedTotal;
+      }
+      this.calls.delete(null);
+    } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
+      const id = (message as { tool_use_id?: string }).tool_use_id;
+      if (id) this.calls.delete(id);
+    }
+  }
+
+  read(budgetUsd: number | null): ApiRunPulse {
+    const since = (this.pricedTotal - this.pricedAtExact) * this.factor;
+    const estimated = this.pricedTotal > this.pricedAtExact;
+    return {
+      lastEventAt: this.lastEventAt,
+      inFlight: [...this.inFlight.values()].sort((a, b) => a.since - b.since),
+      // Nothing to say for a model with no price until its first turn ends.
+      costUsd: this.exact === null && (this.unpriced || !estimated) ? null : (this.exact ?? 0) + since,
+      costExact: !estimated,
+      budgetUsd,
+      turns: Math.max(0, ...[...this.calls.values()].map((c) => c.size)),
+      maxTurns: this.stage.maxTurns ?? null,
+    };
+  }
+}
+
+/**
  * Thrown when a session's own init message reports a mode other than the one
  * actually asked for.
  *
@@ -439,6 +535,10 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const workerCalls = new Set<string>();
   const workerAgents = new Set<string>();
   const fromWorker = (agentID: string | undefined) => agentID !== undefined && workerAgents.has(agentID);
+
+  // The run's pulse (ApiRunPulse): what tells a long run from a stuck one.
+  // Kept here, in memory, and read through the registry on every poll.
+  const pulse = new Pulse(stage, inheritedCostUsd(db, parentRunId ?? null), workerCalls);
 
   /**
    * Hold the turn on a person: the run reads `asking` until they answer, the
@@ -700,6 +800,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         kind: 'claude',
         outOfBand: stage.outOfBand ?? false,
         send: stage.submit ? (text) => input.push(text) : undefined,
+        pulse: () => pulse.read(options.maxBudgetUsd ?? null),
         stop: async () => {
           cancelled = true;
           setRunStatus(db, runId, { status: 'stopping' });
@@ -720,6 +821,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
         trackWorkers(message, workers, (next) => { agents = next; });
+        pulse.observe(message);
         if (message.type === 'result') {
           result = message;
           // Only a fallback; see idleFallback above. Never while a worker
