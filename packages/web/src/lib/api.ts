@@ -183,7 +183,9 @@ export const api = {
   /** Writes `.reeve/handoff.md` into the worktree and answers with the command to paste. */
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
   /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */
-  reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
+  /** The plan, or the branch's changes, opened in Crit. */
+  reviewWithCrit: (id: string, target: 'plan' | 'changes' = 'plan') =>
+    post(`/api/cards/${id}/crit`, { target }).then(json<CritReviewResponse>),
   /** Opens the running app in Gloss, or answers with the round already waiting. Each round there is a verdict. */
   reviewWithGloss: (id: string) => post(`/api/cards/${id}/gloss`, {}).then(json<GlossReviewResponse>),
 };

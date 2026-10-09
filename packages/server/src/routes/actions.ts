@@ -7,10 +7,18 @@ import {
   type ResolveConflictsResponse,
 } from '@reeve/shared';
 import { cardActivity } from '../board.js';
-import { startCritReview } from '../crit.js';
+import { startCritReview, type CritTarget } from '../crit.js';
 import type { Db } from '../db/client.js';
-import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '../db/queries.js';
-import { GitError, checkWorktree } from '../git/worktree.js';
+import {
+  artifactsForCard,
+  getCard,
+  insertCardEvent,
+  latestClaudeRunForStage,
+  latestDeliverableRun,
+  listRepos,
+  liveStageRun,
+} from '../db/queries.js';
+import { GitError, checkWorktree, commitsSince } from '../git/worktree.js';
 import { startGlossReview } from '../gloss.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
@@ -195,13 +203,13 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Open the card's plan for review in Crit. Finishing there sends the plan
-   * back with the comments as notes, or approves it when there are none.
+   * Open the card's plan, or its changes, for review in Crit. Comments come
+   * back into the card's conversation; finishing with none approves the stage
+   * when that work is the one waiting at its gate. See ../crit.ts.
    *
-   * Only a plan waiting for review, the same state the review buttons appear
-   * in: a plan still being written, or one whose questions are unanswered, is
-   * not ready to be judged. A second click answers with the review already
-   * open rather than starting another.
+   * Whenever there is something to review: a plan once one has been written,
+   * the changes once the branch has commits. A second click answers with the
+   * review already open rather than starting another.
    */
   routes.post('/:id/crit', async (c) => {
     const cardId = c.req.param('id');
@@ -209,16 +217,11 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!card) return c.json({ error: 'not found' }, 404);
     if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const repo = repoFor(card.repoId);
-    if (!repo) return c.json({ error: 'card has no repo', detail: 'a plan review needs a repo' }, 400);
-    if (card.stage !== 'planning') {
-      return c.json({ error: 'only a plan can be reviewed in Crit', detail: card.stage }, 400);
-    }
-    const { activity, run } = cardActivity(db, card);
-    if (!run || activity !== 'needs_review') {
-      return c.json({ error: 'the plan is not waiting for review', detail: activity }, 409);
-    }
-    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand)) {
-      return c.json({ error: 'a run is already active for this card' }, 409);
+    if (!repo) return c.json({ error: 'card has no repo', detail: 'a review in Crit needs a repo' }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { target?: unknown };
+    const target: CritTarget = body.target === 'changes' ? 'changes' : 'plan';
+    if (target === 'plan' && !artifactsForCard(db, cardId).some((a) => a.kind === 'plan')) {
+      return c.json({ error: 'no plan to review', detail: 'Planning has not submitted one yet' }, 409);
     }
     const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') {
@@ -227,11 +230,14 @@ export function actionRoutes(db: Db, writer: EventWriter) {
         409,
       );
     }
+    if (target === 'changes' && (!card.baseSha || (await commitsSince(health.path, card.baseSha).catch(() => [])).length === 0)) {
+      return c.json({ error: 'no changes to review', detail: 'the branch has no commits of its own yet' }, 409);
+    }
 
-    const review = await startCritReview(db, writer, card, health.path, run);
+    const review = await startCritReview(db, writer, card, health.path, target);
     if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
-    const body: CritReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
-    return c.json(body, review.reused ? 200 : 201);
+    const res: CritReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
+    return c.json(res, review.reused ? 200 : 201);
   });
 
   /**
@@ -239,9 +245,9 @@ export function actionRoutes(db: Db, writer: EventWriter) {
    * sends the build back with the comments as notes, and the window reloads
    * onto the revision once it is ready; approving there approves the stage.
    *
-   * Only where there is a build, In Progress or Testing, and only while it is
-   * waiting for review, as the buttons are. A second click answers with the
-   * round already waiting rather than starting another.
+   * Wherever there is a build to use — In Progress, Testing or Release — once
+   * Claude has submitted it and while nothing runs on top of it. A second
+   * click answers with the round already waiting rather than starting another.
    */
   routes.post('/:id/gloss', async (c) => {
     const cardId = c.req.param('id');
@@ -250,19 +256,19 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const repo = repoFor(card.repoId);
     if (!repo) return c.json({ error: 'card has no repo', detail: 'a review in Gloss needs a repo' }, 400);
-    if (card.stage !== 'in_progress' && card.stage !== 'testing') {
-      return c.json({ error: 'only a build in In Progress or Testing can be reviewed in Gloss', detail: card.stage }, 400);
+    if (card.stage !== 'in_progress' && card.stage !== 'testing' && card.stage !== 'release') {
+      return c.json({ error: 'only a build can be reviewed in Gloss', detail: `${card.stage} has none yet` }, 400);
     }
     if (!repo.serverCommand) {
       return c.json({ error: 'repo has no server command', detail: 'Gloss reviews the card’s dev server' }, 400);
     }
-    const { activity, run } = cardActivity(db, card);
-    if (!run || activity !== 'needs_review') {
-      return c.json({ error: 'the build is not waiting for review', detail: activity }, 409);
-    }
-    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand)) {
+    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand) || liveStageRun(db, cardId)) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
+    // The stage's submitted work, which a round answers: a reply about it
+    // since does not take it away.
+    const run = latestDeliverableRun(db, cardId, card.stage);
+    if (!run) return c.json({ error: 'the build is not waiting for review', detail: 'nothing has been submitted in this stage yet' }, 409);
     const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') {
       return c.json(

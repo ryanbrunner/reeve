@@ -11,6 +11,16 @@ import { PreviewTab } from './tabs/PreviewTab.js';
 import { ReleaseTab } from './tabs/ReleaseTab.js';
 import { TasksTab } from './tabs/TasksTab.js';
 import { Rail } from './Rail.js';
+import { ReviewTools, type ReviewTool } from './ReviewTools.js';
+
+/** The review tools at the head of each side tab: what that tab shows is what they review. */
+const TOOLS: Partial<Record<TabId, ReviewTool[]>> = {
+  plan: ['crit-plan'],
+  changes: ['crit-changes', 'gloss'],
+  diff: ['crit-changes'],
+  preview: ['gloss'],
+  release: ['crit-changes', 'gloss'],
+};
 
 export type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'release' | 'activity' | 'card';
 
@@ -149,6 +159,7 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
 
       {/* Scrolls: the artboards are fixed-size canvases, a real card is not. */}
       <div role="tabpanel" className={`flex min-h-0 grow flex-col gap-[18px] overflow-y-auto ${side ? 'p-4' : 'p-5'}`}>
+        {side && !vibes && TOOLS[tab] && <ReviewTools detail={detail} tools={TOOLS[tab]!} />}
         {tab === 'brief' && <BriefTab detail={detail} />}
         {tab === 'tasks' && <TasksTab tasks={tasks} archivedDone={archivedDone} loading={board.isLoading} onOpen={onOpen} />}
         {tab === 'plan' && <PlanTab detail={detail} />}

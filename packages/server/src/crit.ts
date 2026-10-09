@@ -3,43 +3,54 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { STAGE_LABELS, type CritReviewResponse, type StopReason } from '@reeve/shared';
+import { STAGE_LABELS, isRunnable, nextStage, type CritReviewResponse, type Stage, type StopReason } from '@reeve/shared';
 import { blockedMove } from './blockers.js';
-import { cardActivity } from './board.js';
+import { sendToCard } from './conversation.js';
 import type { Db } from './db/client.js';
 import {
   artifactsForCard,
+  cardEventsFor,
   getCard,
   insertCardEvent,
+  latestDeliverableRun,
   listRepos,
+  liveStageRun,
   liveTaskRun,
   reviewsForCard,
   runsForCard,
   setRunStatus,
 } from './db/queries.js';
-import type { Card, Repo, Run } from './db/schema.js';
+import type { Card, Run } from './db/schema.js';
 import { failureOutput } from './git/worktree.js';
 import { shellQuote } from './handoff.js';
-import { approveStage, sendBackForRevision } from './review.js';
+import { approveStage } from './review.js';
+import { isStartingStage } from './startStage.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
 import { startShellRun } from './runs/shell.js';
-import { blockquote } from './stages/template.js';
+import { blockquote, renderPrompt } from './stages/template.js';
 
 const exec = promisify(execFile);
 
 /**
- * Reviewing a plan in Crit, the local review tool, instead of the text box.
+ * Reviewing in Crit, the local review tool, instead of the text box: the plan,
+ * line by line, or the changes on the card's branch, as a diff.
  *
- * `crit plan` opens the plan in the browser and blocks until the reviewer
- * clicks Finish Review, so it runs as a shell run: its output is in the log,
- * Stop works, and the modal already polls while a task is live. When it exits
- * the comments are read back as structured data and become the same verdict
- * the buttons give — comments send the plan back, none approve it.
+ * Crit opens in the browser and blocks until the reviewer clicks Finish
+ * Review, so it runs as a shell run: its output is in the log, Stop works, and
+ * the modal already polls while a task is live. When it exits the comments are
+ * read back as structured data and go into the card's conversation as one
+ * message from the person — read by Claude at its next step if it is working,
+ * or carrying the stage on if not. Finishing with none approves the stage, as
+ * the button does, when that work is the one waiting at the gate; otherwise it
+ * is recorded and nothing moves.
  */
 
 export const CRIT_TASK = 'crit_review';
 const PLAN_PATH = '.reeve/plan.md';
+
+/** What a review in Crit is of. */
+export type CritTarget = 'plan' | 'changes';
 /** How long the request waits for Crit to say where it is serving. */
 const URL_WAIT_MS = 10_000;
 const CRIT_TIMEOUT_MS = 30_000;
@@ -51,6 +62,9 @@ const CRIT_TIMEOUT_MS = 30_000;
 const critComments = z.array(
   z.object({
     body: z.string(),
+    id: z.string().optional(),
+    // Set on a comment on the changes: which file it is in.
+    path: z.string().optional(),
     scope: z.string().optional(),
     start_line: z.number().optional(),
     end_line: z.number().optional(),
@@ -66,18 +80,18 @@ export type CritStart =
   | { ok: false; error: string; detail?: string; status: 400 | 409 };
 
 /**
- * Open the card's current plan in Crit, or answer with the review already open.
+ * Open the card's plan, or its changes, in Crit, or answer with the review
+ * already open.
  *
- * The caller has checked the card is a plan waiting for review. Everything
- * from the reuse check to the run's row being written is synchronous, so two
- * clicks close together cannot both start one.
+ * Everything from the reuse check to the run's row being written is
+ * synchronous, so two clicks close together cannot both start one.
  */
 export async function startCritReview(
   db: Db,
   writer: EventWriter,
   card: Card,
   worktreePath: string,
-  planRun: Run,
+  target: CritTarget,
 ): Promise<CritStart> {
   try {
     await exec('crit', ['--version'], { timeout: CRIT_TIMEOUT_MS });
@@ -90,22 +104,31 @@ export async function startCritReview(
   const live = liveTaskRun(db, card.id, CRIT_TASK);
   if (live) return { ok: true, runId: live.id, url: live.port ? critUrl(live.port) : null, reused: true };
 
-  // The row outlives the file, which can be deleted by hand or cleaned away.
-  const path = join(worktreePath, PLAN_PATH);
-  if (!existsSync(path)) {
+  let command: string;
+  let slug: string | null = null;
+  if (target === 'plan') {
     const plans = artifactsForCard(db, card.id).filter((a) => a.kind === 'plan');
-    const content = (plans.find((a) => a.runId === planRun.id) ?? plans[0])?.content;
-    if (!content) return { ok: false, error: 'no plan to review', detail: `${PLAN_PATH} is missing`, status: 409 };
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content, 'utf8');
+    // The row outlives the file, which can be deleted by hand or cleaned away.
+    const path = join(worktreePath, PLAN_PATH);
+    if (!existsSync(path)) {
+      const content = plans[0]?.content;
+      if (!content) return { ok: false, error: 'no plan to review', detail: `${PLAN_PATH} is missing`, status: 409 };
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content, 'utf8');
+    }
+    // One slug per plan version. Crit keeps a comment unresolved from one round
+    // to the next, so reusing a slug would send the last round's notes again.
+    const version = runsForCard(db, card.id).filter(
+      (r) => r.kind === 'claude' && r.task === null && r.stage === 'planning' && r.status === 'succeeded',
+    ).length;
+    slug = `reeve-${card.id.slice(0, 8)}-v${version}`;
+    command = `crit plan --name ${slug} ${shellQuote(path)}`;
+  } else {
+    if (!card.baseSha) return { ok: false, error: 'nothing to review', detail: 'the card has no base to diff against', status: 409 };
+    // What the card changed, and only that: its own commits since its base,
+    // the same range its Diff tab shows.
+    command = `crit --range ${shellQuote(`${card.baseSha}..HEAD`)}`;
   }
-
-  // One slug per plan version. Crit keeps a comment unresolved from one round
-  // to the next, so reusing a slug would send the last round's notes again.
-  const version = runsForCard(db, card.id).filter(
-    (r) => r.kind === 'claude' && r.task === null && r.stage === 'planning' && r.status === 'succeeded',
-  ).length;
-  const slug = `reeve-${card.id.slice(0, 8)}-v${version}`;
 
   let announce: (url: string | null) => void = () => {};
   const announced = new Promise<string | null>((resolve) => (announce = resolve));
@@ -115,7 +138,7 @@ export async function startCritReview(
 
   const handle = startShellRun({
     db, writer, cardId: card.id, stage: card.stage,
-    command: `crit plan --name ${slug} ${shellQuote(path)}`,
+    command,
     cwd: worktreePath,
     task: CRIT_TASK,
     // "Started crit daemon at http://…" or "Connected to …", on stderr. The
@@ -134,8 +157,8 @@ export async function startCritReview(
   runId = handle.runId;
 
   void handle.done.then(
-    (result) => finishCritReview(db, writer, card.id, planRun.id, slug, worktreePath, { ...result, critApproved }),
-    (err: unknown) => recordOutcome(db, card.id, planRun.id, 'failed', `Crit review ended badly: ${String(err)}`),
+    (result) => finishCritReview(db, writer, card.id, runId, target, slug, worktreePath, { ...result, critApproved }),
+    (err: unknown) => recordOutcome(db, card.id, runId, 'failed', `Crit review ended badly: ${String(err)}`, { target }),
   );
 
   // A crit that fails at once answers at once, rather than after the wait.
@@ -165,19 +188,23 @@ function critUrl(port: number): string {
 }
 
 /**
- * Turn a finished review into a verdict, or into a record of why there isn't one.
+ * Turn a finished review into words in the conversation, or a verdict, or a
+ * record of why there is neither.
  *
  * Runs long after the request that started it — a review can sit open for
- * hours — so the card is read again, and nothing is applied unless the plan
- * reviewed is still the one waiting. Anything thrown here would take the
- * server down, so nothing is.
+ * hours — so the card is read again. Comments are about the work whatever has
+ * happened since, so they are sent on whenever the card can still be talked
+ * to; only the approval a review with none gives is held to the work still
+ * being the one waiting. Anything thrown here would take the server down, so
+ * nothing is.
  */
 async function finishCritReview(
   db: Db,
   writer: EventWriter,
   cardId: string,
-  planRunId: string,
-  slug: string,
+  reviewRunId: string,
+  target: CritTarget,
+  slug: string | null,
   cwd: string,
   result: { exitCode: number | null; stopReason: StopReason; critApproved: boolean | null },
 ): Promise<void> {
@@ -185,39 +212,40 @@ async function finishCritReview(
     // Checked before the exit code: a `crit plan` stopped while it owns the
     // daemon shuts it down and exits 0.
     if (result.stopReason === 'cancelled_by_user') {
-      recordOutcome(db, cardId, planRunId, 'cancelled', null);
+      recordOutcome(db, cardId, reviewRunId, 'cancelled', null, { target });
       return;
     }
     if (result.stopReason !== 'completed' || result.exitCode !== 0) {
-      recordOutcome(db, cardId, planRunId, 'failed', `crit exited with code ${result.exitCode ?? 'unknown'}.`);
+      recordOutcome(db, cardId, reviewRunId, 'failed', `crit exited with code ${result.exitCode ?? 'unknown'}.`, { target });
       return;
     }
 
     // Only a clean exit that parses to a list counts. Unreadable output read
-    // as "no comments" would approve a plan the reviewer had objected to.
+    // as "no comments" would approve work the reviewer had objected to.
     let comments: CritComment[];
     try {
-      const { stdout } = await exec('crit', ['comments', '--plan', slug, '--json'], {
+      const { stdout } = await exec('crit', ['comments', ...(slug ? ['--plan', slug] : []), '--json'], {
         cwd, timeout: CRIT_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024,
       });
       const parsed = critComments.safeParse(JSON.parse(stdout));
       if (!parsed.success) throw new Error('the comment list was not in the shape expected');
       // Crit's own convention: a resolved comment is settled, not feedback.
-      comments = parsed.data.filter((c) => !c.resolved);
+      // And a review of the changes keeps one session per worktree, so a
+      // comment an earlier round already sent is not sent again.
+      const sent = sentCommentIds(db, cardId);
+      comments = parsed.data.filter((c) => !c.resolved && !(c.id && sent.has(c.id)));
     } catch (cause) {
-      recordOutcome(db, cardId, planRunId, 'failed',
-        `Could not read the comments back from Crit: ${failureOutput(cause, CRIT_TIMEOUT_MS) || String(cause)}`);
+      recordOutcome(db, cardId, reviewRunId, 'failed',
+        `Could not read the comments back from Crit: ${failureOutput(cause, CRIT_TIMEOUT_MS) || String(cause)}`, { target });
       return;
     }
 
     const card = getCard(db, cardId);
     const repo = card?.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
-    const stale = staleReason(db, card, repo, planRunId);
-    const run = card && cardActivity(db, card).run;
-    if (stale || !card || !repo || !run) {
-      recordOutcome(db, cardId, planRunId, 'not_applied',
-        `Nothing was sent back or approved: ${stale ?? 'the plan is no longer there'}.`,
-        { comments: comments.length });
+    if (!card || card.archivedAt || !repo) {
+      recordOutcome(db, cardId, reviewRunId, 'not_applied',
+        `Nothing was sent: ${!card ? 'the card is gone' : card.archivedAt ? 'the card was archived' : 'the card has no repo'}.`,
+        { comments: comments.length, target });
       return;
     }
 
@@ -226,64 +254,86 @@ async function finishCritReview(
       // one: if Crit saw comments and none came back, the list was read from
       // the wrong place, and approving would bury the reviewer's objections.
       if (result.critApproved === false) {
-        recordOutcome(db, cardId, planRunId, 'failed',
-          'Crit reported unresolved comments, but none could be read back. Nothing was approved.');
+        recordOutcome(db, cardId, reviewRunId, 'failed',
+          'Crit reported unresolved comments, but none could be read back. Nothing was approved.', { target });
         return;
       }
-      // The Approve button refuses a card waiting on another, and so does this,
-      // before `approveStage` records a verdict for a move that cannot happen.
-      // Crit is on a Planning card, and approving it moves it to In Progress.
-      const blocked = blockedMove(db, card, 'in_progress');
-      if (blocked) {
-        recordOutcome(db, cardId, planRunId, 'not_applied',
-          `Nothing was approved: the card waits on ${blocked.detail}.`);
+      const gate = approvable(db, card, target);
+      if (typeof gate === 'string') {
+        recordOutcome(db, cardId, reviewRunId, 'not_applied', `Reviewed with no comments. Nothing was approved: ${gate}.`, { target });
         return;
       }
-      approveStage(db, writer, card, repo, run, { meta: { via: 'crit' } });
+      approveStage(db, writer, card, repo, gate, { meta: { via: 'crit', target } });
       return;
     }
-    const revision = await sendBackForRevision(
-      db, writer, card, repo, run, formatNotes(comments), { via: 'crit', comments: comments.length },
-    );
-    if (!revision.ok) {
-      recordOutcome(db, cardId, planRunId, 'failed', `Sent back from Crit, but the revision did not start: ${revision.error}.`);
+
+    const what = target === 'plan' ? 'the plan' : 'the changes';
+    const notes = formatNotes(comments, target);
+    // Framed as a revision when there is submitted work in this stage to
+    // revise; otherwise it is simply the person's comments.
+    const deliverable = latestDeliverableRun(db, card.id, card.stage);
+    const prompt = deliverable && isRunnable(card.stage as Stage)
+      ? renderPrompt('revision', { notes: blockquote(`Review comments from Crit on ${what}:\n\n${notes}`), submitTool: `submit_${card.stage}` })
+      : `Review comments from Crit on ${what}:\n\n${notes}`;
+    const sent = await sendToCard(db, writer, card, `**${comments.length} comment${comments.length === 1 ? '' : 's'} on ${what}**\n\n${notes}`, {
+      actor: 'human', source: 'crit', prompt,
+    });
+    if (!sent.ok) {
+      recordOutcome(db, cardId, reviewRunId, 'failed', `Reviewed in Crit, but the comments could not be sent: ${sent.error}.`, { target });
+      return;
     }
+    recordOutcome(db, cardId, reviewRunId, 'sent', null, {
+      target, comments: comments.length, sentIds: comments.map((c) => c.id).filter(Boolean), deliveredTo: sent.runId,
+    });
   } catch (err) {
-    recordOutcome(db, cardId, planRunId, 'failed', `Crit review ended badly: ${String(err)}`);
+    recordOutcome(db, cardId, reviewRunId, 'failed', `Crit review ended badly: ${String(err)}`, { target });
   }
 }
 
 /**
- * Why the plan reviewed is no longer the one waiting for review, or null if it
- * still is. Clicking Mark reviewed or Leave feedback while Crit was open is
- * the usual cause; a late Finish must not move a card a second time.
+ * The run a review with no comments approves, or why it approves nothing:
+ * the work reviewed has to be the stage's, submitted and waiting at its gate,
+ * with nothing running on top of it — the button's own conditions. A plan is
+ * the Planning stage's work; the changes are what In Progress and Testing
+ * submit. Release's gate is Merge, which a review in Crit never presses.
  */
-function staleReason(db: Db, card: Card | undefined, repo: Repo | undefined, planRunId: string): string | null {
-  if (!card) return 'the card is gone';
-  if (card.archivedAt) return 'the card was archived';
-  if (!repo) return 'the card has no repo';
-  if (card.stage !== 'planning') return `the card is in ${STAGE_LABELS[card.stage]} now`;
-  if (reviewsForCard(db, card.id).some((r) => r.runId === planRunId)) return 'the plan had already been reviewed';
-  if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
-    return 'Claude is running on the card';
+function approvable(db: Db, card: Card, target: CritTarget): Run | string {
+  const stage = card.stage as Stage;
+  const ours = target === 'plan' ? stage === 'planning' : stage === 'in_progress' || stage === 'testing';
+  if (!ours) return `the card is in ${STAGE_LABELS[stage]}, where ${target === 'plan' ? 'the plan' : 'the changes'} are not what is approved`;
+  if (isStartingStage(card.id) || liveStageRun(db, card.id)) return 'Claude is working on the card';
+  const run = latestDeliverableRun(db, card.id, card.stage);
+  if (!run) return 'nothing has been submitted in this stage yet';
+  if (reviewsForCard(db, card.id).some((r) => r.runId === run.id)) return 'it had already been reviewed';
+  const to = nextStage(stage);
+  const blocked = to ? blockedMove(db, card, to) : null;
+  if (blocked) return `the card waits on ${blocked.detail}`;
+  return run;
+}
+
+/** Comment ids already sent to Claude from Crit for this card. */
+function sentCommentIds(db: Db, cardId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const e of cardEventsFor(db, cardId)) {
+    if (e.kind !== 'crit_reviewed') continue;
+    const sent = (e.meta as { sentIds?: unknown } | null)?.sentIds;
+    if (Array.isArray(sent)) for (const id of sent) if (typeof id === 'string') ids.add(id);
   }
-  const { activity, run } = cardActivity(db, card);
-  if (run?.id !== planRunId) return 'a newer plan replaced the one reviewed';
-  if (activity !== 'needs_review') return 'the plan is no longer waiting for review';
-  return null;
+  return ids;
 }
 
 function recordOutcome(
   db: Db,
   cardId: string,
   runId: string,
-  outcome: 'cancelled' | 'failed' | 'not_applied',
+  outcome: 'cancelled' | 'failed' | 'not_applied' | 'sent',
   body: string | null,
   meta: Record<string, unknown> = {},
 ): void {
   try {
+    const card = getCard(db, cardId);
     insertCardEvent(db, {
-      cardId, actor: 'human', kind: 'crit_reviewed', stage: 'planning',
+      cardId, actor: 'human', kind: 'crit_reviewed', stage: card?.stage ?? 'planning',
       runId, body, meta: { ...meta, outcome },
     });
   } catch (err) {
@@ -292,14 +342,16 @@ function recordOutcome(
   }
 }
 
-/** Every comment in full, with where it sits in `.reeve/plan.md` when Crit knows. */
-function formatNotes(comments: CritComment[]): string {
+/** Every comment in full, with where it sits — a line of the plan, or a file in the change — when Crit knows. */
+function formatNotes(comments: CritComment[], target: CritTarget): string {
   return comments
     .map((c) => {
+      const file = target === 'plan' ? PLAN_PATH : c.path ? `\`${c.path}\`` : null;
       const where =
-        c.scope === 'review' || c.scope === 'file' || !c.start_line ? 'On the plan as a whole'
-        : c.end_line && c.end_line !== c.start_line ? `Lines ${c.start_line}–${c.end_line} of ${PLAN_PATH}`
-        : `Line ${c.start_line} of ${PLAN_PATH}`;
+        c.scope === 'review' || !file ? `On ${target === 'plan' ? 'the plan' : 'the changes'} as a whole`
+        : c.scope === 'file' || !c.start_line ? `On ${file}`
+        : c.end_line && c.end_line !== c.start_line ? `Lines ${c.start_line}–${c.end_line} of ${file}`
+        : `Line ${c.start_line} of ${file}`;
       const heading = c.anchor ? `**${where}, under “${c.anchor}”**` : `**${where}**`;
       const quote = c.quote?.trim();
       return [heading, quote ? blockquote(quote) : null, c.body.trim()].filter(Boolean).join('\n');

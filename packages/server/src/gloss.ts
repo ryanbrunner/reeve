@@ -5,7 +5,16 @@ import { STAGE_LABELS, nextStage, type GlossReviewResponse, type Stage, type Sto
 import { blockedMove } from './blockers.js';
 import { cardActivity, entryRefusal } from './board.js';
 import type { Db } from './db/client.js';
-import { getCard, getRun, insertCardEvent, listRepos, liveTaskRun, reviewsForCard } from './db/queries.js';
+import {
+  getCard,
+  getRun,
+  insertCardEvent,
+  latestDeliverableRun,
+  listRepos,
+  liveStageRun,
+  liveTaskRun,
+  reviewsForCard,
+} from './db/queries.js';
 import type { Card, Repo, Run } from './db/schema.js';
 import { failureOutput } from './git/worktree.js';
 import { shellQuote } from './handoff.js';
@@ -242,7 +251,7 @@ async function finishRound(
     const card = getCard(db, session.cardId);
     const repo = card?.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
     const stale = staleReason(db, card, repo, session.stage, reviewedRunId);
-    const run = card && cardActivity(db, card).run;
+    const run = card ? latestDeliverableRun(db, card.id, card.stage) : undefined;
     if (stale || !card || !repo || !run) {
       // The window would otherwise wait on a round no one is going to answer.
       await gloss(session, 'close').catch(() => {});
@@ -355,9 +364,11 @@ function staleReason(
   if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
     return 'Claude is running on the card';
   }
-  const { activity, run } = cardActivity(db, card);
+  // The stage's submitted work, as the route reads it: a question asked
+  // about the build since does not make the round stale; a new submission does.
+  const run = latestDeliverableRun(db, card.id, card.stage);
   if (run?.id !== reviewedRunId) return 'a newer run replaced the build reviewed';
-  if (activity !== 'needs_review') return 'the build is no longer waiting for review';
+  if (liveStageRun(db, card.id)) return 'Claude is running on the card';
   return null;
 }
 
