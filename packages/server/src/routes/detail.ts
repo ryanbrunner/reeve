@@ -17,6 +17,7 @@ import {
   insertCardEvent,
   latestClaudeRunForStage,
   listRepos,
+  liveStageRun,
   liveTaskRun,
   questionsForRun,
   refsFor,
@@ -24,6 +25,8 @@ import {
   updateCriterion,
 } from '../db/queries.js';
 import { recordAnswer } from '../answers.js';
+import { answerAsk, sendToCard } from '../conversation.js';
+import { runRegistry } from '../runs/registry.js';
 import { linkDependency } from '../dependencies.js';
 import { checkWorktree, commitAt, commitsSince, diffOfCommit, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
@@ -66,6 +69,11 @@ const refSchema = z.object({
 const dependencySchema = z.object({ dependsOnId: z.string().min(1) });
 const answerSchema = z.object({ answer: z.string().min(1, 'an answer needs words') });
 const noteSchema = z.object({ body: z.string().min(1, 'a note needs words') });
+const messageSchema = z.object({ text: z.string().trim().min(1, 'a message needs words').max(20_000) });
+const askAnswerSchema = z.union([
+  z.object({ decision: z.enum(['allow', 'deny']), reason: z.string().max(2_000).nullish() }),
+  z.object({ answers: z.record(z.string(), z.string()) }),
+]);
 
 export type StartSplitResult =
   | { ok: true; runId: string }
@@ -237,28 +245,65 @@ export function detailRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * What the card has changed, against the sha its worktree started from.
-   *
-   * Its own endpoint rather than part of `/detail` because it shells out to
-   * git, and has no reason to be re-read on every poll of `/detail`.
+   * Say something to Claude about the card: the composer, `reeve card reply`.
+   * Into the live run if there is one, or carrying the stage's conversation
+   * on in a forked session if not — see ../conversation.ts.
    */
+  routes.post('/:id/messages', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const parsed = messageSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid message', detail: parsed.error.message }, 400);
+    const result = await sendToCard(db, writer, card, parsed.data.text);
+    if (!result.ok) return c.json({ error: result.error, detail: result.detail }, result.status);
+    return c.json({ ok: true, delivered: result.delivered, runId: result.runId }, 201);
+  });
+
   /**
-   * A note for Claude's next run. The third thing a human can say, beside a
-   * rejection and an answer — and like both of those it reaches Claude as
-   * prompt rather than through a channel of its own.
+   * Answer what the live run is parked on, from its buttons: allow or deny a
+   * permission, or choose among a question's options. A typed reply goes to
+   * `/messages`, which answers it too.
+   */
+  routes.post('/:id/asks/:askId', async (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    const parsed = askAnswerSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid answer', detail: parsed.error.message }, 400);
+    const body = parsed.data;
+    const answered = answerAsk(card, c.req.param('askId'), 'answers' in body
+      ? { kind: 'question', answers: body.answers, actor: 'human' }
+      : { kind: 'permission', allow: body.decision === 'allow', reason: body.reason ?? null, actor: 'human' });
+    if (!answered) return c.json({ error: 'not waiting on that', detail: 'answered already, timed out, or stopped' }, 409);
+    return c.json({ ok: true });
+  });
+
+  /**
+   * A note for Claude. Read by the next run, as it always was — and with a
+   * run going now, also handed to it, since a note left while Claude works is
+   * most often about what it is doing.
    */
   routes.post('/:id/notes', requireJson, async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);
     const parsed = noteSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid note', detail: parsed.error.message }, 400);
+    const body = parsed.data.body.trim();
+    const live = liveStageRun(db, card.id);
+    const pushed = live ? runRegistry.get(live.id)?.send?.(`A note from the person: ${body}`) : false;
+    if (live && pushed) writer.append(live.id, 'user_message', { text: body, actor: 'human', source: 'note', live: true, at: Date.now() });
     const event = insertCardEvent(db, {
       cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
-      body: parsed.data.body.trim(),
+      body, meta: pushed ? { deliveredTo: live!.id } : undefined,
     });
     return c.json(toApiCardEvent(event), 201);
   });
 
+  /**
+   * What the card has changed, against the sha its worktree started from.
+   *
+   * Its own endpoint rather than part of `/detail` because it shells out to
+   * git, and has no reason to be re-read on every poll of `/detail`.
+   */
   routes.get('/:id/diff', async (c) => {
     const card = getCard(db, c.req.param('id'));
     if (!card) return c.json({ error: 'not found' }, 404);

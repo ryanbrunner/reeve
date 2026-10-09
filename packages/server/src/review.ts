@@ -4,8 +4,10 @@ import { cardsInStage, insertCardEvent, insertReview, moveCard } from './db/quer
 import type { Card, CardEventActor, Repo, Run } from './db/schema.js';
 import { maybeOpenPullRequest } from './pullRequest.js';
 import type { EventWriter } from './runs/events.js';
-import { stageDefinition } from './stages/index.js';
-import { continueStage, isStartingStage, maybeStartStage } from './startStage.js';
+import { sendToCard } from './conversation.js';
+import type { MessageSource } from './runs/claude.js';
+import { blockquote, renderPrompt } from './stages/template.js';
+import { isStartingStage, maybeStartStage } from './startStage.js';
 
 /**
  * The two verdicts the human gate can reach, whoever reaches them.
@@ -64,8 +66,9 @@ export type Revision =
   | { ok: false; error: string; status: 409 | 501 };
 
 /**
- * Rejecting moves nothing: it forks the session so the prior attempt stays
- * intact and readable, and the notes become the revision prompt.
+ * Rejecting moves nothing: the notes go to Claude as the next message in the
+ * stage's conversation, which forks its session so the prior attempt stays
+ * intact and readable.
  */
 export async function sendBackForRevision(
   db: Db,
@@ -91,19 +94,14 @@ export async function sendBackForRevision(
     runId: lastRun.id, body: notes, meta: { ...meta, decision: 'rejected' },
   });
 
-  const stage = stageDefinition(card.stage as never);
-  if (!stage) return { ok: false, error: 'stage not implemented yet', status: 501 };
-
-  // Waits for any setup the worktree is owed, so a card whose setup failed
-  // when its stage started is not revised in the same unfinished tree.
-  const revision = await continueStage(db, writer, card, repo, {
-    stage,
-    reviewNotes: notes,
-    // Fork rather than continue: the rejected attempt stays readable and the
-    // card's history is a list of attempts, not one mutating session.
-    resumeSessionId: lastRun.sessionId,
-    parentRunId: lastRun.id,
+  // Into the conversation as what it is: the person sending the work back.
+  // The run that submitted it is the stage's last, so its session is the one
+  // that carries on, with every earlier turn readable above it.
+  const revision = await sendToCard(db, writer, card, notes, {
+    actor: 'human',
+    source: (meta['via'] as MessageSource | undefined) ?? 'review',
+    prompt: renderPrompt('revision', { notes: blockquote(notes), submitTool: `submit_${card.stage}` }),
   });
-  if (!revision.ok) return { ok: false, error: revision.error, status: 409 };
-  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId, done: revision.done };
+  if (!revision.ok) return { ok: false, error: revision.error, status: revision.status === 501 ? 501 : 409 };
+  return { ok: true, revisionRunId: revision.runId, forkedFrom: lastRun.sessionId, done: revision.done ?? Promise.resolve() };
 }

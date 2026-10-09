@@ -333,7 +333,15 @@ export async function removeCardWorktree(
  * base into the one it has, then its Claude run. The Run button and a card entering a runnable column both come
  * through here, so they refuse the same things for the same reasons.
  */
-export async function startStage(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<StartStageResult> {
+export async function startStage(
+  db: Db,
+  writer: EventWriter,
+  card: Card,
+  repo: Repo,
+  // A person's message that started the stage, from the composer: shown at
+  // the head of its conversation. Its words reach Claude as a note.
+  opts: { userMessage?: ClaudeRunParams['userMessage'] } = {},
+): Promise<StartStageResult> {
   if (card.kind === 'project') {
     return { ok: false, status: 400, error: 'a project has no stages', detail: 'split it into tasks instead' };
   }
@@ -414,7 +422,7 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
     }
 
     noteFailedSetup(db, fresh, setup);
-    const handle = startClaudeRun({ db, writer, card: fresh, repo, stage, worktreePath: path });
+    const handle = startClaudeRun({ db, writer, card: fresh, repo, stage, worktreePath: path, userMessage: opts.userMessage ?? null });
     return { ok: true, runId: handle.runId, sessionId: handle.sessionId };
   } finally {
     starting.delete(card.id);

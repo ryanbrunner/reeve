@@ -8,6 +8,8 @@ import {
   artifactsForCard,
   getCard,
   latestClaudeRunForStage,
+  latestDeliverableRun,
+  liveStageRun,
   listRepos,
   reviewsForCard,
 } from '../db/queries.js';
@@ -66,9 +68,14 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
     const { decision, notes } = parsed.data;
 
-    const lastRun = latestClaudeRunForStage(db, card.id, card.stage);
-    if (!lastRun || lastRun.status !== 'succeeded') {
-      return c.json({ error: 'nothing to review', detail: `latest run is ${lastRun?.status ?? 'absent'}` }, 409);
+    // The work Claude last submitted in this column, while nothing is running
+    // on top of it: a reply after the submission does not take it away.
+    const live = liveStageRun(db, card.id);
+    if (live) return c.json({ error: 'nothing to review', detail: `a run is ${live.status}` }, 409);
+    const lastRun = latestDeliverableRun(db, card.id, card.stage);
+    if (!lastRun) {
+      const latest = latestClaudeRunForStage(db, card.id, card.stage);
+      return c.json({ error: 'nothing to review', detail: `latest run is ${latest?.status ?? 'absent'}` }, 409);
     }
 
     if (decision === 'approved') {
