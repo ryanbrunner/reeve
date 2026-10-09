@@ -55,8 +55,10 @@ export function DiffTab({
       )}
 
       {files.length > 0 && current && (
-        <div className="flex min-h-0 grow gap-3">
-          <div className="flex w-[260px] shrink-0 flex-col overflow-y-auto rounded-md border border-(--color-edge)">
+        // Stacked, not side-by-side: this tab only ever renders in the 420px
+        // aside, which leaves no real width for a list beside the file.
+        <div className="flex min-h-0 grow flex-col gap-2">
+          <div className="flex max-h-24 shrink-0 flex-col overflow-y-auto rounded-md border border-(--color-edge)">
             {files.map((f) => (
               <button
                 key={f.path}
@@ -67,9 +69,9 @@ export function DiffTab({
                   f.path === current.path ? 'bg-white/6' : 'hover:bg-white/3'
                 }`}
               >
-                <span className="min-w-0 truncate">
-                  <span className="text-(--color-muted)">{dirOf(f.path)}</span>
-                  <span className="text-(--color-text)">{baseOf(f.path)}</span>
+                <span className="flex min-w-0 items-baseline">
+                  <span className="min-w-0 truncate text-(--color-muted)">{dirOf(f.path)}</span>
+                  <span className="shrink-0 text-(--color-text)">{baseOf(f.path)}</span>
                 </span>
                 <span className="shrink-0">
                   <span className="text-emerald-400">+{f.additions}</span>{' '}
@@ -87,12 +89,18 @@ export function DiffTab({
 
 function FileDiff({ file }: { file: ApiDiffFile }) {
   return (
-    <div className="flex min-w-0 grow flex-col overflow-hidden rounded-md border border-(--color-edge)">
-      <div className="flex shrink-0 items-baseline justify-between gap-2 border-b border-(--color-edge) px-2.5 py-1.5">
-        <span className="min-w-0 truncate font-mono text-[11px]/4 text-(--color-text)">
-          {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}{' '}
-          <span className="text-emerald-400">+{file.additions}</span>{' '}
-          <span className="text-red-400">−{file.deletions}</span>
+    <div className="flex min-h-0 grow flex-col overflow-hidden rounded-md border border-(--color-edge)">
+      <div className="flex min-w-0 shrink-0 items-baseline justify-between gap-2 border-b border-(--color-edge) px-2.5 py-1.5">
+        <span className="flex min-w-0 items-baseline font-mono text-[11px]/4 text-(--color-text)">
+          <span className="min-w-0 truncate text-(--color-muted)">
+            {file.oldPath ? `${file.oldPath} → ` : ''}
+            {dirOf(file.path)}
+          </span>
+          <span className="shrink-0">{baseOf(file.path)}</span>
+          <span className="ml-2 shrink-0">
+            <span className="text-emerald-400">+{file.additions}</span>{' '}
+            <span className="text-red-400">−{file.deletions}</span>
+          </span>
         </span>
         <span className="shrink-0 font-mono text-[10px]/4 text-(--color-muted)">{file.status}</span>
       </div>
