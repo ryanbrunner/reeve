@@ -427,17 +427,13 @@ function Thinking({ text }: { text: string }) {
 const GROUP_FOLD = 12;
 
 function ToolGroup({ tools, live, runId }: { tools: ToolItem[]; live: boolean; runId: string }) {
-  const first = tools[0]!;
-  const last = tools.at(-1)!;
   const [unfolded, setUnfolded] = useState(false);
   const folded = !unfolded && tools.length > GROUP_FOLD;
   const shown = folded ? [...tools.slice(0, 4), ...tools.slice(-4)] : tools;
   return (
+    // No header: each call is one line with its own time, so a count and a
+    // span above them only said again what the rows already do.
     <div className="ml-8 overflow-hidden rounded-md border border-(--color-edge) bg-[#0b0e12]">
-      <div className="flex justify-between border-b border-(--color-edge) px-2.5 py-[5px] font-mono text-[10px] tracking-[0.06em] text-(--color-muted)/60 uppercase">
-        <span>{tools.length} tool call{tools.length === 1 ? '' : 's'}</span>
-        <span>{clock(first.at)}{last !== first ? ` – ${clock(last.at)}` : ''}</span>
-      </div>
       {shown.map((t, i) => (
         <div key={t.id}>
           {folded && i === 4 && (
@@ -471,13 +467,14 @@ function ToolRow({ tool, pending, runId }: { tool: ToolItem; pending: boolean; r
   const lines = text ? text.split('\n').length : 0;
   return (
     <details className="group border-t border-(--color-edge) first-of-type:border-t-0" onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
+      <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
         <span className="text-(--color-muted)/50 transition-transform group-open:rotate-90">›</span>
         <span className="truncate text-(--color-muted)">{tool.verb}</span>
         <span className="truncate text-[#c9d1d9]">{tool.target || tool.name}</span>
         <span className={pending ? 'text-sky-300' : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
           {pending ? 'running…' : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
         </span>
+        <span className="text-[10px] text-(--color-muted)/50">{clock(tool.at)}</span>
       </summary>
       <div className="border-t border-dashed border-(--color-edge) bg-[#090b0f]">
         {tool.input && tool.input !== '{}' && (
