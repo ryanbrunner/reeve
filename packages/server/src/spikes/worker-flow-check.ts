@@ -152,7 +152,7 @@ check('and .reeve/ was never committed', tracked === '', tracked);
 console.log('\n--- in_progress: sent back for a revision ---');
 const firstRun = latest('in_progress')!.id;
 const rejected = await api('POST', '/api/cards/c1/review', { decision: 'rejected', notes: 'Rename greet.test.mjs to greet.spec.mjs, and make sure `node --test greet.spec.mjs` passes.' });
-check('the rejection resumed the stage', rejected.status === 200, JSON.stringify(rejected.json));
+check('the rejection resumed the stage', rejected.json?.['ok'] === true, JSON.stringify(rejected.json));
 const revised = await until('revision worker launched', async () => {
   const run = await runOf('in_progress');
   return run?.runId !== firstRun && workerIn(run) !== undefined;
@@ -185,6 +185,23 @@ note('stop', stopped.status);
 await until('stopped', () => status('testing') === 'cancelled', 30_000);
 check('Stop ended the run, worker and all', status('testing') === 'cancelled', `${status('testing')} after ${((Date.now() - stopAt) / 1000).toFixed(1)}s`);
 check('and the card no longer reads running', activity() !== 'running', activity());
+
+// The forked session still holds an Agent call whose worker never reported.
+// The next message must get a fresh worker, not a lead waiting on the dead one.
+console.log('\n--- after Stop: carry on, with a fresh worker ---');
+const stoppedRun = latest('testing')!.id;
+const after = await api('POST', '/api/cards/c1/messages', { text: 'Carry on with the README section and the test run, please.' });
+check('the message after Stop resumed the conversation', after.json?.['delivered'] === 'resumed', JSON.stringify(after.json));
+const fresh = await until('worker after Stop', async () => {
+  const run = (await conversation()).stages.find((s) => s.stage === 'testing')?.runs.at(-1);
+  return (run?.runId !== stoppedRun && workerIn(run) !== undefined) || (latest('testing')?.id !== stoppedRun && ['awaiting_reply', 'failed', 'succeeded'].includes(status('testing')));
+}, 180_000);
+const afterRun = (await conversation()).stages.find((s) => s.stage === 'testing')?.runs.at(-1);
+check('the lead launched a fresh worker rather than wait on the stopped one', fresh && workerIn(afterRun) !== undefined, `${status('testing')}: ${texts(afterRun).at(-1)?.slice(0, 200) ?? ''}`);
+await until('carried-on run ends', () => latest('testing')?.id !== stoppedRun && ['succeeded', 'failed', 'awaiting_reply', 'cancelled'].includes(status('testing')), 600_000);
+check('and the stage was submitted again', status('testing') === 'succeeded', status('testing'));
+const readme = existsSync(join(wt, 'README.md')) ? readFileSync(join(wt, 'README.md'), 'utf8') : '';
+check('with the README section', /greet/i.test(readme));
 
 console.log(`\n${failures === 0 ? 'all good' : `${failures} FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

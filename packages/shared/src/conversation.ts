@@ -236,7 +236,9 @@ export class RunProjector {
             const agent: AgentView | undefined = name === 'Agent' || name === 'Task'
               ? {
                   type: typeof input['subagent_type'] === 'string' ? input['subagent_type'] : null,
-                  background: input['run_in_background'] === true,
+                  // The SDK's default, so an unsaid flag is background too. A
+                  // foreground call's result corrects it.
+                  background: input['run_in_background'] !== false,
                   status: 'running', progress: null, usage: null, steps: [], dropped: 0, endedAt: null,
                 }
               : undefined;
@@ -267,6 +269,7 @@ export class RunProjector {
           // only says it was launched; its end is a task_notification.
           if (!sub && top?.kind === 'tool' && top.agent && (isError || !/^Async agent launched/.test(text))) {
             top.agent.status = isError ? 'failed' : 'completed';
+            top.agent.background = false;
             top.agent.endedAt = at;
           } else if (!sub && top?.kind === 'tool' && top.agent) {
             top.agent.background = true;
