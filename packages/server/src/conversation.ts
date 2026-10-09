@@ -55,6 +55,13 @@ export interface SendOptions {
    * questions they answer. The conversation still shows `text`.
    */
   prompt?: string;
+  /**
+   * Never the answer to what the run is parked on: an instruction from the
+   * board rather than the person's reply. Allowing a refused call once is
+   * one, and with a worker running the lead can be parked on a question of
+   * its own when it comes.
+   */
+  notAnAnswer?: boolean;
 }
 
 /**
@@ -88,7 +95,7 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
   if (live) {
     // Not the worker's: what it is waiting on is settled by Allow or Deny, and
     // words typed meanwhile are for the lead, who is still listening.
-    const ask = askRegistry.forRun(live.id, { answerable: true });
+    const ask = opts.notAnAnswer ? undefined : askRegistry.forRun(live.id, { answerable: true });
     if (ask) {
       writer.append(live.id, 'user_message', { text: words, actor, source, live: true, at: Date.now() });
       askRegistry.settle(ask.id, answerFromText(ask, words, actor));
@@ -196,7 +203,7 @@ export async function allowOnce(db: Db, writer: EventWriter, card: Card, runId: 
       'If it has finished, make the call yourself, or hand it to the next worker you launch.'
     : `The person has allowed, for one use, the call auto mode refused: ${refused.toolName} \`${oneLine(what)}\`. ` +
       'Make exactly that call again now, with the same input, and carry on.';
-  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, { prompt });
+  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, { prompt, notAnAnswer: true });
 }
 
 function oneLine(text: string): string {
