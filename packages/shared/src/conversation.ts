@@ -53,7 +53,12 @@ export type ConversationItem =
       target: string;
       /** The call's input, trimmed for display. */
       input: string;
-      result: { text: string; isError: boolean; truncated: boolean } | null;
+      /**
+       * The head of what came back. The whole of it stays in the run's
+       * events, at `seq`, and the modal fetches it when a row is opened: a
+       * long run's outputs would otherwise make the conversation megabytes.
+       */
+      result: { text: string; isError: boolean; truncated: boolean; seq: number } | null;
       at: number;
     }
   | { kind: 'ask'; id: string; askId: string | null; request: AskView; outcome: AskOutcome | null; at: number }
@@ -93,9 +98,9 @@ export interface RunEventInput {
   at?: number;
 }
 
-/** How much of a tool's output is kept for display. The rest is in the run's events. */
-const RESULT_MAX = 4_000;
-const INPUT_MAX = 2_000;
+/** How much of a tool's call and output the conversation carries. The rest is in the run's events. */
+const RESULT_MAX = 500;
+const INPUT_MAX = 400;
 
 /**
  * Folds one run's events into its items. Mutable and cheap to call once per
@@ -185,7 +190,7 @@ export class RunProjector {
           const item = index === undefined ? undefined : this.items[index];
           if (!item || item.kind !== 'tool') continue;
           const { text, truncated } = clip(resultText(block['content']), RESULT_MAX);
-          item.result = { text, isError: block['is_error'] === true, truncated };
+          item.result = { text, isError: block['is_error'] === true, truncated, seq: event.seq };
         }
         return;
       }
@@ -272,6 +277,20 @@ export function toolLabel(name: string, input: Record<string, unknown>): { verb:
     default:
       return { verb: name.replace(/^mcp__/, '').replace(/__/g, ' · '), target: Object.values(input).find((v) => typeof v === 'string') as string ?? '' };
   }
+}
+
+/**
+ * The whole output of one tool call, out of the stored `tool_result` event the
+ * conversation clipped it from — what a row shows once it is opened.
+ */
+export function toolResultIn(payload: unknown, toolUseId: string): string | null {
+  const parsed = typeof payload === 'string' ? safeParse(payload) : payload;
+  const content = isRecord(parsed) ? (parsed['message'] as { content?: unknown } | undefined)?.content : undefined;
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    if (isRecord(block) && block['type'] === 'tool_result' && block['tool_use_id'] === toolUseId) return resultText(block['content']);
+  }
+  return null;
 }
 
 function resultText(content: unknown): string {

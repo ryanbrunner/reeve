@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { isTerminal, type RunStatus } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { eventsSince, getRun, latestSeq, runsForCard } from '../db/queries.js';
+import { eventAt, eventsSince, getRun, latestSeq, runsForCard } from '../db/queries.js';
 import { toApiRunSummary } from '../mappers.js';
 import { runBus, type EmittedEvent } from '../runs/bus.js';
 import { runRegistry } from '../runs/registry.js';
@@ -108,6 +108,18 @@ export function runRoutes(db: Db) {
         unsubscribe();
       }
     });
+  });
+
+  /**
+   * One stored event, whole: what a conversation row clipped, fetched when it
+   * is opened.
+   */
+  routes.get('/:id/events/:seq', (c) => {
+    const seq = Number(c.req.param('seq'));
+    if (!Number.isInteger(seq) || seq < 1) return c.json({ error: 'bad seq' }, 400);
+    const row = eventAt(db, c.req.param('id'), seq);
+    if (!row) return c.json({ error: 'not found' }, 404);
+    return c.json({ seq: row.seq, kind: row.kind, payload: JSON.parse(row.payload) as unknown });
   });
 
   routes.post('/:id/stop', async (c) => {

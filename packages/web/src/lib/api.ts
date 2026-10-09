@@ -129,6 +129,9 @@ export const api = {
     post(`/api/cards/${id}/messages`, { text }).then(
       json<{ ok: true; delivered: 'answered' | 'live' | 'resumed' | 'started'; runId: string }>,
     ),
+  /** One stored event of a run, whole: a conversation row's full tool output. */
+  runEvent: (runId: string, seq: number) =>
+    fetch(`/api/runs/${runId}/events/${seq}`).then(json<{ seq: number; kind: string; payload: unknown }>),
   /** Answer what a live run is parked on: a permission, or a question's options. */
   answerAsk: (id: string, askId: string, body: { decision: 'allow' | 'deny'; reason?: string | null } | { answers: Record<string, string> }) =>
     post(`/api/cards/${id}/asks/${askId}`, body).then(json<{ ok: true }>),

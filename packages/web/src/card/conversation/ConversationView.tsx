@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGE_LABELS,
   isTerminal,
+  toolResultIn,
   type ApiConversation,
   type CardDetail,
   type ConversationItem,
@@ -102,6 +103,11 @@ export function ConversationThread({ detail, conversation, tab, onOpenPanel }: {
   const runs = conversation?.stages.find((s) => s.stage === tab)?.runs ?? [];
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
+  // A long stage is thousands of items, and the latest is what is being
+  // talked about: render the end of it, and earlier on request.
+  const [limit, setLimit] = useState(WINDOW);
+  useEffect(() => setLimit(WINDOW), [tab]);
+  const shown = tail(runs, limit);
 
   // Follows the conversation as it grows, unless the person has scrolled up
   // to read, in which case it stays where they are.
@@ -131,21 +137,57 @@ export function ConversationThread({ detail, conversation, tab, onOpenPanel }: {
         {runs.length === 0 ? (
           <NotStarted detail={detail} stage={tab} />
         ) : (
-          runs.map((run, i) => (
-            <RunBlock
-              key={run.runId}
-              detail={detail}
-              run={run}
-              first={i === 0}
-              stage={tab}
-              live={!isTerminal(run.status)}
-              onOpenPanel={onOpenPanel}
-            />
-          ))
+          <>
+            {shown.hidden > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  pinned.current = false;
+                  setLimit((w) => w + WINDOW);
+                }}
+                className="self-center rounded-sm border border-(--color-edge) px-2.5 py-1 font-mono text-[11px]/4 text-(--color-muted) hover:text-(--color-text)"
+              >
+                Show earlier · {shown.hidden} more
+              </button>
+            )}
+            {shown.runs.map(({ run, from }) => (
+              <RunBlock
+                key={run.runId}
+                detail={detail}
+                run={from ? { ...run, items: run.items.slice(from) } : run}
+                first={run === runs[0] && from === 0}
+                stage={tab}
+                live={!isTerminal(run.status)}
+                onOpenPanel={onOpenPanel}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>
   );
+}
+
+/** How many items a stage's thread renders at first, and adds per "Show earlier". */
+const WINDOW = 400;
+
+/** The last `limit` items across the stage's runs, as the runs they belong to and where each starts. */
+function tail(runs: ConversationRun[], limit: number): { runs: Array<{ run: ConversationRun; from: number }>; hidden: number } {
+  const out: Array<{ run: ConversationRun; from: number }> = [];
+  let left = limit;
+  let hidden = 0;
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i]!;
+    if (left <= 0) {
+      hidden += run.items.length;
+      continue;
+    }
+    const from = Math.max(0, run.items.length - left);
+    hidden += from;
+    left -= run.items.length - from;
+    out.unshift({ run, from });
+  }
+  return { runs: out, hidden };
 }
 
 function NotStarted({ detail, stage }: { detail: CardDetail; stage: StageTab }) {
@@ -206,11 +248,14 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
         // A follow-up opens with the person's words, which say why on their own.
         run.items[0]?.kind !== 'user' && <Divider>Continued{run.startedAt ? ` · ${clock(run.startedAt)}` : ''}</Divider>
       )}
-      {groups.map((g) =>
-        Array.isArray(g)
-          ? <ToolGroup key={g[0]!.id} tools={g} live={live} />
-          : <Item key={g.id} item={g} detail={detail} live={live} stage={stage} onOpenPanel={onOpenPanel} />,
-      )}
+      {groups.map((g, i) => {
+        if (Array.isArray(g)) return <ToolGroup key={g[0]!.id} tools={g} live={live} runId={run.runId} />;
+        // Claude speaking again after its own tool calls or reasoning is one
+        // voice carrying on, not a new message: no second name and avatar.
+        const prev = groups[i - 1];
+        const continued = g.kind === 'text' && prev !== undefined && (Array.isArray(prev) || prev.kind === 'text' || prev.kind === 'thinking');
+        return <Item key={g.id} item={g} detail={detail} live={live} stage={stage} onOpenPanel={onOpenPanel} continued={continued} />;
+      })}
       {ending && (
         <Divider tone={run.status === 'failed' ? 'error' : 'muted'}>
           {ending}
@@ -234,12 +279,13 @@ function group(items: ConversationItem[]): Array<ConversationItem | ToolItem[]> 
   return out;
 }
 
-function Item({ item, detail, live, stage, onOpenPanel }: {
+function Item({ item, detail, live, stage, onOpenPanel, continued = false }: {
   item: ConversationItem;
   detail: CardDetail;
   live: boolean;
   stage: StageTab;
   onOpenPanel: (panel: 'plan' | 'changes' | 'preview') => void;
+  continued?: boolean;
 }) {
   switch (item.kind) {
     case 'prompt':
@@ -249,9 +295,9 @@ function Item({ item, detail, live, stage, onOpenPanel }: {
     case 'text':
       return (
         <div className="grid grid-cols-[22px_minmax(0,1fr)] gap-2.5">
-          <Avatar who="claude" />
+          {continued ? <span /> : <Avatar who="claude" />}
           <div className="min-w-0">
-            <div className="mb-[3px] font-mono text-[11px]/4 text-(--color-muted)">Claude · {clock(item.at)}</div>
+            {!continued && <div className="mb-[3px] font-mono text-[11px]/4 text-(--color-muted)">Claude · {clock(item.at)}</div>}
             <Markdown>{item.text}</Markdown>
           </div>
         </div>
@@ -338,40 +384,70 @@ function Thinking({ text }: { text: string }) {
   );
 }
 
-function ToolGroup({ tools, live }: { tools: ToolItem[]; live: boolean }) {
+/** Past this, a burst shows its first and last few calls and folds the middle away. */
+const GROUP_FOLD = 12;
+
+function ToolGroup({ tools, live, runId }: { tools: ToolItem[]; live: boolean; runId: string }) {
   const first = tools[0]!;
   const last = tools.at(-1)!;
+  const [unfolded, setUnfolded] = useState(false);
+  const folded = !unfolded && tools.length > GROUP_FOLD;
+  const shown = folded ? [...tools.slice(0, 4), ...tools.slice(-4)] : tools;
   return (
     <div className="ml-8 overflow-hidden rounded-md border border-(--color-edge) bg-[#0b0e12]">
       <div className="flex justify-between border-b border-(--color-edge) px-2.5 py-[5px] font-mono text-[10px] tracking-[0.06em] text-(--color-muted)/60 uppercase">
         <span>{tools.length} tool call{tools.length === 1 ? '' : 's'}</span>
         <span>{clock(first.at)}{last !== first ? ` – ${clock(last.at)}` : ''}</span>
       </div>
-      {tools.map((t) => <ToolRow key={t.id} tool={t} pending={live && t.result === null} />)}
+      {shown.map((t, i) => (
+        <div key={t.id}>
+          {folded && i === 4 && (
+            <button
+              type="button"
+              onClick={() => setUnfolded(true)}
+              className="w-full border-t border-(--color-edge) px-2.5 py-1.5 text-left font-mono text-[11px]/4 text-sky-300 hover:bg-(--color-panel)"
+            >
+              Show the other {tools.length - 8} calls
+            </button>
+          )}
+          <ToolRow tool={t} pending={live && t.result === null} runId={runId} />
+        </div>
+      ))}
     </div>
   );
 }
 
-function ToolRow({ tool, pending }: { tool: ToolItem; pending: boolean }) {
+function ToolRow({ tool, pending, runId }: { tool: ToolItem; pending: boolean; runId: string }) {
   const result = tool.result;
-  const lines = result?.text ? result.text.split('\n').length : 0;
+  const [open, setOpen] = useState(false);
+  // The conversation carries the head of each output; the rest is fetched
+  // when the row is opened, from the event it was clipped from.
+  const full = useQuery({
+    queryKey: ['tool-result', runId, result?.seq, tool.toolUseId],
+    queryFn: () => api.runEvent(runId, result!.seq).then((e) => toolResultIn(e.payload, tool.toolUseId)),
+    enabled: open && Boolean(result?.truncated),
+    staleTime: Infinity,
+  });
+  const text = full.data ?? result?.text ?? '';
+  const lines = text ? text.split('\n').length : 0;
   return (
-    <details className="group border-t border-(--color-edge) first-of-type:border-t-0">
+    <details className="group border-t border-(--color-edge) first-of-type:border-t-0" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
         <span className="text-(--color-muted)/50 transition-transform group-open:rotate-90">›</span>
         <span className="truncate text-(--color-muted)">{tool.verb}</span>
         <span className="truncate text-[#c9d1d9]">{tool.target || tool.name}</span>
         <span className={pending ? 'text-sky-300' : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
-          {pending ? 'running…' : result?.isError ? 'error' : result ? (lines > 1 ? `${lines} lines` : 'ok') : '—'}
+          {pending ? 'running…' : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
         </span>
       </summary>
       <div className="border-t border-dashed border-(--color-edge) bg-[#090b0f]">
         {tool.input && tool.input !== '{}' && (
           <pre className="max-h-40 overflow-auto px-3 pt-2 pb-1 pl-8 font-mono text-[11px]/[17px] whitespace-pre-wrap text-(--color-muted)">{tool.input}</pre>
         )}
-        {result?.text && (
-          <pre className={`max-h-56 overflow-auto px-3 pt-1 pb-2.5 pl-8 font-mono text-[11.5px]/[17px] whitespace-pre-wrap ${result.isError ? 'text-red-300' : 'text-[#adbac7]'}`}>
-            {result.text}
+        {text && (
+          <pre className={`max-h-72 overflow-auto px-3 pt-1 pb-2.5 pl-8 font-mono text-[11.5px]/[17px] whitespace-pre-wrap ${result?.isError ? 'text-red-300' : 'text-[#adbac7]'}`}>
+            {text}
+            {result?.truncated && !full.data && (full.isFetching ? '\n…loading the rest' : '')}
           </pre>
         )}
       </div>
