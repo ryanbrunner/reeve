@@ -94,10 +94,13 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   ask before starting one.
 - `reeve doctor` — one line per requirement, with the fix for each one that is
   missing. It exits 1 only when Node, git, Claude credentials or a SQLite
-  binding that loads are missing, and only warns about `gh`, Chromium and the
-  web build. Its probes live beside the server code they predict failures in
-  (`accountProbe`, `ghProbe`, and `checkSqlite` and `checkChromium` in
-  `packages/server/src/doctor.ts`), and it never opens the board's database;
+  binding that loads are missing, and only warns about `gh`, a `gh` token
+  without the `workflow` scope (needed to merge or push a change under
+  `.github/workflows/`; `ghProbe` parses it off `gh auth status`'s own
+  "Token scopes" line), Chromium and the web build. Its probes live beside
+  the server code they predict failures in (`accountProbe`, `ghProbe`, and
+  `checkSqlite` and `checkChromium` in `packages/server/src/doctor.ts`), and
+  it never opens the board's database;
   the SQLite check opens an in-memory one.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
