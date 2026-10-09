@@ -206,6 +206,13 @@ export interface ApiCard {
    * turns into exit codes; this is a fact about the card, as merged is.
    */
   pendingSuggestion: boolean;
+  /**
+   * What Claude is waiting on the person for, in a line, when the card is
+   * `needs_input`: the question it ended its turn on, or the command it asked
+   * to run. The board card shows it, so a waiting card says why without being
+   * opened. Null otherwise.
+   */
+  waitingOn: string | null;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**

@@ -27,11 +27,18 @@ import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
  * these are things the system knows rather than things a person wrote, and
  * they should read as reference rather than as prose.
  */
-export function Rail({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
+export function Rail({ detail, onOpen, embedded = false }: {
+  detail: CardDetail;
+  onOpen: (id: string) => void;
+  /** Inside the conversation's side panel, as its Card tab, rather than a column of its own. */
+  embedded?: boolean;
+}) {
   return (
     <aside
       aria-label="Card facts"
-      className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
+      className={embedded
+        ? 'flex flex-col gap-[18px]'
+        : 'flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4'}
     >
       <Repo detail={detail} />
       <Dependencies detail={detail} onOpen={onOpen} />

@@ -20,12 +20,15 @@ export function CardHeader({
   live,
   onClose,
   editTitle = false,
+  band = true,
 }: {
   detail: CardDetail;
   live: LiveRun | null;
   onClose: () => void;
   /** Arrive with the title selected, so typing replaces it. For a card just made. */
   editTitle?: boolean;
+  /** The attention band, which the conversation layout moves above its composer. */
+  band?: boolean;
 }) {
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
@@ -295,7 +298,7 @@ export function CardHeader({
         </div>
       )}
 
-      <AttentionBand detail={detail} live={live} onClose={onClose} />
+      {band && <AttentionBand detail={detail} live={live} onClose={onClose} />}
     </header>
   );
 }

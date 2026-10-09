@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import type { CardActivity } from '@reeve/shared';
+import { isRunnable, RUNNABLE_STAGES, type CardActivity, type CardDetail, type RunnableStage } from '@reeve/shared';
 import {
   ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
   SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
@@ -9,8 +9,11 @@ import {
 import { api } from '../lib/api.js';
 import { CardHeader } from './CardHeader.js';
 import { Rail } from './Rail.js';
-import { Tabs } from './Tabs.js';
-import { useCardDetail, useLiveRun } from './useCardDetail.js';
+import { Tabs, defaultTab, type TabId } from './Tabs.js';
+import { useCardDetail, useLiveRun, type LiveRun } from './useCardDetail.js';
+import { Composer } from './conversation/Composer.js';
+import { ConversationThread, StageTabs, type StageTab } from './conversation/ConversationView.js';
+import { useConversation } from './conversation/useConversation.js';
 
 /**
  * A card, opened.
@@ -112,21 +115,31 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
         aria-modal="true"
         aria-labelledby="card-title"
         tabIndex={-1}
-        className={`relative flex h-[min(820px,100%)] w-[min(1160px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : suggested ? SUGGESTION_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
+        className={`relative flex h-[min(900px,100%)] w-[min(1320px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : suggested ? SUGGESTION_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
       >
         {isLoading && <Middle>Loading card…</Middle>}
         {error && <Middle>Could not load this card. {error.message}</Middle>}
         {data && (
           <>
-            <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
-            <div className="flex min-h-0 grow">
-              <Tabs detail={data} onOpen={onOpen} vibes={vibes} />
-              {/* The rail is the card's way through the stages, and a project
-                  has none. In VIBES MODE the whole rail goes rather than parts
-                  of it: every control and fact on it is a lever or a look under
-                  the hood. */}
-              {data.card.kind === 'task' && !vibes && <Rail detail={data} onOpen={onOpen} />}
-            </div>
+            {/* A task is its conversation with Claude, with the documents it
+                produced beside it. A project has no stages to talk in, and in
+                VIBES MODE nobody is talking — you do not get to see how — so
+                both keep the card as its readings. */}
+            {data.card.kind === 'task' && !vibes ? (
+              <Conversation detail={data} live={live} onClose={onClose} onOpen={onOpen} editTitle={editTitle} />
+            ) : (
+              <>
+                <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
+                <div className="flex min-h-0 grow">
+                  <Tabs detail={data} onOpen={onOpen} vibes={vibes} />
+                  {/* The rail is the card's way through the stages, and a project
+                      has none. In VIBES MODE the whole rail goes rather than parts
+                      of it: every control and fact on it is a lever or a look under
+                      the hood. */}
+                  {data.card.kind === 'task' && !vibes && <Rail detail={data} onOpen={onOpen} />}
+                </div>
+              </>
+            )}
             {/* The same rail of light the board card carries while Claude works. */}
             {activity === 'running' && (
               <span className="card-rail" aria-hidden="true">
@@ -151,4 +164,73 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
 
 function Middle({ children }: { children: React.ReactNode }) {
   return <div className="flex grow items-center justify-center text-sm text-(--color-muted)">{children}</div>;
+}
+
+/**
+ * The card as a conversation: stage tabs, the thread, and the composer under
+ * it, with the stage's documents and the card's facts in a panel beside.
+ */
+function Conversation({ detail, live, onClose, onOpen, editTitle }: {
+  detail: CardDetail;
+  live: LiveRun | null;
+  onClose: () => void;
+  onOpen: (id: string) => void;
+  editTitle: boolean;
+}) {
+  const { conversation } = useConversation(detail);
+  const stage = detail.card.stage;
+  const [tab, setTab] = useState<StageTab>(() => openingStage(detail));
+  // Follows the card into each stage it moves to, which is where the talking is.
+  useEffect(() => {
+    if (isRunnable(stage)) setTab(stage as RunnableStage);
+  }, [stage]);
+
+  // Wide enough for the thread and the panel together, or the panel waits
+  // behind its button.
+  const [sideOpen, setSideOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1100);
+  const [sideTab, setSideTab] = useState<TabId>(() => defaultTab(detail, false));
+
+  return (
+    <>
+      <CardHeader detail={detail} live={live} onClose={onClose} editTitle={editTitle} band={false} />
+      <div className="flex min-h-0 grow">
+        <section aria-label="Conversation" className="flex min-w-0 grow flex-col bg-(--color-ink)/90">
+          <StageTabs detail={detail} conversation={conversation} tab={tab} onTab={setTab} />
+          <ConversationThread
+            detail={detail}
+            conversation={conversation}
+            tab={tab}
+            onOpenPanel={(panel) => {
+              setSideTab(panel);
+              setSideOpen(true);
+            }}
+          />
+          <Composer detail={detail} live={live} tab={tab} onClose={onClose} />
+        </section>
+        {sideOpen ? (
+          <aside aria-label="Documents and facts" className="flex w-[420px] shrink-0 flex-col border-l border-(--color-edge) bg-(--color-card-core) max-md:w-full max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-10">
+            <Tabs detail={detail} onOpen={onOpen} side tab={sideTab} onTab={setSideTab} onCollapse={() => setSideOpen(false)} />
+          </aside>
+        ) : (
+          <button
+            type="button"
+            title="Show the plan, changes, preview and the card's facts"
+            onClick={() => setSideOpen(true)}
+            className="flex w-11 shrink-0 flex-col items-center gap-3 border-l border-(--color-edge) bg-(--color-card-core) pt-3 font-mono text-[11px] text-(--color-muted) hover:text-(--color-text)"
+          >
+            <span aria-hidden="true">⇤</span>
+            <span className="[writing-mode:vertical-rl] tracking-[0.06em] uppercase">Plan · Changes · Card</span>
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** The stage the conversation opens on: the card's own, or the last one it talked in. */
+function openingStage(detail: CardDetail): StageTab {
+  const stage = detail.card.stage;
+  if (isRunnable(stage)) return stage as RunnableStage;
+  const talked = RUNNABLE_STAGES.filter((s) => detail.runs.some((r) => r.kind === 'claude' && r.task === null && r.stage === s));
+  return talked.at(-1) ?? 'planning';
 }

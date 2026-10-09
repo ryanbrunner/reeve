@@ -83,6 +83,10 @@ export function CardFace({
       <p className={`relative text-sm leading-snug font-medium tracking-[-0.01em] ${vibes ? 'sk-card-title' : ''}`}>
         {card.title}
       </p>
+      {/* What Claude is waiting on, so a waiting card says why without being opened. */}
+      {!vibes && card.waitingOn && (
+        <p className="relative mt-1.5 line-clamp-2 text-xs/4 text-amber-100/85">{card.waitingOn}</p>
+      )}
       <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${vibes ? 'sk-card-foot' : ''}`}>
         {/* The ring dresses the card; this names why, so it is not left to
             colour alone. */}

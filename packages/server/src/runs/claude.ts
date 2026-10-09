@@ -430,7 +430,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   };
 
   if (stage.submit) {
-    const shape = (stage.schema as unknown as z.ZodObject<z.ZodRawShape>).shape;
+    const shape = submitShape(stage.schema);
     const submit = tool(
       submitName,
       stage.submit.description,
@@ -452,9 +452,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       // Found through ToolSearch otherwise, which costs a turn every stage.
       { alwaysLoad: true },
     );
-    // Ends the turn once it succeeds. tool() has no parameter for it.
-    submit._meta = { 'claude/endTurn': true };
-    options.mcpServers = { reeve: createSdkMcpServer({ name: 'reeve', version: '1.0.0', tools: [submit] }) };
+    // Ends the turn once it succeeds. tool() has no parameter for it, and
+    // keeps its own alwaysLoad in the same field, so it is added to, never
+    // replaced — replacing it sent every stage through ToolSearch first.
+    submit._meta = { ...submit._meta, 'claude/endTurn': true };
+    options.mcpServers = { reeve: createSdkMcpServer({ name: 'reeve', version: '1.0.0', tools: [submit], alwaysLoad: true }) };
   } else {
     options.outputFormat = { type: 'json_schema', schema: jsonSchemaFor(stage.schema) };
   }
@@ -660,6 +662,24 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   })();
 
   return { runId, sessionId, done };
+}
+
+/**
+ * The submit tool's input shape: the contract's, with a defaulted field made
+ * optional. The MCP layer checks a call against the shape before the handler
+ * sees it, and reads `.default([])` as required — the first real submission
+ * was refused for leaving out `suggested_tasks`. The handler parses with the
+ * contract itself, which fills the default in.
+ */
+function submitShape(schema: z.ZodType): z.ZodRawShape {
+  const shape = (schema as unknown as z.ZodObject<z.ZodRawShape>).shape;
+  return Object.fromEntries(
+    Object.entries(shape).map(([key, field]) => {
+      const outer = field as unknown as z.ZodType;
+      const def = (outer as { def?: { type?: string; innerType?: z.ZodType } }).def;
+      return [key, def?.type === 'default' && def.innerType ? def.innerType.optional().describe(outer.description ?? '') : field];
+    }),
+  );
 }
 
 /** AskUserQuestion's input, read defensively: it is the model's, and only typed by the SDK. */

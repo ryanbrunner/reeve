@@ -18,6 +18,7 @@ import {
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { canMergePr, isMergingPr, isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
+import { askRegistry } from './runs/asks.js';
 import { stageDefinition } from './stages/index.js';
 // A cycle, as startStage reads cardActivity from here. Harmless: neither side
 // calls the other while the modules are still loading.
@@ -63,7 +64,32 @@ export function toBoardCard(
     startingStage: isStartingStage(card.id),
     implemented: hasImplementationRun(db, card.id),
     pendingSuggestion: isPendingSuggestion(card),
+    waitingOn: activity === 'needs_input' && run ? waitingOn(card, run) : null,
   }, links(card.id));
+}
+
+/**
+ * The one line a waiting card shows on the board: what a live run is parked
+ * on, or the end of what Claude said before it ended its turn — which is
+ * where it puts its question.
+ */
+function waitingOn(card: Card, run: Run): string | null {
+  if (run.status === 'asking') {
+    const ask = askRegistry.forCard(card.id);
+    if (!ask) return 'Waiting on you';
+    if (ask.kind === 'question') return ask.questions[0]?.question ?? 'Asking you a question';
+    const command = typeof ask.input['command'] === 'string' ? ask.input['command'] : null;
+    return command ? `Asks to run ${oneLine(command, 80)}` : `Asks to use ${ask.toolName}`;
+  }
+  if (run.status !== 'awaiting_reply' || !run.resultText) return null;
+  const lines = run.resultText.split('\n').map((l) => l.replace(/[*_`#>]/g, '').trim()).filter(Boolean);
+  const question = [...lines].reverse().find((l) => l.endsWith('?'));
+  return oneLine(question ?? lines.at(-1) ?? '', 160) || null;
+}
+
+function oneLine(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 /**

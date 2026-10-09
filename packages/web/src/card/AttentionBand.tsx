@@ -33,38 +33,68 @@ export function AttentionBand({
   detail,
   live,
   onClose,
+  conversation = false,
 }: {
   detail: CardDetail;
   live: LiveRun | null;
   /** Rejecting a suggestion archives it, and the modal closes as Delete's does. */
   onClose: () => void;
+  /**
+   * Above the composer, in the conversation, rather than under the header.
+   * There, the composer is how a person talks back: sending a stage back is
+   * a reply, and what Claude is doing is the thread itself, so neither has a
+   * band of its own. What is left is what a reply cannot do — approve, merge,
+   * retry, decide on a suggestion — and a plan's own questions.
+   */
+  conversation?: boolean;
 }) {
   const { card } = detail;
+  const frame = conversation
+    ? 'relative mb-2.5 rounded-lg border border-(--color-edge) bg-(--color-panel)/60 px-3 py-2.5'
+    : 'relative mt-3.5 border-t border-(--color-edge) pt-3.5';
   if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
     return (
-      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+      <div className={frame}>
         <PullRequest detail={detail} />
       </div>
     );
   }
   if (card.startingStage) {
     return (
-      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+      <div className={frame}>
         <Starting detail={detail} />
       </div>
     );
   }
   if (card.pendingSuggestion) {
     return (
-      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+      <div className={frame}>
         <Suggested detail={detail} onClose={onClose} />
       </div>
     );
   }
+
+  if (conversation) {
+    const openQuestions = detail.questions.some((q) => q.answer === null);
+    // Claude's submitted work still stands after a reply about it, so the
+    // gate stays while nothing is running on top of it.
+    const deliverable = card.activity !== 'running' && hasDeliverable(detail);
+    if (card.activity === 'needs_input' && openQuestions) return <div className={frame}><NeedsInput detail={detail} /></div>;
+    if (card.activity === 'error') return <div className={frame}><Failed detail={detail} /></div>;
+    if (deliverable) {
+      return (
+        <div className="relative mb-2.5 rounded-lg border border-(--color-activity-review-border) bg-[linear-gradient(var(--color-activity-review-fill),var(--color-activity-review-fill)),var(--color-card-core)] px-3 py-2.5">
+          <NeedsReview detail={detail} conversation />
+        </div>
+      );
+    }
+    return null;
+  }
+
   if (card.activity === 'idle') return null;
 
   return (
-    <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+    <div className={frame}>
       {card.activity === 'needs_input' && <NeedsInput detail={detail} />}
       {card.activity === 'needs_review' && <NeedsReview detail={detail} />}
       {card.activity === 'running' && <Running detail={detail} live={live} />}
@@ -73,7 +103,14 @@ export function AttentionBand({
   );
 }
 
-function NeedsReview({ detail }: { detail: CardDetail }) {
+/** Whether Claude has submitted the work of the card's current stage: what the gate approves. */
+export function hasDeliverable(detail: CardDetail): boolean {
+  return detail.runs.some(
+    (r) => r.kind === 'claude' && r.task === null && r.stage === detail.card.stage && r.status === 'succeeded',
+  );
+}
+
+function NeedsReview({ detail, conversation = false }: { detail: CardDetail; conversation?: boolean }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState<string | null>(null);
   const review = useMutation({
@@ -93,7 +130,9 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-4">
         <div className="min-w-0 grow">
-          <div className="text-sm/5 font-medium text-(--color-text)">Ready for review</div>
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            {conversation ? `${WORK[detail.card.stage] ?? 'Work'} ready for review` : 'Ready for review'}
+          </div>
           <p className="mt-0.5 text-sm/5 text-(--color-muted)">
             {checks
               ? `${checks.criteriaVerified} of ${checks.criteriaTotal} acceptance criteria verified` +
@@ -101,16 +140,17 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
                 '. '
               : ''}
             {to ? `Approving moves this card to ${STAGE_LABELS[to]}.` : 'This card is at the end of the board.'}
+            {conversation && ' Or reply below to send it back.'}
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {notes === null && <Button onClick={() => setNotes('')}>Leave feedback</Button>}
+          {notes === null && !conversation && <Button onClick={() => setNotes('')}>Leave feedback</Button>}
           <Button
             tone="review"
             disabled={review.isPending}
             onClick={() => review.mutate({ decision: 'approved' })}
           >
-            {review.isPending ? 'Working…' : 'Mark reviewed'}
+            {review.isPending ? 'Working…' : conversation && to ? `Approve → ${STAGE_LABELS[to]}` : 'Mark reviewed'}
           </Button>
         </div>
       </div>
@@ -150,6 +190,13 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
  * The window outlives the round, and reloads onto the revision by itself, so
  * this only opens the review, says it is open, and stops it.
  */
+/** What each stage submits, as the gate names it. */
+const WORK: Partial<Record<CardDetail['card']['stage'], string>> = {
+  planning: 'Plan',
+  in_progress: 'Implementation',
+  testing: 'Test report',
+};
+
 function GlossReview({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
