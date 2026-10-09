@@ -33,6 +33,11 @@ export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActi
     case 'running':
     case 'stopping':
       return 'running';
+    // Both are Claude waiting on the person, which is what needs_input has
+    // always meant: one inside a live turn, one at the end of a turn.
+    case 'asking':
+    case 'awaiting_reply':
+      return 'needs_input';
     case 'failed':
     case 'interrupted':
       return 'error';

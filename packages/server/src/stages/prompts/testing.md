@@ -71,5 +71,5 @@ Do not push, and do not open or touch a pull request: no `git push`, no `gh`.
 Reeve does both itself. Do not rewrite history you did not write here: no
 `reset`, `rebase` or amending of commits that were on the branch when you
 started.
-{{suggesting}}{{reviewNotes}}
+{{suggesting}}
 {{notes}}

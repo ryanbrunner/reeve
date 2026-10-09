@@ -4,11 +4,20 @@ export type RunKind = (typeof RUN_KINDS)[number];
 export const RUN_STATUSES = [
   'queued',
   'running',
+  // Live, but parked mid-turn on a person: a permission auto mode escalated,
+  // or a question Claude asked with AskUserQuestion. The process is held open
+  // until they answer, the request times out, or the run is stopped.
+  'asking',
   'stopping',
   'succeeded',
   'failed',
   'cancelled',
   'interrupted',
+  // Claude ended its turn without submitting the stage's work: it asked
+  // something in plain text, or answered something it was asked. Terminal, and
+  // not an error — the conversation goes on when the person replies, which
+  // forks this session the way every follow-up does.
+  'awaiting_reply',
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
@@ -19,7 +28,7 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
-const TERMINAL: readonly RunStatus[] = ['succeeded', 'failed', 'cancelled', 'interrupted'];
+const TERMINAL: readonly RunStatus[] = ['succeeded', 'failed', 'cancelled', 'interrupted', 'awaiting_reply'];
 
 export function isTerminal(status: RunStatus): boolean {
   return TERMINAL.includes(status);
@@ -49,7 +58,7 @@ export type StopReason = (typeof STOP_REASONS)[number];
  * (right when the accumulated context is itself the problem).
  */
 export function recoveryFor(status: RunStatus, reason: StopReason | null): Array<'resume' | 'retry'> {
-  if (status === 'succeeded') return [];
+  if (status === 'succeeded' || status === 'awaiting_reply') return [];
   if (reason === 'invalid_output') return ['retry'];
   if (reason === 'budget_exhausted' || reason === 'max_turns' || status === 'interrupted' || status === 'cancelled') {
     return ['resume', 'retry'];

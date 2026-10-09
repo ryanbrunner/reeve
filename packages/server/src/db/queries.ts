@@ -45,7 +45,7 @@ import {
   type RunStatus,
 } from './schema.js';
 
-const NON_TERMINAL: RunStatus[] = ['queued', 'running', 'stopping'];
+const NON_TERMINAL: RunStatus[] = ['queued', 'running', 'asking', 'stopping'];
 
 /**
  * Every card that is a piece of work rather than a project. Each query below
@@ -389,6 +389,25 @@ export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage
     .select()
     .from(run)
     .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task)))
+    .orderBy(desc(run.createdAt))
+    .limit(1)
+    .get();
+}
+
+/**
+ * The stage's newest submitted work, which is what the review gate approves.
+ * Not simply the latest run: a stage is a conversation, and the person may
+ * have asked Claude something after it submitted, whose run ends in a reply
+ * rather than a second submission. The work before it still stands.
+ */
+export function latestDeliverableRun(db: Db, cardId: string, stage: CardStage) {
+  return db
+    .select()
+    .from(run)
+    .where(and(
+      eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task),
+      eq(run.status, 'succeeded'),
+    ))
     .orderBy(desc(run.createdAt))
     .limit(1)
     .get();

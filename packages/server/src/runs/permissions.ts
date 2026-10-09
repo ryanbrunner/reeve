@@ -19,9 +19,13 @@ import { realOrSelf } from '../git/worktree.js';
  * should not do is now said in its prompt.
  *
  * What reaches this callback is what the classifier escalated rather than
- * decided, and the answer is always no. Nobody is watching to say yes, and a
- * host that answered allow would be `bypassPermissions` by another name, in
- * runs VIBES MODE starts with nobody near the board.
+ * decided. A stage is a conversation now, so in an auto-mode run with a
+ * person who can be asked, runs/claude.ts parks the call and asks them, and
+ * allows only on their explicit click, for that one call. Everything else is
+ * refused here, as it always was: under VIBES MODE nobody is near the board,
+ * a model without auto mode would escalate every edit, and a request nobody
+ * answers in time is denied for them. This module itself never answers allow
+ * — a host that did so on its own would be `bypassPermissions` by another name.
  *
  * The refusal is still worth writing ourselves, and card #22 is why. The SDK's
  * own says anything else requiring approval will fail too, and a run that reads
@@ -37,13 +41,86 @@ export interface ToolDecision {
   input: Record<string, unknown>;
 }
 
-/** Deny, in words that keep the run going. See the header for why never allow. */
-export function decideToolUse({ toolName, input }: ToolDecision): PermissionResult {
+/**
+ * Deny, in words that keep the run going: what every escalation gets when
+ * nobody can be asked — VIBES MODE, a model running without auto mode, or a
+ * person who did not answer in time (`why: 'unanswered'`).
+ *
+ * When a person IS there, runs/claude.ts asks them first and only allows on
+ * their explicit click, for that one call. Nothing here ever answers allow.
+ */
+export function decideToolUse(
+  { toolName, input }: ToolDecision,
+  why: 'unwatched' | 'unanswered' = 'unwatched',
+): PermissionResult {
   const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
   return {
     behavior: 'deny',
-    message: toolName === 'Bash' && command ? bashDenial(command) : toolDenial(toolName, input),
+    message: toolName === 'Bash' && command ? bashDenial(command, why) : toolDenial(toolName, input, why),
   };
+}
+
+/** A person said no. Their reason, when they gave one, is the most useful thing Claude can read. */
+export function personDenial({ toolName, input }: ToolDecision, reason: string | null | undefined): PermissionResult {
+  const what = typeof input['command'] === 'string' ? input['command'] : Object.values(identifying(input))[0];
+  return {
+    behavior: 'deny',
+    message: [
+      `The person watching this run denied this ${toolName} call${what ? ` (\`${short(what)}\`)` : ''}.`,
+      reason?.trim() ? `They said: "${reason.trim()}"` : '',
+      'Only this call was refused. Take what they said into account, find another way, and carry on.',
+    ].filter(Boolean).join(' '),
+  };
+}
+
+/**
+ * Merging and closing are a person's, on the board's Merge button, and so is
+ * the base branch. Auto mode may well approve `gh pr merge` in a repo whose
+ * remote allows it, and a Release run that talks about merging is exactly the
+ * run that might try — so this is a hook, not a line in a prompt, and it
+ * applies to every stage.
+ */
+export function mergeGuard(
+  baseBranch: string,
+  onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void,
+): HookCallback {
+  return (hook, toolUseId) => {
+    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const command = typeof input['command'] === 'string' ? input['command'] : '';
+    const reason = mergeRefusal(command, baseBranch);
+    if (!reason) return Promise.resolve({});
+    onDenied(hook.tool_name, input, hook.tool_use_id ?? toolUseId ?? '');
+    return Promise.resolve({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+    });
+  };
+}
+
+const MERGE_OR_CLOSE = /\bgh\s+pr\s+(merge|close)\b/;
+const GIT_PUSH = /\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g;
+
+/** Exported for the spike that checks it. */
+export function mergeRefusal(command: string, baseBranch: string): string | null {
+  if (MERGE_OR_CLOSE.test(command)) {
+    return [
+      `Denied: \`${short(command)}\`.`,
+      'Merging or closing the pull request is the person\'s to do, with the board\'s Merge button.',
+      'Say in your reply that it is ready, and why, and leave it there.',
+    ].join(' ');
+  }
+  for (const m of command.matchAll(GIT_PUSH)) {
+    const args = (m[1] ?? '').trim().split(/\s+/);
+    const toBase = args.some((a) => a === baseBranch || a.endsWith(`:${baseBranch}`) || a.endsWith(`:refs/heads/${baseBranch}`));
+    if (toBase) {
+      return [
+        `Denied: \`${short(command)}\`.`,
+        `Nothing in a card pushes to \`${baseBranch}\`: the work lands through its pull request, merged by the person.`,
+        'Push the card\'s own branch instead if it needs pushing.',
+      ].join(' ');
+    }
+  }
+  return null;
 }
 
 /**
@@ -124,21 +201,26 @@ function samePath(a: string, b: string): boolean {
   return realOrSelf(a) === realOrSelf(b);
 }
 
-function bashDenial(command: string): string {
+const NOBODY = {
+  unwatched: 'nobody is watching this run to approve it by hand.',
+  unanswered: 'nobody answered when this run asked for approval.',
+};
+
+function bashDenial(command: string, why: keyof typeof NOBODY): string {
   return [
     `Denied: \`${short(command)}\`.`,
-    'Auto mode would not approve this one command, and nobody is watching this run to approve it by hand.',
+    `Auto mode would not approve this one command, and ${NOBODY[why]}`,
     'Only this call was refused. Every other command and every other tool still works:',
     "find another way to do what this one was for — a narrower command, one that stays inside the worktree, or a",
     'different tool — and carry on. Running the same command again will be refused again.',
   ].join(' ');
 }
 
-function toolDenial(toolName: string, input: Record<string, unknown>): string {
+function toolDenial(toolName: string, input: Record<string, unknown>, why: keyof typeof NOBODY): string {
   const what = Object.values(identifying(input))[0];
   return [
     `Denied: this ${toolName} call${what ? ` (\`${short(what)}\`)` : ''}.`,
-    'Auto mode would not approve it, and nobody is watching this run to approve it by hand.',
+    `Auto mode would not approve it, and ${NOBODY[why]}`,
     `Only this call was refused, not ${toolName} and not your other tools: find another way to do what it was for`,
     'and carry on.',
   ].join(' ');

@@ -12,7 +12,7 @@ import {
   replaceQuestions,
 } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
-import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /** Enough to show the states a change alters, few enough to stay in budget. */
@@ -33,6 +33,11 @@ const MAX_MOCKUPS = 3;
 export const planningStage: StageDefinition<PlanningOutput> = {
   id: 'planning',
   schema: planningOutput,
+  submit: {
+    description:
+      'Submit the finished plan. Call it once the plan is ready for the person to review — after asking them ' +
+      'anything only they can decide — and again with the whole plan after any revision. It ends your turn.',
+  },
   // Up to three HTML documents is real output on top of the plan, and running
   // out of budget fails the run with no plan at all.
   maxBudgetUsd: 4,
@@ -56,21 +61,13 @@ export const planningStage: StageDefinition<PlanningOutput> = {
     return { mockups: renderPrompt('mockups', { attached }) };
   },
 
+  // The stage's opening prompt only. A revision or an answer reaches the
+  // session it continues as a message of its own: see conversation.ts.
   buildPrompt(ctx, prepared) {
-    const reviewNotes = ctx.reviewNotes
-      ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) })
-      : '';
-    const answers = ctx.answers?.length
-      ? renderPrompt('answers', {
-          answers: ctx.answers.map((a) => `**${a.question}**\n${a.answer}`).join('\n\n'),
-        })
-      : '';
     return renderPrompt('planning', {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       body: ctx.brief,
-      reviewNotes,
-      answers,
       mockups: prepared?.['mockups'] ?? '',
       seed: seedGuidance(ctx.repo.seedCommand),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),

@@ -2,7 +2,7 @@ import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
-import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -21,6 +21,11 @@ import type { StageDefinition } from './types.js';
 export const inProgressStage: StageDefinition<ImplementationOutput> = {
   id: 'in_progress',
   schema: implementationOutput,
+  submit: {
+    description:
+      'Submit the finished implementation: what you built, committed and tested. Call it once the work is ' +
+      'committed and ready for the person to review, and again after any revision. It ends your turn.',
+  },
   maxBudgetUsd: 10,
   maxTurns: 200,
   effort: 'high',
@@ -54,7 +59,6 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
         ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
         : 'This repo defines no test command, so there is nothing to run.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
-      reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });
   },

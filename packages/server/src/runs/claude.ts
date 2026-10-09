@@ -1,4 +1,12 @@
-import { query, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  createSdkMcpServer,
+  query,
+  tool,
+  type Options,
+  type PermissionResult,
+  type SDKMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+import type { z } from 'zod';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EffortLevel, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
@@ -9,18 +17,25 @@ import {
   artifactsForCard,
   criteriaFor,
   getAsset,
+  getCard,
+  getRun,
   getSettings,
   insertCardEvent,
   insertRun,
+  inVibes,
   setRunStatus,
   unreadNotesFor,
 } from '../db/queries.js';
-import { artifact as artifactTable, type Card, type CardStage, type Repo } from '../db/schema.js';
+import { artifact as artifactTable, type Card, type CardEventActor, type CardStage, type Repo } from '../db/schema.js';
+import { config } from '../config.js';
 import type { ClaudeTask, PermissionMode, StageContext } from '../stages/types.js';
+import { renderPrompt } from '../stages/template.js';
 import { recordRateLimit } from '../usage.js';
 import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
-import { decideToolUse, denialRecorder, liveDatabaseGuard } from './permissions.js';
+import { askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
+import { Inbox } from './inbox.js';
+import { decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -39,23 +54,36 @@ export interface ClaudeRunParams {
    */
   runStage?: CardStage;
   worktreePath: string;
-  reviewNotes?: string | null;
-  /** Answers to the questions the forked run asked. See StageContext.answers. */
-  answers?: Array<{ question: string; answer: string }>;
-  /** Set for a revision: the prior run's session is forked, not continued. */
+  /** Set for a follow-up: the prior run's session is forked, not continued. */
   resumeSessionId?: string | null;
   parentRunId?: string | null;
+  /**
+   * For a run that carries a conversation on: what Claude is sent, in place
+   * of the stage's whole prompt, which the forked session already has. Built
+   * by conversation.ts from what the person said.
+   */
+  followUp?: string | null;
+  /** What the person said, as the conversation shows it: written as the run's first event. */
+  userMessage?: UserMessage | null;
+}
+
+/** Who can put words into a stage's conversation, and how they got there. */
+export const MESSAGE_SOURCES = ['chat', 'answer', 'review', 'note', 'crit', 'gloss', 'vibes'] as const;
+export type MessageSource = (typeof MESSAGE_SOURCES)[number];
+
+/** A `user_message` run event's payload. */
+export interface UserMessage {
+  text: string;
+  actor: CardEventActor;
+  source: MessageSource;
+  /** Interjected into a live turn rather than starting one. */
+  live?: boolean;
 }
 
 export interface ClaudeRunHandle {
   runId: string;
   sessionId: string;
   done: Promise<void>;
-}
-
-/** interrupt() needs streaming input, and it is the precondition for any control request. */
-async function* singleMessage(text: string): AsyncIterable<SDKUserMessage> {
-  yield { type: 'user', session_id: '', parent_tool_use_id: null, message: { role: 'user', content: text } };
 }
 
 /**
@@ -69,8 +97,14 @@ function classify(m: SDKMessage): string {
       return 'result';
     case 'assistant':
       return 'assistant';
-    case 'user':
-      return 'tool_result';
+    // A tool's result comes back as a user message; so does the SDK echoing
+    // a message we sent it. Only the first is a tool result, and telling them
+    // apart here keeps the conversation from showing a person's words twice.
+    case 'user': {
+      const content = (m as { message?: { content?: unknown } }).message?.content;
+      const toolResult = Array.isArray(content) && content.some((b: { type?: string }) => b.type === 'tool_result');
+      return toolResult ? 'tool_result' : 'user_echo';
+    }
     case 'system':
       return `system:${(m as { subtype?: string }).subtype ?? 'unknown'}`;
     default:
@@ -228,16 +262,17 @@ export async function fitToModel(
 }
 
 export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
-  const { db, writer, card, repo, stage, worktreePath, reviewNotes, answers, resumeSessionId, parentRunId } = params;
+  const { db, writer, card, repo, stage, worktreePath, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
   const { model, effort } = modelAndEffortFor(db, card, stage, runStage);
+  const followUp = params.followUp?.trim() ? params.followUp : null;
 
   // Read before `run_started` is written: that event is where unread notes end,
   // so gathering after it would hand this run none of them.
   const ctx = stageContextFor(db, {
     card, repo, worktreePath,
-    reviewNotes: reviewNotes ?? null,
-    answers: answers ?? [],
+    reviewNotes: null,
+    answers: [],
   }, runStage);
   // Generated here and stored BEFORE the subprocess exists, so an orphaned run
   // is still resumable after a restart.
@@ -275,8 +310,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     stage: runStage,
     runId,
     // A revision is a second attempt at the same thing, and reads differently.
-    meta: { revision: Boolean(resumeSessionId) },
+    meta: { revision: Boolean(resumeSessionId), followUp: Boolean(followUp) },
   });
+  // The person's words open the run they started, so the conversation reads
+  // in order without joining anything.
+  if (params.userMessage) writer.append(runId, 'user_message', { ...params.userMessage, at: Date.now() });
 
   const abortController = new AbortController();
   let cancelled = false;
@@ -292,6 +330,76 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     if (refused) setRunStatus(db, runId, { permissionDenials: refused });
   };
 
+  // Settled by fitToModel before the session starts, and read by canUseTool:
+  // only an auto-mode session asks a person about an escalation. One in its
+  // own default mode would ask about every edit.
+  let autoMode = false;
+
+  /**
+   * Hold the turn on a person: the run reads `asking` until they answer, the
+   * request times out, or the run is stopped. The request and its answer go
+   * into the run's events, which is where the conversation shows them.
+   */
+  const askPerson = async (request: AskRequest, toolUseId: string): Promise<AskAnswer> => {
+    const { ask, answer } = askRegistry.wait(runId, card.id, request, config.askTimeoutMs);
+    writer.append(runId, 'ask', { ...ask, toolUseId });
+    writer.flush();
+    setRunStatus(db, runId, { status: 'asking' });
+    const settled = await answer;
+    writer.append(runId, 'ask_answered', { askId: ask.id, ...settled, at: Date.now() });
+    if (!cancelled) setRunStatus(db, runId, { status: 'running' });
+    return settled;
+  };
+
+  /** Nobody near the board to ask: the board's switch, or this card's own. */
+  const unwatched = () => {
+    const fresh = getCard(db, card.id);
+    return getSettings(db).vibesSince !== null || (fresh ? inVibes(db, fresh) : false);
+  };
+
+  const canUseTool = async (
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseID: string,
+  ): Promise<PermissionResult> => {
+    // A question, not a permission: answered, by a person or for them, and
+    // never refused just for being asked.
+    if (toolName === 'AskUserQuestion') {
+      const questions = questionsIn(input);
+      if (unwatched()) {
+        // Its own first option, as VIBES MODE answers a plan's questions.
+        const answers = Object.fromEntries(questions.map((q) => [q.question, q.options[0]?.label ?? 'Your call.']));
+        writer.append(runId, 'ask_answered', { kind: 'question', answers, actor: 'claude', at: Date.now(), vibes: true });
+        return { behavior: 'allow', updatedInput: { ...input, answers } };
+      }
+      const settled = await askPerson({ kind: 'question', questions }, toolUseID);
+      if (settled.kind === 'question') return { behavior: 'allow', updatedInput: { ...input, answers: settled.answers } };
+      return {
+        behavior: 'deny',
+        message:
+          'Nobody answered that in time. Do what does not depend on it; if the rest does, ask it in plain text ' +
+          'at the end of your turn instead, and the person will reply when they are back.',
+      };
+    }
+
+    if (!autoMode || unwatched()) {
+      refuse(toolName, input, toolUseID);
+      return decideToolUse({ toolName, input });
+    }
+    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID);
+    if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
+    refuse(toolName, input, toolUseID);
+    if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
+    return decideToolUse({ toolName, input }, 'unanswered');
+  };
+
+  // The stage's work arrives through this tool's handler rather than the
+  // result message. Valid output is kept for after the turn; anything else is
+  // handed back to Claude, in the same turn, to fix and submit again.
+  // Typed through `as`: assigned in the handler, which TS's narrowing cannot see.
+  let submitted = null as { output: unknown } | null;
+  const submitName = `submit_${stage.id}`;
+
   const options: Omit<Options, 'prompt'> = {
     cwd: worktreePath,
     abortController,
@@ -300,28 +408,64 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // history reads as a list of attempts rather than one mutating session.
     ...(resumeSessionId ? { resume: resumeSessionId, forkSession: true } : {}),
     sessionId,
+    // The turn boundary. Without this the SDK never says a turn is over, and
+    // a run holding its input open for the person would wait for ever: see
+    // spikes/conversation-check.ts.
+    env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
     // No `allowedTools`: a list is exactly what this replaced. See PERMISSION_MODE.
     // permissionMode itself is filled in below, once fitToModel says whether this
     // model takes it.
     ...(stage.directories ? { additionalDirectories: stage.directories(db) } : {}),
-    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [liveDatabaseGuard(worktreePath, refuse)] }] },
-    // Nobody is watching to approve anything, and a run that parks on what the
-    // classifier escalates parks forever — so something must answer at once.
-    // This does, synchronously, and its answer is a better one than the SDK's
-    // own `permissionPrompts: 'none'`: see runs/permissions.ts for what that
-    // refusal cost us.
-    canUseTool: (toolName, input, { toolUseID }) => {
-      refuse(toolName, input, toolUseID);
-      return Promise.resolve(decideToolUse({ toolName, input }));
+    hooks: {
+      PreToolUse: [{
+        matcher: 'Bash',
+        hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
+      }],
     },
+    // Escalations and questions: see canUseTool above, and runs/permissions.ts
+    // for the refusals it sends.
+    canUseTool: (toolName, input, { toolUseID }) => canUseTool(toolName, input, toolUseID),
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),
-    outputFormat: { type: 'json_schema', schema: jsonSchemaFor(stage.schema) },
   };
+
+  if (stage.submit) {
+    const shape = (stage.schema as unknown as z.ZodObject<z.ZodRawShape>).shape;
+    const submit = tool(
+      submitName,
+      stage.submit.description,
+      shape,
+      async (args) => {
+        const parsed = stage.schema.safeParse(args);
+        if (!parsed.success) {
+          return {
+            isError: true,
+            content: [{
+              type: 'text',
+              text: `Not recorded — the submission did not match: ${parsed.error.message.slice(0, 1500)}. Fix it and call ${submitName} again.`,
+            }],
+          };
+        }
+        submitted = { output: parsed.data };
+        return { content: [{ type: 'text', text: 'Recorded. Reeve writes the documents from this.' }] };
+      },
+      // Found through ToolSearch otherwise, which costs a turn every stage.
+      { alwaysLoad: true },
+    );
+    // Ends the turn once it succeeds. tool() has no parameter for it.
+    submit._meta = { 'claude/endTurn': true };
+    options.mcpServers = { reeve: createSdkMcpServer({ name: 'reeve', version: '1.0.0', tools: [submit] }) };
+  } else {
+    options.outputFormat = { type: 'json_schema', schema: jsonSchemaFor(stage.schema) };
+  }
 
   const done = (async () => {
     let result: Extract<SDKMessage, { type: 'result' }> | null = null;
+    let inbox: Inbox | null = null;
+    // A safety net under the idle event: should a release stop sending it,
+    // a result with nothing queued behind it still ends the run, a little late.
+    let idleFallback: NodeJS.Timeout | undefined;
     try {
       const fitted = await fitToModel(model, effort);
       if (fitted.effort !== effort) setRunStatus(db, runId, { effort: fitted.effort });
@@ -334,6 +478,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         options.permissionMode = PERMISSION_MODE;
         setRunStatus(db, runId, { permissionMode: PERMISSION_MODE });
       }
+      autoMode = fitted.autoMode;
       // The card modal shows what Claude is reasoning about. Left to default,
       // adaptive thinking omits the text and stores an empty block with only a
       // signature. A model without adaptive thinking is left to its own default
@@ -341,20 +486,34 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       if (fitted.adaptiveThinking) options.thinking = { type: 'adaptive', display: 'summarized' };
 
       // Anything the prompt needs that does not exist yet. A stage without a
-      // `prepare` contributes nothing and this is one await of undefined.
-      const prepared = (await stage.prepare?.(db, writer, ctx, runId)) ?? {};
-      const promptText = stage.buildPrompt(ctx, prepared);
+      // `prepare` contributes nothing and this is one await of undefined. A
+      // follow-up skips it: Testing's pictures were taken for the run that
+      // started the conversation, not for every reply in it.
+      const prepared = followUp ? {} : ((await stage.prepare?.(db, writer, ctx, runId)) ?? {});
+      // A stage's opening prompt closes with how to talk to the person and how
+      // to deliver: see prompts/conversation.md.
+      const promptText = followUp ?? (stage.submit
+        ? stage.buildPrompt(ctx, prepared) + renderPrompt('conversation', { submitTool: submitName })
+        : stage.buildPrompt(ctx, prepared));
       setRunStatus(db, runId, { prompt: promptText });
 
-      const q = query({ prompt: singleMessage(promptText), options });
+      // Held open for the person: see runs/inbox.ts. A one-off task has no
+      // conversation and gets nothing more than its prompt.
+      inbox = new Inbox(promptText);
+      if (!stage.submit) inbox.close();
+      const input = inbox;
+      const q = query({ prompt: input, options });
       runRegistry.register({
         runId,
         cardId: card.id,
         kind: 'claude',
         outOfBand: stage.outOfBand ?? false,
+        send: stage.submit ? (text) => input.push(text) : undefined,
         stop: async () => {
           cancelled = true;
           setRunStatus(db, runId, { status: 'stopping' });
+          askRegistry.stopRun(runId);
+          input.close();
           // abort() is the mechanism. interrupt() rejected on every spike
           // attempt with "Query closed before response received", so it is a
           // best-effort nicety only and must never be awaited bare.
@@ -367,7 +526,30 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       let thought: Thought = { activity: null, thinking: null };
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
-        if (message.type === 'result') result = message;
+        if (message.type === 'result') {
+          result = message;
+          // Only a fallback; see idleFallback above.
+          clearTimeout(idleFallback);
+          if (!(message as { queued_turn_count?: number }).queued_turn_count) {
+            idleFallback = setTimeout(() => {
+              if (input.pending === 0) input.close();
+            }, 15_000);
+          }
+        }
+        if (message.type === 'assistant') clearTimeout(idleFallback);
+        // The turn is over. With nothing the person has sent still waiting,
+        // the run is done: either Claude submitted the stage's work, or it is
+        // the person's turn, which a reply picks up in a forked session rather
+        // than a process held open for however long they take.
+        if (
+          message.type === 'system' &&
+          (message as { subtype?: string }).subtype === 'session_state_changed' &&
+          (message as { state?: string }).state === 'idle' &&
+          input.pending === 0
+        ) {
+          clearTimeout(idleFallback);
+          input.close();
+        }
         // Stored above like any other message; this only moves the board's readout.
         if (message.type === 'rate_limit_event') recordRateLimit(message, Date.now());
         // What `fitToModel` could not see: an account or a setting that turns
@@ -421,6 +603,9 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       finish(db, writer, runId, 'failed', 'sdk_error', text.slice(0, 500), result);
       return;
     } finally {
+      clearTimeout(idleFallback);
+      inbox?.close();
+      askRegistry.stopRun(runId);
       runRegistry.unregister(runId);
     }
 
@@ -440,12 +625,21 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       return;
     }
 
-    const parsed = stage.schema.safeParse((result as { structured_output?: unknown }).structured_output);
+    // A conversation's run that ended without the stage's work: Claude asked
+    // something, or answered something, and it is the person's turn.
+    if (stage.submit && !submitted) {
+      finish(db, writer, runId, 'awaiting_reply', 'completed', null, result);
+      return;
+    }
+
+    const raw = stage.submit ? submitted?.output : (result as { structured_output?: unknown }).structured_output;
+    const parsed = stage.schema.safeParse(raw);
     if (!parsed.success) {
       // Keep the raw output regardless — a malformed run is still evidence.
       finish(db, writer, runId, 'failed', 'invalid_output', parsed.error.message.slice(0, 500), result);
       return;
     }
+    if (stage.submit) writer.append(runId, 'submitted', { tool: submitName, summary: stage.summarise(parsed.data as never) });
 
     // Re-read rather than trusted from when the run started: a switch flipped
     // mid-run must still be the one `onComplete` sees, the same as the
@@ -463,10 +657,44 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       // Before `finish`, which closes the writer.
       writer.append(runId, 'error', { message: `after the run: ${String(err)}` });
     }
-    finish(db, writer, runId, 'succeeded', 'completed', null, result);
+    finish(db, writer, runId, 'succeeded', 'completed', null, result, parsed.data);
   })();
 
   return { runId, sessionId, done };
+}
+
+/** AskUserQuestion's input, read defensively: it is the model's, and only typed by the SDK. */
+function questionsIn(input: Record<string, unknown>): AskQuestion[] {
+  const list = Array.isArray(input['questions']) ? input['questions'] : [];
+  return list
+    .filter((q): q is Record<string, unknown> => typeof q === 'object' && q !== null)
+    .map((q) => ({
+      question: String(q['question'] ?? ''),
+      header: typeof q['header'] === 'string' ? q['header'] : undefined,
+      multiSelect: q['multiSelect'] === true,
+      options: (Array.isArray(q['options']) ? q['options'] : [])
+        .filter((o): o is Record<string, unknown> => typeof o === 'object' && o !== null)
+        .map((o) => ({ label: String(o['label'] ?? ''), description: typeof o['description'] === 'string' ? o['description'] : undefined })),
+    }));
+}
+
+/**
+ * What the sessions this one was forked from had already spent. A forked
+ * session's first result counts from its parent's total, so a run's own cost
+ * is its total less this. Each run stores its own share, so the parent's own
+ * total is the sum along the chain.
+ */
+function inheritedCostUsd(db: Db, parentRunId: string | null): number {
+  let total = 0;
+  const seen = new Set<string>();
+  for (let id = parentRunId; id && !seen.has(id); ) {
+    seen.add(id);
+    const parent = getRun(db, id);
+    if (!parent) break;
+    total += parent.totalCostUsd ?? 0;
+    id = parent.parentRunId;
+  }
+  return total;
 }
 
 function materialiseArtifacts(
@@ -511,10 +739,13 @@ function finish(
   db: Db,
   writer: EventWriter,
   runId: string,
-  status: 'succeeded' | 'failed' | 'cancelled',
+  status: 'succeeded' | 'failed' | 'cancelled' | 'awaiting_reply',
   stopReason: StopReason,
   errorMessage: string | null,
   result: Extract<SDKMessage, { type: 'result' }> | null,
+  // The stage's output when it came through the submit tool, which leaves
+  // the result's own `structured_output` empty.
+  output?: unknown,
 ): void {
   writer.finish(runId);
   const r = result as null | {
@@ -527,12 +758,15 @@ function finish(
     stopReason,
     errorMessage,
     finishedAt: new Date(),
-    totalCostUsd: r?.total_cost_usd ?? null,
+    // This run's own share: see inheritedCostUsd.
+    totalCostUsd: r?.total_cost_usd != null
+      ? Math.max(0, r.total_cost_usd - inheritedCostUsd(db, getRun(db, runId)?.parentRunId ?? null))
+      : null,
     numTurns: r?.num_turns ?? null,
     usageJson: (r?.usage as Record<string, unknown>) ?? null,
     modelUsageJson: (r?.modelUsage as Record<string, unknown>) ?? null,
     resultText: r?.result ?? null,
-    structuredOutput: r?.structured_output ?? null,
+    structuredOutput: output ?? r?.structured_output ?? null,
     // Overwritten only when the result carries them, since that list is the
     // authoritative one. A run that ended without a result message keeps what
     // the stream recorded; null here would erase it.

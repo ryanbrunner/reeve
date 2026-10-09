@@ -121,6 +121,18 @@ export interface ClaudeTask<Output = unknown> {
   awaitsInput?(output: Output): boolean;
   /** One-line card summary from the output. */
   summarise(output: Output): string;
+  /**
+   * Present on a task held as a conversation — the stages. Its output is
+   * delivered by Claude calling a `submit_<id>` tool, whose input is `schema`,
+   * when it decides the work is done, rather than demanded as structured
+   * output at the end of every turn: a turn may instead end in a question or
+   * a reply, and the person answers. Absent, the task keeps `outputFormat`
+   * and is one turn, as the one-off tasks are.
+   */
+  submit?: {
+    /** What the tool is for, in the words Claude reads beside its name. */
+    description: string;
+  };
 }
 
 /** A task that is also a column on the board, and so can be reviewed and moved on from. */

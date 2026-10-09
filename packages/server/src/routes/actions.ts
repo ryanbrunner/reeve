@@ -174,7 +174,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const latest = latestClaudeRunForStage(db, cardId, card.stage);
     if (
       runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude') ||
-      (latest && ['queued', 'running', 'stopping'].includes(latest.status))
+      (latest && ['queued', 'running', 'asking', 'stopping'].includes(latest.status))
     ) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }

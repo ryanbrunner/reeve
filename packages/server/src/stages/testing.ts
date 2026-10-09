@@ -17,7 +17,7 @@ import { runRegistry } from '../runs/registry.js';
 import { fillVars, serverEnv, serverVars } from '../runs/serverUrl.js';
 import { startShellRun } from '../runs/shell.js';
 import { recordSuggestions } from '../suggestions.js';
-import { blockquote, renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
 import type { StageContext, StageDefinition } from './types.js';
 
 /**
@@ -34,6 +34,11 @@ import type { StageContext, StageDefinition } from './types.js';
 export const testingStage: StageDefinition<TestingOutput> = {
   id: 'testing',
   schema: testingOutput,
+  submit: {
+    description:
+      'Submit the test report: each criterion\'s verdict with its evidence, the suite\'s result and what you fixed. ' +
+      'Call it once verification is done and anything you fixed is committed, and again after any revision. It ends your turn.',
+  },
   maxBudgetUsd: 8,
   maxTurns: 150,
   effort: 'high',
@@ -124,7 +129,6 @@ export const testingStage: StageDefinition<TestingOutput> = {
         ? `Run \`${ctx.repo.testCommand}\`.`
         : 'This repo defines no test command, so verify by reading and by the screenshots.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
-      reviewNotes: ctx.reviewNotes ? renderPrompt('revision', { notes: blockquote(ctx.reviewNotes) }) : '',
       notes: renderNotes(ctx.notes),
     });
   },
