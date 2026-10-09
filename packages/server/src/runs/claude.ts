@@ -361,6 +361,19 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     input: Record<string, unknown>,
     toolUseID: string,
   ): Promise<PermissionResult> => {
+    // A one-off task — Suggest, a split, resolving conflicts — has no
+    // conversation anyone is reading, so nothing in it can be asked: refused
+    // at once, as every escalation always was.
+    if (!stage.submit) {
+      refuse(toolName, input, toolUseID);
+      if (toolName === 'AskUserQuestion') {
+        return {
+          behavior: 'deny',
+          message: 'Nobody can answer questions during this task. Make the call yourself, and say in your output what you chose and why.',
+        };
+      }
+      return decideToolUse({ toolName, input });
+    }
     // A question, not a permission: answered, by a person or for them, and
     // never refused just for being asked.
     if (toolName === 'AskUserQuestion') {

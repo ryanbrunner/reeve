@@ -309,6 +309,10 @@ export function cardsInStage(db: Db, stage: CardStage): Card[] {
 }
 
 /** SSE replay. `(run_id, seq)` is the primary key, so this needs no secondary index. */
+export function eventAt(db: Db, runId: string, seq: number) {
+  return db.select().from(runEvent).where(and(eq(runEvent.runId, runId), eq(runEvent.seq, seq))).get();
+}
+
 export function eventsSince(db: Db, runId: string, since: number) {
   return db
     .select()
@@ -1611,7 +1615,8 @@ export function unreadNotesFor(db: Db, cardId: string): string[] {
   const lastStart =
     events.find((e) => e.kind === 'run_started' && !(e.runId && tasks.has(e.runId)))?.createdAt?.getTime() ?? 0;
   return events
-    .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart)
+    // A note left while a run was live was handed to that run already.
+    .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart && !e.meta?.['deliveredTo'])
     .map((e) => e.body)
     .filter((b): b is string => Boolean(b))
     .reverse();

@@ -1,4 +1,4 @@
-import { RUNNABLE_STAGES, RunProjector, isRunnable, type ApiConversation, type Stage } from '@reeve/shared';
+import { RUNNABLE_STAGES, RunProjector, isRunnable, isTerminal, type ApiConversation, type ConversationRun, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import {
   eventsSince,
@@ -52,6 +52,15 @@ export interface SendOptions {
    */
   prompt?: string;
 }
+
+/**
+ * Sources whose words follow a verdict or an answer already recorded by the
+ * time they are sent — a rejection's review row, the answer rows, a review
+ * round in Crit or Gloss. These are not held to the concurrency cap, as the
+ * fork they replaced never was: refused for it, the record would say the work
+ * was sent back and nothing would ever have acted on that.
+ */
+const PAST_THE_CAP: ReadonlySet<MessageSource> = new Set(['review', 'answer', 'crit', 'gloss']);
 
 export type SendResult =
   | {
@@ -108,7 +117,7 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
 
   // Read on every send, as `startStage` does: a reply is a run like any other.
   const { maxConcurrentRuns } = getSettings(db);
-  if (runRegistry.countByKind('claude') >= maxConcurrentRuns) {
+  if (!PAST_THE_CAP.has(source) && runRegistry.countByKind('claude') >= maxConcurrentRuns) {
     return { ok: false, status: 429, error: 'too many concurrent runs', detail: `limit is ${maxConcurrentRuns}; send it again when one finishes` };
   }
 
@@ -176,9 +185,11 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
     stages: RUNNABLE_STAGES.map((stage) => ({
       stage,
       runs: runs.filter((r) => r.stage === stage).map((r) => {
+        const cached = isTerminal(r.status) ? projected.get(r.id) : undefined;
+        if (cached && cached.status === r.status) return cached;
         const projector = new RunProjector(r.parentRunId ? null : r.prompt);
         for (const e of eventsSince(db, r.id, 0)) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
-        return {
+        const view: ConversationRun = {
           runId: r.id,
           status: r.status,
           stopReason: r.stopReason ?? null,
@@ -190,7 +201,24 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
           items: projector.items,
           lastSeq: projector.lastSeq,
         };
+        if (isTerminal(r.status)) remember(r.id, view);
+        return view;
       }),
     })),
   };
+}
+
+/**
+ * Finished runs, projected. A run's events never change once it has ended,
+ * and a long In Progress conversation is thousands of them, read again on
+ * every refetch the modal makes as the live run moves on — so the finished
+ * ones are kept. Bounded, oldest out first: a Map iterates in insertion order.
+ */
+const projected = new Map<string, ConversationRun>();
+const PROJECTED_MAX = 300;
+
+function remember(runId: string, view: ConversationRun): void {
+  projected.delete(runId);
+  projected.set(runId, view);
+  while (projected.size > PROJECTED_MAX) projected.delete(projected.keys().next().value!);
 }
