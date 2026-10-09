@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGE_LABELS,
+  blockedMoveRefusal,
   isTerminal,
   toolResultIn,
   type ApiConversation,
@@ -10,7 +11,7 @@ import {
   type ConversationRun,
   type RunnableStage,
 } from '@reeve/shared';
-import { api } from '../../lib/api.js';
+import { api, cardsIn } from '../../lib/api.js';
 import { Markdown } from '../Markdown.js';
 import { Button, SmallButton } from '../ui.js';
 import { clock } from './format.js';
@@ -207,6 +208,41 @@ function NotStarted({ detail, stage }: { detail: CardDetail; stage: StageTab }) 
             : 'Send Claude a message below to start it, or press Run.'
           : 'Each stage starts a fresh session with the work so far. Approving the stage before this one moves the card here.'}
       </p>
+      {stage === 'planning' && detail.card.stage === 'backlog' && <StartPlanning detail={detail} />}
+    </div>
+  );
+}
+
+/**
+ * The drag from Backlog to Planning, without closing the card to make it:
+ * the same human move, to the end of the column, and the server starts the
+ * stage on entering it as it does for a drop.
+ */
+function StartPlanning({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const move = useMutation({
+    mutationFn: () => {
+      const board = qc.getQueryData<{ cards: Parameters<typeof cardsIn>[0] }>(['board']);
+      return api.moveCard(detail.card.id, {
+        stage: 'planning',
+        index: board ? cardsIn(board.cards, 'planning').length : 0,
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  // The server's own sentence, so the button never offers a move it refuses.
+  const refusal = blockedMoveRefusal(detail.card.stage, 'planning', detail.card.dependsOn);
+  return (
+    <div className="mt-3 flex flex-col items-center gap-1.5">
+      <Button tone="sky" disabled={refusal !== null || move.isPending} title={refusal ?? undefined} onClick={() => move.mutate()}>
+        {move.isPending ? 'Starting…' : 'Start planning'}
+      </Button>
+      {(refusal ?? move.error?.message) && (
+        <p className="max-w-[400px] font-mono text-[11px]/4 text-(--color-muted)">{refusal ?? move.error?.message}</p>
+      )}
     </div>
   );
 }
@@ -376,17 +412,14 @@ function UserItem({ item }: { item: Extract<ConversationItem, { kind: 'user' }> 
   );
 }
 
+// Shown whole: what Claude was thinking is read, not skimmed, and a clamp
+// hid the half of it that said what it meant to do.
 function Thinking({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={() => setOpen((o) => !o)}
-      className="ml-8 border-l-2 border-(--color-edge) py-0.5 pl-3 text-left text-[13px]/[19px] text-(--color-muted) italic"
-    >
+    <div className="ml-8 border-l-2 border-(--color-edge) py-0.5 pl-3 text-[13px]/[19px] whitespace-pre-line text-(--color-muted) italic">
       <span className="mr-1.5 font-mono text-[10px] tracking-[0.06em] text-(--color-muted)/60 uppercase not-italic">thinking</span>
-      <span className={open ? 'whitespace-pre-line' : 'line-clamp-2'}>{text}</span>
-    </button>
+      {text}
+    </div>
   );
 }
 
@@ -394,17 +427,13 @@ function Thinking({ text }: { text: string }) {
 const GROUP_FOLD = 12;
 
 function ToolGroup({ tools, live, runId }: { tools: ToolItem[]; live: boolean; runId: string }) {
-  const first = tools[0]!;
-  const last = tools.at(-1)!;
   const [unfolded, setUnfolded] = useState(false);
   const folded = !unfolded && tools.length > GROUP_FOLD;
   const shown = folded ? [...tools.slice(0, 4), ...tools.slice(-4)] : tools;
   return (
+    // No header: each call is one line with its own time, so a count and a
+    // span above them only said again what the rows already do.
     <div className="ml-8 overflow-hidden rounded-md border border-(--color-edge) bg-[#0b0e12]">
-      <div className="flex justify-between border-b border-(--color-edge) px-2.5 py-[5px] font-mono text-[10px] tracking-[0.06em] text-(--color-muted)/60 uppercase">
-        <span>{tools.length} tool call{tools.length === 1 ? '' : 's'}</span>
-        <span>{clock(first.at)}{last !== first ? ` – ${clock(last.at)}` : ''}</span>
-      </div>
       {shown.map((t, i) => (
         <div key={t.id}>
           {folded && i === 4 && (
@@ -438,13 +467,14 @@ function ToolRow({ tool, pending, runId }: { tool: ToolItem; pending: boolean; r
   const lines = text ? text.split('\n').length : 0;
   return (
     <details className="group border-t border-(--color-edge) first-of-type:border-t-0" onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
+      <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
         <span className="text-(--color-muted)/50 transition-transform group-open:rotate-90">›</span>
         <span className="truncate text-(--color-muted)">{tool.verb}</span>
         <span className="truncate text-[#c9d1d9]">{tool.target || tool.name}</span>
         <span className={pending ? 'text-sky-300' : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
           {pending ? 'running…' : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
         </span>
+        <span className="text-[10px] text-(--color-muted)/50">{clock(tool.at)}</span>
       </summary>
       <div className="border-t border-dashed border-(--color-edge) bg-[#090b0f]">
         {tool.input && tool.input !== '{}' && (

@@ -27,17 +27,17 @@ export function PlanTab({ detail }: { detail: CardDetail }) {
 
   return (
     <>
-      <div className="grid grid-cols-[minmax(0,1fr)_312px] gap-6">
-        <div className="flex flex-col gap-4">
-          {plan.details.map((section) => (
-            <section key={section.heading} className="flex flex-col gap-2">
-              <SectionHead>{section.heading}</SectionHead>
-              <Markdown>{section.body}</Markdown>
-            </section>
-          ))}
-          {plan.details.length === 0 && <Empty><InlineMarkdown>{plan.summary}</InlineMarkdown></Empty>}
-        </div>
-        <Designs detail={detail} />
+      {/* Stacked, designs first: the plan lives in a 420px panel beside the
+          conversation, and side by side there it was a column a word wide. */}
+      <Designs detail={detail} />
+      <div className="flex flex-col gap-4">
+        {plan.details.map((section) => (
+          <section key={section.heading} className="flex flex-col gap-2">
+            <SectionHead>{section.heading}</SectionHead>
+            <Markdown>{section.body}</Markdown>
+          </section>
+        ))}
+        {plan.details.length === 0 && <Empty><InlineMarkdown>{plan.summary}</InlineMarkdown></Empty>}
       </div>
 
       <section className="flex flex-col gap-2">
@@ -137,12 +137,7 @@ function Designs({ detail }: { detail: CardDetail }) {
         }}
       />
       {mockups.length === 0 ? (
-        <Empty>
-          None attached. A mockup with a page and a width is what tells Testing which screen to
-          photograph.
-          {!detail.card.generateMockups &&
-            ' Tick Generate mockups in the Brief for Claude to draw its own while planning.'}
-        </Empty>
+        <Empty>None</Empty>
       ) : (
         <div className="flex flex-wrap gap-3">
           {mockups.map((m) => <Thumb key={m.id} asset={m} cardId={detail.card.id} onRemove={() => remove.mutate(m.id)} />)}
