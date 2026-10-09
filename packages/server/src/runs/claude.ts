@@ -200,6 +200,24 @@ export function modelAndEffortFor(
 }
 
 /**
+ * The dollar budget a run asks for: the card's override, then the Settings
+ * default for the stage, then the stage module's own fixed figure. The same
+ * three layers as `modelAndEffortFor`, and out-of-band work keeps its own
+ * budget untouched for the same reason: Suggest should not get expensive
+ * just because a card is pinned to a generous one.
+ */
+export function maxBudgetFor(
+  db: Db,
+  card: Card,
+  stage: Pick<ClaudeTask, 'maxBudgetUsd' | 'outOfBand'>,
+  runStage: CardStage,
+): number {
+  if (stage.outOfBand) return stage.maxBudgetUsd;
+  const defaults = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage] : undefined;
+  return card.maxBudgetUsd ?? defaults?.maxBudgetUsd ?? stage.maxBudgetUsd;
+}
+
+/**
  * The permission mode every run asks for. The classifier decides what a run
  * may do, as it does in Claude Code's auto mode, and each stage's prompt says
  * what it should do; see runs/permissions.ts for what is left for us to
@@ -264,6 +282,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const { db, writer, card, repo, stage, worktreePath, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
   const { model, effort } = modelAndEffortFor(db, card, stage, runStage);
+  const maxBudgetUsd = maxBudgetFor(db, card, stage, runStage);
   const followUp = params.followUp?.trim() ? params.followUp : null;
 
   // Read before `run_started` is written: that event is where unread notes end,
@@ -292,7 +311,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // so the row always says what was actually sent. permissionMode is filled in
     // the same way, once fitToModel says whether this model takes auto mode.
     effort,
-    maxBudgetUsd: stage.maxBudgetUsd,
+    maxBudgetUsd,
     // Filled in once the prompt exists. A stage that has to prepare something
     // first — Testing takes its screenshots — writes the prompt after that, so
     // the row is briefly a run with no prompt, exactly as it is briefly a run
@@ -447,7 +466,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
     canUseTool: (toolName, input, { toolUseID, signal }) => canUseTool(toolName, input, toolUseID, signal),
-    maxBudgetUsd: stage.maxBudgetUsd,
+    maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),
   };

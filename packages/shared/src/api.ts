@@ -32,22 +32,6 @@ export interface ApiRepo {
 }
 
 /**
- * Where a run's tokens went, summed across every model it used.
- *
- * The run's count is `input + output + cacheWrite`. Cache reads are carried so
- * the tooltip can show them, but they are not in the count: an agentic run
- * re-reads its whole context every turn, and counting that would make every
- * figure on the board mostly the same prompt read again.
- */
-export interface ApiTokenBreakdown {
-  input: number;
-  /** Thinking included: the SDK already counts it here. */
-  output: number;
-  cacheWrite: number;
-  cacheRead: number;
-}
-
-/**
  * A tool call the run asked for and did not get.
  *
  * Worth a wire type of its own because a denial is the one run fact that
@@ -75,13 +59,8 @@ export interface ApiRunSummary {
   model: string | null;
   effort: EffortLevel | null;
   stopReason: StopReason | null;
-  /**
-   * Input, output and cache-write tokens across every model the run used,
-   * subagents included. Null until the run has finished, and for a run that
-   * ended without a result to read them from.
-   */
-  totalTokens: number | null;
-  tokenBreakdown: ApiTokenBreakdown | null;
+  /** What the SDK reported the run cost, at list price. Null until the run has finished. */
+  totalCostUsd: number | null;
   port: number | null;
   startedAt: number | null;
   finishedAt: number | null;
@@ -160,6 +139,8 @@ export interface ApiCard {
    */
   model: string | null;
   effort: EffortLevel | null;
+  /** Same layering as `model`/`effort`, for the dollar cap a run is given. */
+  maxBudgetUsd: number | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
   /**
@@ -317,8 +298,8 @@ export interface VibesState {
   reviewsSkipped: number;
   /** Questions Claude was handed back to itself. */
   questionsSelfAnswered: number;
-  /** The tokens every run since then has used, counted as a run's own figure is. */
-  spendTokens: number;
+  /** What every run since then has cost, at list price, summed the same way a run's own figure is. */
+  spendUsd: number;
   /** Cards Claude has moved a column on its own. */
   moves: number;
   /** Cards Claude thought of itself, once a repo had nothing left to do. */
@@ -431,10 +412,11 @@ export function freeLaneColor(taken: readonly (string | null)[]): string {
   return LANE_COLORS.find((c) => !taken.includes(c)) ?? LANE_COLORS[0];
 }
 
-/** A model and effort for one stage's runs. Null means "not set here": the next layer down decides. */
+/** A model, effort and budget for one stage's runs. Null means "not set here": the next layer down decides. */
 export interface StageRunDefault {
   model: string | null;
   effort: EffortLevel | null;
+  maxBudgetUsd: number | null;
 }
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;

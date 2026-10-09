@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { PLACEHOLDER_TITLE, type ApiSettings, type BoardResponse, type VibesState } from '@reeve/shared';
 import { api } from '../client.js';
-import { formatTokens, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
+import { formatCost, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 
 /**
  * `reeve vibes on|off`: VIBES MODE, from a script.
@@ -54,7 +54,7 @@ function summary(state: VibesState): string {
     `${plural(state.reviewsSkipped, 'review')} skipped`,
     `${plural(state.questionsSelfAnswered, 'question')} self-answered`,
     `${plural(state.ideas, 'idea')} of its own`,
-    `${formatTokens(state.spendTokens)} spent`,
+    `${formatCost(state.spendUsd)} spent`,
   ].join(', ');
 }
 
