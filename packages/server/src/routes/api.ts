@@ -76,6 +76,7 @@ const updateCardSchema = z.object({
   repoId: z.string().nullable().optional(),
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
+  maxBudgetUsd: z.number().positive().nullable().optional(),
   generateMockups: z.boolean().optional(),
   vibes: z.boolean().optional(),
 });
@@ -162,16 +163,23 @@ const settingsSchema = z.object({
   suggestTasks: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
-    .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
+    .partialRecord(
+      z.enum(RUNNABLE_STAGES),
+      z.object({ model: modelSchema, effort: effortSchema, maxBudgetUsd: z.number().positive().nullable() }),
+    )
     .optional(),
 });
 
-/** Each stage's model and effort as its own module sets them, beneath Settings and the card. */
+/** Each stage's model, effort and budget as its own module sets them, beneath Settings and the card. */
 function builtInStageDefaults(): StageRunDefaults {
   return Object.fromEntries(
     RUNNABLE_STAGES.map((s) => [
       s,
-      { model: STAGE_DEFINITIONS[s]?.model ?? null, effort: STAGE_DEFINITIONS[s]?.effort ?? null },
+      {
+        model: STAGE_DEFINITIONS[s]?.model ?? null,
+        effort: STAGE_DEFINITIONS[s]?.effort ?? null,
+        maxBudgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
+      },
     ]),
   ) as StageRunDefaults;
 }

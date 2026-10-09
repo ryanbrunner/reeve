@@ -61,8 +61,11 @@ found, and for anything missing how to fix it.
   Node that runs Reeve. It is tried on an in-memory database, never the
   board's.
 - **Warnings**, which still exit 0: `gh` installed and logged in (only pull
-  requests need it), Chromium for Playwright (only screenshots need it; the
-  line names the `npx … playwright install chromium` that fetches it), and
+  requests need it), its token carrying the `workflow` scope (only a merge or
+  push that touches a file under `.github/workflows/` needs it; without it
+  GitHub refuses with an OAuth App error, and the fix is `gh auth refresh -h
+  github.com -s workflow`), Chromium for Playwright (only screenshots need it;
+  the line names the `npx … playwright install chromium` that fetches it), and
   the built web app (only `reeve serve` needs it; `npm run dev` never has one).
 - **Information**: whether a server answers at the URL `reeve status` would
   ask, and where the database and assets are. The paths are a running server's

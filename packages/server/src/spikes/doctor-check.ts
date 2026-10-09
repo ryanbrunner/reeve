@@ -19,6 +19,8 @@ import { ghProbe } from '../git/github.js';
 const empty = mkdtempSync(join(tmpdir(), 'reeve-doctor-'));
 const { ANTHROPIC_API_KEY: _key, ...keyless } = process.env;
 
+const gh = ghProbe();
+
 const cases: Array<[string, Promise<{ ok: boolean; detail: string }>, boolean | null]> = [
   // Whatever this machine has; its answer is shown but not judged.
   ['credentials, as this shell has them', accountProbe(), null],
@@ -28,7 +30,7 @@ const cases: Array<[string, Promise<{ ok: boolean; detail: string }>, boolean | 
     accountProbe({ ...keyless, CLAUDE_CONFIG_DIR: empty, ANTHROPIC_API_KEY: 'sk-ant-not-a-real-key' }),
     true,
   ],
-  ['gh', ghProbe(), null],
+  ['gh', gh, null],
   ['chromium', checkChromium(), null],
 ];
 
@@ -40,5 +42,11 @@ for (const [name, probe, want] of cases) {
   const mark = wrong ? 'FAIL' : want === null ? 'seen' : 'ok  ';
   console.log(`${mark} ${name}: ${got.ok ? 'passes' : 'fails'} — ${got.detail}${wrong ? ` (wanted ${want ? 'a pass' : 'a failure'})` : ''}`);
 }
+
+// Not judged against a want: just whatever scopes this machine's token
+// happens to have, or none, for a fine-grained one that lists none at all.
+const { scopes } = await gh;
+console.log(`seen gh workflow scope: ${scopes === null ? 'no scopes reported' : scopes.join(', ')}`);
+
 console.log(failed === 0 ? '\nall judged cases pass' : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

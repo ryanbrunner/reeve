@@ -1,6 +1,6 @@
 import { STAGE_LABELS, type Stage, type VibesState } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { getSettings, vibesLedger, tokensSince } from '../db/queries.js';
+import { getSettings, vibesLedger, spendSince } from '../db/queries.js';
 
 /** How many log lines the HUD is given. It shows two; the rest are headroom. */
 const LOG_LINES = 4;
@@ -33,7 +33,7 @@ export function vibesState(db: Db): VibesState | null {
     humanApprovals: ledger.filter((e) => e.kind === 'reviewed' && e.actor === 'human').length,
     reviewsSkipped: byClaude('reviewed'),
     questionsSelfAnswered: byClaude('answered'),
-    spendTokens: tokensSince(db, since),
+    spendUsd: spendSince(db, since),
     moves: byClaude('moved'),
     ideas: ledger.filter(isIdea).length,
     log: ledger.flatMap((e) => {

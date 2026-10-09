@@ -1,5 +1,5 @@
 import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
-import { tok, tokenTitle } from '../card/format.js';
+import { cost } from '../card/format.js';
 import {
   ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
   SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
@@ -122,12 +122,9 @@ export function CardFace({
             {run.status}
           </span>
         )}
-        {run?.totalTokens != null && (
-          <span
-            title={tokenTitle(run.tokenBreakdown)}
-            className={`font-mono text-[10px] leading-snug whitespace-nowrap text-(--color-muted) ${vibes ? 'sk-cost' : ''}`}
-          >
-            {tok(run.totalTokens)}
+        {run?.totalCostUsd != null && (
+          <span className={`font-mono text-[10px] leading-snug text-(--color-muted) ${vibes ? 'sk-cost' : ''}`}>
+            {cost(run.totalCostUsd)}
           </span>
         )}
         {!vibes && card.mergedAt != null && (

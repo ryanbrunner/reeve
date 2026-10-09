@@ -20,12 +20,13 @@ import { parseStage } from '../resolve.js';
  * in there on the wire, but not here — see ./vibes.ts for why.
  */
 
-const KEYS = 'max-concurrent-runs, suggest-tasks, or <stage>.model or <stage>.effort for planning, in-progress or testing';
+const KEYS =
+  'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort or <stage>.max-budget-usd for planning, in-progress or testing';
 
 type Key =
   | { kind: 'maxConcurrentRuns' }
   | { kind: 'suggestTasks' }
-  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' };
+  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
 function parseKey(input: string): Key {
@@ -37,9 +38,12 @@ function parseKey(input: string): Key {
   }
   const dot = input.lastIndexOf('.');
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
-  const field = kebab(input.slice(dot + 1));
-  if (stage && isRunnable(stage) && (field === 'model' || field === 'effort')) return { kind: 'stage', stage, field };
-  if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model or effort`);
+  const rawField = kebab(input.slice(dot + 1));
+  const field = rawField === 'max-budget-usd' ? 'maxBudgetUsd' : rawField;
+  if (stage && isRunnable(stage) && (field === 'model' || field === 'effort' || field === 'maxBudgetUsd')) {
+    return { kind: 'stage', stage, field };
+  }
+  if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model, effort or budget`);
   throw usageError(`'${input}' is not a setting. Settings: ${KEYS}`);
 }
 
@@ -55,6 +59,12 @@ function requireEffort(value: string): EffortLevel {
   const effort = EFFORT_LEVELS.find((e) => e === value.trim().toLowerCase());
   if (!effort) throw usageError(`'${value}' is not an effort. Efforts: ${EFFORT_LEVELS.join(', ')}`);
   return effort;
+}
+
+function requireBudget(value: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) throw usageError(`'${value}' is not a dollar budget. It must be a positive number`);
+  return n;
 }
 
 /**
@@ -76,6 +86,7 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
   }
   const next = { ...current.stageDefaults[key.stage] };
   if (key.field === 'effort') next.effort = value === null ? null : requireEffort(value);
+  else if (key.field === 'maxBudgetUsd') next.maxBudgetUsd = value === null ? null : requireBudget(value);
   else next.model = value;
   const stageDefaults: Partial<StageRunDefaults> = {};
   stageDefaults[key.stage] = next;
@@ -86,6 +97,12 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
 function layered(value: string | null, builtIn: string | null | undefined): string {
   if (value !== null) return value;
   return `${builtIn ?? "Claude's default"} (default)`;
+}
+
+/** The same layering, for the dollar figure, which has no "Claude's default" below the stage's own. */
+function layeredBudget(value: number | null, builtIn: number | null | undefined): string {
+  if (value !== null) return `$${value}`;
+  return builtIn == null ? 'stage default' : `$${builtIn} (default)`;
 }
 
 function render(settings: ApiSettings, models: ModelsResponse | null): string {
@@ -101,7 +118,8 @@ function render(settings: ApiSettings, models: ModelsResponse | null): string {
     const builtIn = models?.builtIn[s];
     const model = layered(own.model, builtIn?.model);
     const effort = layered(own.effort, builtIn?.effort);
-    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort}`;
+    const budget = layeredBudget(own.maxBudgetUsd, builtIn?.maxBudgetUsd);
+    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget}`;
   });
   return [...rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`), '', 'Stage runs', ...stages].join('\n');
 }
@@ -140,7 +158,9 @@ async function set(args: string[], unset: boolean): Promise<void> {
     return print(`Suggest follow-up cards: ${saved.suggestTasks ? 'on' : 'off'}`);
   }
   const stored = saved.stageDefaults[key.stage][key.field];
-  print(`${STAGE_LABELS[key.stage]} ${key.field}: ${stored ?? 'back to the default'}`);
+  const fieldName = key.field === 'maxBudgetUsd' ? 'max-budget-usd' : key.field;
+  const shown = stored === null ? 'back to the default' : key.field === 'maxBudgetUsd' ? `$${stored}` : stored;
+  print(`${STAGE_LABELS[key.stage]} ${fieldName}: ${shown}`);
 }
 
 export async function settings(args: string[]): Promise<void> {
