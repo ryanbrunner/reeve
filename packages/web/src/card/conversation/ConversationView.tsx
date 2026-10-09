@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGE_LABELS,
+  blockedMoveRefusal,
   isTerminal,
   toolResultIn,
   type ApiConversation,
@@ -10,7 +11,7 @@ import {
   type ConversationRun,
   type RunnableStage,
 } from '@reeve/shared';
-import { api } from '../../lib/api.js';
+import { api, cardsIn } from '../../lib/api.js';
 import { Markdown } from '../Markdown.js';
 import { Button, SmallButton } from '../ui.js';
 import { clock } from './format.js';
@@ -207,6 +208,41 @@ function NotStarted({ detail, stage }: { detail: CardDetail; stage: StageTab }) 
             : 'Send Claude a message below to start it, or press Run.'
           : 'Each stage starts a fresh session with the work so far. Approving the stage before this one moves the card here.'}
       </p>
+      {stage === 'planning' && detail.card.stage === 'backlog' && <StartPlanning detail={detail} />}
+    </div>
+  );
+}
+
+/**
+ * The drag from Backlog to Planning, without closing the card to make it:
+ * the same human move, to the end of the column, and the server starts the
+ * stage on entering it as it does for a drop.
+ */
+function StartPlanning({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const move = useMutation({
+    mutationFn: () => {
+      const board = qc.getQueryData<{ cards: Parameters<typeof cardsIn>[0] }>(['board']);
+      return api.moveCard(detail.card.id, {
+        stage: 'planning',
+        index: board ? cardsIn(board.cards, 'planning').length : 0,
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  // The server's own sentence, so the button never offers a move it refuses.
+  const refusal = blockedMoveRefusal(detail.card.stage, 'planning', detail.card.dependsOn);
+  return (
+    <div className="mt-3 flex flex-col items-center gap-1.5">
+      <Button tone="sky" disabled={refusal !== null || move.isPending} title={refusal ?? undefined} onClick={() => move.mutate()}>
+        {move.isPending ? 'Starting…' : 'Start planning'}
+      </Button>
+      {(refusal ?? move.error?.message) && (
+        <p className="max-w-[400px] font-mono text-[11px]/4 text-(--color-muted)">{refusal ?? move.error?.message}</p>
+      )}
     </div>
   );
 }
