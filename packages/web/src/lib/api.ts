@@ -17,6 +17,7 @@ import type {
   CreateCardBody,
   CreateRepoBody,
   CritReviewResponse,
+  ApiConversation,
   EffortLevel,
   GlossReviewResponse,
   HandoffResponse,
@@ -119,6 +120,18 @@ export const api = {
     post(`/api/cards/${id}/dependencies`, body).then(json<{ ok: true }>),
   removeDependency: (id: string, dependsOnId: string) =>
     del(`/api/cards/${id}/dependencies/${dependsOnId}`).then(json<{ ok: true }>),
+
+  // --- the conversation ---
+  /** Every stage's conversation with Claude, projected from its runs' events. */
+  conversation: (id: string) => fetch(`/api/cards/${id}/conversation`).then(json<ApiConversation>),
+  /** Into the live run, or carrying the stage's conversation on in a new one. */
+  sendMessage: (id: string, text: string) =>
+    post(`/api/cards/${id}/messages`, { text }).then(
+      json<{ ok: true; delivered: 'answered' | 'live' | 'resumed' | 'started'; runId: string }>,
+    ),
+  /** Answer what a live run is parked on: a permission, or a question's options. */
+  answerAsk: (id: string, askId: string, body: { decision: 'allow' | 'deny'; reason?: string | null } | { answers: Record<string, string> }) =>
+    post(`/api/cards/${id}/asks/${askId}`, body).then(json<{ ok: true }>),
 
   // --- talking back to Claude ---
   /** Answering the last open question resumes the run that asked. */

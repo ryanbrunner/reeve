@@ -25,7 +25,7 @@ import {
   updateCriterion,
 } from '../db/queries.js';
 import { recordAnswer } from '../answers.js';
-import { answerAsk, sendToCard } from '../conversation.js';
+import { answerAsk, conversationFor, sendToCard } from '../conversation.js';
 import { runRegistry } from '../runs/registry.js';
 import { linkDependency } from '../dependencies.js';
 import { checkWorktree, commitAt, commitsSince, diffOfCommit, diffSince } from '../git/worktree.js';
@@ -242,6 +242,17 @@ export function detailRoutes(db: Db, writer: EventWriter) {
 
     const result = await recordAnswer(db, writer, card, existing, parsed.data.answer);
     return c.json({ ok: true, ...result }, result.resumed ? 201 : 200);
+  });
+
+  /**
+   * The card's conversation with Claude, stage by stage: the modal's main
+   * view. The live run's tail comes from `/api/runs/:id/events?since=<lastSeq>`
+   * and folds into it through the same projection.
+   */
+  routes.get('/:id/conversation', (c) => {
+    const card = getCard(db, c.req.param('id'));
+    if (!card) return c.json({ error: 'not found' }, 404);
+    return c.json(conversationFor(db, card));
   });
 
   /**

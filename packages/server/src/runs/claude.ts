@@ -9,7 +9,7 @@ import {
 import type { z } from 'zod';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { EffortLevel, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
+import type { EffortLevel, MessageSource, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
 import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
 import { PASTED_IMAGE, absoluteAssetPath, assetSrc } from '../assets/store.js';
 import type { Db } from '../db/client.js';
@@ -68,8 +68,7 @@ export interface ClaudeRunParams {
 }
 
 /** Who can put words into a stage's conversation, and how they got there. */
-export const MESSAGE_SOURCES = ['chat', 'answer', 'review', 'note', 'crit', 'gloss', 'vibes'] as const;
-export type MessageSource = (typeof MESSAGE_SOURCES)[number];
+export type { MessageSource };
 
 /** A `user_message` run event's payload. */
 export interface UserMessage {

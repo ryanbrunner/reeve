@@ -1,6 +1,15 @@
-import { isRunnable, type Stage } from '@reeve/shared';
+import { RUNNABLE_STAGES, RunProjector, isRunnable, type ApiConversation, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { getSettings, insertCardEvent, latestClaudeRunForStage, liveStageRun, listRepos, unreadNotesFor } from './db/queries.js';
+import {
+  eventsSince,
+  getSettings,
+  insertCardEvent,
+  latestClaudeRunForStage,
+  liveStageRun,
+  listRepos,
+  runsForCard,
+  unreadNotesFor,
+} from './db/queries.js';
 import type { Card, CardEventActor, Repo } from './db/schema.js';
 import { answerFromText, askRegistry, type AskAnswer } from './runs/asks.js';
 import type { MessageSource } from './runs/claude.js';
@@ -149,4 +158,39 @@ async function settles(db: Db, cardId: string, runId: string, ms: number): Promi
 
 function repoFor(db: Db, card: Card): Repo | undefined {
   return card.repoId ? listRepos(db).find((r) => r.id === card.repoId) : undefined;
+}
+
+/**
+ * Every stage's conversation for the card, as the modal opens on it: each
+ * column Claude works in, with its stage runs in order, each run's events
+ * folded into what was said. Only the stage's own runs — Suggest, a split and
+ * the like are not part of talking about the work — and a run's opening
+ * prompt only on the one that started the stage, since a follow-up's is the
+ * person's own message, shown as theirs.
+ */
+export function conversationFor(db: Db, card: Card): ApiConversation {
+  const runs = runsForCard(db, card.id)
+    .filter((r) => r.kind === 'claude' && r.task === null)
+    .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+  return {
+    stages: RUNNABLE_STAGES.map((stage) => ({
+      stage,
+      runs: runs.filter((r) => r.stage === stage).map((r) => {
+        const projector = new RunProjector(r.parentRunId ? null : r.prompt);
+        for (const e of eventsSince(db, r.id, 0)) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
+        return {
+          runId: r.id,
+          status: r.status,
+          stopReason: r.stopReason ?? null,
+          parentRunId: r.parentRunId ?? null,
+          startedAt: r.startedAt?.getTime() ?? null,
+          finishedAt: r.finishedAt?.getTime() ?? null,
+          costUsd: r.totalCostUsd ?? null,
+          model: r.model ?? null,
+          items: projector.items,
+          lastSeq: projector.lastSeq,
+        };
+      }),
+    })),
+  };
 }
