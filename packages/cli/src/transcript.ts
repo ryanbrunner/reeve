@@ -91,6 +91,30 @@ export function renderEvent(kind: string, data: string): string[] {
     case 'error':
       return [`! ${String(payload.message ?? 'error')}`];
 
+    // A stage is a conversation: what the person said, what Claude asked,
+    // and what it submitted are the turns worth seeing.
+    case 'user_message': {
+      const who = payload.actor === 'claude' ? 'VIBES MODE' : 'you';
+      const via = typeof payload.source === 'string' && payload.source !== 'chat' ? ` (${payload.source})` : '';
+      return [`» ${who}${via}: ${oneLine(String(payload.text ?? ''))}`];
+    }
+    case 'ask': {
+      if (payload.kind === 'question') {
+        const qs = Array.isArray(payload.questions) ? (payload.questions as Array<{ question?: string; options?: Array<{ label?: string }> }>) : [];
+        return qs.map((q) => `? Claude asks: ${q.question ?? ''}${q.options?.length ? ` [${q.options.map((o) => o.label).join(' / ')}]` : ''}`);
+      }
+      const input = (payload.input ?? {}) as Record<string, unknown>;
+      const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : '';
+      return [`? Claude asks to use ${String(payload.toolName ?? 'a tool')}${what ? `: ${oneLine(what)}` : ''} — reeve card permit <card> allow|deny`];
+    }
+    case 'ask_answered': {
+      if (payload.kind === 'permission') return [`· ${payload.allow ? 'allowed' : 'denied'}${payload.reason ? `: ${oneLine(String(payload.reason))}` : ''}`];
+      if (payload.kind === 'question') return [`· answered: ${Object.values((payload.answers ?? {}) as Record<string, string>).join('; ')}`];
+      return [`· not answered (${String(payload.why ?? '')})`];
+    }
+    case 'submitted':
+      return [`◆ submitted: ${oneLine(String(payload.summary ?? ''))}`];
+
     case 'command':
       return [`$ ${String(payload.command ?? '')}`];
     case 'stdout':

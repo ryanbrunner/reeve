@@ -42,9 +42,15 @@ const USAGE = `Usage: reeve <command> [options]
       Start the stage the card is in. --follow streams the run's transcript.
   reeve card approve <card> [--notes T] / reject <card> --notes T
       The verdict a person gives a finished stage. Approving moves the card
-      one column; that is the human action the move is waiting on.
+      one column; rejecting sends the notes to Claude.
+  reeve card reply <card> <text…> [--file F] [--follow] [--json]
+      Talk to Claude about the card: read at its next step while it works,
+      the answer to what it is asking, or the stage's conversation carried on.
   reeve card questions <card> [--json] / answer <card> <question> <answer>
-      What Claude could not decide for itself, and the answer that resumes it.
+      What Claude is waiting on you for, and the answer to a plan's question.
+  reeve card permit <card> allow|deny [--reason T]
+      Allow or deny, once, the call a run is parked on: one auto mode would
+      not approve on its own.
   reeve card wait <card> [--timeout S] [--json]
       Block until the card's run wants a person, and say which by exit status.
   reeve runs <card> [--json]
@@ -83,7 +89,8 @@ const USAGE = `Usage: reeve <command> [options]
          shows the first 8 characters, which are what its branch is named
          after. The verbs that drive a run also take its number: 142, #142,
          or repo#142 while two repos both have one.
-<stage>  backlog, planning, in-progress, testing or done
+<stage>  backlog, planning, in-progress, testing or release (done, its old
+         name, still works)
 
 --json prints the API's answer unchanged, filtered by any flags given, alone
 on stdout; doctor, which asks no API, prints a report of its own. Anything
@@ -91,8 +98,8 @@ said to a person goes to stderr.
 
 Exit status is 0 on success, 1 when Reeve refused or could not be reached, and
 2 for a mistake in the command itself. card wait says how the run ended with
-a status of its own: ${EXIT.needsInput} questions asked, ${EXIT.failed} the run failed, ${EXIT.idle} nothing
-running, ${EXIT.timeout} --timeout ran out.
+a status of its own: ${EXIT.needsInput} Claude is waiting on you, ${EXIT.failed} the run failed, ${EXIT.idle}
+nothing running, ${EXIT.timeout} --timeout ran out.
 
 Talks to a running Reeve at $REEVE_URL, else http://127.0.0.1:$REEVE_PORT (${DEFAULT_PORT}).`;
 

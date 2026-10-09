@@ -3,9 +3,11 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import {
   STAGE_LABELS,
+  isTerminal,
   needsWorktree,
   type ApiCard,
   type ApiDiff,
+  type ApiConversation,
   type ApiQuestion,
   type BoardResponse,
   type CardDetail,
@@ -456,7 +458,32 @@ async function questions(args: string[]): Promise<void> {
   const card = await oneCardOnBoard(oneCard('questions', positionals));
   const list = await api.questions(card.id);
   if (values.json) return printJson(list);
-  if (list.length === 0) return note(`${cardRef(card)} has no questions in ${stageLabel(card.stage)}`);
+  if (list.length === 0) {
+    // Not a plan's question rows: a run parked on an ask, or a turn that
+    // ended on something to reply to. Said here, so a script on exit 3
+    // always has something to read.
+    const ask = pendingAsk(await api.conversation(card.id));
+    if (ask?.request.kind === 'permission') {
+      const input = ask.request.input;
+      const what = typeof input['command'] === 'string' ? input['command'] : JSON.stringify(input);
+      print(`Claude asks to use ${ask.request.toolName}:`);
+      print(`   ${what}`);
+      return note(`answer with \`reeve card permit ${card.number} allow|deny [--reason …]\``);
+    }
+    if (ask?.request.kind === 'question') {
+      ask.request.questions.forEach((q, i) => {
+        if (i > 0) print();
+        print(`${i + 1}. ${q.question}`);
+        for (const [n, o] of q.options.entries()) print(`   ${n + 1}) ${o.label}${o.description ? ` — ${o.description}` : ''}`);
+      });
+      return note(`answer with \`reeve card reply ${card.number} <answer>\``);
+    }
+    if (card.waitingOn) {
+      print(card.waitingOn);
+      return note(`answer with \`reeve card reply ${card.number} <reply>\``);
+    }
+    return note(`${cardRef(card)} has no questions in ${stageLabel(card.stage)}`);
+  }
   list.forEach((q, i) => {
     if (i > 0) print();
     printQuestion(q);
@@ -507,9 +534,72 @@ async function answer(args: string[]): Promise<void> {
   note(`answered ${result.answered} of ${result.of}`);
 }
 
+/**
+ * Say something to Claude about the card: interjected into the run if one is
+ * going, answering what it is parked on if it is asking, or carrying the
+ * stage's conversation on if it is waiting. Prints the run it went to, for
+ * `reeve run follow`.
+ */
+async function reply(args: string[]): Promise<void> {
+  const { values, positionals } = parseOrUsage(() =>
+    parseArgs({
+      args,
+      allowPositionals: true,
+      options: { file: { type: 'string' }, follow: { type: 'boolean', short: 'f' }, json: { type: 'boolean' } },
+    }),
+  );
+  const [ref, ...words] = positionals;
+  if (!ref) throw usageError('reeve card reply takes a card and what to say');
+  const text = (textOrFile(words.join(' ') || undefined, values.file, 'message') ?? '').trim();
+  if (!text) throw usageError('a reply needs words, or --file');
+  const card = await oneCardOnBoard(ref);
+  const result = await api.reply(card.id, text);
+  if (values.json && !values.follow) return printJson(result);
+  const said = {
+    answered: `answered what Claude asked on ${cardRef(card)}`,
+    live: `sent to ${cardRef(card)}'s run; Claude reads it at its next step`,
+    resumed: `${cardRef(card)}'s conversation carries on`,
+    started: `started ${stageLabel(card.stage)} on ${cardRef(card)} with it`,
+  }[result.delivered];
+  await started(result.runId, said, !!values.follow, !!values.json);
+}
+
+/**
+ * Allow or deny the call a live run is parked on: auto mode would not approve
+ * it on its own, and the run is waiting for a person. Allow is for that one
+ * call. `reeve card questions` shows what it is.
+ */
+async function permit(args: string[]): Promise<void> {
+  const { values, positionals } = parseOrUsage(() =>
+    parseArgs({ args, allowPositionals: true, options: { reason: { type: 'string' }, json: { type: 'boolean' } } }),
+  );
+  const [ref, decision] = positionals;
+  if (!ref || (decision !== 'allow' && decision !== 'deny')) throw usageError('reeve card permit takes a card and allow or deny');
+  const card = await oneCardOnBoard(ref);
+  const ask = pendingAsk(await api.conversation(card.id));
+  if (!ask || ask.request.kind !== 'permission' || !ask.askId) throw new CliError(`${cardRef(card)} is not waiting on a permission`);
+  const result = await api.answerAsk(card.id, ask.askId, { decision, ...(values.reason ? { reason: values.reason } : {}) });
+  if (values.json) return printJson(result);
+  note(`${decision === 'allow' ? 'allowed' : 'denied'} ${ask.request.toolName} on ${cardRef(card)}`);
+}
+
+/** What a live run of the card is parked on, if anything. */
+function pendingAsk(conversation: ApiConversation) {
+  for (const stage of conversation.stages) {
+    for (const run of stage.runs) {
+      if (isTerminal(run.status)) continue;
+      for (let i = run.items.length - 1; i >= 0; i--) {
+        const item = run.items[i]!;
+        if (item.kind === 'ask') return item.outcome === null ? item : null;
+      }
+    }
+  }
+  return null;
+}
+
 const OUTCOMES: Record<WaitExit, string> = {
   [EXIT.ok]: 'is waiting for review',
-  [EXIT.needsInput]: 'has questions',
+  [EXIT.needsInput]: 'is waiting on you',
   [EXIT.failed]: 'failed',
   [EXIT.idle]: 'is idle',
   [EXIT.timeout]: 'is still running',
@@ -583,8 +673,9 @@ const RUN_USAGE = `  reeve card run <card> [--follow | -f] [--json]
 const APPROVE_USAGE = `  reeve card approve <card> [--notes TEXT | --notes-file PATH|-] [--json]
       Pass the gate: the review is recorded, and the card moves to the stage after the one it's
       in, the same as a drag there would — starting a run there if that stage is Planning, In
-      Progress or Testing, or pushing the branch and opening a pull request if it's Done.
-      Approving a card already in Done leaves it there: there is nowhere further to go.
+      Progress or Testing, or, for Release, pushing the branch, opening a pull request and starting
+      Release's run. Approving a card already in Release leaves it there: there is nowhere further
+      to go.
       --notes or --notes-file are kept with the review in the card's history; neither is required.
       --json prints the server's answer: the stage the card left and the one it landed in, if moved.`;
 
@@ -596,8 +687,9 @@ const REJECT_USAGE = `  reeve card reject <card> (--notes TEXT | --notes-file PA
       --json alone prints the started run as JSON.`;
 
 const QUESTIONS_USAGE = `  reeve card questions <card> [--json]
-      What Claude asked in the stage the card is in, answered or not.
-      --json prints the list as the server returned it.`;
+      What Claude is waiting on you for: a plan's questions in the stage the card is in, answered
+      or not, or else the permission, question or reply a run is parked on.
+      --json prints the plan's questions as the server returned them.`;
 
 const ANSWER_USAGE = `  reeve card answer <card> <question> (<answer…> | --suggestion N | -s N) [--json]
       Answer one question, named by its number (1 is the first) or its id. The answer is either
@@ -605,11 +697,24 @@ const ANSWER_USAGE = `  reeve card answer <card> <question> (<answer…> | --sug
       Once every open question on the card is answered, the run resumes and its id is printed.
       --json prints the server's answer.`;
 
+const REPLY_USAGE = `  reeve card reply <card> (<text…> | --file PATH|-) [--follow | -f] [--json]
+      Talk to Claude about the card. While a run works, the message is read at its next step; when
+      Claude is asking something, it is the answer; otherwise the stage's conversation carries on,
+      or starts, with it.
+      --follow streams the run's transcript instead of printing its id. Combined with --json, the
+      output is \`run follow\`'s own JSON events, not this command's result.
+      --json alone prints the server's answer: how the message was delivered, and the run.`;
+
+const PERMIT_USAGE = `  reeve card permit <card> allow|deny [--reason TEXT] [--json]
+      Allow or deny, once, the call a live run is parked on: one auto mode would not approve on its
+      own. --reason goes to Claude with a denial.
+      --json prints the server's answer.`;
+
 const WAIT_USAGE = `  reeve card wait <card> [--timeout SECONDS] [--json]
-      Block until the card needs a person: a run finished, Claude asked questions, or nothing is
+      Block until the card needs a person: a run finished, Claude is waiting on you, or nothing is
       running — a card that needs one already returns at once. --timeout gives up after that many
       seconds instead, exiting ${EXIT.timeout}.
-      Exits ${EXIT.ok} waiting for review, ${EXIT.needsInput} Claude asked questions, ${EXIT.failed} the run failed,
+      Exits ${EXIT.ok} waiting for review, ${EXIT.needsInput} Claude is waiting on you, ${EXIT.failed} the run failed,
       ${EXIT.idle} idle (nothing running, or a start was refused).
       --json prints the card as the server returned it, instead of the one line said on stderr.`;
 
@@ -622,18 +727,18 @@ const WORKTREE_USAGE = `  reeve card worktree [<card>] [--remove] [--json]
       --json prints the server's answer instead of the bare path.`;
 
 const PR_USAGE = `  reeve card pr [<card>] [--json]
-      Push a Done card's branch and open its pull request, or push to the one already open. With
+      Push a Release card's branch and open its pull request, or push to the one already open. With
       no card, the one whose worktree the current directory is in.
       --json prints the server's answer instead of the bare URL.`;
 
 const RESOLVE_CONFLICTS_USAGE = `  reeve card resolve-conflicts [<card>] [--json]
-      Merge the base branch into a Done card's branch and push it. A clean merge pushes before
+      Merge the base branch into a Release card's branch and push it. A clean merge pushes before
       this returns; a conflicted one starts a run of Claude's own to resolve it, and the push
       waits for that. With no card, the one whose worktree the current directory is in.
       --json prints the server's answer.`;
 
 const MERGE_USAGE = `  reeve card merge [<card>] [--json]
-      Merge a Done card's pull request on GitHub, as the board's Merge button does, and only when
+      Merge a Release card's pull request on GitHub, as the board's Merge button does, and only when
       GitHub says it merges cleanly. With no card, the one whose worktree the current directory is
       in.
       --json prints the server's answer.`;
@@ -666,6 +771,8 @@ const VERBS: Record<string, Command> = {
   reject: { usage: REJECT_USAGE, run: reject },
   questions: { usage: QUESTIONS_USAGE, run: questions },
   answer: { usage: ANSWER_USAGE, run: answer },
+  reply: { usage: REPLY_USAGE, run: reply },
+  permit: { usage: PERMIT_USAGE, run: permit },
   wait: { usage: WAIT_USAGE, run: wait },
   add,
   edit,

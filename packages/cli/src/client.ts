@@ -4,6 +4,7 @@ import {
   type ApiCardEvent,
   type ApiCardRef,
   type ApiCommit,
+  type ApiConversation,
   type ApiDiff,
   type ApiCriterion,
   type ApiError,
@@ -207,6 +208,14 @@ export const api = {
   answer: (cardId: string, questionId: string, answer: string) =>
     post<AnswerResponse>(`/api/cards/${enc(cardId)}/questions/${enc(questionId)}/answer`, { answer }),
   stopRun: (runId: string) => post<ApiRunSummary>(`/api/runs/${enc(runId)}/stop`, {}),
+  /** Into the live run, or carrying the stage's conversation on. See the server's conversation.ts. */
+  reply: (cardId: string, text: string) =>
+    post<{ ok: true; delivered: 'answered' | 'live' | 'resumed' | 'started'; runId: string }>(`/api/cards/${enc(cardId)}/messages`, { text }),
+  /** Every stage's conversation, projected from its runs. */
+  conversation: (cardId: string) => request<ApiConversation>(`/api/cards/${enc(cardId)}/conversation`),
+  /** Answer what a live run is parked on: allow or deny a call, or choose a question's options. */
+  answerAsk: (cardId: string, askId: string, body: { decision: 'allow' | 'deny'; reason?: string } | { answers: Record<string, string> }) =>
+    post<{ ok: true }>(`/api/cards/${enc(cardId)}/asks/${enc(askId)}`, body),
 
   /** The run's transcript from after `since`, live until the run ends. See ./sse.ts. */
   events: (runId: string, since: number) =>

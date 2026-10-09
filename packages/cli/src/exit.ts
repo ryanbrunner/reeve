@@ -18,7 +18,12 @@ export const EXIT = {
   error: 1,
   /** The command line was wrong. The usage text is printed too. */
   usage: 2,
-  /** wait: Claude asked questions, and the run is waiting on answers. */
+  /**
+   * wait: Claude is waiting on a person — it asked questions, ended its turn
+   * on something to reply to, or a live run is parked on a permission or a
+   * question. `reeve card questions` says which; `reply`, `answer` and
+   * `permit` are the ways back. follow: the run ended waiting on a reply.
+   */
   needsInput: 3,
   /** wait: the stage's run failed or was interrupted. follow: the run did. */
   failed: 4,
@@ -69,5 +74,7 @@ export function runOutcome(status: RunStatus): ExitCode | null {
   if (!isTerminal(status)) return null;
   if (status === 'succeeded') return EXIT.ok;
   if (status === 'cancelled') return EXIT.idle;
+  // Ended its turn on something for the person, which is no failure.
+  if (status === 'awaiting_reply') return EXIT.needsInput;
   return EXIT.failed;
 }
