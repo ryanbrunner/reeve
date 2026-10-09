@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, isRunnable, isTerminal, type ApiConversation, type CardDetail } from '@reeve/shared';
+import { STAGE_LABELS, isRunnable, isTerminal, stoppedAtLimit, type ApiConversation, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { AttentionBand } from '../AttentionBand.js';
 import { useNow } from '../../lib/useNow.js';
@@ -214,6 +214,9 @@ function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
         {!spend && run?.totalTokens != null ? ` · ${tok(run.totalTokens)}` : ''}
       </span>
     );
+  } else if (stoppedAtLimit(run)) {
+    main = <span className="text-(--color-activity-input-mark)">◆ Stopped at its {run?.stopReason === 'max_turns' ? 'turn limit' : 'budget'}</span>;
+    side = <span>Continue above, or reply: either carries on with a fresh budget</span>;
   } else if (card.activity === 'needs_input') {
     main = <span className="text-(--color-activity-input-mark)">◆ Claude is waiting on your reply</span>;
     side = <span>Replying carries on the same conversation</span>;

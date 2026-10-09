@@ -248,6 +248,10 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // as the run answers it for nobody itself.
     case 'needs_input':
       if (!run) return;
+      // Stopped at its budget or turn limit. Carrying on spends another
+      // budget, which is a person's call even in VIBES MODE: an unattended
+      // sweep that kept granting one would have no ceiling at all.
+      if (run.status === 'failed') return;
       if (run.status === 'asking') {
         settleForNobody(card);
         return;

@@ -225,8 +225,35 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
     setStageDefaults((d) => ({ ...d, [stage]: { ...d[stage], ...next } }));
   };
 
+  // Typed as text and read on save, so a half-typed "1." is not refused mid-keystroke.
+  const [limits, setLimits] = useState(() =>
+    Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
+      budget: settings.stageDefaults[s].budgetUsd?.toString() ?? '',
+      turns: settings.stageDefaults[s].maxTurns?.toString() ?? '',
+    }])) as Record<RunnableStage, { budget: string; turns: string }>,
+  );
+  const setLimit = (stage: RunnableStage, next: Partial<{ budget: string; turns: string }>) => {
+    setSaved(false);
+    setLimits((l) => ({ ...l, [stage]: { ...l[stage], ...next } }));
+  };
+  const limitErrors = RUNNABLE_STAGES.flatMap((stage) => {
+    const { budget, turns } = limits[stage];
+    const b = Number(budget);
+    const t = Number(turns);
+    return [
+      ...(budget.trim() && !(b >= 0.5 && b <= 1000) ? [`${STAGE_LABELS[stage]}'s budget must be between $0.50 and $1,000.`] : []),
+      ...(turns.trim() && !(Number.isInteger(t) && t >= 10 && t <= 10_000) ? [`${STAGE_LABELS[stage]}'s turns must be a whole number from 10 to 10,000.`] : []),
+    ];
+  });
+  const withLimits = (): StageRunDefaults =>
+    Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
+      ...stageDefaults[s],
+      budgetUsd: limits[s].budget.trim() ? Number(limits[s].budget) : null,
+      maxTurns: limits[s].turns.trim() ? Number(limits[s].turns) : null,
+    }])) as StageRunDefaults;
+
   const save = useMutation({
-    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults, suggestTasks }),
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withLimits(), suggestTasks }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -234,7 +261,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   });
 
   const limit = Number(maxConcurrentRuns);
-  const valid = Number.isInteger(limit) && limit >= 1;
+  const valid = Number.isInteger(limit) && limit >= 1 && limitErrors.length === 0;
 
   return (
     <form
@@ -322,6 +349,41 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
         })}
       </section>
 
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Limits</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What one run may spend, and how many calls one loop may make, before it is stopped: the lead's turn, or a
+          worker's whole build. A run stopped at its limit waits for you to carry it on, with a fresh budget. A card can
+          set its own.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const builtIn = catalogue?.builtIn[stage];
+          return (
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-(--color-muted)">
+                $
+                <Text
+                  value={limits[stage].budget}
+                  onChange={(budget) => setLimit(stage, { budget })}
+                  placeholder={builtIn?.budgetUsd ? `${builtIn.budgetUsd} (stage default)` : 'stage default'}
+                  mono
+                />
+              </label>
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-(--color-muted)">
+                <Text
+                  value={limits[stage].turns}
+                  onChange={(turns) => setLimit(stage, { turns })}
+                  placeholder={builtIn?.maxTurns ? `${builtIn.maxTurns} (stage default)` : 'no turn limit'}
+                  mono
+                />
+                turns
+              </label>
+            </div>
+          );
+        })}
+      </section>
+
       <div className="flex items-center gap-3 border-t border-(--color-edge) pt-4">
         <Button tone="sky" type="submit" disabled={!valid || save.isPending}>
           {save.isPending ? 'Saving…' : 'Save changes'}
@@ -330,7 +392,9 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
           <span className="font-mono text-[11px]/4 text-(--color-muted)">Saved</span>
         )}
         {!valid && (
-          <span className="font-mono text-[11px]/4 text-red-300">Concurrent runs must be a whole number, 1 or more.</span>
+          <span className="font-mono text-[11px]/4 text-red-300">
+            {limitErrors[0] ?? 'Concurrent runs must be a whole number, 1 or more.'}
+          </span>
         )}
       </div>
       {save.error && (

@@ -699,7 +699,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'vibes'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'budgetUsd' | 'maxTurns' | 'generateMockups' | 'vibes'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -897,7 +897,12 @@ export function getSettings(db: Db): ApiSettings {
     vibesSince: row?.vibesSince?.getTime() ?? null,
     suggestTasks: row?.suggestTasks ?? true,
     stageDefaults: Object.fromEntries(
-      RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
+      RUNNABLE_STAGES.map((s) => [s, {
+        model: stored[s]?.model ?? null,
+        effort: stored[s]?.effort ?? null,
+        budgetUsd: stored[s]?.budgetUsd ?? null,
+        maxTurns: stored[s]?.maxTurns ?? null,
+      }]),
     ) as StageRunDefaults,
   };
 }
@@ -911,7 +916,15 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...rest,
     // Merged into what is stored rather than written over it, so saving one
     // stage's row leaves the other stages as they were.
-    ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
+    // Field by field within a stage too, so a client that sends only a
+    // model and effort leaves the stage's limits alone.
+    ...(stageDefaults
+      ? {
+          stageDefaults: Object.fromEntries(
+            RUNNABLE_STAGES.map((s) => [s, { ...current.stageDefaults[s], ...stageDefaults[s] }]),
+          ) as StageRunDefaults,
+        }
+      : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
     ...(vibes === undefined ? {}

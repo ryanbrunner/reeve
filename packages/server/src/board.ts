@@ -1,11 +1,14 @@
 import {
   deriveActivity,
   isRunnable,
+  stoppedAtLimit,
   stageEntryRefusal,
   type ApiCard,
   type CardActivity,
   type RunnableStage,
   type Stage,
+  type RunStatus,
+  type StopReason,
 } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import {
@@ -37,7 +40,10 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
 
   const run = latestClaudeRunForStage(db, card.id, stage) ?? null;
   if (!run) return { activity: 'idle', run: null };
-  return { activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run) }), run };
+  return {
+    activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run), stopReason: run.stopReason as StopReason | null }),
+    run,
+  };
 }
 
 /**
@@ -81,6 +87,11 @@ function waitingOn(card: Card, run: Run): string | null {
     const command = typeof ask.input['command'] === 'string' ? ask.input['command'] : null;
     const who = ask.agent === 'worker' ? 'The worker asks' : 'Asks';
     return command ? `${who} to run ${oneLine(command, 80)}` : `${who} to use ${ask.toolName}`;
+  }
+  if (stoppedAtLimit({ status: run.status as RunStatus, stopReason: run.stopReason as StopReason | null })) {
+    return run.stopReason === 'max_turns'
+      ? 'Stopped at its turn limit: reply to carry on'
+      : `Stopped at its $${(run.maxBudgetUsd ?? 0).toFixed(2)} budget: reply to carry on`;
   }
   if (run.status !== 'awaiting_reply' || !run.resultText) return null;
   const lines = run.resultText.split('\n').map((l) => l.replace(/[*_`#>]/g, '').trim()).filter(Boolean);

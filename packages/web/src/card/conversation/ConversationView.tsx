@@ -4,6 +4,7 @@ import {
   STAGE_LABELS,
   blockedMoveRefusal,
   isTerminal,
+  stoppedAtLimit,
   toolResultIn,
   type ApiConversation,
   type CardDetail,
@@ -276,7 +277,9 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
   onOpenPanel: (panel: Panel) => void;
 }) {
   const groups = group(run.items);
-  const ending = ENDINGS[run.status];
+  // Out of room is not broken: said plainly, and not in red.
+  const atLimit = stoppedAtLimit(run);
+  const ending = atLimit ? `Stopped at its ${run.stopReason === 'max_turns' ? 'turn limit' : 'budget'}` : ENDINGS[run.status];
   const summary = detail.runs.find((r) => r.id === run.runId);
   return (
     <>
@@ -299,9 +302,9 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
         return <Item key={g.id} item={g} detail={detail} live={live} stage={stage} onOpenPanel={onOpenPanel} continued={continued} runId={run.runId} />;
       })}
       {ending && (
-        <Divider tone={run.status === 'failed' ? 'error' : 'muted'}>
+        <Divider tone={run.status === 'failed' && !atLimit ? 'error' : 'muted'}>
           {ending}
-          {summary?.errorMessage ? `: ${summary.errorMessage.slice(0, 160)}` : run.stopReason && run.stopReason !== 'completed' ? ` (${run.stopReason.replace(/_/g, ' ')})` : ''}
+          {atLimit ? '' : summary?.errorMessage ? `: ${summary.errorMessage.slice(0, 160)}` : run.stopReason && run.stopReason !== 'completed' ? ` (${run.stopReason.replace(/_/g, ' ')})` : ''}
         </Divider>
       )}
     </>

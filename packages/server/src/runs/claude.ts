@@ -187,6 +187,26 @@ function briefFor(db: Db, card: Card): string {
  * Out-of-band work keeps the task's values untouched. Suggest is not the
  * card's work, and a card pinned to Opus at max should not make it expensive.
  */
+/**
+ * The budget and turn limit a run is sent: the card's own, then the Settings
+ * row for its stage, then what the stage module asks for. The same layers as
+ * the model and effort above, and a one-off task keeps its own for the same
+ * reason they do.
+ */
+export function limitsFor(
+  db: Db,
+  card: Card,
+  stage: Pick<ClaudeTask, 'maxBudgetUsd' | 'maxTurns' | 'outOfBand'>,
+  runStage: CardStage,
+): { budgetUsd: number; maxTurns: number | null } {
+  if (stage.outOfBand) return { budgetUsd: stage.maxBudgetUsd, maxTurns: stage.maxTurns ?? null };
+  const defaults = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage] : undefined;
+  return {
+    budgetUsd: card.budgetUsd ?? defaults?.budgetUsd ?? stage.maxBudgetUsd,
+    maxTurns: card.maxTurns ?? defaults?.maxTurns ?? stage.maxTurns ?? null,
+  };
+}
+
 export function modelAndEffortFor(
   db: Db,
   card: Card,
@@ -236,6 +256,7 @@ function workerDefinition(
   brief: string | null,
   submitName: string,
   effort: EffortLevel | null,
+  maxTurns: number | null,
 ): AgentDefinition {
   const path = join(worktreePath, '.reeve', `${stage.id}-brief.md`);
   if (brief !== null) {
@@ -253,7 +274,7 @@ function workerDefinition(
     disallowedTools: ['mcp__reeve', 'Agent', 'Task', 'AskUserQuestion'],
     model: 'inherit',
     background: true,
-    ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
+    ...(maxTurns ? { maxTurns } : {}),
     ...(effort ? { effort } : {}),
   };
 }
@@ -322,7 +343,7 @@ export class Pulse {
   private readonly calls = new Map<string | null, Set<string>>();
 
   constructor(
-    private readonly stage: ClaudeTask<never>,
+    private readonly maxTurns: number | null,
     private readonly inherited: number,
     private readonly workerCalls: ReadonlySet<string>,
   ) {}
@@ -379,7 +400,7 @@ export class Pulse {
       costExact: !estimated,
       budgetUsd,
       turns: Math.max(0, ...[...this.calls.values()].map((c) => c.size)),
-      maxTurns: this.stage.maxTurns ?? null,
+      maxTurns: this.maxTurns,
     };
   }
 }
@@ -440,6 +461,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const { db, writer, card, repo, stage, worktreePath, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
   const { model, effort } = modelAndEffortFor(db, card, stage, runStage);
+  const limits = limitsFor(db, card, stage, runStage);
   const followUp = params.followUp?.trim() ? params.followUp : null;
 
   // Read before `run_started` is written: that event is where unread notes end,
@@ -468,7 +490,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // so the row always says what was actually sent. permissionMode is filled in
     // the same way, once fitToModel says whether this model takes auto mode.
     effort,
-    maxBudgetUsd: stage.maxBudgetUsd,
+    maxBudgetUsd: limits.budgetUsd,
     // Filled in once the prompt exists. A stage that has to prepare something
     // first — Testing takes its screenshots — writes the prompt after that, so
     // the row is briefly a run with no prompt, exactly as it is briefly a run
@@ -538,7 +560,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
 
   // The run's pulse (ApiRunPulse): what tells a long run from a stuck one.
   // Kept here, in memory, and read through the registry on every poll.
-  const pulse = new Pulse(stage, inheritedCostUsd(db, parentRunId ?? null), workerCalls);
+  const pulse = new Pulse(limits.maxTurns, inheritedCostUsd(db, parentRunId ?? null), workerCalls);
 
   /**
    * Hold the turn on a person: the run reads `asking` until they answer, the
@@ -688,8 +710,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
     canUseTool: (toolName, input, { toolUseID, signal, agentID }) => canUseTool(toolName, input, toolUseID, signal, agentID),
-    maxBudgetUsd: stage.maxBudgetUsd,
-    ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
+    maxBudgetUsd: limits.budgetUsd,
+    ...(limits.maxTurns ? { maxTurns: limits.maxTurns } : {}),
     ...(model ? { model } : {}),
   };
 
@@ -779,7 +801,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         : brief!);
       setRunStatus(db, runId, { prompt: promptText });
       if (workerType && stage.worker) {
-        options.agents = { [workerType]: workerDefinition(stage, worktreePath, brief, submitName, fitted.effort) };
+        options.agents = { [workerType]: workerDefinition(stage, worktreePath, brief, submitName, fitted.effort, limits.maxTurns) };
         // The worker's progress, as a line the card can show without opening
         // its calls: a summary every half minute or so.
         options.agentProgressSummaries = true;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGES,
@@ -44,6 +44,7 @@ export function Rail({ detail, onOpen, embedded = false }: {
       <Dependencies detail={detail} onOpen={onOpen} />
       <Suggestions detail={detail} onOpen={onOpen} />
       <Model detail={detail} />
+      <Limits detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -383,6 +384,83 @@ function Model({ detail }: { detail: CardDetail }) {
       </p>
       {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
     </section>
+  );
+}
+
+/**
+ * What this card's runs may spend, and how many calls a loop may make, above
+ * the Settings limits for each stage: a big card gets room without raising it
+ * for every card. Typed, and saved when the field is left or Enter pressed.
+ */
+function Limits({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const set = useMutation({
+    mutationFn: (body: { budgetUsd?: number | null; maxTurns?: number | null }) => api.updateCard(detail.card.id, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead>Limits</SectionHead>
+      <div className="grid grid-cols-2 gap-1.5">
+        <LimitInput
+          label="Budget per run"
+          prefix="$"
+          value={detail.card.budgetUsd}
+          valid={(n) => n >= 0.5 && n <= 1000}
+          disabled={set.isPending}
+          onSave={(budgetUsd) => set.mutate({ budgetUsd })}
+        />
+        <LimitInput
+          label="Turns per loop"
+          suffix="turns"
+          value={detail.card.maxTurns}
+          valid={(n) => Number.isInteger(n) && n >= 10 && n <= 10_000}
+          disabled={set.isPending}
+          onSave={(maxTurns) => set.mutate({ maxTurns })}
+        />
+      </div>
+      <p className="font-mono text-[10px]/4 text-(--color-muted)">Blank uses the Settings limit for the stage.</p>
+      {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
+    </section>
+  );
+}
+
+function LimitInput({ label, prefix, suffix, value, valid, disabled, onSave }: {
+  label: string;
+  prefix?: string;
+  suffix?: string;
+  value: number | null;
+  valid: (n: number) => boolean;
+  disabled: boolean;
+  onSave: (next: number | null) => void;
+}) {
+  const [text, setText] = useState(value?.toString() ?? '');
+  // A save, or a change made elsewhere — the CLI — puts the stored value back.
+  useEffect(() => setText(value?.toString() ?? ''), [value]);
+  const parsed = text.trim() ? Number(text.trim().replace(/^\$/, '')) : null;
+  const bad = parsed !== null && !(Number.isFinite(parsed) && valid(parsed));
+  const commit = () => {
+    if (bad || parsed === value) return;
+    onSave(parsed);
+  };
+  return (
+    <label className={`flex items-center gap-1 rounded-md border bg-(--color-panel) px-2 font-mono text-[11px] text-(--color-muted) ${bad ? 'border-red-400/70' : 'border-(--color-edge)'}`} title={label}>
+      {prefix}
+      <input
+        aria-label={label}
+        value={text}
+        disabled={disabled}
+        placeholder="default"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
+        className="h-7 w-full min-w-0 bg-transparent text-(--color-text) outline-none placeholder:text-(--color-muted)/60"
+      />
+      {suffix}
+    </label>
   );
 }
 

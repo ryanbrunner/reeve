@@ -110,8 +110,8 @@ finished stage: it passes the gate and moves the card one column, where
 `card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
-exit status: 0 it finished and awaits review, 3 Claude is waiting on you, 4 the
-run failed, 5 nothing was running, 6 `--timeout` ran out. On 3, `card
+exit status: 0 it finished and awaits review, 3 Claude is waiting on you (or its
+run stopped at its budget or turn limit: a reply carries it on), 4 the run failed, 5 nothing was running, 6 `--timeout` ran out. On 3, `card
 questions` says what about — a plan's questions, the question a turn ended
 on, or a call the run wants to make — and `answer`, `reply` or `permit` is the
 way back.

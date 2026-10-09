@@ -82,6 +82,10 @@ export interface ApiRunSummary {
    */
   totalTokens: number | null;
   tokenBreakdown: ApiTokenBreakdown | null;
+  /** What it cost, its own share of a forked session; null until it has ended. Live spend is on `pulse`. */
+  costUsd: number | null;
+  /** What it was allowed to spend. */
+  budgetUsd: number | null;
   port: number | null;
   startedAt: number | null;
   finishedAt: number | null;
@@ -192,6 +196,9 @@ export interface ApiCard {
    */
   model: string | null;
   effort: EffortLevel | null;
+  /** This card's limits for every stage run, the same way. Null falls through. */
+  budgetUsd: number | null;
+  maxTurns: number | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
   /**
@@ -463,10 +470,14 @@ export function freeLaneColor(taken: readonly (string | null)[]): string {
   return LANE_COLORS.find((c) => !taken.includes(c)) ?? LANE_COLORS[0];
 }
 
-/** A model and effort for one stage's runs. Null means "not set here": the next layer down decides. */
+/** A model, effort and limits for one stage's runs. Null means "not set here": the next layer down decides. */
 export interface StageRunDefault {
   model: string | null;
   effort: EffortLevel | null;
+  /** Dollars a run may spend before the SDK stops it. */
+  budgetUsd: number | null;
+  /** API calls one loop may make, the lead's turn or a worker's run, before the SDK stops it. */
+  maxTurns: number | null;
 }
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
@@ -492,7 +503,7 @@ export interface ApiSettings {
 /** A stage left out of `stageDefaults` is left as it was, so saving one row cannot wipe the others. */
 export interface UpdateSettingsBody {
   maxConcurrentRuns?: number;
-  stageDefaults?: Partial<StageRunDefaults>;
+  stageDefaults?: Partial<Record<RunnableStage, Partial<StageRunDefault>>>;
   /**
    * The VIBES MODE switch. A boolean rather than the timestamp it sets, because
    * "on" must not silently restart the clock — flipping it while it is already

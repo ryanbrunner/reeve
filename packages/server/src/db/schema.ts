@@ -192,6 +192,10 @@ export const card = sqliteTable(
     // Settings default for the stage, then to the stage module's own value.
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
+    // Its limits too, the same way: a big card can be given room for its runs
+    // without raising them for every card on the board.
+    budgetUsd: real('budget_usd'),
+    maxTurns: integer('max_turns'),
     // Whether Planning draws its own mockups for the states this card changes.
     // The `true` default only filled in the cards that predate the column, and
     // they keep it. New cards are opt-in, decided by `createCard`: changing the

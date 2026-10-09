@@ -22,7 +22,7 @@ for (const r of db.select().from(runTable).all()) {
   if (r.kind !== 'claude' || r.task || r.parentRunId) continue;
   const stage = stageDefinition(r.stage as never);
   if (!stage) continue;
-  const pulse = new Pulse(stage as never, 0, new Set());
+  const pulse = new Pulse(stage.maxTurns ?? null, 0, new Set());
   // Every message priced, never reset, to set against the SDK's last total.
   const seen = new Map<string, number>();
   let lastExact = 0;

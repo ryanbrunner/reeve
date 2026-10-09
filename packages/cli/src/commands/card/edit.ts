@@ -16,14 +16,30 @@ const FIELD_NAMES: Record<keyof UpdateCardBody, string> = {
   repoId: 'repo',
   model: 'model',
   effort: 'effort',
+  budgetUsd: 'budget',
+  maxTurns: 'max-turns',
   generateMockups: 'mockups',
 };
 
+/** A limit as a number, or `default` to clear it; anything else is a usage error. */
+function limit(flag: string, value: string | undefined, integer: boolean): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'default') return null;
+  const n = Number(value.replace(/^\$/, ''));
+  if (!Number.isFinite(n) || n <= 0 || (integer && !Number.isInteger(n))) {
+    throw usageError(`--${flag} takes ${integer ? 'a whole number' : 'an amount in dollars'}, or \`default\``);
+  }
+  return n;
+}
+
 export const edit: Command = {
   usage: `  reeve card edit <card> [--title T] [--body TEXT | --body-file PATH|-] [--repo <repo> | --no-repo]
-                  [--model M] [--effort E] [--mockups | --no-mockups] [--ref PATH|URL]... [--json]
-      Change a card, or a project's brief. --model and --effort set this card's own, above the
-      stage's default in Settings; \`default\` clears them. --ref pins another file or link to it.
+                  [--model M] [--effort E] [--budget USD] [--max-turns N] [--mockups | --no-mockups]
+                  [--ref PATH|URL]... [--json]
+      Change a card, or a project's brief. --model, --effort, --budget and --max-turns set this
+      card's own, above the stage's default in Settings; \`default\` clears them. --budget is the
+      dollars one run may spend, --max-turns the calls one loop may make, before the SDK stops it.
+      --ref pins another file or link to it.
       A project's first brief is split into tasks by Claude as soon as it is saved, as on the board.`,
 
   async run(args) {
@@ -38,6 +54,8 @@ export const edit: Command = {
           'no-repo': { type: 'boolean' },
           model: { type: 'string' },
           effort: { type: 'string' },
+          budget: { type: 'string' },
+          'max-turns': { type: 'string' },
           mockups: { type: 'boolean' },
           'no-mockups': { type: 'boolean' },
           ref: { type: 'string', multiple: true },
@@ -59,6 +77,8 @@ export const edit: Command = {
       repoId: values['no-repo'] ? null : values.repo === undefined ? undefined : findRepo(board, values.repo).id,
       model: orDefault(values.model),
       effort: orDefault(values.effort),
+      budgetUsd: limit('budget', values.budget, false),
+      maxTurns: limit('max-turns', values['max-turns'], true),
       generateMockups: values.mockups ? true : values['no-mockups'] ? false : undefined,
     };
     const changes = Object.values(patch).some((v) => v !== undefined);
