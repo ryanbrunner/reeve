@@ -62,6 +62,8 @@ export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActi
  */
 const STARTABLE: readonly CardActivity[] = ['idle', 'error'];
 
-export function canStartRun(card: { stage: Stage; activity: CardActivity }): boolean {
+export function canStartRun(card: { stage: Stage; activity: CardActivity; mergedAt?: unknown }): boolean {
+  // A merged card's work has landed; Release has nothing left to prepare.
+  if (card.mergedAt != null) return false;
   return isRunnable(card.stage) && STARTABLE.includes(card.activity);
 }

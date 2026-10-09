@@ -34,8 +34,8 @@ export type Blocked = { status: 409; error: string; detail: string };
  * refusal the routes pass through, so the 409 names the blocking cards.
  *
  * `#n` and the title, since numbers are only unique within a repo, with the
- * column each is in so the sentence says how far off it is. A bare "(Done)"
- * would read as a contradiction beside "unfinished", so one in Done says what
+ * column each is in so the sentence says how far off it is. A bare "(Release)"
+ * would read as a contradiction beside "unfinished", so one in Release says what
  * it is waiting for.
  */
 export function blockedStart(db: Db, card: Card): Blocked | null {
@@ -48,8 +48,8 @@ export function blockedStart(db: Db, card: Card): Blocked | null {
 function where(c: Card): string {
   const column = STAGE_LABELS[c.stage as Stage];
   if (awaitingMerge(c)) return `${column}, PR not merged`;
-  if (c.stage === 'done' && !c.archivedAt && isOpeningPr(c.id)) return `${column}, PR opening`;
-  if (c.stage === 'done' && !c.archivedAt) return `${column}, no pull request yet`;
+  if (c.stage === 'release' && !c.archivedAt && isOpeningPr(c.id)) return `${column}, PR opening`;
+  if (c.stage === 'release' && !c.archivedAt) return `${column}, no pull request yet`;
   return column;
 }
 

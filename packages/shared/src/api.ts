@@ -116,7 +116,7 @@ export interface ApiCard {
   mergedSha: string | null;
   /** Set for those, and for a card whose pull request has merged on GitHub. */
   mergedAt: number | null;
-  /** The pull request the branch was opened as, once Done has pushed it. */
+  /** The pull request the branch was opened as, once Release has pushed it. */
   prUrl: string | null;
   prNumber: number | null;
   prOpenedAt: number | null;
@@ -128,7 +128,7 @@ export interface ApiCard {
   openingPr: boolean;
   /**
    * GitHub last said the pull request cannot merge for conflicts with its base.
-   * Only ever set on a Done card with an open pull request, and only by
+   * Only ever set on a Release card with an open pull request, and only by
    * GitHub's own verdict, so it can lag a push by one sync.
    */
   prConflicting: boolean;
@@ -224,7 +224,7 @@ export interface ApiCard {
   latestRun: ApiRunSummary | null;
   /**
    * The card has an In Progress run that finished, which is what Testing and
-   * Done need before a card may enter them (see `stageEntryRefusal`). Derived
+   * Release need before a card may enter them (see `stageEntryRefusal`). Derived
    * from the runs, never stored. `latestRun` cannot answer it: it only ever
    * holds the current stage's run, and the question is asked of cards that are
    * not in In Progress.
@@ -244,12 +244,12 @@ export interface ApiCardLink {
   repoName: string | null;
   title: string;
   /**
-   * It has stopped holding anything up: in Done with its pull request merged or
+   * It has stopped holding anything up: in Release with its pull request merged or
    * with none, or archived. Worked out on the server; nothing else decides it.
    */
   done: boolean;
   /**
-   * In Done, and not `done` only because its pull request has not merged. Lets
+   * In Release, and not `done` only because its pull request has not merged. Lets
    * a chip say "PR not merged" rather than suggest the work is still going on.
    */
   awaitingMerge: boolean;
@@ -268,10 +268,10 @@ export interface ApiProject {
   /** Live tasks under it. */
   taskCount: number;
   /**
-   * Tasks under it that were archived from Done: finished, then swept off the
+   * Tasks under it that were archived from Release: finished, then swept off the
    * board. The lane's progress bar counts its live tasks from the board's own
-   * cards and adds these to Done, because the merge sweep archives a merged
-   * task ten minutes after it lands, and without them the Done segment would
+   * cards and adds these to Release, because the merge sweep archives a merged
+   * task ten minutes after it lands, and without them the Release segment would
    * grow at each merge and shrink again once the sweep ran. A task archived
    * from any other column was dropped on purpose and is counted nowhere.
    */
@@ -513,7 +513,7 @@ export interface MoveCardBody {
 }
 
 /**
- * Archiving a project takes its Done cards with it. Its open cards are
+ * Archiving a project takes its Release cards with it. Its open cards are
  * refused, not taken: they are work still going on. `detachOpen` is the
  * caller saying it has seen them, and moves them to No project instead.
  * Ignored for a task.
@@ -531,7 +531,7 @@ export interface SuggestionDecisionBody {
   decision: 'accepted' | 'rejected';
 }
 
-/** The counts only for a project: how many Done cards went with it, and how many open ones were moved out. */
+/** The counts only for a project: how many Release cards went with it, and how many open ones were moved out. */
 export interface ArchiveCardResponse {
   ok: true;
   archived?: number;

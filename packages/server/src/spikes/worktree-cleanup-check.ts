@@ -47,9 +47,9 @@ const repo = createRepo(db, {
   teardownCommand, finishCommand: null, laneColor: null,
 });
 
-/** A Done card with a real worktree, one commit on its branch, and Reeve's own `.reeve/` beside it. */
+/** A Release card with a real worktree, one commit on its branch, and Reeve's own `.reeve/` beside it. */
 async function card(title: string, opts: { merged?: boolean; archived?: boolean; dirty?: boolean } = {}) {
-  const c = createCard(db, { title, repoId: repo.id, stage: 'done' });
+  const c = createCard(db, { title, repoId: repo.id, stage: 'release' });
   const { path } = await ensureWorktree(db, writer, c, repo);
   writeFileSync(join(path, `${c.number}.txt`), `${title}\n`);
   g(path, 'add', `${c.number}.txt`);
@@ -130,7 +130,7 @@ note('starting its stage', `${run.status} ${run.json.error}`);
 check('starting its stage is refused the same way', run.status === 409 && run.json.error === 'already merged');
 const refile = await call<{ error: string }>('PATCH', `/api/cards/${clean.id}`, { repoId: null });
 check('moving it to another repo is refused', refile.status === 400);
-db.update(cardTable).set({ stage: 'done' }).where(eq(cardTable.id, clean.id)).run();
+db.update(cardTable).set({ stage: 'release' }).where(eq(cardTable.id, clean.id)).run();
 archiveCard(db, clean.id);
 await cleanUpArchivedWorktrees(db, writer);
 check('archived again, nothing more happens', removals(clean.id).length === 1);

@@ -52,7 +52,7 @@ const USAGE = `Usage: reeve <command> [options]
   reeve card worktree|pr|server|diff|commits|resolve-conflicts|merge [<card>]
       A card's work, for a caller not looking at its rail: the worktree's path,
       the pull request, the dev server's URL, the diff, the commits. With no
-      card, the one whose worktree you are in. merge lands a Done card's pull
+      card, the one whose worktree you are in. merge lands a Release card's pull
       request on GitHub once GitHub says it merges cleanly.
   reeve serve [--port N] [--no-open] [--db F] [--assets D] [--max-concurrent N]
       Open the board, starting Reeve first if nothing is listening. Each

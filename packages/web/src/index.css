@@ -75,7 +75,7 @@
      is otherwise left to utilities, because these name a column rather than a
      shade: every hue a card can wear already says something, and a sky In
      Progress segment would read as a running card. So the open columns step
-     from dark to light as work moves right, and Done alone takes a colour,
+     from dark to light as work moves right, and Release alone takes a colour,
      merged's green. The shades alone cannot name a column, which is why the
      bar's tooltip does. */
   --color-stage-backlog: #475569;

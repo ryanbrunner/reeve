@@ -100,12 +100,12 @@ task('Saved count in the header', 'testing', web.id, saved.id, {
 // Merged now, so it stays on the board until the sweep's ten minutes are up,
 // and the bar should read the same after as before.
 const merged = (title: string) => {
-  const c = task(title, 'done', api.id, saved.id, { claude: true });
+  const c = task(title, 'release', api.id, saved.id, { claude: true });
   db.update(card).set({ mergedAt: new Date() }).where(eq(card.id, c.id)).run();
   return c;
 };
 merged('Saved items API contract');
-// Finished and already swept away: counted in Done from the archive alone.
+// Finished and already swept away: counted in Release from the archive alone.
 archiveCard(db, merged('Saved items table migration').id, { reason: 'merged' });
 
 const checkout = project(
@@ -117,7 +117,7 @@ task('Remember the last shipping address', 'backlog', api.id, checkout.id);
 task('One-page checkout layout', 'testing', web.id, checkout.id);
 
 task('Fix the flaky tax rounding test', 'backlog', api.id, null);
-task('Bump the image CDN client', 'done', web.id, null);
+task('Bump the image CDN client', 'release', web.id, null);
 task('Typo in the footer', 'planning', web.id, null);
 
 console.log('[reeve] seeded two projects and their tasks, one of them archived, plus three cards under no project');

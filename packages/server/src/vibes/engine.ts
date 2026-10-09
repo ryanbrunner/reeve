@@ -90,7 +90,7 @@ const lastResolveAttempt = new Map<string, number>();
  * whether that pull request never conflicted or a run just pushed a fix for
  * it — so a repo where conflicts are routine, from cards landing on each
  * other's heels, is not what this counts. What it stops is a card stuck on
- * one conflict no run resolves, which past this many tries is left in Done
+ * one conflict no run resolves, which past this many tries is left in Release
  * for a person instead of spending another $5 run every five minutes.
  */
 const MAX_RESOLVE_ATTEMPTS = 3;
@@ -130,7 +130,7 @@ export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
       if (!repo) continue;
       await advance(db, writer, card, repo);
     }
-    // After the cards, so a repo whose last card just reached Done is asked
+    // After the cards, so a repo whose last card just reached Release is asked
     // what comes next on the same pass. It reads the switch for itself.
     await thinkOfIdeas(db, writer);
   } finally {
@@ -142,17 +142,37 @@ export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
 async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<void> {
   const stage = card.stage as Stage;
 
-  // Done: open the pull request, resolve whatever it conflicts on, then land
-  // it. Entering Done already tries to open one on its own; this is what makes
-  // it keep trying, what takes the Resolve conflicts button's place, and what
+  // Release: open the pull request, let the Release conversation write it,
+  // resolve whatever it conflicts on, then land it. Entering Release already
+  // opens one and starts the conversation on its own; this is what makes it
+  // keep trying, what takes the Resolve conflicts button's place, and what
   // merges it.
-  if (stage === 'done') {
+  if (stage === 'release') {
     if (card.mergedAt || isOpeningPr(card.id)) return;
     if (!card.prUrl) {
       maybeOpenPullRequest(db, card, repo);
       return;
     }
     if (isResolvingConflicts(card.id)) return;
+    // The Release conversation, which writes what the pull request says:
+    // started once, waited for while it works, and answered for nobody when
+    // it asks. It is not waited on to succeed — a release that failed to
+    // write its description is no reason to leave working code unmerged, and
+    // starting it again every sweep would spend a run each time.
+    const { activity, run } = cardActivity(db, card);
+    if (activity === 'running' || isStartingStage(card.id)) return;
+    if (!run) {
+      await startStage(db, writer, card, repo);
+      return;
+    }
+    if (activity === 'needs_input') {
+      if (run.status === 'asking') settleForNobody(card);
+      else if (run.status === 'awaiting_reply' && nobodyRepliesBehind(db, run) < MAX_NOBODY_REPLIES) {
+        await replyForNobody(db, writer, card, run);
+        return;
+      }
+      if (run.status === 'asking') return;
+    }
     if (isPrConflicting(card)) {
       const prUrl = card.prUrl;
       if ((resolveAttempts.get(prUrl) ?? 0) >= MAX_RESOLVE_ATTEMPTS) return;
@@ -209,7 +229,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // The gate, waived. `approveStage` records the verdict, moves the card on
     // and starts its next stage — the same three things the button does. Not
     // the rule under the gate: a Testing card that was never built is left for
-    // a person, as the button would refuse it, rather than pushed empty to Done.
+    // a person, as the button would refuse it, rather than pushed empty to Release.
     // Nor the order the work has to happen in: a card waiting on another stays,
     // reviewed or not, until what it waits on has cleared. Nor a card a person
     // has just rejected, whose revision is waiting on the tree's setup and
@@ -250,7 +270,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
         moveOn(db, writer, card, repo);
         return;
       }
-      if (canStartRun({ stage, activity })) await startStage(db, writer, card, repo);
+      if (canStartRun({ stage, activity, mergedAt: card.mergedAt })) await startStage(db, writer, card, repo);
       return;
 
     case 'running':
@@ -278,7 +298,7 @@ function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
   // Except a card waiting on another that has not cleared. That is not one of
   // Reeve's human gates but the order the work has to happen in, and taking
   // the person out of the loop does not change it. It goes on the first sweep
-  // after its dependency's pull request merges — or after it reaches Done, if
+  // after its dependency's pull request merges — or after it reaches Release, if
   // it has none. Here rather than beside each caller, so a Planning card left
   // with no plan in flight is held the same as one in Backlog.
   if (blockedMove(db, card, to)) return;

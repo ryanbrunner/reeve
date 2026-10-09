@@ -73,7 +73,7 @@ export function useVibesLane(cards: ApiCard[]) {
     const byCol = STAGES.map((stage) =>
       cards.filter((c) => c.stage === stage).sort((a, b) => a.position - b.position),
     );
-    // Per column, not per lane: a full Done column must not squash a Backlog of
+    // Per column, not per lane: a full Release column must not squash a Backlog of
     // three into the same fan.
     const steps = byCol.map((a) => (a.length <= 3 ? STEP : Math.max(MIN_STEP, SPAN / (a.length - 1))));
     // As tall as its deepest column needs, and never shorter than the four-card

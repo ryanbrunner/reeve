@@ -1,6 +1,6 @@
 import { conflictResolutionOutput, type ConflictResolutionOutput } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { cardEventsFor, getCard, getRun, getSettings, insertCardEvent, liveTaskRun } from './db/queries.js';
+import { cardEventsFor, getCard, getRun, getSettings, insertCardEvent, liveStageRun, liveTaskRun } from './db/queries.js';
 import type { Card, Repo } from './db/schema.js';
 import { fetchBranch, pullRequestState, pushBranch, type PullRequestState } from './git/github.js';
 import {
@@ -49,7 +49,7 @@ interface MergeFacts {
 const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : String(e));
 
 /**
- * Merge a Done card's base branch into its branch and push the result to its
+ * Merge a Release card's base branch into its branch and push the result to its
  * pull request, with Claude resolving whatever conflicts in between.
  *
  * The server owns git on both sides of the run. It fetches and starts the
@@ -61,7 +61,7 @@ const reason = (e: unknown) => (e instanceof GitError ? e.stderr || e.message : 
  * is pushed straight away and no run is started.
  *
  * The card holds the resolving lock from here until the push or the rollback,
- * which is what stops a drag into Done pushing a branch halfway through a merge.
+ * which is what stops a drag into Release pushing a branch halfway through a merge.
  *
  * `actor` names who pressed the button, for the clean path only: a run that
  * actually resolves something is always Claude's work regardless of who asked
@@ -82,7 +82,7 @@ export async function resolveConflicts(
   const refuse = (status: 400 | 409 | 429 | 502, error: string, detail: string): ResolveResult =>
     ({ ok: false, status, error, detail });
 
-  if (card.stage !== 'done') return refuse(400, 'only a Done card’s conflicts are resolved', card.stage);
+  if (card.stage !== 'release') return refuse(400, 'only a Release card’s conflicts are resolved', card.stage);
   if (card.mergedAt) return refuse(409, 'already merged', card.prUrl ?? `#${card.number}`);
   const { branchName: branch, worktreePath, prUrl } = card;
   if (!prUrl) return refuse(400, 'no pull request', 'conflicts are resolved against an open pull request');
@@ -90,6 +90,11 @@ export async function resolveConflicts(
   if (isOpeningPr(card.id)) return refuse(409, 'a pull request is being opened', `#${card.number}`);
   if (isMergingPr(card.id)) return refuse(409, 'the pull request is being merged', prUrl);
   if (liveTaskRun(db, card.id, RESOLVE_CONFLICTS_TASK)) return refuse(409, 'already resolving conflicts', `#${card.number}`);
+  // The Release conversation works in the same tree. A merge under it would
+  // change the files it is reading and committing; it goes first, and this
+  // waits for it.
+  const stageRun = liveStageRun(db, card.id);
+  if (stageRun) return refuse(409, 'Claude is working on the release', 'resolve the conflicts once its run has ended');
   // Checked before touching git as well as after, so a refusal here leaves nothing to undo.
   const full = atCap(db);
   if (full) return refuse(429, 'too many concurrent runs', full);
@@ -178,7 +183,7 @@ export async function resolveConflicts(
     // Read again, and nothing awaited from here to the run: the card may have
     // been moved or archived, and the cap filled, while git worked.
     const fresh = getCard(db, card.id);
-    const moved = !fresh || fresh.archivedAt ? 'the card was archived' : fresh.stage !== 'done' ? 'the card left Done' : null;
+    const moved = !fresh || fresh.archivedAt ? 'the card was archived' : fresh.stage !== 'release' ? 'the card left Release' : null;
     const nowFull = atCap(db);
     if (moved || nowFull || !fresh) {
       await resetTo(path, facts.before);
@@ -190,7 +195,7 @@ export async function resolveConflicts(
     const handle = startRun({
       db, writer, card: fresh, repo,
       stage: resolveConflictsTask({ base, conflicts: merge.conflicts }) as never,
-      runStage: 'done',
+      runStage: 'release',
       worktreePath: path,
     });
     handedOff = true;
@@ -355,7 +360,7 @@ function record(
   meta: Record<string, unknown>,
 ): void {
   try {
-    insertCardEvent(db, { cardId, actor, kind, stage: 'done', runId, body, meta });
+    insertCardEvent(db, { cardId, actor, kind, stage: 'release', runId, body, meta });
   } catch (e) {
     // The card itself may be gone; there is nowhere left to say so.
     console.error(`[reeve] ${kind} for card ${cardId} went unrecorded: ${String(e)}`);

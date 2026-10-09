@@ -110,11 +110,11 @@ export function inVibes(db: Db, c: Card): boolean {
 /**
  * A project's task that finished and was then archived, by the merge sweep or
  * with its project: what `archivedDoneCount` counts. `archiveCard` leaves the
- * stage alone, so an archived card still in Done is one that finished, and one
+ * stage alone, so an archived card still in Release is one that finished, and one
  * archived from any other column was dropped on purpose. One definition for
  * the lane and the modal, so the two can never count differently.
  */
-const isArchivedDone = and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'done'), isNotNull(card.projectId));
+const isArchivedDone = and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'release'), isNotNull(card.projectId));
 
 /**
  * The board's lanes: every live project, oldest first, with its default repo's
@@ -154,7 +154,7 @@ export function boardProjects(db: Db) {
 /**
  * One project's `archivedDoneCount`, whether or not the project is live. An
  * archived project is no lane, so `boardProjects` has no row for it, and its
- * modal asks here instead. Archiving a project archives its Done tasks with
+ * modal asks here instead. Archiving a project archives its Release tasks with
  * their `projectId` kept, so they count with the ones swept before it; its
  * open tasks went to No project, and do not.
  */
@@ -192,7 +192,7 @@ export function cardsSuggestedBy(db: Db, cardId: string): Card[] {
 
 /**
  * Every live card with a pull request GitHub might yet merge, beside the repo
- * to ask from. Not filtered on stage: a card dragged back out of Done for
+ * to ask from. Not filtered on stage: a card dragged back out of Release for
  * another round keeps its pull request, and it can be merged from there.
  */
 export function cardsAwaitingMerge(db: Db) {
@@ -261,20 +261,20 @@ export function cardsInRepo(db: Db, repoId: string): Card[] {
 }
 
 /**
- * The repo's live tasks that are still to be finished: anywhere but Done. A
+ * The repo's live tasks that are still to be finished: anywhere but Release. A
  * blank card someone has not typed into yet is not work, and is left out.
  */
 export function openCardsInRepo(db: Db, repoId: string): Card[] {
   return db
     .select()
     .from(card)
-    .where(and(isTask, eq(card.repoId, repoId), isNull(card.archivedAt), ne(card.stage, 'done')))
+    .where(and(isTask, eq(card.repoId, repoId), isNull(card.archivedAt), ne(card.stage, 'release')))
     .all()
     .filter((c) => !isPlaceholderCard(c));
 }
 
 /**
- * The repo's task that most recently arrived in Done after a moment, archived
+ * The repo's task that most recently arrived in Release after a moment, archived
  * or not, if it is still there. Read off the events rather than the live
  * cards, because a merged card is archived a few minutes later and the card
  * that arrived before it must not become "the latest" when it goes.
@@ -289,14 +289,14 @@ export function latestIntoDone(db: Db, repoId: string, since: Date): Card | unde
       eq(card.repoId, repoId),
       gt(cardEvent.createdAt, since),
       or(
-        and(eq(cardEvent.kind, 'moved'), eq(cardEvent.toStage, 'done')),
-        and(eq(cardEvent.kind, 'created'), eq(cardEvent.stage, 'done')),
+        and(eq(cardEvent.kind, 'moved'), eq(cardEvent.toStage, 'release')),
+        and(eq(cardEvent.kind, 'created'), eq(cardEvent.stage, 'release')),
       ),
     ))
     .orderBy(desc(cardEvent.createdAt), desc(sql`"card_event"."rowid"`))
     .limit(1)
     .get();
-  return row?.card.stage === 'done' ? row.card : undefined;
+  return row?.card.stage === 'release' ? row.card : undefined;
 }
 
 export function cardsInStage(db: Db, stage: CardStage): Card[] {
@@ -767,11 +767,11 @@ export function restoreCard(db: Db, id: string) {
  */
 export function liveTasksInProject(db: Db, projectId: string): { done: Card[]; open: Card[] } {
   const live = tasksInProject(db, projectId).filter((t) => !t.archivedAt);
-  return { done: live.filter((t) => t.stage === 'done'), open: live.filter((t) => t.stage !== 'done') };
+  return { done: live.filter((t) => t.stage === 'release'), open: live.filter((t) => t.stage !== 'release') };
 }
 
 /**
- * A project off the board, and its finished work with it. Its Done cards are
+ * A project off the board, and its finished work with it. Its Release cards are
  * archived as `reason: 'project'` and keep their `projectId`, which is how
  * `restoreProject` knows to bring them back. Its open cards are still work,
  * so they stay on the board under No project, each with a `left_project`
@@ -803,7 +803,7 @@ export function archiveProject(db: Db, id: string) {
 }
 
 /**
- * The project back as a lane, with the Done cards that went when it did.
+ * The project back as a lane, with the Release cards that went when it did.
  * Only those: a card archived on its own, before or since, is left in the
  * Archive, and a card moved to No project is left there, since it may have
  * joined another project in the meantime. Which cards went with it is read
@@ -1183,20 +1183,20 @@ export function deleteRef(db: Db, id: string) {
 // ---------------------------------------------------------------------------
 
 /**
- * Whether a dependency is still holding up whatever waits on it: not in Done,
- * or in Done with real work that has not landed on the default branch — and
+ * Whether a dependency is still holding up whatever waits on it: not in Release,
+ * or in Release with real work that has not landed on the default branch — and
  * never once archived.
  *
- * Done is not enough while the pull request is open, or not even opened yet.
+ * Release is not enough while the pull request is open, or not even opened yet.
  * What waits on a card builds on its code, and a worktree is cut from main:
  * start the dependent before the merge and it is built without the very thing
  * it waited for. `prUrl` covers one already open; `branchName` is set once,
  * the moment a card's first worktree is made, and never cleared again —
  * including by a failed or still-retrying attempt to open the pull request —
  * so a card with either still has work that has not landed until `mergedAt`
- * says otherwise. A Done card with neither never ran a stage and has nothing
+ * says otherwise. A Release card with neither never ran a stage and has nothing
  * to land, so it clears the moment it arrives. The column is read first, so a
- * merged card dragged back out of Done blocks again.
+ * merged card dragged back out of Release blocks again.
  *
  * A pull request closed without merging keeps blocking, because nothing here
  * records a close — only `mergedAt`. Archiving the dependency is the way out.
@@ -1205,7 +1205,7 @@ export function deleteRef(db: Db, id: string) {
  *
  * This is also what closes the race `blockersOf` used to patch with in-memory
  * state: the few seconds (or, when `gh` keeps failing, far longer) between a
- * card entering Done and its pull request existing, which used to read here as
+ * card entering Release and its pull request existing, which used to read here as
  * "nothing to land" and let a dependent start on work that had not gone out.
  *
  * An archived dependency does not hold anything up. Archiving is how a card is
@@ -1219,14 +1219,14 @@ export function deleteRef(db: Db, id: string) {
  */
 export function stillBlocking(c: Card): boolean {
   if (c.archivedAt) return false;
-  if (c.stage !== 'done') return true;
+  if (c.stage !== 'release') return true;
   if (c.mergedAt) return false;
   return c.prUrl !== null || c.branchName !== null;
 }
 
-/** Blocking only for its pull request: in Done, on the board, and not merged yet. */
+/** Blocking only for its pull request: in Release, on the board, and not merged yet. */
 export function awaitingMerge(c: Card): boolean {
-  return c.stage === 'done' && !c.archivedAt && c.prUrl !== null && c.mergedAt === null;
+  return c.stage === 'release' && !c.archivedAt && c.prUrl !== null && c.mergedAt === null;
 }
 
 /** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */

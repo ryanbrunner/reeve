@@ -147,7 +147,7 @@ check('D HEAD unchanged', head(d.path) === ownD);
 check('D has no merge in progress', !ok(d.path, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'));
 check('D tree is clean', run(d.path, 'status', '--porcelain') === '');
 check('D baseSha unchanged', getCard(db, d.card.id)!.baseSha === d.card.baseSha);
-check('D note points at Done', notesOf(d.card).some((b) => /conflicted in shared\.txt.*Done/.test(b)));
+check('D note points at Release', notesOf(d.card).some((b) => /conflicted in shared\.txt.*Release/.test(b)));
 
 // --- 6. Origin unreachable: skipped with the reason ------------------------
 const e = await cardWithTree('Offline');

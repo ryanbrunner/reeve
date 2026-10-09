@@ -28,6 +28,9 @@ import { clock } from './format.js';
  */
 export type StageTab = RunnableStage;
 
+/** The side panel tabs a submission can open. */
+export type Panel = 'plan' | 'changes' | 'preview' | 'release';
+
 type StageState = 'done' | 'running' | 'input' | 'review' | 'error' | 'idle' | 'none';
 
 const DOT: Record<StageState, string> = {
@@ -98,7 +101,7 @@ export function ConversationThread({ detail, conversation, tab, onOpenPanel }: {
   conversation: ApiConversation | null;
   tab: StageTab;
   /** A submission's "Open" goes to the panel that shows it. */
-  onOpenPanel: (panel: 'plan' | 'changes' | 'preview') => void;
+  onOpenPanel: (panel: Panel) => void;
 }) {
   const runs = conversation?.stages.find((s) => s.stage === tab)?.runs ?? [];
   const scroller = useRef<HTMLDivElement>(null);
@@ -231,7 +234,7 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
   first: boolean;
   stage: StageTab;
   live: boolean;
-  onOpenPanel: (panel: 'plan' | 'changes' | 'preview') => void;
+  onOpenPanel: (panel: Panel) => void;
 }) {
   const groups = group(run.items);
   const ending = ENDINGS[run.status];
@@ -284,7 +287,7 @@ function Item({ item, detail, live, stage, onOpenPanel, continued = false }: {
   detail: CardDetail;
   live: boolean;
   stage: StageTab;
-  onOpenPanel: (panel: 'plan' | 'changes' | 'preview') => void;
+  onOpenPanel: (panel: Panel) => void;
   continued?: boolean;
 }) {
   switch (item.kind) {
@@ -455,13 +458,20 @@ function ToolRow({ tool, pending, runId }: { tool: ToolItem; pending: boolean; r
   );
 }
 
+const SUBMITTED: Record<StageTab, { what: string; panel: Panel }> = {
+  planning: { what: 'Plan', panel: 'plan' },
+  in_progress: { what: 'Implementation', panel: 'changes' },
+  testing: { what: 'Test report', panel: 'preview' },
+  release: { what: 'Pull request', panel: 'release' },
+};
+
 function Submitted({ item, stage, onOpenPanel }: {
   item: Extract<ConversationItem, { kind: 'submitted' }>;
   stage: StageTab;
-  onOpenPanel: (panel: 'plan' | 'changes' | 'preview') => void;
+  onOpenPanel: (panel: Panel) => void;
 }) {
-  const what = stage === 'planning' ? 'Plan' : stage === 'in_progress' ? 'Implementation' : 'Test report';
-  const panel = stage === 'planning' ? 'plan' : stage === 'in_progress' ? 'changes' : 'preview';
+  const what = SUBMITTED[stage].what;
+  const panel = SUBMITTED[stage].panel;
   return (
     <div className="ml-8 rounded-lg border border-(--color-activity-review-border) bg-[linear-gradient(var(--color-activity-review-fill),var(--color-activity-review-fill)),var(--color-card-core)] px-3.5 py-3 shadow-[inset_0_0_14px_0_#00bc7d26]">
       <div className="flex items-center gap-2 font-mono text-[11px]/4 tracking-[0.06em] text-(--color-activity-review-mark) uppercase">

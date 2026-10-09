@@ -150,7 +150,7 @@ export function CardFace({
             PR{card.prNumber != null && ` #${card.prNumber}`}
           </a>
         )}
-        {/* GitHub's verdict, which the server only has for a Done card's open pull request. */}
+        {/* GitHub's verdict, which the server only has for a Release card's open pull request. */}
         {!vibes && (card.prConflicting || card.resolvingConflicts) && (
           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-amber-300">
             {card.resolvingConflicts ? 'resolving…' : 'conflicts'}
@@ -174,7 +174,7 @@ export function CardFace({
         {/* Backlog runs nothing, so these are never beside Run. */}
         {suggested && !dragging && <SuggestionButtons card={card} />}
         {/* Never beside Run: that is for a column Claude works in, and this is
-            Done's alone. Gone while a push or a resolution is changing the
+            Release's alone. Gone while a push or a resolution is changing the
             branch GitHub's verdict was about. */}
         {!vibes && !dragging && (card.prMergeable || card.mergingPr) && !card.openingPr && !card.resolvingConflicts && (
           <MergeButton card={card} />
@@ -211,7 +211,7 @@ const NAMED = 3;
 function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
   const open = card.dependsOn.filter((d) => !d.done);
   const ref = (d: ApiCardLink) => refFrom(card, d);
-  // A Done card whose pull request is still open is not done here, and saying
+  // A Release card whose pull request is still open is not done here, and saying
   // so plainly keeps it from reading as work still under way.
   const status = (d: ApiCardLink) => (d.done ? ' (done)' : d.awaitingMerge ? ' (PR not merged)' : '');
   const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${status(d)}`).join('\n');
@@ -320,7 +320,7 @@ function vibesChip(card: ApiCard): string {
       return 'no tests';
     case 'testing':
       return 'auto-approved';
-    case 'done':
+    case 'release':
       return card.mergedAt != null ? 'merged → main' : card.prUrl ? 'merging → main' : 'straight to main';
   }
 }

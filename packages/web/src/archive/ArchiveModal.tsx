@@ -20,7 +20,7 @@ export function ArchiveModal({ onClose, onOpen }: { onClose: () => void; onOpen:
   const { data, isLoading, error } = useQuery({ queryKey: ['archived'], queryFn: api.archivedCards });
   const all = data ?? [];
   // Apart, because a project is not one more card: restoring it brings back
-  // the Done cards that went with it, and it is the lane they are shown under.
+  // the Release cards that went with it, and it is the lane they are shown under.
   const projects = all.filter((c) => c.kind === 'project');
   const cards = all.filter((c) => c.kind === 'task');
   // A card's project is named only when that project is here too. A live one

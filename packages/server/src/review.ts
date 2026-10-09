@@ -2,7 +2,7 @@ import { nextStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import { cardsInStage, insertCardEvent, insertReview, moveCard } from './db/queries.js';
 import type { Card, CardEventActor, Repo, Run } from './db/schema.js';
-import { maybeOpenPullRequest } from './pullRequest.js';
+import { enterRelease } from './pullRequest.js';
 import type { EventWriter } from './runs/events.js';
 import { sendToCard } from './conversation.js';
 import type { MessageSource } from './runs/claude.js';
@@ -37,7 +37,7 @@ export function approveStage(
   // `claude`, so the card's history — and the count of approvals a human
   // actually gave — stays true.
   const actor = opts.actor ?? 'human';
-  // Done is the end of the board; approving there is a verdict with nowhere
+  // Release is the end of the board; approving there is a verdict with nowhere
   // to go, so the card stays put rather than the request failing.
   const to = nextStage(card.stage as Stage) ?? card.stage;
   insertReview(db, {
@@ -55,7 +55,7 @@ export function approveStage(
     // followed by a move rather than one conflated entry.
     const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, actor);
     // The same automatic start, or pull request, that a drag there gets.
-    if (moved?.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+    if (moved?.stage === 'release') enterRelease(db, writer, moved, repo);
     else if (moved) maybeStartStage(db, writer, moved, repo);
   }
   return { fromStage: card.stage, toStage: to, moved: to !== card.stage };

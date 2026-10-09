@@ -44,14 +44,14 @@ const repo = (name: string) =>
 // Events are compared to the switch's moment by the millisecond, so make sure
 // the ones that are meant to come after it do.
 const tick = () => new Promise((r) => setTimeout(r, 5));
-const finish = (id: string) => moveCard(db, id, 'done', 0, 'claude')!;
+const finish = (id: string) => moveCard(db, id, 'release', 0, 'claude')!;
 const sourceOf = (r: Repo) => ideaSource(db, r, new Date(vibesState(db)!.since))?.title ?? null;
 
 // From off, so the switch's moment is this run's and not a crashed one's.
 updateSettings(db, { vibes: false });
 const shop = repo('ideas-shop');
 // Finished before the switch went on: not what anyone flipped it for.
-createCard(db, { title: 'Old work', repoId: shop.id, stage: 'done' });
+createCard(db, { title: 'Old work', repoId: shop.id, stage: 'release' });
 updateSettings(db, { vibes: true, maxConcurrentRuns: 3 });
 await tick();
 assert.equal(sourceOf(shop), null, 'nothing has finished since the switch went on');
@@ -76,7 +76,7 @@ assert.equal(sourceOf(shop), 'Saved for later', 'archiving it changes nothing');
 
 // Once per card, whatever became of the run, and never back to an older one.
 const run = insertRun(db, {
-  id: crypto.randomUUID(), cardId: second.id, kind: 'claude', stage: 'done',
+  id: crypto.randomUUID(), cardId: second.id, kind: 'claude', stage: 'release',
   status: 'running', task: ideasTask.id, cwd: '/tmp/x',
 });
 assert.equal(sourceOf(shop), null, 'already thinking');
@@ -144,16 +144,16 @@ const ideaAfter = (source: Card, title: string) => {
   return cardsInRepo(db, shop.id).find((c) => c.title === title)!;
 };
 const lane = createCard(db, { title: 'Checkout', kind: 'project', repoId: shop.id });
-const inLane = createCard(db, { title: 'Pay later', repoId: shop.id, stage: 'done', projectId: lane.id });
+const inLane = createCard(db, { title: 'Pay later', repoId: shop.id, stage: 'release', projectId: lane.id });
 assert.equal(ideaAfter(inLane, 'Split payments').projectId, lane.id, 'in the lane it came from');
 
 // The lane the card is in now, not the one it was in when the run started.
-const drifted = createCard(db, { title: 'Receipts', repoId: shop.id, stage: 'done' });
-moveCard(db, drifted.id, 'done', 0, 'human', lane.id);
+const drifted = createCard(db, { title: 'Receipts', repoId: shop.id, stage: 'release' });
+moveCard(db, drifted.id, 'release', 0, 'human', lane.id);
 assert.equal(ideaAfter(drifted, 'Emailed receipts').projectId, lane.id, 'dragged into the lane mid-run');
 
 // Nowhere, once that project has been archived: taking the card it came after
-// with it, since that is in Done.
+// with it, since that is in Release.
 archiveProject(db, lane.id);
 const gone = getCard(db, inLane.id)!;
 assert.ok(gone.archivedAt, 'archived with its project');

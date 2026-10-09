@@ -1,6 +1,6 @@
 /**
  * Throwaway check on the rule the board exists for: a card does not start, or
- * move on, until what it depends on has cleared — reached Done with its pull
+ * move on, until what it depends on has cleared — reached Release with its pull
  * request merged, or with none. The drag, approval, the Run button and VIBES
  * MODE should all refuse the same card, only ever let it go back to Backlog,
  * and let it go on the moment its dependency clears.
@@ -72,7 +72,7 @@ function succeededPlan(cardId: string) {
 }
 
 // Already in In Progress, so the sweep has nothing to move it on to. No repo,
-// so the sweep passes it over altogether: in Done with a pull request it would
+// so the sweep passes it over altogether: in Release with a pull request it would
 // otherwise try to land it, and there is no GitHub here to ask.
 const dep = createCard(db, { title: 'Lay the foundations', repoId: null, stage: 'in_progress' });
 const waiter = createCard(db, { title: 'Build on them', repoId: repo.id, stage: 'backlog' });
@@ -90,7 +90,7 @@ const reorder = await move(waiter.id, 'backlog', 0);
 const planned = createCard(db, { title: 'Planned early', repoId: repo.id, stage: 'planning' });
 addDependency(db, planned.id, dep.id);
 succeededPlan(planned.id);
-const plannedForward = await Promise.all(['in_progress', 'testing', 'done'].map((s) => move(planned.id, s)));
+const plannedForward = await Promise.all(['in_progress', 'testing', 'release'].map((s) => move(planned.id, s)));
 const plannedReorder = await move(planned.id, 'planning', 0);
 const approved = await approve(planned.id);
 const afterApprove = getCard(db, planned.id)!.stage;
@@ -119,7 +119,7 @@ const beforeArchive = await move(orphan.id, 'planning');
 archiveCard(db, dropped.id);
 const afterArchive = await move(orphan.id, 'planning');
 
-const abandoned = createCard(db, { title: 'Abandoned PR', repoId: null, stage: 'done' });
+const abandoned = createCard(db, { title: 'Abandoned PR', repoId: null, stage: 'release' });
 setPr(abandoned.id, 'https://example.invalid/pull/1', null);
 const orphanOfPr = createCard(db, { title: 'Was waiting on that', repoId: repo.id, stage: 'backlog' });
 addDependency(db, orphanOfPr.id, abandoned.id);
@@ -127,20 +127,20 @@ const beforePrArchive = await move(orphanOfPr.id, 'planning');
 archiveCard(db, abandoned.id);
 const afterPrArchive = await move(orphanOfPr.id, 'planning');
 
-// --- a dependency in Done with no pull request -------------------------------
-const noPr = createCard(db, { title: 'Nothing to push', repoId: null, stage: 'done' });
+// --- a dependency in Release with no pull request -------------------------------
+const noPr = createCard(db, { title: 'Nothing to push', repoId: null, stage: 'release' });
 const afterNoPr = createCard(db, { title: 'Follows it', repoId: repo.id, stage: 'backlog' });
 addDependency(db, afterNoPr.id, noPr.id);
 const noPrMove = await move(afterNoPr.id, 'planning');
 
-// --- a dependency in Done that ran a stage but has no pull request yet ------
+// --- a dependency in Release that ran a stage but has no pull request yet ------
 // Unlike `noPr` above, this one has a branch — real commits a worktree was cut
 // for — so there is something still to land even though `maybeOpenPullRequest`
 // has not (or has tried and failed, which looks the same from here: no `prUrl`,
 // not mid-push). This is the case a failed or retrying automatic open used to
 // slip past: the card read as done with nothing to push, and let its dependent
 // start on work that had never gone out.
-const notYetOpened = createCard(db, { title: 'Built but not pushed', repoId: null, stage: 'done' });
+const notYetOpened = createCard(db, { title: 'Built but not pushed', repoId: null, stage: 'release' });
 setBranch(notYetOpened.id, 'card/not-yet-opened');
 const afterNotYetOpened = createCard(db, { title: 'Follows it too', repoId: repo.id, stage: 'backlog' });
 addDependency(db, afterNotYetOpened.id, notYetOpened.id);
@@ -162,8 +162,8 @@ const vibesIdlePlanner = getCard(db, idlePlanner.id)!.stage;
 const latecomerRuns = runsForCard(db, latecomer.id).length;
 const latecomerStage = getCard(db, latecomer.id)!.stage;
 
-// In Done with its pull request open: still in the way.
-moveCard(db, dep.id, 'done', 0);
+// In Release with its pull request open: still in the way.
+moveCard(db, dep.id, 'release', 0);
 setPr(dep.id, 'https://example.invalid/pull/2', null);
 await vibesSweep(db, writer);
 const openPrStage = getCard(db, waiter.id)!.stage;
@@ -199,7 +199,7 @@ ok('and the card stays in Backlog', draggedStage, 'backlog');
 ok('a reorder within Backlog is still allowed', reorder.status, 200);
 
 console.log('\n--- a card already past Backlog ---');
-ok('Planning → In Progress, Testing and Done are refused', plannedForward.map((r) => r.status), [409, 409, 409]);
+ok('Planning → In Progress, Testing and Release are refused', plannedForward.map((r) => r.status), [409, 409, 409]);
 ok('for the dependency, not for being unbuilt', plannedForward.map((r) => r.json.error),
   Array(3).fill('waiting on unfinished cards'));
 ok('a reorder within Planning is allowed', plannedReorder.status, 200);
@@ -219,15 +219,15 @@ console.log('\n--- an archived dependency ---');
 ok('blocks while it is on the board', beforeArchive.status, 409);
 ok('and stops blocking once archived', afterArchive.status, 200);
 ok('one with an unmerged pull request blocks too', beforePrArchive.status, 409);
-ok('labelled as waiting on the merge', beforePrArchive.json.detail, `#${abandoned.number} Abandoned PR (Done, PR not merged)`);
+ok('labelled as waiting on the merge', beforePrArchive.json.detail, `#${abandoned.number} Abandoned PR (Release, PR not merged)`);
 ok('and also stops once archived', afterPrArchive.status, 200);
 
-console.log('\n--- a dependency in Done with no pull request ---');
+console.log('\n--- a dependency in Release with no pull request ---');
 ok('does not block', noPrMove.status, 200);
 
-console.log('\n--- a dependency in Done that ran a stage but has no pull request yet ---');
+console.log('\n--- a dependency in Release that ran a stage but has no pull request yet ---');
 ok('blocks all the same', notYetOpenedMove.status, 409);
-ok('labelled as not yet pushed', notYetOpenedMove.json.detail, `#${notYetOpened.number} Built but not pushed (Done, no pull request yet)`);
+ok('labelled as not yet pushed', notYetOpenedMove.json.detail, `#${notYetOpened.number} Built but not pushed (Release, no pull request yet)`);
 ok('and clears once its pull request merges', notYetOpenedAfterMerge.status, 200);
 
 console.log('\n--- VIBES MODE ---');
@@ -237,14 +237,14 @@ ok('nor move on a blocked Planning card with no plan', vibesIdlePlanner, 'planni
 ok('and does not run the one already past Backlog', latecomerRuns, 0);
 ok('which keeps its column', latecomerStage, 'in_progress');
 
-console.log('\n--- a dependency in Done with its pull request open ---');
+console.log('\n--- a dependency in Release with its pull request open ---');
 ok('the sweep still leaves the card in Backlog', openPrStage, 'backlog');
 ok('and still does not approve the Planning card', openPrPlanned, 'planning');
 ok('the chip reads it as not done', openPrLink?.done, false);
 ok('and as waiting on the merge', openPrLink?.awaitingMerge, true);
 ok('the move route still refuses', openPrMove.status, 409);
 ok('saying the pull request has not merged', openPrMove.json.detail,
-  `#${dep.number} Lay the foundations (Done, PR not merged)`);
+  `#${dep.number} Lay the foundations (Release, PR not merged)`);
 ok('and startStage still refuses', openPrStart.ok ? 'started' : openPrStart.status, 409);
 
 console.log('\n--- once it merges ---');

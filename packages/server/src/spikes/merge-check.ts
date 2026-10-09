@@ -85,9 +85,9 @@ const merge = async (id: string) => {
 };
 
 let prs = 0;
-/** A Done card with an open pull request, and what GitHub says of it. */
+/** A Release card with an open pull request, and what GitHub says of it. */
 function done(title: string, verdict: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN') {
-  const c = createCard(db, { title, repoId: repo.id, stage: 'done' });
+  const c = createCard(db, { title, repoId: repo.id, stage: 'release' });
   const url = `https://github.com/acme/widgets/pull/${++prs}`;
   db.update(cardTable)
     .set({ branchName: `reeve/${prs}`, prUrl: url, prNumber: prs, prOpenedAt: new Date() })
@@ -126,10 +126,10 @@ const board = (id: string) => toBoardCard(db, getCard(db, id)!, null, null);
 
   await syncMergedPullRequests(db);
   db.update(cardTable).set({ stage: 'testing' }).where(eq(cardTable.id, clean.id)).run();
-  check('not offered outside Done', !board(clean.id).prMergeable);
+  check('not offered outside Release', !board(clean.id).prMergeable);
   const outside = await merge(clean.id);
-  check('route refuses outside Done', outside.status === 409);
-  db.update(cardTable).set({ stage: 'done', prUrl: 'https://github.com/acme/widgets/pull/999' }).where(eq(cardTable.id, clean.id)).run();
+  check('route refuses outside Release', outside.status === 409);
+  db.update(cardTable).set({ stage: 'release', prUrl: 'https://github.com/acme/widgets/pull/999' }).where(eq(cardTable.id, clean.id)).run();
   github('https://github.com/acme/widgets/pull/999', 'UNKNOWN');
   check('not inherited by a newer pull request', !board(clean.id).prMergeable);
 }

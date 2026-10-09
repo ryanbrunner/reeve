@@ -24,7 +24,7 @@ export const EXIT = {
   failed: 4,
   /**
    * wait: nothing is running and nothing is waiting on a verdict or an answer.
-   * The card is in Backlog or Done, its run was stopped, or its start was
+   * The card is in Backlog or Release, its run was stopped, or its start was
    * refused (the concurrency cap, say). A person has to move or start it.
    * follow: the run was stopped.
    */

@@ -20,6 +20,7 @@ import {
   startMerge,
   type MergeStart,
 } from './git/worktree.js';
+import { isResolvingConflicts } from './pullRequest.js';
 import { startClaudeRun, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -187,7 +188,7 @@ export type BaseMerge =
  * Bring what has landed on the repo's base since the card's branch was cut
  * into its reused worktree, before a stage starts there. A card that spent a
  * day in planning and review was otherwise built and tested against the main
- * it started from, and met everything merged since only as conflicts in Done.
+ * it started from, and met everything merged since only as conflicts in Release.
  * Always, whatever the repo's "keep the default branch up to date" says: that
  * moves the person's own checkout, and this only the card's.
  *
@@ -197,7 +198,7 @@ export type BaseMerge =
  *
  * Anything short of a clean merge leaves the branch as it was found and the
  * card says why: a fetch that fails, uncommitted work a merge could tangle
- * with, or conflicts, which are aborted and left for Done's resolve. The stage
+ * with, or conflicts, which are aborted and left for Release's resolve. The stage
  * starts either way. Once the base is in the branch, `baseSha` moves to it,
  * since the Diff tab and the commit list count from there and would otherwise
  * show everything just merged as the card's own work.
@@ -238,7 +239,7 @@ export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: stri
     } catch (e) {
       return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}, and the merge could not be aborted: ${reason(e)}`);
     }
-    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are left for Resolve conflicts once the card is in Done`);
+    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are left for Resolve conflicts once the card is in Release`);
   }
 
   setBaseSha(db, card, fetched);
@@ -253,7 +254,7 @@ export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: stri
  * Move a card's `baseSha` to a base it is now known to contain, so the Diff
  * tab and the commit list count from there rather than from where the card
  * started. Shared with `resolveConflicts`, which moves it the same way once
- * a Done card's branch has the base merged into it.
+ * a Release card's branch has the base merged into it.
  */
 export function setBaseSha(db: Db, card: Card, sha: string) {
   if (card.baseSha === sha) return;
@@ -352,9 +353,17 @@ export async function startStage(
   if (!stage) return { ok: false, status: 501, error: 'stage not implemented yet', detail: card.stage };
   const merged = refuseMergedWorktree(card);
   if (merged) return { ok: false, status: 409, ...merged };
+  // A worktree a merged card still has is no reason to start one: its pull
+  // request is history, and anything more is a new card.
+  if (card.mergedAt) return { ok: false, status: 409, error: 'already merged', detail: 'start a new card for more work' };
+  // A conflict resolution has the tree mid-merge; a stage there would start
+  // on half of one. It pushes when it is done, and the stage can start then.
+  if (isResolvingConflicts(card.id)) {
+    return { ok: false, status: 409, error: 'conflicts are being resolved', detail: 'start it again once the resolution is done' };
+  }
   // The move route and approval already keep a blocked card from moving on,
   // so this is for the one that got past Backlog first: a dependency added, or
-  // put back out of Done, after the card had left. It keeps its column, can
+  // put back out of Release, after the card had left. It keeps its column, can
   // only be moved back to Backlog, and does not run until the dependency
   // clears. Before the worktree, so a card that may not start is not given one.
   const blocked = blockedStart(db, card);
@@ -511,7 +520,7 @@ export async function continueStage(
  */
 export function maybeStartStage(db: Db, writer: EventWriter, card: Card, repo: Repo | undefined): void {
   if (!repo || card.archivedAt || card.kind === 'project') return;
-  if (!canStartRun({ stage: card.stage as Stage, activity: cardActivity(db, card).activity })) return;
+  if (!canStartRun({ stage: card.stage as Stage, activity: cardActivity(db, card).activity, mergedAt: card.mergedAt })) return;
   startStage(db, writer, card, repo)
     .then((result) => {
       if (!result.ok) console.log(`[reeve] #${card.number} not started in ${card.stage}: ${result.error} (${result.detail})`);

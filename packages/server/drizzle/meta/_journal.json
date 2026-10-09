@@ -183,6 +183,13 @@
       "when": 1791118411200,
       "tag": "0025_settings_suggest_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1791511132089,
+      "tag": "0026_rename_done_to_release",
+      "breakpoints": true
     }
   ]
 }

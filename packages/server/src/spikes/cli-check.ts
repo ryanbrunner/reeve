@@ -5,7 +5,7 @@
  *
  * Spends no API credit. Its repos point at directories that do not exist, so
  * a card that enters a column Claude works in fails at making its worktree
- * and never reaches a run; and nothing it moves into Done has a branch, so
+ * and never reaches a run; and nothing it moves into Release has a branch, so
  * nothing is pushed. One move waits out the CLI's full watch for a run that
  * never comes, which is most of the time this takes.
  *
@@ -60,7 +60,7 @@ async function ok(...args: string[]) {
   return result;
 }
 
-/** A finished In Progress run, which a card needs before it may enter Testing or Done. */
+/** A finished In Progress run, which a card needs before it may enter Testing or Release. */
 function implemented(cardId: string) {
   const r = insertRun(db, {
     id: crypto.randomUUID(), cardId, kind: 'claude', stage: 'in_progress', status: 'running',
@@ -182,10 +182,10 @@ assert.match(noRun.stdout, /from Backlog to Planning/);
 assert.match(noRun.stderr, /No Planning run: .* has no repo/);
 assert.equal(getCard(db, loose)?.stage, 'planning');
 
-// Into Done with no branch: nothing to push, and it says that rather than
+// Into Release with no branch: nothing to push, and it says that rather than
 // promising a pull request.
 implemented(loose);
-const noPr = await ok('card', 'move', loose, 'done');
+const noPr = await ok('card', 'move', loose, 'release');
 assert.match(noPr.stderr, /No pull request: .* has no branch to push/);
 
 // With a repo, the server tries to start the stage. This one's directory is
@@ -242,11 +242,11 @@ const restored = await ok('card', 'restore', `${web.name}#${getCard(db, thirdId)
 assert.match(restored.stdout, /Restored .* to Backlog/);
 assert.equal(getCard(db, thirdId)?.archivedAt, null);
 
-// A project with a card not yet Done is refused, naming it, until the flag
+// A project with a card not yet in Release is refused, naming it, until the flag
 // says to move that card to No project. The flag is archive's alone.
 const openProject = await reeve('card', 'archive', projectId);
 assert.equal(openProject.code, 1, openProject.stderr);
-assert.match(openProject.stderr, /project has open cards: 1 card is not Done \(#\d+ Filed\)/);
+assert.match(openProject.stderr, /project has open cards: 1 card is not in Release \(#\d+ Filed\)/);
 assert.equal(getCard(db, projectId)?.archivedAt, null);
 const detached = await ok('card', 'archive', projectId, '--detach-open');
 assert.match(detached.stdout, /Archived .*\. Moved 1 card to No project\./);

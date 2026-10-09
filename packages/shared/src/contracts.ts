@@ -194,6 +194,37 @@ export const testingOutput = z.object({
   suggested_tasks: suggestedTasks,
 });
 
+/**
+ * Release: the card's pull request, made ready to merge with the person. The
+ * server opens the pull request on entry; this is what Claude says about it,
+ * and the title and body are set on it from here. Merging is not in it, on
+ * purpose — that is the person's, on the board's Merge button.
+ */
+export const releaseOutput = z.object({
+  summary: z.string().describe('One or two sentences on where the release stands, for the card face.'),
+  pr_title: z.string().describe('The pull request title, as it should read in the repository history: imperative, specific, no prefix.'),
+  pr_body: z
+    .string()
+    .describe(
+      'The pull request description, in Markdown: what changed and why, how it was verified, and anything a reviewer should look at. Reeve sets it on the pull request; do not mention Reeve or yourself.',
+    ),
+  release_notes: z
+    .string()
+    .describe('What this changes for someone using the software, in a few user-facing lines of Markdown. Empty when nothing user-facing changed.'),
+  finish: z
+    .object({
+      ran: z.boolean().describe('Whether you ran the repo’s finish command.'),
+      passed: z.boolean().describe('Whether it succeeded. False when it did not run.'),
+      notes: z.string().describe('What it did or why it failed, in a line or two. Empty when there was none to run.'),
+    })
+    .describe('The repo’s finish command, when it has one.'),
+  ready: z.boolean().describe('Whether, as far as you can tell, this is ready to merge.'),
+  concerns: z
+    .array(z.string())
+    .describe('What the person should know before merging: a risk, something you could not verify, a follow-up. Empty if none.'),
+  suggested_tasks: suggestedTasks,
+});
+
 export const triageOutput = z.object({
   ranked: z
     .array(
@@ -276,7 +307,7 @@ export const ideasOutput = z.object({
 });
 
 /**
- * Not a stage either — the Done band's Resolve conflicts button. The server
+ * Not a stage either — the Release band's Resolve conflicts button. The server
  * starts the merge and checks it afterwards; this is Claude's account of what
  * it decided in between, which is all a person has to go on before the push
  * lands on the pull request.
@@ -307,18 +338,21 @@ export type ConflictResolutionOutput = z.infer<typeof conflictResolutionOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
 export type ImplementationOutput = z.infer<typeof implementationOutput>;
 export type TestingOutput = z.infer<typeof testingOutput>;
+export type ReleaseOutput = z.infer<typeof releaseOutput>;
 export type TriageOutput = z.infer<typeof triageOutput>;
 
 export const STAGE_CONTRACTS = {
   planning: planningOutput,
   in_progress: implementationOutput,
   testing: testingOutput,
+  release: releaseOutput,
 } as const satisfies Record<RunnableStage, z.ZodType>;
 
 export type StageOutput = {
   planning: PlanningOutput;
   in_progress: ImplementationOutput;
   testing: TestingOutput;
+  release: ReleaseOutput;
 };
 
 /**

@@ -6,6 +6,7 @@ import {
   archiveCard,
   archivedMergedWorktrees,
   cardsAwaitingMerge,
+  getCard,
   insertCardEvent,
   listRepos,
   mergedCardsDueForArchive,
@@ -23,10 +24,10 @@ import {
 import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
-import { removeCardWorktree } from './startStage.js';
+import { maybeStartStage, removeCardWorktree } from './startStage.js';
 
 /**
- * Cards with a push under way. Two quick drags into Done, or a retry pressed
+ * Cards with a push under way. Two quick drags into Release, or a retry pressed
  * while the automatic attempt is still talking to GitHub, would otherwise
  * both find no pull request and both create one.
  */
@@ -123,7 +124,7 @@ const prDescription = (body: string) =>
   body.trim().replace(PASTED_IMAGE, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
 
 /**
- * Push a Done card's branch to `origin` and open a pull request for it against
+ * Push a Release card's branch to `origin` and open a pull request for it against
  * the repo's default branch — or, if one is already open, leave it to pick
  * up the push. Nothing is merged and nothing is torn down: review comments may
  * yet want more commits, and they go in the same worktree.
@@ -136,8 +137,8 @@ const prDescription = (body: string) =>
  * a response to read it in.
  */
 export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<PullRequestResult> {
-  if (card.stage !== 'done') {
-    return { ok: false, status: 400, error: 'only a Done card gets a pull request', detail: card.stage };
+  if (card.stage !== 'release') {
+    return { ok: false, status: 400, error: 'only a Release card gets a pull request', detail: card.stage };
   }
   // Its pull request is history, so a push would restore the branch GitHub
   // deleted on merge and open a second one for work already landed.
@@ -237,13 +238,13 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
 }
 
 /**
- * The automatic attempt, for a card that has just entered Done. The routes
+ * The automatic attempt, for a card that has just entered Release. The routes
  * that move cards call this without awaiting it: a push and a `gh` call take
  * seconds, and a drag should not hang on them. The outcome lands on the card,
  * where the board's poll picks it up.
  *
  * A card that never had a worktree has nothing to push and is passed over in
- * silence — a Backlog idea dragged straight to Done is not a failure, and
+ * silence — a Backlog idea dragged straight to Release is not a failure, and
  * nor is a merged card dragged back there. And nothing may escape: an
  * unhandled rejection here would take the server down.
  */
@@ -255,13 +256,34 @@ export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined)
 }
 
 /**
- * Whether the board offers to merge this card's pull request: a Done card's
+ * A card arriving in Release: its pull request opened first, then the Release
+ * conversation started in the tree the push just read. In that order, and
+ * not side by side, because the start brings the base into the same tree
+ * (`mergeLatestBase`) and a push in the middle of that would send GitHub
+ * whatever the merge had got to. Not awaited by the routes that move a card,
+ * as the opening never was.
+ */
+export function enterRelease(db: Db, writer: EventWriter, card: Card, repo: Repo | undefined): void {
+  if (!repo || card.kind === 'project' || card.mergedAt) return;
+  const open = card.branchName && card.worktreePath && card.baseSha
+    ? openPullRequest(db, card, repo).catch((e) => {
+        console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
+      })
+    : Promise.resolve();
+  void open.then(() => {
+    const fresh = getCard(db, card.id);
+    if (fresh && fresh.stage === 'release' && !fresh.archivedAt) maybeStartStage(db, writer, fresh, repo);
+  });
+}
+
+/**
+ * Whether the board offers to merge this card's pull request: a Release card's
  * open one, which GitHub has said merges cleanly. The Merge button is drawn
  * from this and the route refuses by it, so a page left open since the last
  * verdict cannot merge what the board has stopped offering.
  */
 export const canMergePr = (card: Card) =>
-  card.stage === 'done' && card.prUrl !== null && card.mergedAt === null && isPrMergeable(card);
+  card.stage === 'release' && card.prUrl !== null && card.mergedAt === null && isPrMergeable(card);
 
 export type LandResult =
   | { ok: true; merged: boolean }
@@ -270,7 +292,7 @@ export type LandResult =
 /**
  * Land the card's pull request on the default branch.
  *
- * Two callers. A person pressing Merge on a Done card, having read the pull
+ * Two callers. A person pressing Merge on a Release card, having read the pull
  * request or decided not to; and VIBES MODE, which is the mode where nobody
  * reads it. Either way the decision is a human's — made on the button, or made
  * once by switching VIBES MODE on — and never Claude's own.
@@ -288,7 +310,7 @@ export type LandResult =
  */
 export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'human' | 'claude'): Promise<LandResult> {
   if (card.mergedAt) return { ok: true, merged: true };
-  if (card.stage !== 'done') return { ok: false, status: 400, error: 'only a Done card’s pull request is merged', detail: card.stage };
+  if (card.stage !== 'release') return { ok: false, status: 400, error: 'only a Release card’s pull request is merged', detail: card.stage };
   const url = card.prUrl;
   if (!url) return { ok: false, status: 400, error: 'nothing to merge', detail: 'the card has no pull request' };
   // Taken before the first await, like `opening`.
@@ -387,7 +409,7 @@ let syncing = false;
  * `cleanUpArchivedWorktrees`, and the branch stays for good.
  *
  * The same answer says whether GitHub could merge an open one as it stands,
- * which is what offers a Done card's conflicts for resolving, or its Merge
+ * which is what offers a Release card's conflicts for resolving, or its Merge
  * button.
  *
  * One card at a time, and one sync at a time, since each is a `gh` call and a

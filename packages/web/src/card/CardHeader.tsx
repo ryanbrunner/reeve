@@ -44,7 +44,7 @@ export function CardHeader({
   };
   // Closes on success: the card has left the board, and the archive is where
   // it can be found again — which is also why there is no "are you sure". The
-  // one exception is a project with cards not yet Done: those do not go to the
+  // one exception is a project with cards not yet in Release: those do not go to the
   // Archive but to No project, and restoring the project does not bring them
   // back, so that is asked first.
   const archive = useMutation({
@@ -71,8 +71,8 @@ export function CardHeader({
   const board = useQuery({ queryKey: ['board'], queryFn: api.board }).data;
   const repos = board?.repos ?? [];
   const tasks = card.kind === 'project' ? (board?.cards ?? []).filter((c) => c.projectId === card.id) : [];
-  const open = tasks.filter((c) => c.stage !== 'done');
-  // Live Done cards alone: these are what go to the Archive with the project,
+  const open = tasks.filter((c) => c.stage !== 'release');
+  // Live Release cards alone: these are what go to the Archive with the project,
   // and the ones already there are not the confirm's to count.
   const done = tasks.length - open.length;
   // The project's lane, for the tasks the sweep has archived. Only a live
@@ -197,7 +197,7 @@ export function CardHeader({
                 disabled={running || archive.isPending || confirming}
                 title={
                   running ? 'Stop the run before archiving'
-                  : 'Take the project off the board, with its Done cards. The Archive can restore them.'
+                  : 'Take the project off the board, with its Release cards. The Archive can restore them.'
                 }
                 onClick={() => (open.length > 0 ? setConfirming(true) : archive.mutate(false))}
               >
@@ -268,15 +268,15 @@ export function CardHeader({
       {confirming && open.length > 0 && (
         <div role="group" aria-labelledby="archive-confirm" className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
           <div id="archive-confirm" className="text-sm/5 font-medium text-(--color-text)">
-            {open.length === 1 ? '1 card is' : `${open.length} cards are`} not Done
+            {open.length === 1 ? '1 card is' : `${open.length} cards are`} not in Release
           </div>
           <p className="mt-0.5 text-sm/5 text-(--color-muted)">
             {open.length === 1 ?
               'It moves to No project, in the column it is in, and stays there if the project is restored.'
             : 'They move to No project, in the columns they are in, and stay there if the project is restored.'}{' '}
-            {done === 0 ? 'The project has no Done cards to archive.'
-            : done === 1 ? 'Its one Done card goes to the Archive with it.'
-            : `Its ${done} Done cards go to the Archive with it.`}
+            {done === 0 ? 'The project has no Release cards to archive.'
+            : done === 1 ? 'Its one Release card goes to the Archive with it.'
+            : `Its ${done} Release cards go to the Archive with it.`}
           </p>
           <ul className="mt-2 flex max-h-40 flex-col gap-1 overflow-y-auto">
             {open.map((c) => (

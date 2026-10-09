@@ -27,15 +27,15 @@ export function isImplementationRun(run: {
   return run.kind === 'claude' && run.stage === 'in_progress' && run.status === 'succeeded' && run.task === null;
 }
 
-/** Testing tests the branch and Done pushes it; with nothing on it, both are waste. */
-const NEEDS_IMPLEMENTATION: readonly Stage[] = ['testing', 'done'];
+/** Testing tests the branch and Release pushes it; with nothing on it, both are waste. */
+const NEEDS_IMPLEMENTATION: readonly Stage[] = ['testing', 'release'];
 
 /**
  * Why a card may not move from `from` to `to`, as a sentence to show a person,
  * or null if it may.
  *
- * Only forward moves into Testing or Done are refused. A reorder within the
- * column and a move backwards both pass, so a card that reached Testing or Done
+ * Only forward moves into Testing or Release are refused. A reorder within the
+ * column and a move backwards both pass, so a card that reached Testing or Release
  * before this rule existed can still be tidied or sent back. The same sentence
  * is the server's 409 and the card detail's tooltip, so the two cannot disagree.
  */

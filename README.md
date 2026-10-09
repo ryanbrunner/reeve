@@ -4,13 +4,14 @@ A local kanban board for work in your own git repos, where Claude does the
 work. Each card is one piece of work in one repo, and gets its own git
 worktree and branch. The board has five columns:
 
-    backlog → planning → in_progress → testing → done
+    backlog → planning → in_progress → testing → release
 
-Planning, In Progress and Testing each run Claude, through the Claude Agent
-SDK, in the card's worktree. Planning writes a plan, In Progress builds it,
-and Testing checks the result against the card's acceptance criteria. Backlog
-and Done are holding areas: nothing runs there. Moving a card into Done pushes
-its branch and opens a pull request.
+Every column but Backlog runs Claude, through the Claude Agent SDK, in the
+card's worktree. Planning writes a plan, In Progress builds it, Testing checks
+the result against the card's acceptance criteria, and Release pushes the
+branch, opens a pull request and readies it to merge. Backlog is where work
+waits: nothing runs there. Each stage is a conversation with Claude, which you
+can join at any point.
 
 **Claude never moves a card; you do**, by dragging it to another column or by
 approving the stage it has finished, which moves it one column on. A run that
@@ -30,7 +31,7 @@ switch it on: it approves, answers and advances cards with nobody watching.
 
 Optionally:
 
-- [`gh`](https://cli.github.com), logged in, to push a Done card's branch and
+- [`gh`](https://cli.github.com), logged in, to push a Release card's branch and
   to open and merge its pull request
 - Playwright's Chromium, for mockups and screenshots:
   `npx playwright install chromium`

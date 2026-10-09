@@ -11,6 +11,7 @@ import {
   unreadNotesFor,
 } from './db/queries.js';
 import type { Card, CardEventActor, Repo } from './db/schema.js';
+import { isResolvingConflicts } from './pullRequest.js';
 import { answerFromText, askRegistry, type AskAnswer } from './runs/asks.js';
 import type { MessageSource } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
@@ -114,6 +115,7 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
   const repo = repoFor(db, card);
   if (!repo) return { ok: false, status: 409, error: 'card has no repo' };
   if (isStartingStage(card.id)) return { ok: false, status: 409, error: 'the stage is already starting', detail: 'send it again once Claude is working' };
+  if (isResolvingConflicts(card.id)) return { ok: false, status: 409, error: 'conflicts are being resolved', detail: 'send it again once the resolution is done' };
 
   // Read on every send, as `startStage` does: a reply is a run like any other.
   const { maxConcurrentRuns } = getSettings(db);

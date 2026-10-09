@@ -64,7 +64,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Open the pull request by hand. Entering Done already tries once on its
+   * Open the pull request by hand. Entering Release already tries once on its
    * own; this is for after that failed and the cause — a dirty tree, a missing
    * login — has been put right.
    */
@@ -79,7 +79,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Merge the base branch into a Done card's branch and push it to its pull
+   * Merge the base branch into a Release card's branch and push it to its pull
    * request, with Claude resolving the conflicts in between. Answers once the
    * run has started, or once the push is done if the base merged cleanly and
    * no run was needed. See resolveConflicts.ts.
@@ -97,7 +97,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Merge a Done card's pull request on GitHub, from the board. Only one that
+   * Merge a Release card's pull request on GitHub, from the board. Only one that
    * GitHub has said merges cleanly: the button is not offered otherwise, and a
    * page left open since is refused the same. Branch protection still applies;
    * see mergePullRequest.
@@ -112,7 +112,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!canMergePr(card)) {
       return c.json({
         error: 'not ready to merge',
-        detail: card.stage !== 'done' ? 'only a Done card’s pull request is merged'
+        detail: card.stage !== 'release' ? 'only a Release card’s pull request is merged'
           : !card.prUrl ? 'the card has no pull request'
           : isPrConflicting(card) ? 'GitHub says the pull request has conflicts'
           : 'GitHub has not yet said the pull request can merge; it is asked again on the next sync',
@@ -164,8 +164,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!card) return c.json({ error: 'not found' }, 404);
     const repo = repoFor(card.repoId);
     if (!repo) return c.json({ error: 'card has no repo', detail: 'a handoff needs a repo' }, 400);
-    // `needsWorktree` is true for Done too, and Done has nothing left to hand over.
-    if (card.stage === 'done' || !needsWorktree(card.stage)) {
+    // `needsWorktree` is true for Release too, and Release has nothing left to hand over.
+    if (card.stage === 'release' || !needsWorktree(card.stage)) {
       return c.json({ error: 'stage cannot be handed off', detail: card.stage }, 400);
     }
     // The row as well as the registry: a run is only registered once its

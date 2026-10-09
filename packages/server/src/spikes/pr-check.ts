@@ -111,14 +111,14 @@ async function card(title: string, files: Record<string, string> = {}) {
   return { id: c.id, ...wt };
 }
 
-const intoDone = (id: string) => moveCard(db, id, 'done', 0)!;
+const intoDone = (id: string) => moveCard(db, id, 'release', 0)!;
 
 /** The automatic path, as the move route takes it: not awaited, so wait here. */
 async function settle(id: string) {
   for (let i = 0; i < 500 && isOpeningPr(id); i++) await new Promise((r) => setTimeout(r, 20));
 }
 
-// --- entering Done opens a pull request -------------------------------------
+// --- entering Release opens a pull request -------------------------------------
 {
   const wt = await card('Add a greeting', { 'greeting.txt': 'hello\n' });
   maybeOpenPullRequest(db, intoDone(wt.id), repo);
@@ -141,7 +141,7 @@ async function settle(id: string) {
   check('body names the card', arg('--body')?.includes('Reeve #') ?? false);
   check('ready for review, not a draft', !create?.includes('--draft'));
 
-  // Out of Done and back in, with a new commit: pushes, but no second PR.
+  // Out of Release and back in, with a new commit: pushes, but no second PR.
   moveCard(db, wt.id, 'testing', 0);
   writeFileSync(join(wt.path, 'greeting.txt'), 'hello again\n');
   run(wt.path, 'commit', '-qam', 'review feedback');

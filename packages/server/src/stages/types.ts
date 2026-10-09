@@ -45,7 +45,7 @@ export interface StageContext {
 }
 
 export interface ArtifactDraft {
-  kind: 'plan' | 'diff' | 'test_report' | 'summary';
+  kind: 'plan' | 'diff' | 'test_report' | 'summary' | 'release';
   content: string;
   /** Relative to the worktree. The server writes it; Claude never does. */
   path?: string;

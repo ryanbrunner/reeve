@@ -163,7 +163,7 @@ export interface ApproveResponse {
   ok: true;
   fromStage: Stage;
   toStage: Stage;
-  /** False only when approving in Done, which has nowhere to go. */
+  /** False only when approving in Release, which has nowhere to go. */
   moved: boolean;
 }
 

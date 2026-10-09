@@ -1,11 +1,13 @@
 import {
   implementationOutput,
   planningOutput,
+  releaseOutput,
   testingOutput,
   type ApiCard,
   type ApiChecks,
   type ApiImplementation,
   type ApiPlan,
+  type ApiRelease,
   type ApiWorktree,
   type CardDetail,
   type Stage,
@@ -81,6 +83,7 @@ export async function cardDetail(
     plan: latestPlan(claudeRuns),
     implementation: latestImplementation(claudeRuns),
     checks: latestChecks(db, card.id, claudeRuns),
+    release: latestRelease(claudeRuns),
     runs: runs.map(toApiRunSummary),
     thought: latest ? { activity: latest.lastActivity, thinking: latest.lastThinking } : null,
     events: cardEventsFor(db, card.id).map(toApiCardEvent),
@@ -158,6 +161,23 @@ function latestImplementation(runs: Run[]): ApiImplementation | null {
     filesChanged: i.files_changed,
     deviations: i.deviations_from_plan,
     suggestedTasks: i.suggested_tasks.map((t) => t.title),
+  };
+}
+
+function latestRelease(runs: Run[]): ApiRelease | null {
+  const found = latestReadable(runs, 'release', releaseOutput);
+  if (!found) return null;
+  const { run, output: r } = found;
+  return {
+    runId: run.id,
+    createdAt: at(run),
+    summary: r.summary,
+    ready: r.ready,
+    prTitle: r.pr_title,
+    prBody: r.pr_body,
+    releaseNotes: r.release_notes,
+    finish: r.finish,
+    concerns: r.concerns,
   };
 }
 

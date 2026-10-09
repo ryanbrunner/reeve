@@ -22,7 +22,7 @@ export type { CardKind, RunKind, RunStatus, StopReason };
 export const REVIEW_DECISIONS = ['approved', 'rejected'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 
-export const ARTIFACT_KINDS = ['plan', 'diff', 'test_report', 'summary'] as const;
+export const ARTIFACT_KINDS = ['plan', 'diff', 'test_report', 'summary', 'release'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /**
@@ -71,7 +71,7 @@ export const CARD_EVENT_KINDS = [
   // The same for a round of a review in Gloss: stopped, ended without a
   // verdict, or answered after the build had moved on. `meta.round` is Gloss's.
   'gloss_reviewed',
-  // The Done band's Resolve conflicts: the base branch merged in and pushed to
+  // The Release band's Resolve conflicts: the base branch merged in and pushed to
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
@@ -80,7 +80,7 @@ export const CARD_EVENT_KINDS = [
   // VIBES MODE's own attempts: the button's refusal is an HTTP error the UI
   // already shows inline, so a person pressing it leaves no second record here.
   'conflicts_refused',
-  // `gh` refused to merge the pull request: from the Done band's Merge, or
+  // `gh` refused to merge the pull request: from the Release band's Merge, or
   // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
   // The card's worktree deleted from disk, by hand or once a merged card was

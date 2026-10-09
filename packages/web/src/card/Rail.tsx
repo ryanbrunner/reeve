@@ -544,7 +544,7 @@ function Handoff({ detail }: { detail: CardDetail }) {
   });
 
   const { card, worktree } = detail;
-  if (card.stage === 'done') return null;
+  if (card.stage === 'release') return null;
   const blocked =
     !needsWorktree(card.stage) ? 'Move to Planning to get a worktree'
     // Restored after its worktree was removed: starting it is refused too.
@@ -686,7 +686,7 @@ function Runs({ detail }: { detail: CardDetail }) {
  *
  * Clicking a stage moves the card, which is the same human action as a drag —
  * appended to the end of that column, because the choice being made here is
- * the column and not the slot within it. Testing and Done stay shut until the
+ * the column and not the slot within it. Testing and Release stay shut until the
  * card has been implemented, and every stage but Backlog while it waits on a
  * card that has not cleared, both of which the server enforces too.
  */

@@ -8,10 +8,11 @@ import { ChangesTab } from './tabs/ChangesTab.js';
 import { DiffTab } from './tabs/DiffTab.js';
 import { PlanTab } from './tabs/PlanTab.js';
 import { PreviewTab } from './tabs/PreviewTab.js';
+import { ReleaseTab } from './tabs/ReleaseTab.js';
 import { TasksTab } from './tabs/TasksTab.js';
 import { Rail } from './Rail.js';
 
-export type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'activity' | 'card';
+export type TabId = 'brief' | 'tasks' | 'plan' | 'changes' | 'diff' | 'preview' | 'release' | 'activity' | 'card';
 
 /**
  * The card's six readings, left to right in the order the work happens. A
@@ -66,7 +67,7 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
   // the tab counts them too, or a project whose work had all merged would
   // open on nothing. The lane's count comes first, since it arrives in the
   // same response as the live cards: the detail polls slowly when idle, and
-  // read alone it would lag each task the sweep took off the board, so Done
+  // read alone it would lag each task the sweep took off the board, so Release
   // would dip until it caught up. An archived project has no lane, and its
   // count comes off the detail instead.
   const board = useQuery({ queryKey: ['board'], queryFn: api.board, enabled: project });
@@ -92,6 +93,8 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
       count: diff.data?.files.length ?? detail.implementation?.filesChanged.length ?? undefined,
     },
     { id: 'preview', label: 'Preview', count: shots.length || undefined },
+    // Only once a card has reached Release: before that there is nothing to say about its pull request.
+    ...(detail.card.stage === 'release' || detail.release ? [{ id: 'release' as const, label: 'Release' }] : []),
     { id: 'activity', label: 'Activity', count: detail.events.length || undefined },
   ];
   // Beside the conversation the stage's documents come first, the brief after
@@ -152,6 +155,7 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
         {tab === 'changes' && <ChangesTab detail={detail} />}
         {tab === 'diff' && <DiffTab detail={detail} diff={diff.data ?? null} loading={diff.isLoading} />}
         {tab === 'preview' && <PreviewTab detail={detail} vibes={vibes} />}
+        {tab === 'release' && <ReleaseTab detail={detail} />}
         {tab === 'activity' && <ActivityTab detail={detail} vibes={vibes} />}
         {tab === 'card' && <Rail detail={detail} onOpen={onOpen} embedded />}
       </div>
@@ -174,7 +178,7 @@ export function defaultTab(detail: CardDetail, vibes: boolean): TabId {
     case 'planning': return vibes ? work : 'plan';
     case 'in_progress': return work;
     case 'testing': return shots ? 'preview' : work;
-    case 'done': return work;
+    case 'release': return detail.release ? 'release' : work;
     default: return 'brief';
   }
 }

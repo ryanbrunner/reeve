@@ -16,7 +16,7 @@ import type { LiveRun } from './useCardDetail.js';
  * that ended in questions is a question and never also a deliverable. An idle
  * card asks for nothing and the band is absent rather than empty.
  *
- * Done is the exception. Claude never runs there, so a Done card is always
+ * Release is the exception. Claude never runs there, so a Release card is always
  * idle — and that is exactly when there is one thing left to say about it:
  * where its pull request is, or why there is not one yet.
  *
@@ -52,10 +52,15 @@ export function AttentionBand({
   const frame = conversation
     ? 'relative mb-2.5 rounded-lg border border-(--color-edge) bg-(--color-panel)/60 px-3 py-2.5'
     : 'relative mt-3.5 border-t border-(--color-edge) pt-3.5';
-  if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
+  if (card.stage === 'release' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
+    // Merge is Release's gate, so the pull request is all this shows — with
+    // Retry beside it when the Release conversation itself has failed.
     return (
       <div className={frame}>
         <PullRequest detail={detail} />
+        {conversation && card.activity === 'error' && (
+          <div className="mt-2.5 border-t border-(--color-edge) pt-2.5"><Failed detail={detail} /></div>
+        )}
       </div>
     );
   }
@@ -573,7 +578,7 @@ function Failed({ detail }: { detail: CardDetail }) {
 }
 
 /**
- * Where a Done card's work went. Entering Done pushes the branch and opens a
+ * Where a Release card's work went. Entering Release pushes the branch and opens a
  * pull request on its own, so this mostly reports: the pull request, whether
  * it has merged, the attempt still under way, or why the last attempt failed —
  * with a button to try again once the cause is put right, and one to merge it
@@ -663,7 +668,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
             <p className="mt-0.5 text-sm/5 text-(--color-muted)">
               {busy
                 ? 'Pushing the latest commits to it…'
-                : 'The worktree and branch stay, for whatever review asks for. Moving the card back into Done pushes again.'}
+                : 'The worktree and branch stay, for whatever review asks for. Moving the card back into Release pushes again.'}
             </p>
           </div>
           {failure && !busy && <div className="flex shrink-0 gap-2">{retry('Push again')}</div>}

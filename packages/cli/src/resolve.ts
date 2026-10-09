@@ -3,6 +3,7 @@ import { sep } from 'node:path';
 import {
   STAGE_LABELS,
   STAGES,
+  normaliseStage,
   type ApiCard,
   type ApiProject,
   type ApiRepo,
@@ -18,10 +19,14 @@ import { CliError, cardRef, usageError } from './output.js';
  * the CLI most likely to pick the wrong card can be reasoned about on its own.
  */
 
-/** `in_progress`, `in-progress` and `In Progress` all mean the same column. */
+/**
+ * `in_progress`, `in-progress` and `In Progress` all mean the same column, and
+ * a column's old name still means it: `done` is Release, so a script written
+ * before the rename moves its cards where it always did.
+ */
 export function parseStage(input: string): Stage | null {
   const key = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return STAGES.find((s) => s === key(input) || key(STAGE_LABELS[s]) === key(input)) ?? null;
+  return STAGES.find((s) => s === key(input) || key(STAGE_LABELS[s]) === key(input)) ?? normaliseStage(input);
 }
 
 export function requireStage(input: string): Stage {

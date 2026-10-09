@@ -173,6 +173,11 @@ export async function mergePullRequest(cwd: string, url: string): Promise<void> 
   await gh(cwd, ['pr', 'merge', url, '--squash']);
 }
 
+/** Set the pull request's title and description: what Release wrote for it. */
+export async function editPullRequest(cwd: string, url: string, title: string, body: string): Promise<void> {
+  await gh(cwd, ['pr', 'edit', url, '--title', title, '--body', body]);
+}
+
 /**
  * Ready for review, not a draft. `--head` names the branch outright, so `gh`
  * neither guesses it from the checkout nor offers to push it.

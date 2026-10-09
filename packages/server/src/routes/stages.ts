@@ -92,7 +92,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
       // approved verdict for a card that went nowhere.
       const blocked = blockedMove(db, card, to);
       if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
-      // Approving Testing is a move into Done, which pushes the branch. A card
+      // Approving Testing is a move into Release, which pushes the branch. A card
       // that reached Testing without being built would push an empty one.
       const refusal = entryRefusal(db, card, to);
       if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);

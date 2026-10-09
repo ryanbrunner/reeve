@@ -8,9 +8,9 @@
  *     it lights the rest, and one dependency is named `storefront#N`
  *   - a card waiting on one that merged and was archived, which must read as
  *     done rather than as missing or blocked
- *   - a card whose only dependency is in Done with no pull request: satisfied,
+ *   - a card whose only dependency is in Release with no pull request: satisfied,
  *     not blocked
- *   - a card whose dependency is in Done with a pull request not yet merged:
+ *   - a card whose dependency is in Release with a pull request not yet merged:
  *     blocked, and its tooltip says so
  *   - a card waiting on five, which names three and says +2
  *   - cards with several dependents
@@ -59,7 +59,7 @@ const saved = createCard(db, { title: 'Saved for later', kind: 'project', repoId
 const checkout = createCard(db, { title: 'Faster checkout', kind: 'project', repoId: api.id });
 
 // Landed, and swept off the board as a merged card is ten minutes later.
-const schema = task('Add a saved_for_later flag to cart lines', 'done', api.id);
+const schema = task('Add a saved_for_later flag to cart lines', 'release', api.id);
 db.update(card).set({ mergedAt: new Date(Date.now() - 3_600_000) }).where(eq(card.id, schema.id)).run();
 archiveCard(db, schema.id, { reason: 'merged' });
 
@@ -77,13 +77,13 @@ waits([button], onePage);
 waits([list], address);
 waits([store, button, list, onePage, address], launch);
 
-const cdn = task('Bump the image CDN client', 'done', web.id);
+const cdn = task('Bump the image CDN client', 'release', web.id);
 const lazy = task('Lazy-load product images', 'backlog', web.id);
 waits([cdn], lazy);
 
-// In Done, but its pull request has not merged, so what builds on it waits:
+// In Release, but its pull request has not merged, so what builds on it waits:
 // the chip names it and its tooltip says "PR not merged".
-const retries = task('Retry failed payment webhooks', 'done', api.id, checkout.id);
+const retries = task('Retry failed payment webhooks', 'release', api.id, checkout.id);
 db.update(card).set({ prUrl: 'https://github.com/example/orders-api/pull/41', prNumber: 41 })
   .where(eq(card.id, retries.id)).run();
 const receipts = task('Email a receipt once payment settles', 'backlog', api.id, checkout.id);

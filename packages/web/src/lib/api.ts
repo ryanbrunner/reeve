@@ -171,7 +171,7 @@ export const api = {
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
   /**
    * Push the branch and open its pull request, or push to the one already
-   * open. Entering Done does this on its own; this is the retry.
+   * open. Entering Release does this on its own; this is the retry.
    */
   openPr: (id: string) =>
     post(`/api/cards/${id}/pr`, {}).then(json<{ ok: true; url: string; number: number; reused: boolean }>),

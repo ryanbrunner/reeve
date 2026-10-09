@@ -30,7 +30,7 @@ class Reeve < Formula
       Reeve needs a Claude login — the one Claude Code uses — or an
       ANTHROPIC_API_KEY in the environment before a stage can run.
 
-      Two more things are optional: `gh`, logged in, to push a Done card's
+      Two more things are optional: `gh`, logged in, to push a Release card's
       branch and open its pull request, and a Chromium for Testing's
       screenshots, which Homebrew does not install —
         npx playwright install chromium

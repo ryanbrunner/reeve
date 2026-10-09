@@ -1,5 +1,5 @@
 /**
- * Throwaway check on the rule that Testing and Done need a card implemented
+ * Throwaway check on the rule that Testing and Release need a card implemented
  * first: a forward move there is refused until the card has a finished In
  * Progress run, and nothing else is — not a reorder, not a move backwards.
  *
@@ -58,13 +58,13 @@ const onBoard = async (id: string) =>
 const fresh = createCard(db, { title: 'fresh' });
 const toTesting = await move(fresh.id, 'testing');
 const refusedBody = (await toTesting.json()) as { error?: string; detail?: string };
-const toDone = await move(fresh.id, 'done');
+const toDone = await move(fresh.id, 'release');
 const planning = createCard(db, { title: 'planning', stage: 'planning' });
-const planningToDone = await move(planning.id, 'done');
+const planningToDone = await move(planning.id, 'release');
 const toPlanning = await move(fresh.id, 'planning');
 
 const createdInTesting = await send('POST', '/api/cards', { title: 'born in testing', stage: 'testing' });
-const createdInDone = await send('POST', '/api/cards', { title: 'born in done', stage: 'done' });
+const createdInDone = await send('POST', '/api/cards', { title: 'born in done', stage: 'release' });
 const createdInBacklog = await send('POST', '/api/cards', { title: 'born in backlog', stage: 'backlog' });
 
 // --- already there, from before the rule --------------------------------
@@ -72,9 +72,9 @@ const createdInBacklog = await send('POST', '/api/cards', { title: 'born in back
 const legacyA = createCard(db, { title: 'legacy a', stage: 'testing' });
 createCard(db, { title: 'legacy b', stage: 'testing' });
 const reorder = await move(legacyA.id, 'testing', 1);
-const legacyDone = createCard(db, { title: 'legacy done', stage: 'done' });
+const legacyDone = createCard(db, { title: 'legacy done', stage: 'release' });
 const doneToTesting = await move(legacyDone.id, 'testing');
-const testingToDone = await move(legacyDone.id, 'done');
+const testingToDone = await move(legacyDone.id, 'release');
 const testingToBacklog = await move(legacyA.id, 'backlog');
 
 // --- only the stage's own run counts -------------------------------------
@@ -106,7 +106,7 @@ const approveBuilt = await send('POST', `/api/cards/${builtTesting.id}/review`, 
 
 // --- VIBES MODE ----------------------------------------------------------
 // The same unbuilt card still reads as waiting for review. With nobody
-// watching, the sweep must leave it for a person rather than push it to Done.
+// watching, the sweep must leave it for a person rather than push it to Release.
 updateSettings(db, { vibes: true });
 await vibesSweep(db, writer);
 updateSettings(db, { vibes: false });
@@ -133,7 +133,7 @@ const checks: Array<[string, boolean, string]> = [
   ['query agrees with the shared predicate', moved.implemented === builtRuns.some(isImplementationRun), JSON.stringify(builtRuns.map((r) => [r.stage, r.status, r.task]))],
   ['approving unbuilt testing refused', approveUnbuilt.status === 409 && approveUnbuiltBody.error === 'not implemented', `HTTP ${approveUnbuilt.status} ${JSON.stringify(approveUnbuiltBody)}`],
   ['...and it stays in testing', afterApprove === 'testing', afterApprove],
-  ['approving built testing moves it to done', approveBuilt.status === 200 && stageOf(builtTesting.id) === 'done', `HTTP ${approveBuilt.status} ${stageOf(builtTesting.id)}`],
+  ['approving built testing moves it to done', approveBuilt.status === 200 && stageOf(builtTesting.id) === 'release', `HTTP ${approveBuilt.status} ${stageOf(builtTesting.id)}`],
   ['VIBES leaves the unbuilt card in testing', stageOf(unbuiltTesting.id) === 'testing', stageOf(unbuiltTesting.id)],
   ['...without approving it', vibesReviews.length === 0, `${vibesReviews.length} reviewed events`],
 ];

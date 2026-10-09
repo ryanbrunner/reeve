@@ -198,6 +198,19 @@ export interface ApiPlan {
   filesToTouch: string[];
 }
 
+/** What the Release conversation last submitted for the pull request. */
+export interface ApiRelease {
+  runId: string;
+  createdAt: number;
+  summary: string;
+  ready: boolean;
+  prTitle: string;
+  prBody: string;
+  releaseNotes: string;
+  finish: { ran: boolean; passed: boolean; notes: string };
+  concerns: string[];
+}
+
 export interface ApiImplementation {
   runId: string;
   createdAt: number;
@@ -363,6 +376,7 @@ export interface CardDetail {
   plan: ApiPlan | null;
   implementation: ApiImplementation | null;
   checks: ApiChecks | null;
+  release: ApiRelease | null;
   /** Newest first, every kind. The header's "4 runs · $0.184" is counted here. */
   runs: ApiRunSummary[];
   /**
@@ -383,7 +397,7 @@ export interface CardDetail {
    * `ApiProject.archivedDoneCount`. Here for an archived project too, which is
    * no lane on the board and so has no count there: the Tasks tab reads this
    * once the lane is gone, or a project whose work had all merged would open on
-   * nothing. The Done tasks archived with the project are among them; its open
+   * nothing. The Release tasks archived with the project are among them; its open
    * tasks went to No project and are not. Always 0 for a task.
    */
   archivedDoneCount: number;

@@ -26,7 +26,7 @@ import type { EventWriter } from '../runs/events.js';
 import { runRegistry } from '../runs/registry.js';
 
 /**
- * Every path through resolving a Done card's conflicts, against a throwaway
+ * Every path through resolving a Release card's conflicts, against a throwaway
  * repo whose `origin` is a bare repo on disk and whose `gh` is a script that
  * answers from files. Claude is never called: a stand-in run edits and
  * commits the files itself, or fails, or is stopped, and the server's git
@@ -108,14 +108,14 @@ function land(file: string, body: string) {
 
 let prs = 0;
 /**
- * A Done card with an open pull request whose branch changed `file`, and a
+ * A Release card with an open pull request whose branch changed `file`, and a
  * `main` that has since changed it too — or, with `clash` false, changed
  * something else, so GitHub's verdict is stale and the merge is clean.
  */
 async function conflicted(title: string, clash = true) {
   const file = `${title.toLowerCase().replace(/\W+/g, '-')}.txt`;
   land(file, 'base\n');
-  const c = createCard(db, { title, repoId: repo.id, stage: 'done' });
+  const c = createCard(db, { title, repoId: repo.id, stage: 'release' });
   const wt = await createWorktree({ repoPath, worktreeRoot, cardId: c.id, title, base: 'main' });
   writeFileSync(join(wt.path, file), 'from the card\n');
   run(wt.path, 'add', '-A'); run(wt.path, 'commit', '-qm', `work on ${title}`);
@@ -148,7 +148,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
     seen.runStage = params.runStage;
     seen.prompt = params.stage.buildPrompt(stageContextFor(db, { card, repo: params.repo, worktreePath: cwd }));
     const row = insertRun(db, {
-      id: crypto.randomUUID(), cardId: card.id, kind: 'claude', stage: params.runStage ?? 'done',
+      id: crypto.randomUUID(), cardId: card.id, kind: 'claude', stage: params.runStage ?? 'release',
       status: 'running', task: params.stage.id, cwd, startedAt: new Date(),
     });
     let stopped = false;
@@ -207,8 +207,8 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   github(wt.url, 'CONFLICTING');
   await syncMergedPullRequests(db);
   db.update(cardTable).set({ stage: 'testing' }).where(eq(cardTable.id, wt.id)).run();
-  check('not offered outside Done', !toBoardCard(db, getCard(db, wt.id)!, null, null).prConflicting);
-  db.update(cardTable).set({ stage: 'done', prUrl: 'https://github.com/acme/widgets/pull/999' }).where(eq(cardTable.id, wt.id)).run();
+  check('not offered outside Release', !toBoardCard(db, getCard(db, wt.id)!, null, null).prConflicting);
+  db.update(cardTable).set({ stage: 'release', prUrl: 'https://github.com/acme/widgets/pull/999' }).where(eq(cardTable.id, wt.id)).run();
   github('https://github.com/acme/widgets/pull/999', 'UNKNOWN');
   check('not inherited by a newer pull request', !toBoardCard(db, getCard(db, wt.id)!, null, null).prConflicting);
 }
@@ -238,9 +238,9 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
 
   const backlog = createCard(db, { title: 'Not done', repoId: repo.id, stage: 'testing' });
   const notDone = await resolveConflicts(db, writer, backlog, repo, stand.start);
-  check('card outside Done refused', !notDone.ok && notDone.status === 400);
+  check('card outside Release refused', !notDone.ok && notDone.status === 400);
 
-  const noPr = createCard(db, { title: 'No pull request', repoId: repo.id, stage: 'done' });
+  const noPr = createCard(db, { title: 'No pull request', repoId: repo.id, stage: 'release' });
   const refused = await resolveConflicts(db, writer, noPr, repo, stand.start);
   check('card without a pull request refused', !refused.ok && refused.status === 400);
 }
@@ -272,7 +272,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   const mainHead = g('rev-parse', 'main').trim();
   note('resolve', result.ok ? `runId=${result.runId}` : `${result.error}: ${result.detail}`);
   check('run started for the conflicts', result.ok && result.runId !== null);
-  check('run is the resolve_conflicts task, in Done', stand.seen.task === 'resolve_conflicts' && stand.seen.runStage === 'done');
+  check('run is the resolve_conflicts task, in Release', stand.seen.task === 'resolve_conflicts' && stand.seen.runStage === 'release');
   check('prompt names the conflicted file', stand.seen.prompt?.includes(`\`${wt.file}\``) ?? false);
   check('merge in progress while the run works', await mergeInProgress(wt.path));
   check('lock held while the run works', isResolvingConflicts(wt.id));
@@ -310,7 +310,7 @@ function standIn(behaviour: Behaviour, gate: Promise<void> = Promise.resolve()) 
   check('event carries the per-file notes', (resolved?.meta?.['files'] as unknown[] | undefined)?.length === 1);
   check('event says the tests failed', resolved?.meta?.['testsPassed'] === false);
   check('conflict flag forgotten after the push', !toBoardCard(db, getCard(db, wt.id)!, null, null).prConflicting);
-  check('card stage unchanged', getCard(db, wt.id)!.stage === 'done');
+  check('card stage unchanged', getCard(db, wt.id)!.stage === 'release');
   check('card has no current run', toBoardCard(db, getCard(db, wt.id)!, null, null).latestRun === null);
 }
 

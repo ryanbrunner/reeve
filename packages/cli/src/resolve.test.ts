@@ -106,6 +106,10 @@ describe('parseStage', () => {
     assert.equal(parseStage('Backlog'), 'backlog');
   });
 
+  test('takes Done, the old name of Release', () => {
+    for (const input of ['done', 'Done', 'release', 'Release']) assert.equal(parseStage(input), 'release', input);
+  });
+
   test('rejects anything else, as a usage error', () => {
     assert.equal(parseStage('doing'), null);
     assert.throws(() => requireStage('doing'), (e: unknown) => e instanceof CliError && e.exitCode === 2);
@@ -205,7 +209,7 @@ describe('resolveCard', () => {
 describe('appendIndex', () => {
   test('is the column’s length for a card joining it', () => {
     assert.equal(appendIndex(board, board.cards[0]!.id, 'in_progress'), 2);
-    assert.equal(appendIndex(board, board.cards[0]!.id, 'done'), 0);
+    assert.equal(appendIndex(board, board.cards[0]!.id, 'release'), 0);
   });
 
   test('does not count the card itself when it is already there', () => {

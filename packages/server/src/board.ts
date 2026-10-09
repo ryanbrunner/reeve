@@ -32,7 +32,7 @@ import { isStartingStage } from './startStage.js';
  */
 export function cardActivity(db: Db, card: Card): { activity: CardActivity; run: Run | null } {
   const stage = card.stage as Stage;
-  // Backlog and Done are holding areas — no Claude work, so nothing to colour.
+  // Backlog and Release are holding areas — no Claude work, so nothing to colour.
   if (!isRunnable(stage)) return { activity: 'idle', run: null };
 
   const run = latestClaudeRunForStage(db, card.id, stage) ?? null;
@@ -52,9 +52,9 @@ export function toBoardCard(
   links: (id: string) => CardLinks = cardLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
-  // Only Done offers a resolution. A card dragged back for another round keeps
+  // Only Release offers a resolution. A card dragged back for another round keeps
   // its pull request, and its conflicts wait until it returns.
-  const openInDone = card.stage === 'done' && card.prUrl !== null && card.mergedAt === null;
+  const openInDone = card.stage === 'release' && card.prUrl !== null && card.mergedAt === null;
   return toApiCard(card, repoName, laneColor, run, activity, {
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),

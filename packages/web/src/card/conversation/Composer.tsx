@@ -58,7 +58,7 @@ export function Composer({ detail, live, tab, onClose }: {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [text]);
 
-  const disabled = readOnly || !runnable || card.archivedAt !== null || card.startingStage;
+  const disabled = readOnly || !runnable || card.archivedAt !== null || card.startingStage || card.mergedAt != null;
   const placeholder = readOnly
     ? `${STAGE_LABELS[tab]} is over — switch to ${STAGE_LABELS[card.stage]} to talk to Claude`
     : !runnable
@@ -71,6 +71,8 @@ export function Composer({ detail, live, tab, onClose }: {
           ? 'Answer Claude — or type a reason to deny what it asked'
           : liveRun
             ? 'Interject — Claude reads this before its next step'
+            : card.stage === 'release' && card.activity !== 'needs_input'
+              ? card.mergedAt != null ? 'Merged — this card is finished' : 'Ask Claude about the release: the description, the notes, what to check before merging'
             : card.activity === 'needs_review'
               ? 'Send it back with what to change, or ask Claude about it'
               : card.activity === 'needs_input'
@@ -170,6 +172,9 @@ function StatusLine({ detail, live, readOnly, tab }: { detail: CardDetail; live:
   } else if (card.activity === 'needs_input') {
     main = <span className="text-(--color-activity-input-mark)">◆ Claude is waiting on your reply</span>;
     side = <span>Replying carries on the same conversation</span>;
+  } else if (card.activity === 'needs_review' && card.stage === 'release') {
+    main = <span className="text-(--color-activity-review-mark)">◆ Pull request written · merge when you are satisfied</span>;
+    side = <span>Claude never merges</span>;
   } else if (card.activity === 'needs_review') {
     main = <span className="text-(--color-activity-review-mark)">◆ Submitted · ready for review</span>;
   } else if (card.activity === 'error') {

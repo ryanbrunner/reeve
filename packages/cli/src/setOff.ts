@@ -75,7 +75,7 @@ export async function watchStart(card: ApiCard, before: Set<string>): Promise<Ap
 }
 
 /**
- * A card just moved into Done. `openingPr` is set before the move answers,
+ * A card just moved into Release. `openingPr` is set before the move answers,
  * so it says at once whether a push began; this then waits to see it land.
  */
 export async function watchPullRequest(card: ApiCard): Promise<ApiCard> {
@@ -86,7 +86,7 @@ export async function watchPullRequest(card: ApiCard): Promise<ApiCard> {
     else note(`Reeve did not start a pull request for ${label}; the card says why if something went wrong.`);
     return card;
   }
-  note(`Done opens a pull request: pushing ${label}'s branch…`);
+  note(`Release opens a pull request: pushing ${label}'s branch…`);
   const deadline = Date.now() + WATCH_MS;
   while (Date.now() < deadline) {
     await sleep(POLL_MS);

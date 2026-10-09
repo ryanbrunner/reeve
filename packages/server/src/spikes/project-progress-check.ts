@@ -1,13 +1,13 @@
 /**
  * Checks the count behind a lane's progress bar without spending API credit:
- * `archivedDoneCount` counts a project's tasks archived from Done and nothing
+ * `archivedDoneCount` counts a project's tasks archived from Release and nothing
  * else, and `taskCount` still counts only live ones. Tasks are made straight
  * into their columns with `createCard`, as in project-archive-check.ts.
  *
  * Then the same count on the project's card detail, which is what its modal
  * reads once the project is archived and has no lane: it agrees with the lane
  * while there is one, and afterwards still counts the tasks swept earlier and
- * the Done ones archived with the project, but not the open one it detached.
+ * the Release ones archived with the project, but not the open one it detached.
  *
  *   REEVE_DB=/tmp/reeve-progress.db npx tsx packages/server/src/spikes/project-progress-check.ts
  */
@@ -60,16 +60,16 @@ assert.equal(saved.archivedDoneCount, 0);
 
 const backlog = task('Backlog task', 'backlog');
 const planning = task('Planning task', 'planning');
-const stillDone = task('Done and still on the board', 'done');
-const finished = task('Done and swept', 'done');
+const stillDone = task('Release and still on the board', 'release');
+const finished = task('Release and swept', 'release');
 const dropped = task('Dropped from Backlog', 'backlog');
 
-// A live Done task is the board's to count, not this one's.
+// A live Release task is the board's to count, not this one's.
 saved = await lane(project.id);
 assert.equal(saved.taskCount, 5);
 assert.equal(saved.archivedDoneCount, 0);
 
-// Archived from Done: finished, so it still counts, and leaves `taskCount`.
+// Archived from Release: finished, so it still counts, and leaves `taskCount`.
 archiveCard(db, finished.id);
 saved = await lane(project.id);
 assert.equal(saved.archivedDoneCount, 1);
@@ -81,8 +81,8 @@ saved = await lane(project.id);
 assert.equal(saved.archivedDoneCount, 1);
 assert.equal(saved.taskCount, 3);
 
-// Another project's archived Done task is not this one's.
-archiveCard(db, task('Finished elsewhere', 'done', other.id).id);
+// Another project's archived Release task is not this one's.
+archiveCard(db, task('Finished elsewhere', 'release', other.id).id);
 assert.equal((await lane(project.id)).archivedDoneCount, 1);
 assert.equal((await lane(other.id)).archivedDoneCount, 1);
 
@@ -94,13 +94,13 @@ const board = await call<BoardResponse>('GET', '/api/board');
 assert.equal(board.projects.find((p) => p.id === other.id)?.taskCount, 1);
 assert.deepEqual(
   board.cards.filter((c) => c.projectId === project.id).map((c) => c.stage).sort(),
-  ['backlog', 'done'],
+  ['backlog', 'release'],
 );
 assert.equal(board.cards.find((c) => c.id === backlog.id)?.projectId, project.id);
 assert.equal(board.cards.find((c) => c.id === planning.id)?.projectId, other.id);
 
 console.log(
-  `[reeve] ${saved.title}: ${saved.taskCount} live, ${saved.archivedDoneCount} archived from Done — so the bar reads 2/3`,
+  `[reeve] ${saved.title}: ${saved.taskCount} live, ${saved.archivedDoneCount} archived from Release — so the bar reads 2/3`,
 );
 
 // The modal's count agrees with the lane's while the project has one.
@@ -108,7 +108,7 @@ assert.equal((await detail(project.id)).archivedDoneCount, saved.archivedDoneCou
 assert.equal((await detail(other.id)).archivedDoneCount, 1);
 
 // Archived, the project is no lane, and its detail still counts: the task
-// swept before, and the Done one archived with it. The Backlog task went to No
+// swept before, and the Release one archived with it. The Backlog task went to No
 // project, and the one dropped from Backlog was never counted.
 assert.deepEqual(archiveProject(db, project.id), { archived: 1, detached: 1 });
 const after = await call<BoardResponse>('GET', '/api/board');
@@ -118,7 +118,7 @@ const archived = await detail(project.id);
 assert.ok(archived.card.archivedAt, 'the detail is of the archived project');
 assert.equal(archived.archivedDoneCount, 2);
 
-// Restored, the Done task that went with it comes back, and the lane and the
+// Restored, the Release task that went with it comes back, and the lane and the
 // detail agree again on the one the sweep took.
 restoreProject(db, project.id);
 assert.equal(getCard(db, stillDone.id)?.archivedAt, null);
@@ -126,11 +126,11 @@ saved = await lane(project.id);
 assert.equal(saved.archivedDoneCount, 1);
 assert.equal((await detail(project.id)).archivedDoneCount, saved.archivedDoneCount);
 
-// A task has no tasks of its own, archived from Done or otherwise.
+// A task has no tasks of its own, archived from Release or otherwise.
 assert.equal((await detail(finished.id)).archivedDoneCount, 0);
 assert.equal((await detail(stillDone.id)).archivedDoneCount, 0);
 
 console.log(
-  `[reeve] ${saved.title}: its detail counted ${archived.archivedDoneCount} archived from Done while it was archived`,
+  `[reeve] ${saved.title}: its detail counted ${archived.archivedDoneCount} archived from Release while it was archived`,
 );
 console.log('[reeve] project progress check passed');

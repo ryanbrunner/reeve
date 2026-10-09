@@ -84,7 +84,7 @@ reeve runs <card> [--json]
 ```
 
 - **`reeve board`** prints the board column by column, one card to a line:
-  its short id, activity (and pull request, on Done), repo, project and title.
+  its short id, activity (and pull request, on Release), repo, project and title.
   The projects follow as their own list. `--archived` lists what has been taken
   off the board instead, most recently archived first.
 
@@ -128,18 +128,18 @@ it does in full.
 
 **A move is a human action.** Moving a card into Planning, In Progress or
 Testing starts a Claude run there, exactly as a drag does, and moving it into
-Done pushes its branch and opens a pull request. So does `card add --stage` into
+Release pushes its branch and opens a pull request. So does `card add --stage` into
 a Claude column, and `project add --split`. The command waits a few seconds and
 says on stderr what it set off: the run's id, the pull request's link, or why
 nothing started. Reeve records these as your actions, whoever ran the command.
 
-`card merge` is the board's Merge button: it lands a Done card's pull request
+`card merge` is the board's Merge button: it lands a Release card's pull request
 on GitHub, and only once GitHub has said it merges cleanly. Branch protection
 still applies, and a refusal says what `gh` said.
 
-**Archiving a project takes its Done cards with it.** A project with cards not
-yet Done is refused, and the refusal names them; `--detach-open` archives it
-anyway and moves them to No project. Restoring the project brings back the Done
+**Archiving a project takes its Release cards with it.** A project with cards not
+yet Release is refused, and the refusal names them; `--detach-open` archives it
+anyway and moves them to No project. Restoring the project brings back the Release
 cards that went with it, and leaves the moved ones where they are.
 
 `repos add` and `repos edit` take the Settings form's fields as flags, and a

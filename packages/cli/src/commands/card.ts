@@ -122,14 +122,14 @@ async function worktree(args: string[]): Promise<void> {
 }
 
 /**
- * Pushes a Done card's branch and opens its pull request, or pushes to the
- * one already open. Entering Done tries this once on its own; this is the
+ * Pushes a Release card's branch and opens its pull request, or pushes to the
+ * one already open. Entering Release tries this once on its own; this is the
  * retry once whatever stopped it has been put right.
  */
 async function pr(args: string[]): Promise<void> {
   const { values, card } = await target('pr', args);
   // Only where a push can happen: the server refuses anything else before it tries.
-  if (card.stage === 'done') note(`Pushing ${cardRef(card)}'s branch to origin…`);
+  if (card.stage === 'release') note(`Pushing ${cardRef(card)}'s branch to origin…`);
   const opened = await api.openPr(card.id);
   if (values.json) return printJson(opened);
   note(opened.reused ? `Pushed to the open pull request #${opened.number}.` : `Opened pull request #${opened.number}.`);
@@ -137,7 +137,7 @@ async function pr(args: string[]): Promise<void> {
 }
 
 /**
- * Merges the base branch into a Done card's branch and pushes it. When the
+ * Merges the base branch into a Release card's branch and pushes it. When the
  * merge conflicts, Claude resolves it in a run of its own and the push waits
  * for that run; a clean merge is pushed before this returns.
  */
@@ -155,7 +155,7 @@ async function resolveConflicts(args: string[]): Promise<void> {
 }
 
 /**
- * Merges a Done card's pull request on GitHub, as the Merge button does, and
+ * Merges a Release card's pull request on GitHub, as the Merge button does, and
  * only when the board would offer that button: GitHub has said the pull
  * request merges cleanly. Asked for by a person or their script, like
  * `approve`; nothing here merges on its own.

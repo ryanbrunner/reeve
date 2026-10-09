@@ -4,7 +4,7 @@ import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
 
 /**
- * Merges a Done card's pull request on GitHub, offered only once GitHub has
+ * Merges a Release card's pull request on GitHub, offered only once GitHub has
  * said it merges cleanly. It sits on the card for the same reason Run does:
  * it is the one thing left to do with it, and opening the card to find the
  * button is a step with nothing in it.

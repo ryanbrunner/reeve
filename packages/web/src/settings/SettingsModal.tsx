@@ -511,7 +511,7 @@ function RepoForm({
         <Field label="Teardown" hint="Before a worktree is removed.">
           <Text value={form.teardownCommand} onChange={set('teardownCommand')} mono />
         </Field>
-        <Field label="Finish" hint="When a card reaches Done.">
+        <Field label="Finish" hint="When a card reaches Release.">
           <Text value={form.finishCommand} onChange={set('finishCommand')} mono />
         </Field>
       </section>

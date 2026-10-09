@@ -66,9 +66,9 @@ function card(title: string, stage: Stage, face: Face, cost?: number) {
       .run();
   }
   if (cost === undefined) return;
-  // Backlog and Done have no runs of their own, so the cost a card carries out
+  // Backlog and Release have no runs of their own, so the cost a card carries out
   // of them belongs to the last stage that did run.
-  const runStage = stage === 'backlog' || stage === 'done' ? 'planning' : stage;
+  const runStage = stage === 'backlog' || stage === 'release' ? 'planning' : stage;
   const r = insertRun(db, {
     id: crypto.randomUUID(), cardId: c.id, kind: 'claude', stage: runStage, status: 'running', cwd: '/tmp/x',
   });
@@ -105,9 +105,9 @@ card('Rewrite checkout in Rust', 'in_progress', 'running', 0.096);
 card('Save items for later from the cart', 'testing', 'review', 0.184);
 card('Migrate the database, live', 'testing', 'review', 0.141);
 // Big enough to show in millions.
-card('Cart page redesign', 'done', 'merged', 1.6);
-card('Apple Pay on mobile', 'done', 'merged', 0.141);
-card('Make the logo bigger', 'done', 'idle', 0.09);
+card('Cart page redesign', 'release', 'merged', 1.6);
+card('Apple Pay on mobile', 'release', 'merged', 0.141);
+card('Make the logo bigger', 'release', 'idle', 0.09);
 
 updateSettings(db, { vibes: true });
 console.log('seeded, and VIBES MODE is on');

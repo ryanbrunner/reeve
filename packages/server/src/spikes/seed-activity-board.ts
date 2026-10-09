@@ -46,5 +46,5 @@ card('Server supervisor: ports + start/stop', 'planning', { status: 'succeeded',
 card('Budget accounting per repo', 'planning', { status: 'failed', cost: 0.071 });
 card('SSE reconnect on page reload', 'planning', { status: 'cancelled', cost: 0.019 });
 card('Card detail drawer', 'in_progress', { status: 'running', cost: 2.15 });
-card('Fractional index renormalisation', 'done');
+card('Fractional index renormalisation', 'release');
 console.log('[reeve] seeded a board covering every card sub-state');
