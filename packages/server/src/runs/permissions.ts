@@ -208,7 +208,7 @@ export function agentGuard(opts: {
   onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void;
 }): HookCallback {
   return (hook, toolUseId) => {
-    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    if (hook.hook_event_name !== 'PreToolUse' || (hook.tool_name !== 'Agent' && hook.tool_name !== 'Task')) return Promise.resolve({});
     const input = isRecord(hook.tool_input) ? hook.tool_input : {};
     const id = hook.tool_use_id ?? toolUseId ?? '';
     const isWorker = opts.workerType !== null && input['subagent_type'] === opts.workerType;

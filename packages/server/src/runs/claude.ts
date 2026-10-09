@@ -558,8 +558,9 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
           matcher: 'Bash',
           hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
         },
+        // No matcher: agentGuard checks the tool's name itself, rather than
+        // trusting an alternation to match the way a Claude Code setting does.
         {
-          matcher: 'Agent|Task',
           hooks: [agentGuard({
             workerType,
             workerRunning: () => workers.size > 0,
@@ -603,7 +604,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         // is done: the run would end, and the worker with it, mid-edit.
         // Any agent still in the background counts, worker or not: work the
         // lead started some other way is unfinished all the same.
-        if (busy()) {
+        if (workerType && busy()) {
           return {
             isError: true,
             content: [{
