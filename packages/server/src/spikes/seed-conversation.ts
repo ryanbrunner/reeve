@@ -1,8 +1,9 @@
 /**
- * Seeds four cards whose stage is a conversation in each state the composer
+ * Seeds five cards whose stage is a conversation in each state the composer
  * and the thread render — waiting on a reply, parked on a permission, parked
- * on a question, and working with a message just interjected — so the card
- * modal's conversation can be looked at without spending API credit.
+ * on a question, working with a message just interjected, and a Release that
+ * has written its pull request — so the card modal's conversation can be
+ * looked at without spending API credit.
  *
  * Into a server that is ALREADY RUNNING on the same scratch database. Opening
  * it here does not reap, so the two live cards stay live; a server started
@@ -20,7 +21,8 @@ import { join } from 'node:path';
 import { openDatabase } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { createCard, createRepo, insertEvents, insertRun, listRepos, moveCard, nextSeq } from '../db/queries.js';
-import type { CardStage } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
+import { card as cardTable, type CardStage } from '../db/schema.js';
 import { config } from '../config.js';
 
 if (!process.env.REEVE_DB) throw new Error('give this the scratch REEVE_DB the running server uses');
@@ -49,7 +51,7 @@ const result = (id: string, content: string, isError = false) => ({
 });
 const user = (t: string, extra: Record<string, unknown> = {}) => ({ kind: 'user_message', payload: { text: t, actor: 'human', source: 'chat', at: now - 60_000, ...extra } });
 
-function card(title: string, stage: CardStage, status: 'awaiting_reply' | 'asking' | 'running', events: Array<{ kind: string; payload: unknown }>, prompt: string, resultText: string | null = null) {
+function card(title: string, stage: CardStage, status: 'awaiting_reply' | 'asking' | 'running' | 'succeeded', events: Array<{ kind: string; payload: unknown }>, prompt: string, resultText: string | null = null, output: unknown = null) {
   const c = createCard(db, { repoId: repo.id, title, body: 'Seeded by seed-conversation.ts.', stage: 'backlog' });
   moveCard(db, c.id, stage, 0, 'human');
   const run = insertRun(db, {
@@ -57,9 +59,10 @@ function card(title: string, stage: CardStage, status: 'awaiting_reply' | 'askin
     sessionId: crypto.randomUUID(), model: 'opus-5-5', effort: 'high', permissionMode: 'auto',
     prompt, cwd: repo.worktreeRoot, startedAt: ago(6), createdAt: ago(6),
     lastActivity: status === 'running' ? 'editing a file' : null,
-    finishedAt: status === 'awaiting_reply' ? ago(2) : null,
-    stopReason: status === 'awaiting_reply' ? 'completed' : null,
+    finishedAt: status === 'awaiting_reply' || status === 'succeeded' ? ago(2) : null,
+    stopReason: status === 'awaiting_reply' || status === 'succeeded' ? 'completed' : null,
     resultText,
+    structuredOutput: output,
   });
   const first = nextSeq(db, run.id);
   insertEvents(db, events.map((e, i) => ({
@@ -127,4 +130,31 @@ card('Pick a default for new cards\' model', 'in_progress', 'asking', [
   ], PROMPT);
 }
 
-console.log(`seeded 4 conversation cards into ${config.dbFile}`);
+// 5. Release, with the pull request written and waiting to be merged.
+{
+  const log = use('Bash', { command: 'git log main..HEAD --oneline', description: 'The branch’s commits' });
+  const fin = use('Bash', { command: 'npm run typecheck && npm test', description: 'The repo’s finish command' });
+  const submit = use('mcp__reeve__submit_release', { pr_title: 'Rename Done to Release' });
+  const output = {
+    summary: 'Renames the last column and makes it a conversation; finish command passes.',
+    pr_title: 'Rename Done to Release',
+    pr_body: 'The last column is now **Release**: a stage where Claude prepares the pull request with the person.\n\n- `0026_rename_done_to_release` renames the stage in every table\n- `done` still works as a stage name in the CLI and the move route\n\nVerified with the finish command and the release spike.',
+    release_notes: 'The last column is now Release. Claude writes the pull request and its notes there; you merge when you are happy.',
+    finish: { ran: true, passed: true, notes: 'typecheck and the CLI tests pass.' },
+    ready: true,
+    concerns: ['The migration renames rows in place; a board on an older Reeve would not read them.'],
+    suggested_tasks: [],
+  };
+  const c = card('Rename Done to Release', 'release', 'succeeded', [
+    assistant(text('Reading the branch the way a reviewer would.')),
+    assistant(log, fin),
+    result(log.id, 'a41e2c9 Rename the stage\n7b0d11f Add the Release stage'),
+    result(fin.id, '✓ 4 workspaces typecheck\n✓ cli: 19 tests passed'),
+    assistant(text('The finish command passes. I have written the description and release notes.'), submit),
+    result(submit.id, 'Recorded. Reeve writes the documents from this.'),
+    { kind: 'submitted', payload: { tool: 'submit_release', summary: 'Ready to merge. Renames the last column and makes it a conversation; finish command passes.' } },
+  ], PROMPT, null, output);
+  db.update(cardTable).set({ prUrl: 'https://github.com/example/reeve/pull/151', prNumber: 151, prOpenedAt: ago(5) }).where(eq(cardTable.id, c.id)).run();
+}
+
+console.log(`seeded 5 conversation cards into ${config.dbFile}`);

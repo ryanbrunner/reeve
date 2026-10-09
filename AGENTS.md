@@ -4,11 +4,18 @@ A local kanban board where each card is a piece of work in one of your repos,
 and each column past Backlog runs a Claude Agent SDK stage in that card's own
 git worktree:
 
-    backlog → planning → in_progress → testing → done
+    backlog → planning → in_progress → testing → release
 
-Planning, In Progress and Testing run Claude; Backlog and Done are holding
-areas (`packages/shared/src/stages.ts`). A card's column is its stage — there
-is no second status field.
+Every column but Backlog runs Claude; Backlog is where work waits
+(`packages/shared/src/stages.ts`). Release was Done until it became a stage:
+`done` is still accepted wherever a stage is named. A card's column is its
+stage — there is no second status field.
+
+Each stage is a conversation. Its session stays open while Claude works, so a
+person's message reaches it at the next tool boundary; a turn can end in a
+question or a reply rather than the stage's work; and the work is delivered
+when Claude calls the stage's `submit_<stage>` tool. A card's conversation —
+every stage's, each its own session — is the card modal's main view.
 
 The rule the whole board is built around: **Claude never moves a card; a human
 action does**, whether a drag or an approval. A run finishing on its own
@@ -145,8 +152,10 @@ the board from a script or an agent:
     reeve card run <card>                  start the card's stage; prints the run id
     reeve run follow <run>                 its transcript, until it ends
     reeve card wait <card>                 block until the card needs a person
-    reeve card questions <card>            what Claude asked
-    reeve card answer <card> <n> <answer…> the last answer resumes the run
+    reeve card reply <card> <text…>        talk to Claude: interjects, answers, or carries on
+    reeve card questions <card>            what Claude is waiting on you for
+    reeve card answer <card> <n> <answer…> answer a plan's question; the last resumes it
+    reeve card permit <card> allow|deny    the call a live run is parked on, once
     reeve card approve <card> [--notes]    pass the gate: the card moves one column
     reeve card reject <card> --notes …     send it back; the notes are the next prompt
     reeve run stop <run>
@@ -165,9 +174,9 @@ same numbers for how its run ended.
 | 0    | the run finished and awaits review                                                | the run succeeded |
 | 1    | error: Reeve unreachable, no such card, the server refused                        | the same          |
 | 2    | the command line was wrong                                                        | the same          |
-| 3    | Claude asked questions                                                            | —                 |
+| 3    | Claude is waiting on you: questions, a reply, or a permission                     | the run ended waiting on a reply |
 | 4    | the stage's run failed or was interrupted                                         | the run did       |
-| 5    | idle: nothing running or waiting — Backlog, Done, stopped, or a start was refused | the run was stopped |
+| 5    | idle: nothing running or waiting — Backlog, stopped, or a start was refused       | the run was stopped |
 | 6    | `--timeout` ran out with the card still running                                   | —                 |
 
 `wait` on a card that already needs a person returns at once. A card that has
@@ -185,10 +194,25 @@ switched on.
 ## Rules the code depends on
 
 - **Claude returns data; the server writes the documents.** Each stage's
-  output is a zod schema in `packages/shared/src/contracts.ts`, and the server
-  composes `.reeve/plan.md`, `.reeve/implementation.md` and
-  `.reeve/test-report.md` from it. That inversion is why Planning, which
-  could edit files, is told to change nothing.
+  output is a zod schema in `packages/shared/src/contracts.ts`, delivered as
+  the input of the stage's in-process `submit_<stage>` tool, and the server
+  composes `.reeve/plan.md`, `.reeve/implementation.md`,
+  `.reeve/test-report.md` and `.reeve/release.md` from it. That inversion is
+  why Planning, which could edit files, is told to change nothing, and why
+  Release's pull request text is set by the server, not by Claude. One-off
+  tasks (Suggest, a split, ideas, resolving conflicts) keep `outputFormat`
+  and are one turn.
+- **A stage run is a conversation, and the SDK's idle event is its turn
+  boundary.** `startClaudeRun` holds the run's input open (`runs/inbox.ts`)
+  and sets `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, without which the event
+  never comes; `spikes/conversation-check.ts` has what the SDK does. At idle
+  with nothing queued the input closes: a turn that submitted is `succeeded`,
+  one that did not is `awaiting_reply`. No process is held for a person's
+  reply — the next message forks the session, as a rejection always did.
+  Interjections send no `priority`: `'now'` cuts the turn off with an empty
+  result. Everything a person says goes through `sendToCard` in
+  `packages/server/src/conversation.ts`: the composer, `reeve card reply`,
+  answers, rejections, live notes, Crit and Gloss comments, VIBES MODE.
 - **`.reeve/` is untracked stage output and must never be committed.** It is
   not in `.gitignore` — it is written into whatever repo a card belongs to —
   so `git add -A` or `git add .` would sweep it in. The pull request and
@@ -239,16 +263,37 @@ switched on.
   despite auto mode having been asked for — an account setting or
   `disableAutoMode` turning it off underneath a request that should have
   gotten it.
-- **What the classifier escalates is denied.**
-  `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
-  answers allow. Nobody is watching, and allowing would be `bypassPermissions`
-  by another name. Its refusal names the call and tells Claude to carry on
-  another way.
+- **What the classifier escalates is asked about, and allowed only by a
+  person, once.** In an auto-mode stage run with someone who can be asked, an
+  escalated call parks the run as `asking` and shows in the conversation with
+  Allow once and Deny; a typed reply denies it with that reason. It is denied
+  without asking under VIBES MODE, in a one-off task, for a model running
+  without auto mode, and after `REEVE_ASK_TIMEOUT_MS` (10 minutes) unanswered.
+  `packages/server/src/runs/permissions.ts` never answers allow itself — a host
+  that did would be `bypassPermissions` by another name — and its refusals
+  name the call and tell Claude to carry on another way. AskUserQuestion is a
+  question, not a permission: it parks the same way and is answered with the
+  person's choice, or Claude's own first option under VIBES MODE.
+- **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
+  `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
+  since auto mode may approve them. The Merge button, and VIBES MODE, land a
+  pull request.
 - **A spike never opens the live board.** A PreToolUse hook on Bash refuses
   any command that sets `REEVE_DB` to the running server's own database, or
   to a value it cannot read plainly. It is a hook because a command the
   classifier approves never reaches `canUseTool`. VIBES MODE does not widen
   permissions either.
+
+## Looking at the conversation without API credit
+
+`packages/server/src/spikes/seed-conversation.ts` puts a card in each
+conversation state — waiting on a reply, parked on a permission, parked on a
+question, working with a message interjected, a Release with its pull request
+written — onto a server already running on a scratch database (opening it
+does not reap, so the live ones stay live; its header has the commands).
+`conversation-flow-check.ts` and `release-flow-check.ts` drive the same states
+with real runs, and `conversation-size-check.ts` measures a long run's
+conversation.
 
 ## Database migrations
 
@@ -334,7 +379,8 @@ made, before the setup command starts (`copyWorktreeIncludes` in
 never over a file the worktree already has. A reused worktree gets nothing.
 
 A repo has six lifecycle commands: setup, test, seed, server, teardown and
-finish. The seed is for Testing's screenshots, which a fresh worktree's server
+finish. The finish command is Release's to run, as the repo's own last check
+before merging, and its result goes into what Release writes. The seed is for Testing's screenshots, which a fresh worktree's server
 would otherwise take of an empty page. When a card has captures to take,
 Testing stops the card's dev server, runs the seed in the worktree, and then
 starts the server again (`seedForCapture` in

@@ -110,7 +110,8 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
   // Beside the conversation the stage's documents come first, the brief after
   // them, and the rail's facts last.
   const sideTabs: typeof all = side
-    ? [...all.filter((t) => t.id !== 'brief' && t.id !== 'activity'), all.find((t) => t.id === 'brief')!, { id: 'activity', label: 'Activity' }, { id: 'card', label: 'Card' }]
+    // Activity goes under the card's facts: eight tabs do not fit beside a thread.
+    ? [...all.filter((t) => t.id !== 'brief' && t.id !== 'activity'), all.find((t) => t.id === 'brief')!, { id: 'card', label: 'Card' }]
     : all;
   const tabs = vibes ? sideTabs.filter((t) => t.id !== 'plan' && t.id !== 'diff') : sideTabs;
   // Derived rather than reset, so a card left open on Diff when VIBES MODE
@@ -168,7 +169,12 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
         {tab === 'preview' && <PreviewTab detail={detail} vibes={vibes} />}
         {tab === 'release' && <ReleaseTab detail={detail} />}
         {tab === 'activity' && <ActivityTab detail={detail} vibes={vibes} />}
-        {tab === 'card' && <Rail detail={detail} onOpen={onOpen} embedded />}
+        {tab === 'card' && (
+          <>
+            <Rail detail={detail} onOpen={onOpen} embedded />
+            <div className="border-t border-(--color-edge) pt-4"><ActivityTab detail={detail} vibes={vibes} /></div>
+          </>
+        )}
       </div>
     </div>
   );

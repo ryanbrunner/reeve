@@ -93,18 +93,28 @@ reeve runs <card> [--json]
 ```sh
 reeve card run <card> [--follow] [--json]
 reeve card approve <card> [--notes TEXT] / reeve card reject <card> --notes TEXT
+reeve card reply <card> <text…> [--file F] [--follow] [--json]
 reeve card questions <card> [--json] / reeve card answer <card> <question> <answer>
+reeve card permit <card> allow|deny [--reason TEXT]
 reeve card wait <card> [--timeout S] [--json]
 reeve run follow <run> [--json] / reeve run stop <run>
 ```
+
+Each stage is a conversation with Claude, and `card reply` is the CLI's side
+of it: a message is read by a running Claude at its next step, answers what a
+run is parked on, or carries the stage's conversation on once a turn has
+ended. It prints the run it went to.
 
 Claude never moves a card; a human does. Approving is that human action for a
 finished stage: it passes the gate and moves the card one column, where
 `card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
-exit status: 0 it finished and awaits review, 3 Claude asked questions, 4 the
-run failed, 5 nothing was running, 6 `--timeout` ran out.
+exit status: 0 it finished and awaits review, 3 Claude is waiting on you, 4 the
+run failed, 5 nothing was running, 6 `--timeout` ran out. On 3, `card
+questions` says what about — a plan's questions, the question a turn ended
+on, or a call the run wants to make — and `answer`, `reply` or `permit` is the
+way back.
 
 ## Writing
 
@@ -167,7 +177,7 @@ Criteria are numbered from 1, as `criteria list` shows them. There is no
   means whichever repo has one, and it is an error naming them when more than
   one does. The card commands take a project too, by its id or its title.
 - **`<stage>`** is `backlog`, `planning`, `in-progress` (or `in_progress`, or
-  `"In Progress"`), `testing` or `done`.
+  `"In Progress"`), `testing` or `release` (`done`, its old name, still works).
 - **`--repo`** takes a repo's name or its id. Without it a new card goes in the
   repo you are in, else its project's repo, else the only repo there is.
 - **`--project`** takes a project's title, ignoring case, or its id or a
