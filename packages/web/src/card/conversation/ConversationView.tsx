@@ -333,7 +333,9 @@ export function runningWorker(run: ConversationRun | undefined): ToolItem | null
   if (!run || isTerminal(run.status)) return null;
   for (let i = run.items.length - 1; i >= 0; i--) {
     const item = run.items[i]!;
-    if (item.kind === 'tool' && item.agent?.background && item.agent.status === 'running') return item;
+    // The stage's own worker only: an agent the lead sends off to look
+    // something up is part of the lead's turn, not work going on behind it.
+    if (item.kind === 'tool' && item.agent?.type === 'worker' && item.agent.background && item.agent.status === 'running') return item;
   }
   return null;
 }
