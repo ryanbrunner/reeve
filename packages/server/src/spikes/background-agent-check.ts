@@ -16,6 +16,7 @@
  *    for the worker (does SendMessage reach it?).
  * B: stopTask on a running worker.
  * C: closing the input while a worker runs.
+ * D: the worker parked on a permission while the person talks to the lead.
  *
  * What it found on SDK 0.3.281 (Sonnet), on 2026-10-09:
  *
@@ -49,6 +50,11 @@
  * - PreToolUse hooks fire for the worker's calls, with `agent_id` and
  *   `agent_type: 'worker'`; canUseTool's options carry `agentID`. So
  *   mergeGuard covers the worker, and an ask can be attributed to it.
+ * - D: while canUseTool holds a worker's call, the lead still takes a turn: a
+ *   question pushed 3s into a 25s hold was answered 1.8s later. So a person's
+ *   words can go to the lead while the worker waits on Allow or Deny.
+ * - The hook's `tool_use_id` for an Agent call is the id its tool_use block
+ *   carries, which a task_notification names in turn (A10).
  */
 import { query, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { execFileSync } from 'node:child_process';
@@ -326,10 +332,62 @@ async function partC() {
   find('C1 input closed mid-work', `notification=${r.notified} loop ended ${r.endedAfterAct} after DONE.txt=${r.done}`);
 }
 
+/**
+ * D: the worker parked on a permission nobody has answered yet. Default mode,
+ * so the worker's Bash reaches canUseTool, which holds it for 25s; a question
+ * for the lead is pushed meanwhile. Is it answered before the hold ends?
+ */
+async function partD() {
+  console.log('\n--- D: talk to the lead while the worker waits on a permission ---');
+  t0 = Date.now();
+  const dir = repo();
+  const inbox = new Inbox();
+  const abort = new AbortController();
+  let heldAt = 0, releasedAt = 0, askedAt = 0, replyAt = 0, notifiedAt = 0;
+  let bg = 0;
+  const opts = baseOptions(dir, abort, {
+    permissionMode: 'default',
+    canUseTool: async (name, input, o) => {
+      if (!o.agentID || heldAt) return { behavior: 'allow', updatedInput: input };
+      heldAt = Date.now();
+      note('worker parked', name);
+      setTimeout(() => { askedAt = Date.now(); inbox.push('While you wait: what is 6 times 7? One line.'); note('PUSHED question', ''); }, 3_000);
+      await new Promise((r) => setTimeout(r, 25_000));
+      releasedAt = Date.now();
+      note('worker released', name);
+      return { behavior: 'allow', updatedInput: input };
+    },
+  });
+  inbox.push(LAUNCH('Run `touch MADE.txt && mkdir -p out && echo hello > out/hello.txt` with Bash, then write the word done into DONE.txt.'));
+  const q = query({ prompt: inbox, options: opts });
+  const watchdog = setTimeout(() => { note('WATCHDOG', 'D ran 180s; aborting'); inbox.close(); abort.abort(); }, 180_000);
+  try {
+    for await (const m of q) {
+      const sub = (m as { subtype?: string }).subtype;
+      const rec = m as Record<string, unknown>;
+      if (m.type === 'assistant' && !(m as { parent_tool_use_id?: string }).parent_tool_use_id) {
+        const t = textOf(m);
+        note('lead says', t.slice(0, 120));
+        if (askedAt && !replyAt && /42|forty/i.test(t)) replyAt = Date.now();
+      }
+      if (m.type === 'system' && sub === 'task_notification') notifiedAt = Date.now();
+      if (m.type === 'system' && sub === 'background_tasks_changed') bg = (rec['tasks'] as unknown[]).length;
+      if (m.type === 'system' && sub === 'session_state_changed' && rec['state'] === 'idle' && notifiedAt && bg === 0) inbox.close();
+    }
+  } catch (err) {
+    note('D threw', String(err).slice(0, 200));
+  } finally {
+    clearTimeout(watchdog);
+  }
+  const rel = (at: number) => (at ? `${((at - t0) / 1000).toFixed(1)}s` : 'never');
+  find('D1 lead answered while worker parked', `parked=${rel(heldAt)} asked=${rel(askedAt)} replied=${rel(replyAt)} released=${rel(releasedAt)} → ${replyAt && replyAt < releasedAt ? 'YES' : 'NO'}`);
+}
+
 const only = process.env['SPIKE_PART'];
 if (!only || only === 'A') await partA();
 if (!only || only === 'B') await partB();
 if (!only || only === 'C') await partC();
+if (!only || only === 'D') await partD();
 
 console.log('\n--- verdict ---');
 for (const [k, v] of verdict) console.log(`${k.padEnd(32)} ${v}`);
