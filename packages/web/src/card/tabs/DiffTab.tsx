@@ -139,7 +139,9 @@ function FileDiff({ file }: { file: ApiDiffFile }) {
                   >
                     {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}
                   </span>
-                  <span className="pr-3 whitespace-pre text-(--color-text)">{line.text}</span>
+                  <span className="pr-3 whitespace-pre-wrap text-(--color-text) [overflow-wrap:anywhere]">
+                    {line.text}
+                  </span>
                 </div>
               ))}
             </div>
