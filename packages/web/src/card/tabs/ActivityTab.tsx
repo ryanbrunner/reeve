@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, type ApiCardEvent, type ApiToolDenial, type CardDetail, type Stage } from '@reeve/shared';
 import { api } from '../../lib/api.js';
-import { duration, tok, tokenTitle, when } from '../format.js';
+import { cost, duration, when } from '../format.js';
 import { Empty, SectionHead, SmallButton } from '../ui.js';
 
 type Filter = 'all' | 'runs' | 'human';
@@ -13,7 +13,7 @@ type Filter = 'all' | 'runs' | 'human';
  * Deliberately not the run transcript — that is thousands of SDK messages in
  * Claude's vocabulary. This is the handful of moments that would appear in a
  * changelog, in the terms a person tells them: who did what, and when. In
- * VIBES MODE, only that it happened: no run's status, time or tokens.
+ * VIBES MODE, only that it happened: no run's status, time or cost.
  */
 export function ActivityTab({ detail, vibes = false }: { detail: CardDetail; vibes?: boolean }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -81,11 +81,10 @@ function RunFacts({ event, detail }: { event: ApiCardEvent; detail: CardDetail }
   const meta = event.meta ?? {};
   const status = String(meta['status'] ?? '');
   const ms = typeof meta['durationMs'] === 'number' ? meta['durationMs'] : null;
-  // Both read off the run rather than the event, so runs that finished before
-  // anyone thought to show them get them too — the denials and the SDK's usage
-  // were always recorded.
-  const run = detail.runs.find((r) => r.id === event.runId);
-  const denied = run?.deniedToolUses ?? [];
+  const usd = typeof meta['costUsd'] === 'number' ? meta['costUsd'] : null;
+  // Read off the run rather than the event, so runs that finished before anyone
+  // thought to show this get the chip too — the denials were always recorded.
+  const denied = detail.runs.find((r) => r.id === event.runId)?.deniedToolUses ?? [];
   return (
     <div className="flex flex-wrap items-baseline gap-2 font-mono text-[11px]/4">
       <span
@@ -96,11 +95,7 @@ function RunFacts({ event, detail }: { event: ApiCardEvent; detail: CardDetail }
         {status === 'succeeded' ? 'done' : status}
       </span>
       {ms !== null && <span className="text-(--color-muted)">{duration(ms)}</span>}
-      {run?.totalTokens != null && (
-        <span title={tokenTitle(run.tokenBreakdown)} className="whitespace-nowrap text-(--color-muted)">
-          {tok(run.totalTokens)}
-        </span>
-      )}
+      {usd !== null && <span className="text-(--color-muted)">{cost(usd)}</span>}
       {/* A succeeded run that was refused its tools still reads as success
           everywhere else. This is the only place that says otherwise, so it
           carries the commands themselves rather than just a count. */}

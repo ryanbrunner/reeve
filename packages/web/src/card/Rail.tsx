@@ -17,7 +17,7 @@ import { api, cardsIn } from '../lib/api.js';
 import { copyText } from '../lib/clipboard.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
-import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
+import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
 /**
@@ -43,7 +43,8 @@ export function Rail({ detail, onOpen, embedded = false }: {
       <Repo detail={detail} />
       <Dependencies detail={detail} onOpen={onOpen} />
       <Suggestions detail={detail} onOpen={onOpen} />
-      <Model detail={detail} />
+      {/* Keyed so a budget half-typed for one card is not left sitting in another's field. */}
+      <Model key={detail.card.id} detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -341,15 +342,23 @@ function Model({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
   const models = data?.models ?? [];
-  const { model, effort } = detail.card;
+  const { model, effort, maxBudgetUsd } = detail.card;
+  const [budgetText, setBudgetText] = useState(maxBudgetUsd == null ? '' : String(maxBudgetUsd));
   const set = useMutation({
-    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null }) => api.updateCard(detail.card.id, body),
+    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null; maxBudgetUsd?: number | null }) =>
+      api.updateCard(detail.card.id, body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
       void qc.invalidateQueries({ queryKey: ['board'] });
     },
   });
   const levels = effortLevelsFor(models, model);
+  const budgetValid = budgetText.trim() === '' || (Number.isFinite(Number(budgetText)) && Number(budgetText) > 0);
+  const commitBudget = () => {
+    if (!budgetValid) return;
+    const next = budgetText.trim() === '' ? null : Number(budgetText);
+    if (next !== maxBudgetUsd) set.mutate({ maxBudgetUsd: next });
+  };
 
   return (
     <section className="flex flex-col gap-2">
@@ -377,10 +386,20 @@ function Model({ detail }: { detail: CardDetail }) {
           onChange={(v) => set.mutate({ effort: (v || null) as EffortLevel | null })}
           className={FIELD}
         />
+        <input
+          aria-label="Budget for this card's runs, in dollars"
+          value={budgetText}
+          disabled={set.isPending}
+          onChange={(e) => setBudgetText(e.target.value)}
+          onBlur={commitBudget}
+          placeholder="Settings default"
+          className={`${FIELD} placeholder:text-(--color-muted)/50`}
+        />
       </div>
       <p className="font-mono text-[10px]/4 text-(--color-muted)">
         For Planning, In Progress and Testing. Suggest keeps its own.
       </p>
+      {!budgetValid && <p className="font-mono text-[10px]/4 text-red-300">Budget must be blank or a positive number.</p>}
       {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
     </section>
   );
@@ -630,17 +649,11 @@ function Runs({ detail }: { detail: CardDetail }) {
   const models = data?.models ?? [];
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   // The same sum the header shows, so the two totals can never disagree.
-  const spent = sumTokens(runs);
+  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
-        aside={
-          spent ? (
-            <span title={tokenTitle(spent.breakdown)} className="font-mono text-[11px]/4 text-(--color-muted)">
-              {tok(spent.total)}
-            </span>
-          ) : null
-        }
+        aside={runs.length ? <span className="font-mono text-[11px]/4 text-(--color-muted)">{cost(spent)}</span> : null}
       >
         Runs
       </SectionHead>
@@ -670,9 +683,7 @@ function Runs({ detail }: { detail: CardDetail }) {
               <span className="text-(--color-muted)">
                 {duration(r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null)}
               </span>
-              <span title={tokenTitle(r.tokenBreakdown)} className="min-w-[40px] text-right whitespace-nowrap text-(--color-muted)">
-                {tok(r.totalTokens)}
-              </span>
+              <span className="min-w-[40px] text-right text-(--color-muted)">{cost(r.totalCostUsd)}</span>
             </div>
           ))}
         </div>

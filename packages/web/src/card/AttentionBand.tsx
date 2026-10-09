@@ -5,7 +5,7 @@ import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
-import { duration, plural, tok } from './format.js';
+import { cost, duration, plural } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
 
 /**
@@ -444,7 +444,7 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
       <div className="flex shrink-0 items-center gap-3">
         <span className="font-mono text-[11px]/4 text-(--color-muted)">
           {duration(elapsed)}
-          {run?.totalTokens != null && ` · ${tok(run.totalTokens)} so far`}
+          {run?.totalCostUsd != null && ` · ${cost(run.totalCostUsd)} so far`}
         </span>
         <SmallButton disabled={!run || stop.isPending} onClick={() => stop.mutate()}>
           {stop.isPending ? 'Stopping…' : 'Stop'}

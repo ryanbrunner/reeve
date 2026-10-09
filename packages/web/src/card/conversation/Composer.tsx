@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { STAGE_LABELS, isRunnable, isTerminal, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { AttentionBand } from '../AttentionBand.js';
-import { duration, tok } from '../format.js';
+import { cost, duration } from '../format.js';
 import type { LiveRun } from '../useCardDetail.js';
 import type { StageTab } from './ConversationView.js';
 
@@ -168,7 +168,7 @@ function StatusLine({ detail, live, readOnly, tab }: { detail: CardDetail; live:
         <span className="truncate">Claude is working{doing ? ` · ${doing}` : ''}</span>
       </span>
     );
-    side = <span className="shrink-0">{duration(elapsed)}{run?.totalTokens != null ? ` · ${tok(run.totalTokens)}` : ''}</span>;
+    side = <span className="shrink-0">{duration(elapsed)}{run?.totalCostUsd != null ? ` · ${cost(run.totalCostUsd)}` : ''}</span>;
   } else if (card.activity === 'needs_input') {
     main = <span className="text-(--color-activity-input-mark)">◆ Claude is waiting on your reply</span>;
     side = <span>Replying carries on the same conversation</span>;
