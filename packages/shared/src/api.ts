@@ -107,7 +107,10 @@ export interface ApiRunSummary {
 export interface ApiRunPulse {
   /** When the session last sent anything at all. */
   lastEventAt: number;
-  /** Tool calls started and not yet answered, oldest first: the lead's and its worker's. */
+  /**
+   * Tool calls started and not yet answered, and shells left running in the
+   * background (verb `Background`), oldest first: the lead's and its worker's.
+   */
   inFlight: Array<{ verb: string; target: string; since: number; worker: boolean }>;
   /**
    * Spent so far: exact as of the last turn's end, plus an estimate for the

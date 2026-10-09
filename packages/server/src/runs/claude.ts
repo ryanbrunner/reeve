@@ -330,6 +330,10 @@ const CALIBRATION = 1.4;
 export class Pulse {
   private lastEventAt = Date.now();
   private readonly inFlight = new Map<string, ApiRunPulse['inFlight'][number]>();
+  // Shells left running in the background — a test suite, a dev server —
+  // by task id. Their Bash call returned at once, so without these a run
+  // waiting on its tests would read as silent.
+  private readonly shells = new Map<string, ApiRunPulse['inFlight'][number]>();
   private exact: number | null = null;
   /** Each message's priced cost, by id; their sum; and the sum when the last exact figure came. */
   private readonly priced = new Map<string, number>();
@@ -386,6 +390,22 @@ export class Pulse {
     } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
       const id = (message as { tool_use_id?: string }).tool_use_id;
       if (id) this.calls.delete(id);
+    } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'background_tasks_changed') {
+      const tasks = (message as { tasks?: Array<{ task_id?: string; task_type?: string; description?: string }> }).tasks ?? [];
+      const listed = new Set<string>();
+      for (const t of tasks) {
+        if (!t.task_id || /agent/i.test(t.task_type ?? '')) continue;
+        listed.add(t.task_id);
+        if (!this.shells.has(t.task_id)) {
+          this.shells.set(t.task_id, { verb: 'Background', target: (t.description ?? 'a command').slice(0, 160), since: Date.now(), worker: false });
+        }
+      }
+      for (const id of this.shells.keys()) if (!listed.has(id)) this.shells.delete(id);
+    } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_started') {
+      // Arrives just after the list that first names the shell, and says whose it is.
+      const t = message as { task_id?: string; owned_by_subagent?: boolean };
+      const shell = t.task_id ? this.shells.get(t.task_id) : undefined;
+      if (shell && t.owned_by_subagent) shell.worker = true;
     }
   }
 
@@ -394,7 +414,7 @@ export class Pulse {
     const estimated = this.pricedTotal > this.pricedAtExact;
     return {
       lastEventAt: this.lastEventAt,
-      inFlight: [...this.inFlight.values()].sort((a, b) => a.since - b.since),
+      inFlight: [...this.inFlight.values(), ...this.shells.values()].sort((a, b) => a.since - b.since),
       // Nothing to say for a model with no price until its first turn ends.
       costUsd: this.exact === null && (this.unpriced || !estimated) ? null : (this.exact ?? 0) + since,
       costExact: !estimated,
