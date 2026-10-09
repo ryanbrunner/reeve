@@ -143,10 +143,10 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
   const stage = card.stage as Stage;
 
   // Release: open the pull request, let the Release conversation write it,
-  // resolve whatever it conflicts on, then land it. Entering Release already
-  // opens one and starts the conversation on its own; this is what makes it
-  // keep trying, what takes the Resolve conflicts button's place, and what
-  // merges it.
+  // resolve whatever it conflicts on, then land it. Entering Release only
+  // opens the pull request on its own; nobody is here to run or message the
+  // card, so this starts the conversation too, keeps trying, takes the
+  // Resolve conflicts button's place, and merges it.
   if (stage === 'release') {
     if (card.mergedAt || isOpeningPr(card.id)) return;
     if (!card.prUrl) {

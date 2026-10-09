@@ -6,7 +6,6 @@ import {
   archiveCard,
   archivedMergedWorktrees,
   cardsAwaitingMerge,
-  getCard,
   insertCardEvent,
   listRepos,
   mergedCardsDueForArchive,
@@ -24,7 +23,7 @@ import {
 import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
-import { maybeStartStage, removeCardWorktree } from './startStage.js';
+import { removeCardWorktree } from './startStage.js';
 
 /**
  * Cards with a push under way. Two quick drags into Release, or a retry pressed
@@ -256,25 +255,15 @@ export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined)
 }
 
 /**
- * A card arriving in Release: its pull request opened first, then the Release
- * conversation started in the tree the push just read. In that order, and
- * not side by side, because the start brings the base into the same tree
- * (`mergeLatestBase`) and a push in the middle of that would send GitHub
- * whatever the merge had got to. Not awaited by the routes that move a card,
- * as the opening never was.
+ * A card arriving in Release: its pull request opened, so the person has
+ * something to read before they ask Claude for anything. It no longer starts
+ * the Release conversation itself — nothing does, on arrival — so a card
+ * dragged or approved into Release reads idle until a person runs it or
+ * sends it a message, or VIBES MODE acts. The same attempt as
+ * `maybeOpenPullRequest`, under the name the routes that move a card into
+ * Release call it by.
  */
-export function enterRelease(db: Db, writer: EventWriter, card: Card, repo: Repo | undefined): void {
-  if (!repo || card.kind === 'project' || card.mergedAt) return;
-  const open = card.branchName && card.worktreePath && card.baseSha
-    ? openPullRequest(db, card, repo).catch((e) => {
-        console.error(`[reeve] pull request for #${card.number} failed without a record: ${reason(e)}`);
-      })
-    : Promise.resolve();
-  void open.then(() => {
-    const fresh = getCard(db, card.id);
-    if (fresh && fresh.stage === 'release' && !fresh.archivedAt) maybeStartStage(db, writer, fresh, repo);
-  });
-}
+export const enterRelease = maybeOpenPullRequest;
 
 /**
  * Whether the board offers to merge this card's pull request: a Release card's

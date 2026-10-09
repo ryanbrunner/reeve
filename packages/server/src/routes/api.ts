@@ -435,7 +435,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     // entering it, and starts nothing.
     if (before.stage !== moved.stage) {
       const repo = listRepos(db).find((p) => p.id === moved.repoId);
-      if (moved.stage === 'release') enterRelease(db, writer, moved, repo);
+      if (moved.stage === 'release') enterRelease(db, moved, repo);
       else maybeStartStage(db, writer, moved, repo);
     }
     return c.json(toBoardCard(db, moved, null, null));

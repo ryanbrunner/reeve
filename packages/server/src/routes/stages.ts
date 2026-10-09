@@ -42,8 +42,9 @@ export function stageRoutes(db: Db, writer: EventWriter) {
 
   /**
    * Kick off the current stage's Claude run, making the worktree first if there
-   * isn't one. A card entering a runnable column starts on its own; this is
-   * the Run button, for a card that didn't, or whose run failed.
+   * isn't one. A card entering a runnable column starts on its own, except
+   * Release, which never does; this is the Run button, for a card that
+   * didn't start, whose run failed, or that is Release waiting to be asked.
    */
   routes.post('/:id/run', async (c) => {
     const loaded = load(c.req.param('id'));
