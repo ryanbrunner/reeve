@@ -19,6 +19,7 @@
  * D: the worker parked on a permission while the person talks to the lead.
  * E: a background shell, no worker: does idle wait for it?
  * F: progress summaries, on and off, for what they cost.
+ * G: agentGuard refusing real launches.
  *
  * What it found on SDK 0.3.281 (Sonnet), on 2026-10-09:
  *
@@ -64,12 +65,17 @@
  *   one summary; off, $1.63 over 236s, since that worker took a longer road.
  *   A summary is one short fork every half minute or so against a cached
  *   context, small beside the work, so the runs keep them on.
+ * - G: agentGuard, registered with no matcher, refused a launch with
+ *   `isolation: "worktree"` and a second worker while the first ran. The lead
+ *   relaunched without isolation, and launched the second once the first had
+ *   reported.
  * - The hook's `tool_use_id` for an Agent call is the id its tool_use block
  *   carries, which a task_notification names in turn (A10).
  */
 import { query, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { agentGuard } from '../runs/permissions.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -473,6 +479,55 @@ async function partF() {
   find('F1 summaries cost', `on=$${costs['true']?.toFixed(4)} off=$${costs['false']?.toFixed(4)}`);
 }
 
+/**
+ * G: agentGuard, registered with no matcher as runs/claude.ts registers it,
+ * refusing a real launch. The lead is asked for an agent in a worktree of its
+ * own, then for a second worker while the first runs.
+ */
+async function partG() {
+  console.log('\n--- G: agentGuard refuses real launches ---');
+  t0 = Date.now();
+  const dir = repo();
+  const inbox = new Inbox();
+  const abort = new AbortController();
+  const refused: string[] = [];
+  const workers = new Set<string>();
+  let notified = false, bg = 0;
+  const opts = baseOptions(dir, abort, {
+    hooks: {
+      PreToolUse: [{
+        hooks: [agentGuard({
+          workerType: 'worker',
+          workerRunning: () => workers.size > 0,
+          onLaunch: (id) => workers.add(id),
+          onDenied: (_t, input) => refused.push(String(input['isolation'] ?? input['subagent_type'] ?? '?')),
+        })],
+      }],
+    },
+  });
+  inbox.push(
+    'Do exactly these, in order. 1) Use the Agent tool with subagent_type "worker", isolation "worktree", and the task "run `sleep 15`". ' +
+    'If that is refused, launch it again without isolation. 2) Then, straight away, use the Agent tool again with subagent_type "worker" ' +
+    'and the task "run `echo second`". If that is refused, say so. Then end your turn and wait for the worker.',
+  );
+  const watchdog = setTimeout(() => { note('WATCHDOG', 'G ran 150s; aborting'); inbox.close(); abort.abort(); }, 150_000);
+  try {
+    for await (const m of query({ prompt: inbox, options: opts })) {
+      const sub = (m as { subtype?: string }).subtype;
+      const rec = m as Record<string, unknown>;
+      if (m.type === 'assistant' && !(m as { parent_tool_use_id?: string }).parent_tool_use_id) note('lead says', textOf(m).slice(0, 140));
+      if (m.type === 'system' && sub === 'task_notification' && typeof rec['tool_use_id'] === 'string' && workers.delete(rec['tool_use_id'])) notified = true;
+      if (m.type === 'system' && sub === 'background_tasks_changed') bg = (rec['tasks'] as unknown[]).length;
+      if (m.type === 'system' && sub === 'session_state_changed' && rec['state'] === 'idle' && notified && bg === 0) inbox.close();
+    }
+  } catch (err) {
+    note('G threw', String(err).slice(0, 200));
+  } finally {
+    clearTimeout(watchdog);
+  }
+  find('G1 agentGuard refused', refused.join(', ') || 'nothing');
+}
+
 const only = process.env['SPIKE_PART'];
 if (!only || only === 'A') await partA();
 if (!only || only === 'B') await partB();
@@ -480,6 +535,7 @@ if (!only || only === 'C') await partC();
 if (!only || only === 'D') await partD();
 if (!only || only === 'E') await partE();
 if (only === 'F') await partF();
+if (!only || only === 'G') await partG();
 
 console.log('\n--- verdict ---');
 for (const [k, v] of verdict) console.log(`${k.padEnd(32)} ${v}`);
