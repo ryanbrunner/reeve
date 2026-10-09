@@ -18,6 +18,7 @@
  * C: closing the input while a worker runs.
  * D: the worker parked on a permission while the person talks to the lead.
  * E: a background shell, no worker: does idle wait for it?
+ * F: progress summaries, on and off, for what they cost.
  *
  * What it found on SDK 0.3.281 (Sonnet), on 2026-10-09:
  *
@@ -58,6 +59,11 @@
  *   idle came with a `local_bash` task still listed. A worker is listed as
  *   `local_agent`. So the run loop waits on agents only, or a dev server
  *   would keep a run open for ever.
+ * - F (SPIKE_PART=F only, about $3): what progress summaries cost could
+ *   not be told apart from the worker's own variance. On, $1.07 over 68s with
+ *   one summary; off, $1.63 over 236s, since that worker took a longer road.
+ *   A summary is one short fork every half minute or so against a cached
+ *   context, small beside the work, so the runs keep them on.
  * - The hook's `tool_use_id` for an Agent call is the id its tool_use block
  *   carries, which a task_notification names in turn (A10).
  */
@@ -429,12 +435,51 @@ async function partE() {
   find('E1 idle while a background shell runs', idleWithShell || 'never idle');
 }
 
+/**
+ * F: what progress summaries cost. The same worker twice, summaries on and
+ * off: it reads a large file into its context, then sleeps for two and a half
+ * minutes, which is several summaries' worth. The difference in
+ * total_cost_usd is their price at that context size.
+ */
+async function partF() {
+  console.log('\n--- F: progress summaries, on and off ---');
+  const big = join(process.cwd(), 'node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts');
+  const costs: Record<string, number> = {};
+  for (const summaries of [true, false]) {
+    t0 = Date.now();
+    const dir = repo();
+    const inbox = new Inbox();
+    const abort = new AbortController();
+    let notified = false, bg = 0, n = 0;
+    inbox.push(LAUNCH(`Read the file ${big} in full (every part of it, with several Read calls if needed). Then run \`sleep 30\` with Bash five times, one at a time. Then report how many lines the file had.`));
+    const watchdog = setTimeout(() => { note('WATCHDOG', 'F ran 400s; aborting'); inbox.close(); abort.abort(); }, 400_000);
+    try {
+      for await (const m of query({ prompt: inbox, options: baseOptions(dir, abort, { agentProgressSummaries: summaries }) })) {
+        const sub = (m as { subtype?: string }).subtype;
+        const rec = m as Record<string, unknown>;
+        if (m.type === 'system' && sub === 'task_progress' && rec['summary']) n++;
+        if (m.type === 'system' && sub === 'task_notification') notified = true;
+        if (m.type === 'system' && sub === 'background_tasks_changed') bg = (rec['tasks'] as unknown[]).length;
+        if (m.type === 'result') costs[String(summaries)] = (m as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        if (m.type === 'system' && sub === 'session_state_changed' && rec['state'] === 'idle' && notified && bg === 0) inbox.close();
+      }
+    } catch (err) {
+      note('F threw', String(err).slice(0, 200));
+    } finally {
+      clearTimeout(watchdog);
+    }
+    note(`summaries ${summaries ? 'on' : 'off'}`, `$${costs[String(summaries)]?.toFixed(4)} in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${n} summaries`);
+  }
+  find('F1 summaries cost', `on=$${costs['true']?.toFixed(4)} off=$${costs['false']?.toFixed(4)}`);
+}
+
 const only = process.env['SPIKE_PART'];
 if (!only || only === 'A') await partA();
 if (!only || only === 'B') await partB();
 if (!only || only === 'C') await partC();
 if (!only || only === 'D') await partD();
 if (!only || only === 'E') await partE();
+if (only === 'F') await partF();
 
 console.log('\n--- verdict ---');
 for (const [k, v] of verdict) console.log(`${k.padEnd(32)} ${v}`);
