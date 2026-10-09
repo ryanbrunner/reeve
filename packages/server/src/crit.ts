@@ -135,6 +135,10 @@ export async function startCritReview(
   let runId = '';
   let urlSeen = false;
   let critApproved: boolean | null = null;
+  // "Started crit daemon at … (session e9bff7398ef5, PID …)". A review of the
+  // changes is read back by it, rather than by whatever session the worktree
+  // happens to resolve to by default; a plan's is read by its slug.
+  let session: string | null = null;
 
   const handle = startShellRun({
     db, writer, cardId: card.id, stage: card.stage,
@@ -146,6 +150,7 @@ export async function startCritReview(
     onLine: (_kind, line) => {
       const said = /^approved: (true|false)$/.exec(line.trim())?.[1];
       if (said) critApproved = said === 'true';
+      session ??= /\bsession ([0-9a-f]{6,})\b/.exec(line)?.[1] ?? null;
       const url = urlSeen ? null : /https?:\/\/[^\s)]+/.exec(line)?.[0];
       if (!url) return;
       urlSeen = true;
@@ -157,7 +162,7 @@ export async function startCritReview(
   runId = handle.runId;
 
   void handle.done.then(
-    (result) => finishCritReview(db, writer, card.id, runId, target, slug, worktreePath, { ...result, critApproved }),
+    (result) => finishCritReview(db, writer, card.id, runId, target, slug, session, worktreePath, { ...result, critApproved }),
     (err: unknown) => recordOutcome(db, card.id, runId, 'failed', `Crit review ended badly: ${String(err)}`, { target }),
   );
 
@@ -205,6 +210,7 @@ async function finishCritReview(
   reviewRunId: string,
   target: CritTarget,
   slug: string | null,
+  session: string | null,
   cwd: string,
   result: { exitCode: number | null; stopReason: StopReason; critApproved: boolean | null },
 ): Promise<void> {
@@ -224,7 +230,8 @@ async function finishCritReview(
     // as "no comments" would approve work the reviewer had objected to.
     let comments: CritComment[];
     try {
-      const { stdout } = await exec('crit', ['comments', ...(slug ? ['--plan', slug] : []), '--json'], {
+      const which = slug ? ['--plan', slug] : session ? ['--session', session] : [];
+      const { stdout } = await exec('crit', ['comments', ...which, '--json'], {
         cwd, timeout: CRIT_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024,
       });
       const parsed = critComments.safeParse(JSON.parse(stdout));
