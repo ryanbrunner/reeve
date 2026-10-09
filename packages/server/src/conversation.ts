@@ -245,8 +245,17 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
         // refusal it answers — so the cache is checked against its last one.
         const cached = isTerminal(r.status) ? projected.get(r.id) : undefined;
         if (cached && cached.status === r.status && cached.lastSeq === latestSeq(db, r.id)) return cached;
-        const projector = new RunProjector(r.parentRunId ? null : r.prompt);
-        for (const e of eventsSince(db, r.id, 0)) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
+        const projector = projectorFor(r.id, r.parentRunId ? null : r.prompt);
+        // Only what is new since the last request: a live run's projector is
+        // kept, and a long run's whole transcript is not read again each time
+        // the modal refetches. In pages, for the first read of a long one.
+        for (let page = eventsSince(db, r.id, projector.lastSeq, FOLD_PAGE); page.length > 0; page = eventsSince(db, r.id, projector.lastSeq, FOLD_PAGE)) {
+          for (const e of page) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
+          if (page.length < FOLD_PAGE) break;
+        }
+        // Finished, it is projected for the last time: the view is cached
+        // below, and the projector has nothing more to fold.
+        if (isTerminal(r.status)) live.delete(r.id);
         const view: ConversationRun = {
           runId: r.id,
           status: r.status,
@@ -264,6 +273,28 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
       }),
     })),
   };
+}
+
+/**
+ * Live runs' projectors, kept between requests so each one folds in only the
+ * events since the last. A handful at most: one per run in flight, dropped
+ * once it ends. Rebuilt if the run's prompt has appeared since — Testing
+ * writes it after its screenshots, and the prompt is the projection's first
+ * item.
+ */
+const live = new Map<string, { projector: RunProjector; prompt: string | null }>();
+const FOLD_PAGE = 2_000;
+
+function projectorFor(runId: string, prompt: string | null): RunProjector {
+  const kept = live.get(runId);
+  if (kept && kept.prompt === prompt) return kept.projector;
+  const projector = new RunProjector(prompt);
+  live.delete(runId);
+  live.set(runId, { projector, prompt });
+  // A run that ended with nobody reading its conversation afterwards is never
+  // dropped above; the oldest go once there are more than any board runs.
+  while (live.size > 50) live.delete(live.keys().next().value!);
+  return projector;
 }
 
 /**

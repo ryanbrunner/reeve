@@ -313,13 +313,29 @@ export function eventAt(db: Db, runId: string, seq: number) {
   return db.select().from(runEvent).where(and(eq(runEvent.runId, runId), eq(runEvent.seq, seq))).get();
 }
 
-export function eventsSince(db: Db, runId: string, since: number) {
-  return db
+export function eventsSince(db: Db, runId: string, since: number, limit?: number) {
+  const q = db
     .select()
     .from(runEvent)
     .where(and(eq(runEvent.runId, runId), gt(runEvent.seq, since)))
+    .orderBy(asc(runEvent.seq));
+  return (limit ? q.limit(limit) : q).all();
+}
+
+/**
+ * A run's first event of a kind, without reading the rest. Walks the primary
+ * key in seq order and stops at the first match, so for something near the
+ * start — the person's opening message — it reads a row or two of a run that
+ * may have tens of thousands.
+ */
+export function firstEventOfKind(db: Db, runId: string, kind: string) {
+  return db
+    .select()
+    .from(runEvent)
+    .where(and(eq(runEvent.runId, runId), eq(runEvent.kind, kind)))
     .orderBy(asc(runEvent.seq))
-    .all();
+    .limit(1)
+    .get();
 }
 
 /**
@@ -947,8 +963,18 @@ export function getRun(db: Db, id: string) {
   return db.select().from(run).where(eq(run.id, id)).get();
 }
 
-export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>) {
-  return db.update(run).set(patch).where(eq(run.id, id)).returning().get();
+/**
+ * Returns nothing: it is called on a live run's message path, whenever its
+ * activity line changes, and reading the whole row back — prompt, result and
+ * usage JSON included — on every call cost more than the write.
+ */
+export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>): void {
+  db.update(run).set(patch).where(eq(run.id, id)).run();
+}
+
+/** Just a run's status, for the SSE stream that asks every second whether it has ended. */
+export function runStatus(db: Db, id: string): string | undefined {
+  return db.select({ status: run.status }).from(run).where(eq(run.id, id)).get()?.status;
 }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import type { Db } from '../db/client.js';
 import {
   boardCards,
   cardsInStage,
-  eventsSince,
+  firstEventOfKind,
   getCard,
   getRun,
   getSettings,
@@ -352,7 +352,10 @@ async function replyForNobody(db: Db, writer: EventWriter, card: Card, run: Run)
 function nobodyRepliesBehind(db: Db, run: Run): number {
   let count = 0;
   for (let r: Run | undefined = run; r; r = r.parentRunId ? getRun(db, r.parentRunId) : undefined) {
-    const opening = eventsSince(db, r.id, 0).find((e) => e.kind === 'user_message');
+    // The opening message alone: this runs every sweep for every card left
+    // waiting, and a run's whole transcript is the wrong thing to read twice
+    // a second to find its first row.
+    const opening = firstEventOfKind(db, r.id, 'user_message');
     const source = opening ? (JSON.parse(opening.payload) as { source?: string }).source : undefined;
     if (source !== 'vibes') break;
     count++;

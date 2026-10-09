@@ -308,7 +308,12 @@ export const runEvent = sqliteTable(
     payload: text('payload').notNull(),
     at: timestamp('at').notNull().default(sql`(unixepoch() * 1000)`),
   },
-  (t) => [primaryKey({ columns: [t.runId, t.seq] })],
+  (t) => [
+    primaryKey({ columns: [t.runId, t.seq] }),
+    // Only the rate-limit readings, which boot looks up the newest of (usage.ts):
+    // an index over every event's kind would cost a write on each of them.
+    index('run_event_rate_limit').on(t.at).where(sql`${t.kind} = 'unknown:rate_limit_event'`),
+  ],
 );
 
 /**

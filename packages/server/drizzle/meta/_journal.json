@@ -197,6 +197,13 @@
       "when": 1791587580473,
       "tag": "0027_card_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1791588512581,
+      "tag": "0028_index_rate_limit_events",
+      "breakpoints": true
     }
   ]
 }

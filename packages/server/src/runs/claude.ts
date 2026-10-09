@@ -1133,7 +1133,7 @@ function finish(
     result?: string; structured_output?: unknown; permission_denials?: unknown;
     stop_reason?: string | null; terminal_reason?: string;
   };
-  const finished = setRunStatus(db, runId, {
+  setRunStatus(db, runId, {
     status,
     stopReason,
     errorMessage,
@@ -1154,6 +1154,7 @@ function finish(
     sdkStopReason: r?.stop_reason ?? null,
     sdkTerminalReason: r?.terminal_reason ?? null,
   });
+  const finished = getRun(db, runId);
   // Every exit path lands here, so the timeline gets its closing entry from one
   // place and cannot end up with a start that never finished.
   if (finished) {
