@@ -111,6 +111,9 @@ await api('POST', '/api/cards/c1/run', {});
 check('the Release run started', await until(() => status() !== 'none', 60_000), status());
 
 await until(() => ['succeeded', 'failed', 'awaiting_reply', 'cancelled'].includes(status()));
+// The point of the change: run with nothing asked, Release does nothing by
+// default and waits to be told, rather than reviewing and submitting.
+check('with nothing asked, the first turn ended waiting for a reply', status() === 'awaiting_reply', status());
 if (status() === 'awaiting_reply') {
   await api('POST', '/api/cards/c1/messages', {
     text: 'Review the branch, run the finish command, and write what the pull request should say — then submit it.',
