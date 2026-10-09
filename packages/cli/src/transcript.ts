@@ -15,6 +15,7 @@ const MAX = 160;
 
 interface Block {
   type?: string;
+  id?: string;
   text?: string;
   thinking?: string;
   name?: string;
@@ -50,10 +51,12 @@ const blocksOf = (payload: { message?: { content?: unknown } }): Block[] => {
 };
 
 /**
- * The Agent calls that launched a background worker, so that its end can be
- * told from the ends of the worker's own commands. One follow is one run, so
- * one set for the process is enough.
+ * The run's Agent calls, and those of them that went to the background, so a
+ * worker's start and end can be told from a background shell's and from the
+ * worker's own commands. One follow is one run, so one set each for the
+ * process is enough.
  */
+const agentCalls = new Set<string>();
 const backgrounded = new Set<string>();
 
 export function renderEvent(kind: string, data: string): string[] {
@@ -72,8 +75,8 @@ export function renderEvent(kind: string, data: string): string[] {
 
   switch (kind) {
     case 'system:task_started':
-      if (!payload.is_backgrounded) return [];
-      if (typeof payload.tool_use_id === 'string') backgrounded.add(payload.tool_use_id);
+      if (!payload.is_backgrounded || typeof payload.tool_use_id !== 'string' || !agentCalls.has(payload.tool_use_id)) return [];
+      backgrounded.add(payload.tool_use_id);
       return [`· worker started: ${oneLine(String(payload.description ?? ''))}`];
     case 'system:task_notification':
       // Each of the worker's own commands ends in one of these too, with
@@ -87,6 +90,7 @@ export function renderEvent(kind: string, data: string): string[] {
     case 'assistant': {
       const lines: string[] = [];
       for (const block of blocksOf(payload)) {
+        if (block.type === 'tool_use' && (block.name === 'Agent' || block.name === 'Task') && typeof block.id === 'string') agentCalls.add(block.id);
         if (block.type === 'text' && block.text?.trim()) lines.push(block.text.trim());
         else if (block.type === 'tool_use' && block.name) lines.push(toolCall(block));
         // Empty unless summaries were asked for, which is most of the time.
