@@ -7,7 +7,9 @@ import type { Db } from '../db/client.js';
 import {
   boardCards,
   cardsInStage,
+  eventsSince,
   getCard,
+  getRun,
   getSettings,
   inVibes,
   listRepos,
@@ -18,7 +20,9 @@ import {
 import type { Card, Question, Repo, Run } from '../db/schema.js';
 import { isOpeningPr, isPrConflicting, isResolvingConflicts, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
 import { resolveConflicts } from '../resolveConflicts.js';
+import { sendToCard } from '../conversation.js';
 import { approveStage } from '../review.js';
+import { askRegistry } from '../runs/asks.js';
 import type { EventWriter } from '../runs/events.js';
 import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
 import { thinkOfIdeas } from './ideas.js';
@@ -218,8 +222,21 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
       return;
     }
 
+    // Claude is waiting on a person, three ways: a plan's question rows, a
+    // turn that ended in a question (awaiting_reply), or a live run parked on
+    // an ask from before the switch went on — one asked since never parks,
+    // as the run answers it for nobody itself.
     case 'needs_input':
-      if (run) await answerEverything(db, writer, card, run);
+      if (!run) return;
+      if (run.status === 'asking') {
+        settleForNobody(card);
+        return;
+      }
+      if (run.status === 'awaiting_reply') {
+        await replyForNobody(db, writer, card, run);
+        return;
+      }
+      await answerEverything(db, writer, card, run);
       return;
 
     // Started, restarted, or picked up after the cap refused it last time.
@@ -282,6 +299,50 @@ async function answerEverything(db: Db, writer: EventWriter, card: Card, run: Ru
     if (q.answer !== null) continue;
     await recordAnswer(db, writer, card, q, answerTo(q), 'claude');
   }
+}
+
+/**
+ * What a turn that ended in a question gets, with nobody to ask. Said as the
+ * person would, so Claude decides and moves on to submitting rather than
+ * asking again.
+ */
+const NOBODY_REPLY =
+  'Nobody is here to answer — VIBES MODE is on. Make the call yourself, say in a sentence what you chose and why, ' +
+  'and carry on until the work is done and submitted with the stage\'s submit tool.';
+
+/**
+ * A card whose runs keep ending in questions after this many of these
+ * replies in a row is left for a person: past that, Claude is not going to
+ * decide, and every round is another run spent.
+ */
+const MAX_NOBODY_REPLIES = 3;
+
+async function replyForNobody(db: Db, writer: EventWriter, card: Card, run: Run): Promise<void> {
+  if (isStartingStage(card.id)) return;
+  if (nobodyRepliesBehind(db, run) >= MAX_NOBODY_REPLIES) return;
+  // A refusal — the cap, most often — is retried on the next sweep.
+  await sendToCard(db, writer, card, NOBODY_REPLY, { actor: 'claude', source: 'vibes' });
+}
+
+/** How many runs in a row, back from this one, VIBES MODE started by replying. */
+function nobodyRepliesBehind(db: Db, run: Run): number {
+  let count = 0;
+  for (let r: Run | undefined = run; r; r = r.parentRunId ? getRun(db, r.parentRunId) : undefined) {
+    const opening = eventsSince(db, r.id, 0).find((e) => e.kind === 'user_message');
+    const source = opening ? (JSON.parse(opening.payload) as { source?: string }).source : undefined;
+    if (source !== 'vibes') break;
+    count++;
+  }
+  return count;
+}
+
+/** An ask a live run parked on before VIBES MODE came on: its own first option, or no. */
+function settleForNobody(card: Card): void {
+  const ask = askRegistry.forCard(card.id);
+  if (!ask) return;
+  askRegistry.settle(ask.id, ask.kind === 'question'
+    ? { kind: 'question', answers: Object.fromEntries(ask.questions.map((q) => [q.question, q.options[0]?.label ?? 'Your call.'])), actor: 'claude' }
+    : { kind: 'permission', allow: false, reason: 'VIBES MODE is on, and nobody is here to approve it.', actor: 'claude' });
 }
 
 function answerTo(q: Question): string {
