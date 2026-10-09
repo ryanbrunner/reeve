@@ -90,11 +90,13 @@ export async function ghProbe(): Promise<GhProbeResult> {
 
 /**
  * `gh auth status`'s "Token scopes: 'repo', 'workflow'" line, parsed into the
- * list it names — or null, for a fine-grained token, which reports none.
+ * list it names — or null, for a token that carries no OAuth scopes at all,
+ * which a fine-grained personal access token reports as a bare `none` rather
+ * than omitting the line.
  */
 function parseScopes(authStatus: string): string[] | null {
   const line = /Token scopes: (.+)/.exec(authStatus)?.[1];
-  if (!line) return null;
+  if (!line || line.trim() === 'none') return null;
   return line.split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
 }
 

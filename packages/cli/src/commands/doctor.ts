@@ -175,7 +175,7 @@ function webBuildCheck(server: Server): Check {
  * knowing before that merge rather than from its failure.
  */
 function ghWorkflowScopeCheck(gh: Awaited<ReturnType<Server['ghProbe']>>): Check {
-  if (!gh.ok) return { name: 'gh workflow scope', level: 'optional', status: 'info', detail: `skipped: ${gh.detail}`, fix: null };
+  if (!gh.ok) return { name: 'gh workflow scope', level: 'optional', status: 'info', detail: "skipped: gh isn't usable (see the gh check above)", fix: null };
   if (gh.scopes === null) {
     return { name: 'gh workflow scope', level: 'optional', status: 'info', detail: 'no scopes reported by gh auth status', fix: null };
   }
