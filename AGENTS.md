@@ -274,6 +274,15 @@ switched on.
   name the call and tell Claude to carry on another way. AskUserQuestion is a
   question, not a permission: it parks the same way and is answered with the
   person's choice, or Claude's own first option under VIBES MODE.
+- **Most refusals are the classifier's own, and a person can allow one
+  once.** Auto mode refuses most risky calls without asking `canUseTool` at
+  all (`spikes/permission-ask-check.ts`), so a refusal is written to the run
+  as a `refused` event and shown with Allow once and retry. Allowing puts that
+  exact call (same tool, same input; for Bash the command) in `allowances`
+  (`runs/asks.ts`) for one use, tells Claude to make it again, and a PreToolUse
+  hook lets it through — a hook's allow is honoured over the classifier. The
+  hook never allows what the merge or live-database guards refuse, and nothing
+  is offered under VIBES MODE or outside the stage's current conversation.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
   since auto mode may approve them. The Merge button, and VIBES MODE, land a
