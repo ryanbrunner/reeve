@@ -673,9 +673,9 @@ const RUN_USAGE = `  reeve card run <card> [--follow | -f] [--json]
 const APPROVE_USAGE = `  reeve card approve <card> [--notes TEXT | --notes-file PATH|-] [--json]
       Pass the gate: the review is recorded, and the card moves to the stage after the one it's
       in, the same as a drag there would — starting a run there if that stage is Planning, In
-      Progress or Testing, or, for Release, pushing the branch, opening a pull request and starting
-      Release's run. Approving a card already in Release leaves it there: there is nowhere further
-      to go.
+      Progress or Testing, or, for Release, pushing the branch and opening a pull request, with no
+      run until you start one or message the card. Approving a card already in Release leaves it
+      there: there is nowhere further to go.
       --notes or --notes-file are kept with the review in the card's history; neither is required.
       --json prints the server's answer: the stage the card left and the one it landed in, if moved.`;
 
