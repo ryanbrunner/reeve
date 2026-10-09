@@ -303,7 +303,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
         <SectionHead>Models</SectionHead>
         <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
-          What each stage runs with, unless a card picks its own. Suggest always runs on its own settings.
+          What each stage runs with and spends, unless a card picks its own. Suggest always runs on its own settings.
         </p>
         {RUNNABLE_STAGES.map((stage) => {
           const row = stageDefaults[stage];
@@ -342,7 +342,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                   setSaved(false);
                   setBudgetDrafts((d) => ({ ...d, [stage]: v }));
                 }}
-                placeholder={builtIn?.maxBudgetUsd ? `Stage default ($${builtIn.maxBudgetUsd})` : 'Stage default'}
+                placeholder={builtIn?.maxBudgetUsd ? `$${builtIn.maxBudgetUsd} (default)` : 'Stage default'}
                 mono
               />
             </div>

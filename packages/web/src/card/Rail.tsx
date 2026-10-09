@@ -392,7 +392,7 @@ function Model({ detail }: { detail: CardDetail }) {
           disabled={set.isPending}
           onChange={(e) => setBudgetText(e.target.value)}
           onBlur={commitBudget}
-          placeholder="Settings default"
+          placeholder="Budget $ · Settings default"
           className={`${FIELD} placeholder:text-(--color-muted)/50`}
         />
       </div>

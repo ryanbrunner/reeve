@@ -102,7 +102,7 @@ function layered(value: string | null, builtIn: string | null | undefined): stri
 /** The same layering, for the dollar figure, which has no "Claude's default" below the stage's own. */
 function layeredBudget(value: number | null, builtIn: number | null | undefined): string {
   if (value !== null) return `$${value}`;
-  return `$${builtIn ?? 0} (default)`;
+  return builtIn == null ? 'stage default' : `$${builtIn} (default)`;
 }
 
 function render(settings: ApiSettings, models: ModelsResponse | null): string {
@@ -158,7 +158,9 @@ async function set(args: string[], unset: boolean): Promise<void> {
     return print(`Suggest follow-up cards: ${saved.suggestTasks ? 'on' : 'off'}`);
   }
   const stored = saved.stageDefaults[key.stage][key.field];
-  print(`${STAGE_LABELS[key.stage]} ${key.field}: ${stored ?? 'back to the default'}`);
+  const fieldName = key.field === 'maxBudgetUsd' ? 'max-budget-usd' : key.field;
+  const shown = stored === null ? 'back to the default' : key.field === 'maxBudgetUsd' ? `$${stored}` : stored;
+  print(`${STAGE_LABELS[key.stage]} ${fieldName}: ${shown}`);
 }
 
 export async function settings(args: string[]): Promise<void> {
