@@ -39,6 +39,12 @@ export const testingStage: StageDefinition<TestingOutput> = {
       'Submit the test report: each criterion\'s verdict with its evidence, the suite\'s result and what you fixed. ' +
       'Call it once verification is done and anything you fixed is committed, and again after any revision. It ends your turn.',
   },
+  // Verifying — the suite, every criterion, the screenshots, the fixes — runs
+  // in the background, so the person can talk to the stage meanwhile: see
+  // `worker` in ./types.ts. The screenshots are taken before either starts.
+  worker: {
+    description: 'Verifies the card: runs the tests, checks every criterion and screenshot, fixes and commits what it can, following the brief it was started with.',
+  },
   maxBudgetUsd: 8,
   maxTurns: 150,
   effort: 'high',

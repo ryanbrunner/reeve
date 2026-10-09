@@ -26,6 +26,11 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       'Submit the finished implementation: what you built, committed and tested. Call it once the work is ' +
       'committed and ready for the person to review, and again after any revision. It ends your turn.',
   },
+  // The build runs in the background, so the person can talk to the stage
+  // the whole time it takes: see `worker` in ./types.ts.
+  worker: {
+    description: 'Builds the card: writes the code, commits it and gets the tests green, following the brief it was started with.',
+  },
   maxBudgetUsd: 10,
   maxTurns: 200,
   effort: 'high',
