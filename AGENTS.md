@@ -294,8 +294,11 @@ switched on.
     pushed while the worker runs is a short turn of its own that ends in a
     `result` with no `idle`, and `idle` only comes once the worker is done.
   - **Reeve's rules:**
-    - The input stays open while anything runs in the background, the 15s
-      fallback included.
+    - The 15s fallback never closes the input while a background agent
+      runs, and `idle` already waits for one.
+    - A background shell holds nothing open: the SDK says idle with one
+      still listed, and waiting on a dev server would keep the run open
+      forever.
     - `submit_<stage>` is refused while a worker runs.
     - `agentGuard` refuses `isolation`, a foreground worker and a second
       worker.

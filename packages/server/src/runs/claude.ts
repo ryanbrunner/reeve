@@ -261,18 +261,23 @@ function workerDefinition(
  * Keeps the run's picture of its worker in step with the stream: launched
  * (by `agentGuard`, before the call runs), given a task id, and ended — by
  * its notification, by dropping out of the background list, or by an Agent
- * call that failed and so never started one.
+ * call that failed and so never started one. `setAgents` hears the agents
+ * in each new background list, and nothing else in it: shells are left out.
  */
-function trackWorkers(message: SDKMessage, workers: Map<string, string | null>, setBackground: (tasks: Set<string>) => void): void {
-  const m = message as { type?: string; subtype?: string; tool_use_id?: string; task_id?: string; tasks?: Array<{ task_id?: string }> };
+function trackWorkers(message: SDKMessage, workers: Map<string, string | null>, setAgents: (tasks: Set<string>) => void): void {
+  const m = message as {
+    type?: string; subtype?: string; tool_use_id?: string; task_id?: string;
+    tasks?: Array<{ task_id?: string; task_type?: string }>;
+  };
   if (m.type === 'system' && m.subtype === 'task_started' && m.tool_use_id && workers.has(m.tool_use_id)) {
     workers.set(m.tool_use_id, m.task_id ?? null);
   } else if (m.type === 'system' && m.subtype === 'task_notification' && m.tool_use_id) {
     workers.delete(m.tool_use_id);
   } else if (m.type === 'system' && m.subtype === 'background_tasks_changed') {
-    const tasks = new Set((m.tasks ?? []).map((t) => t.task_id).filter((id): id is string => Boolean(id)));
-    for (const [toolUseId, taskId] of workers) if (taskId && !tasks.has(taskId)) workers.delete(toolUseId);
-    setBackground(tasks);
+    const listed = new Set((m.tasks ?? []).map((t) => t.task_id).filter((id): id is string => Boolean(id)));
+    for (const [toolUseId, taskId] of workers) if (taskId && !listed.has(taskId)) workers.delete(toolUseId);
+    // `local_agent` today; matched loosely so a remote one counts too.
+    setAgents(new Set((m.tasks ?? []).filter((t) => t.task_id && /agent/i.test(t.task_type ?? '')).map((t) => t.task_id!)));
   } else if (m.type === 'user' && !(message as { parent_tool_use_id?: string | null }).parent_tool_use_id) {
     const content = (message as { message?: { content?: unknown } }).message?.content;
     if (!Array.isArray(content)) return;
@@ -412,15 +417,18 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   // stages/types.ts. Each worker is keyed by the Agent call that launched it,
   // which is what its end — a task_notification — names; its task id comes
   // later, with task_started, and is what background_tasks_changed lists.
-  // `background` is that list, whole each time it changes, and starts empty
-  // with the process, as the SDK says it must.
+  // `agents` is the agents in that list, whole each time it changes, and
+  // starts empty with the process, as the SDK says it must.
   const workerType = stage.submit && stage.worker ? WORKER_TYPE : null;
   const workers = new Map<string, string | null>();
-  let background = new Set<string>();
-  // Anything still working behind the lead's back. While it is, a turn that
+  let agents = new Set<string>();
+  // An agent still working behind the lead's back. While one is, a turn that
   // ends is not the run ending: the input stays open for the person, and
   // closing it would leave the worker finishing with nobody able to talk.
-  const busy = () => workers.size > 0 || background.size > 0;
+  // Agents only: a background shell — a dev server, a long `sleep` — is still
+  // listed when the SDK says idle, and holding the run open for one would
+  // hold it for ever (spikes/background-agent-check.ts, E).
+  const busy = () => workers.size > 0 || agents.size > 0;
 
   /**
    * Hold the turn on a person: the run reads `asking` until they answer, the
@@ -686,7 +694,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       const calls = new Map<string, { toolName: string; input: Record<string, unknown>; agent?: 'worker' }>();
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
-        trackWorkers(message, workers, (next) => { background = next; });
+        trackWorkers(message, workers, (next) => { agents = next; });
         if (message.type === 'result') {
           result = message;
           // Only a fallback; see idleFallback above. Never while a worker
@@ -707,11 +715,13 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         if (
           message.type === 'system' &&
           (message as { subtype?: string }).subtype === 'session_state_changed' &&
+          // Not gated on `busy()`: the SDK already holds idle back until its
+          // background agents are done (spikes/background-agent-check.ts),
+          // and a worker this run lost track of must never hold it open for
+          // ever. Closed early, the input would only cut the person off; the
+          // worker still finishes.
           (message as { state?: string }).state === 'idle' &&
-          input.pending === 0 &&
-          // The SDK holds idle back until its background work is done, so
-          // this is belt and braces: the next idle comes once it is.
-          !busy()
+          input.pending === 0
         ) {
           clearTimeout(idleFallback);
           input.close();

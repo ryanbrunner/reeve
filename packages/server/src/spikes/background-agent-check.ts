@@ -17,6 +17,7 @@
  * B: stopTask on a running worker.
  * C: closing the input while a worker runs.
  * D: the worker parked on a permission while the person talks to the lead.
+ * E: a background shell, no worker: does idle wait for it?
  *
  * What it found on SDK 0.3.281 (Sonnet), on 2026-10-09:
  *
@@ -53,6 +54,10 @@
  * - D: while canUseTool holds a worker's call, the lead still takes a turn: a
  *   question pushed 3s into a 25s hold was answered 1.8s later. So a person's
  *   words can go to the lead while the worker waits on Allow or Deny.
+ * - E: a background shell does not hold idle back the way an agent does:
+ *   idle came with a `local_bash` task still listed. A worker is listed as
+ *   `local_agent`. So the run loop waits on agents only, or a dev server
+ *   would keep a run open for ever.
  * - The hook's `tool_use_id` for an Agent call is the id its tool_use block
  *   carries, which a task_notification names in turn (A10).
  */
@@ -383,11 +388,53 @@ async function partD() {
   find('D1 lead answered while worker parked', `parked=${rel(heldAt)} asked=${rel(askedAt)} replied=${rel(replyAt)} released=${rel(releasedAt)} → ${replyAt && replyAt < releasedAt ? 'YES' : 'NO'}`);
 }
 
+/**
+ * E: no worker, but a background shell. Does idle come while the shell is
+ * still listed in background_tasks_changed, and with what task_type? Reeve's
+ * run loop must not hold the input open for ever on a dev server.
+ */
+async function partE() {
+  console.log('\n--- E: a background shell, and no worker ---');
+  t0 = Date.now();
+  const dir = repo();
+  const inbox = new Inbox();
+  const abort = new AbortController();
+  let bg: Array<{ task_id?: string; task_type?: string }> = [];
+  let idleWithShell = '';
+  const watchdog = setTimeout(() => { note('WATCHDOG', 'E ran 90s; aborting'); inbox.close(); abort.abort(); }, 90_000);
+  inbox.push('Use Bash with run_in_background true to run `sleep 120`. Do not wait for it. Then reply with one short sentence and end your turn.');
+  try {
+    for await (const m of query({ prompt: inbox, options: baseOptions(dir, abort) })) {
+      const sub = (m as { subtype?: string }).subtype;
+      const rec = m as Record<string, unknown>;
+      if (m.type === 'system' && sub === 'background_tasks_changed') {
+        bg = (rec['tasks'] as typeof bg) ?? [];
+        note('background_tasks_changed', bg.map((t) => `${t.task_id}:${t.task_type}`));
+      }
+      if (m.type === 'system' && sub === 'session_state_changed') {
+        note('session_state', `${rec['state']} bg=${bg.length}`);
+        // The first idle is the finding; closing at it then takes the shell down.
+        if (rec['state'] === 'idle' && !idleWithShell) {
+          idleWithShell = bg.length ? `yes, with ${bg.map((t) => t.task_type).join(',')} listed` : 'no shell listed';
+          inbox.close();
+        }
+      }
+      if (m.type === 'result') note('result', m.subtype);
+    }
+  } catch (err) {
+    note('E threw', String(err).slice(0, 200));
+  } finally {
+    clearTimeout(watchdog);
+  }
+  find('E1 idle while a background shell runs', idleWithShell || 'never idle');
+}
+
 const only = process.env['SPIKE_PART'];
 if (!only || only === 'A') await partA();
 if (!only || only === 'B') await partB();
 if (!only || only === 'C') await partC();
 if (!only || only === 'D') await partD();
+if (!only || only === 'E') await partE();
 
 console.log('\n--- verdict ---');
 for (const [k, v] of verdict) console.log(`${k.padEnd(32)} ${v}`);
