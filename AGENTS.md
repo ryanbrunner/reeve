@@ -9,7 +9,9 @@ git worktree:
 Every column but Backlog runs Claude; Backlog is where work waits
 (`packages/shared/src/stages.ts`). Release was Done until it became a stage:
 `done` is still accepted wherever a stage is named. A card's column is its
-stage — there is no second status field.
+stage — there is no second status field. Unlike every other stage, Release
+runs no default review of its own: arriving there only opens its pull
+request, and Claude does only what the conversation actually asks of it.
 
 Each stage is a conversation. Its session stays open while Claude works, so a
 person's message reaches it at the next tool boundary; a turn can end in a
@@ -184,7 +186,10 @@ just been approved into a runnable column reads idle while its worktree is
 made; `wait` keeps waiting through that, because the card says so
 (`startingStage`), rather than returning 5. The same holds while a revision or
 a resume waits on the worktree's setup, when the card still reads as the
-review or the questions it was just given.
+review or the questions it was just given. Release is the exception: approval
+or a drag only opens its pull request, starting no run, so `reeve card wait`
+on a freshly-approved Release card reads idle at once and exits 5 — a person
+has to run it or message it first, or VIBES MODE has to act.
 
 Approving is a human gate, and the CLI passes it only when a person or their
 script calls `reeve card approve`. Nothing in the CLI approves, answers or
@@ -389,7 +394,8 @@ never over a file the worktree already has. A reused worktree gets nothing.
 
 A repo has six lifecycle commands: setup, test, seed, server, teardown and
 finish. The finish command is Release's to run, as the repo's own last check
-before merging, and its result goes into what Release writes. The seed is for Testing's screenshots, which a fresh worktree's server
+before merging, when asked, and its result goes into what Release writes then.
+The seed is for Testing's screenshots, which a fresh worktree's server
 would otherwise take of an empty page. When a card has captures to take,
 Testing stops the card's dev server, runs the seed in the worktree, and then
 starts the server again (`seedForCapture` in
