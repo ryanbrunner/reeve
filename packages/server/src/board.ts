@@ -79,7 +79,8 @@ function waitingOn(card: Card, run: Run): string | null {
     if (!ask) return 'Waiting on you';
     if (ask.kind === 'question') return ask.questions[0]?.question ?? 'Asking you a question';
     const command = typeof ask.input['command'] === 'string' ? ask.input['command'] : null;
-    return command ? `Asks to run ${oneLine(command, 80)}` : `Asks to use ${ask.toolName}`;
+    const who = ask.agent === 'worker' ? 'The worker asks' : 'Asks';
+    return command ? `${who} to run ${oneLine(command, 80)}` : `${who} to use ${ask.toolName}`;
   }
   if (run.status !== 'awaiting_reply' || !run.resultText) return null;
   const lines = run.resultText.split('\n').map((l) => l.replace(/[*_`#>]/g, '').trim()).filter(Boolean);

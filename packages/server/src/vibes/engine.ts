@@ -358,11 +358,12 @@ function nobodyRepliesBehind(db: Db, run: Run): number {
 
 /** An ask a live run parked on before VIBES MODE came on: its own first option, or no. */
 function settleForNobody(card: Card): void {
-  const ask = askRegistry.forCard(card.id);
-  if (!ask) return;
-  askRegistry.settle(ask.id, ask.kind === 'question'
-    ? { kind: 'question', answers: Object.fromEntries(ask.questions.map((q) => [q.question, q.options[0]?.label ?? 'Your call.'])), actor: 'claude' }
-    : { kind: 'permission', allow: false, reason: 'VIBES MODE is on, and nobody is here to approve it.', actor: 'claude' });
+  // Every one: a run with a worker can be waiting on two.
+  for (const ask of askRegistry.allForCard(card.id)) {
+    askRegistry.settle(ask.id, ask.kind === 'question'
+      ? { kind: 'question', answers: Object.fromEntries(ask.questions.map((q) => [q.question, q.options[0]?.label ?? 'Your call.'])), actor: 'claude' }
+      : { kind: 'permission', allow: false, reason: 'VIBES MODE is on, and nobody is here to approve it.', actor: 'claude' });
+  }
 }
 
 function answerTo(q: Question): string {

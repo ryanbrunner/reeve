@@ -2,12 +2,13 @@ import {
   createSdkMcpServer,
   query,
   tool,
+  type AgentDefinition,
   type Options,
   type PermissionResult,
   type SDKMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { z } from 'zod';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EffortLevel, MessageSource, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
 import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
@@ -35,7 +36,7 @@ import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
 import { allowances, askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
 import { Inbox } from './inbox.js';
-import { allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
+import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
 import { runRegistry } from './registry.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
@@ -209,6 +210,79 @@ export function modelAndEffortFor(
 const PERMISSION_MODE = 'auto' satisfies PermissionMode;
 
 /**
+ * The name a stage's worker is launched by: `subagent_type` on the lead's
+ * Agent call, and the label its asks and progress carry on the card.
+ */
+const WORKER_TYPE = 'worker';
+
+/**
+ * The worker a stage with one hands the lead: the stage's own brief as its
+ * system prompt, inside prompts/worker.md, and nothing that is the lead's to
+ * do. The reeve server goes — submitting is the lead's, after it has checked
+ * the work — and so do Agent, since a worker launching workers is a tree
+ * nobody is reading, and AskUserQuestion, since only the lead talks to the
+ * person.
+ *
+ * The brief is kept in the worktree beside the stage's documents, because a
+ * follow-up forks the session without building the prompt again — Testing's
+ * screenshots are taken once, for the run that started the conversation —
+ * and its worker still needs the brief it was started with. In `.reeve/`, so
+ * it is never committed.
+ */
+function workerDefinition(
+  stage: ClaudeTask<never>,
+  worktreePath: string,
+  brief: string | null,
+  submitName: string,
+  effort: EffortLevel | null,
+): AgentDefinition {
+  const path = join(worktreePath, '.reeve', `${stage.id}-brief.md`);
+  if (brief !== null) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, brief);
+  }
+  const kept = brief ?? (existsSync(path) ? readFileSync(path, 'utf8') : null);
+  return {
+    description: stage.worker!.description,
+    prompt: renderPrompt('worker', {
+      worktreePath,
+      submitTool: submitName,
+      brief: kept ?? '_The brief this stage started with is gone. The lead\'s message is your whole brief._',
+    }),
+    disallowedTools: ['mcp__reeve', 'Agent', 'Task', 'AskUserQuestion'],
+    model: 'inherit',
+    background: true,
+    ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
+    ...(effort ? { effort } : {}),
+  };
+}
+
+/**
+ * Keeps the run's picture of its worker in step with the stream: launched
+ * (by `agentGuard`, before the call runs), given a task id, and ended — by
+ * its notification, by dropping out of the background list, or by an Agent
+ * call that failed and so never started one.
+ */
+function trackWorkers(message: SDKMessage, workers: Map<string, string | null>, setBackground: (tasks: Set<string>) => void): void {
+  const m = message as { type?: string; subtype?: string; tool_use_id?: string; task_id?: string; tasks?: Array<{ task_id?: string }> };
+  if (m.type === 'system' && m.subtype === 'task_started' && m.tool_use_id && workers.has(m.tool_use_id)) {
+    workers.set(m.tool_use_id, m.task_id ?? null);
+  } else if (m.type === 'system' && m.subtype === 'task_notification' && m.tool_use_id) {
+    workers.delete(m.tool_use_id);
+  } else if (m.type === 'system' && m.subtype === 'background_tasks_changed') {
+    const tasks = new Set((m.tasks ?? []).map((t) => t.task_id).filter((id): id is string => Boolean(id)));
+    for (const [toolUseId, taskId] of workers) if (taskId && !tasks.has(taskId)) workers.delete(toolUseId);
+    setBackground(tasks);
+  } else if (m.type === 'user' && !(message as { parent_tool_use_id?: string | null }).parent_tool_use_id) {
+    const content = (message as { message?: { content?: unknown } }).message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content as Array<{ type?: string; tool_use_id?: string; is_error?: boolean }>) {
+      if (block.type === 'tool_result' && block.is_error && block.tool_use_id) workers.delete(block.tool_use_id);
+    }
+  }
+}
+
+/**
  * Thrown when a session's own init message reports a mode other than the one
  * actually asked for.
  *
@@ -334,13 +408,27 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   // own default mode would ask about every edit.
   let autoMode = false;
 
+  // The stage's background worker, when it has one: see `worker` in
+  // stages/types.ts. Each worker is keyed by the Agent call that launched it,
+  // which is what its end — a task_notification — names; its task id comes
+  // later, with task_started, and is what background_tasks_changed lists.
+  // `background` is that list, whole each time it changes, and starts empty
+  // with the process, as the SDK says it must.
+  const workerType = stage.submit && stage.worker ? WORKER_TYPE : null;
+  const workers = new Map<string, string | null>();
+  let background = new Set<string>();
+  // Anything still working behind the lead's back. While it is, a turn that
+  // ends is not the run ending: the input stays open for the person, and
+  // closing it would leave the worker finishing with nobody able to talk.
+  const busy = () => workers.size > 0 || background.size > 0;
+
   /**
    * Hold the turn on a person: the run reads `asking` until they answer, the
    * request times out, or the run is stopped. The request and its answer go
    * into the run's events, which is where the conversation shows them.
    */
-  const askPerson = async (request: AskRequest, toolUseId: string, signal?: AbortSignal): Promise<AskAnswer> => {
-    const { ask, answer } = askRegistry.wait(runId, card.id, request, config.askTimeoutMs);
+  const askPerson = async (request: AskRequest, toolUseId: string, signal?: AbortSignal, agent?: 'worker'): Promise<AskAnswer> => {
+    const { ask, answer } = askRegistry.wait(runId, card.id, request, config.askTimeoutMs, agent);
     // The SDK gives a local prompt no deadline of its own, but it can abandon
     // the call — an interrupt, the session ending — and then nothing is
     // waiting on the answer, so the buttons must not stay up as if it were.
@@ -350,7 +438,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     setRunStatus(db, runId, { status: 'asking' });
     const settled = await answer;
     writer.append(runId, 'ask_answered', { askId: ask.id, ...settled, at: Date.now() });
-    if (!cancelled) setRunStatus(db, runId, { status: 'running' });
+    // Still asking while the other of lead and worker waits on its own.
+    if (!cancelled && !askRegistry.forRun(runId)) setRunStatus(db, runId, { status: 'running' });
     return settled;
   };
 
@@ -365,6 +454,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     input: Record<string, unknown>,
     toolUseID: string,
     signal?: AbortSignal,
+    agentID?: string,
   ): Promise<PermissionResult> => {
     // A one-off task — Suggest, a split, resolving conflicts — has no
     // conversation anyone is reading, so nothing in it can be asked: refused
@@ -378,6 +468,17 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         };
       }
       return decideToolUse({ toolName, input });
+    }
+    // A subagent cannot put a question to the person: its chips would sit
+    // under the lead's conversation with nothing to say whose they were, and
+    // the worker is told to decide and report instead. Refused, not parked.
+    if (toolName === 'AskUserQuestion' && agentID) {
+      return {
+        behavior: 'deny',
+        message:
+          'Only the lead talks to the person. Make the call yourself, carry on, and say in your report what you ' +
+          'chose and why; the lead will pass on anything the person wants changed.',
+      };
     }
     // A question, not a permission: answered, by a person or for them, and
     // never refused just for being asked.
@@ -403,7 +504,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       refuse(toolName, input, toolUseID);
       return decideToolUse({ toolName, input });
     }
-    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal);
+    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal, agentID ? 'worker' : undefined);
     if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
     refuse(toolName, input, toolUseID);
     if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
@@ -439,6 +540,15 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
           matcher: 'Bash',
           hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
         },
+        {
+          matcher: 'Agent|Task',
+          hooks: [agentGuard({
+            workerType,
+            workerRunning: () => workers.size > 0,
+            onLaunch: (toolUseId) => workers.set(toolUseId, null),
+            onDenied: refuse,
+          })],
+        },
         // Every tool: what a person allowed once after auto mode refused it.
         // Only a conversation's run has anyone to allow anything.
         ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, repo.defaultBranch, (c, t, i) => allowances.take(c, t, i))] }] : []),
@@ -446,7 +556,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     },
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
-    canUseTool: (toolName, input, { toolUseID, signal }) => canUseTool(toolName, input, toolUseID, signal),
+    canUseTool: (toolName, input, { toolUseID, signal, agentID }) => canUseTool(toolName, input, toolUseID, signal, agentID),
     maxBudgetUsd: stage.maxBudgetUsd,
     ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
     ...(model ? { model } : {}),
@@ -459,6 +569,18 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       stage.submit.description,
       shape,
       async (args) => {
+        // The lead submits what its worker built, so not before the worker
+        // is done: the run would end, and the worker with it, mid-edit.
+        if (workers.size > 0) {
+          return {
+            isError: true,
+            content: [{
+              type: 'text',
+              text: `Not recorded — your worker is still running. Wait for it to report, check what it did, then call ${submitName}. ` +
+                'If it should stop early, tell it to wrap up with SendMessage.',
+            }],
+          };
+        }
         const parsed = stage.schema.safeParse(args);
         if (!parsed.success) {
           return {
@@ -514,12 +636,24 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       // follow-up skips it: Testing's pictures were taken for the run that
       // started the conversation, not for every reply in it.
       const prepared = followUp ? {} : ((await stage.prepare?.(db, writer, ctx, runId)) ?? {});
+      const brief = followUp ? null : stage.buildPrompt(ctx, prepared);
       // A stage's opening prompt closes with how to talk to the person and how
-      // to deliver: see prompts/conversation.md.
+      // to deliver: see prompts/conversation.md. With a worker, the brief is
+      // the worker's, and the lead reads it inside its own: prompts/lead.md.
       const promptText = followUp ?? (stage.submit
-        ? stage.buildPrompt(ctx, prepared) + renderPrompt('conversation', { submitTool: submitName })
-        : stage.buildPrompt(ctx, prepared));
+        ? (workerType ? renderPrompt('lead', { brief: brief!, workerType, submitTool: submitName }) : brief!) +
+          renderPrompt('conversation', { submitTool: submitName })
+        : brief!);
       setRunStatus(db, runId, { prompt: promptText });
+      if (workerType && stage.worker) {
+        options.agents = { [workerType]: workerDefinition(stage, worktreePath, brief, submitName, fitted.effort) };
+        // The worker's progress, as a line the card can show without opening
+        // its calls: a summary every half minute or so.
+        options.agentProgressSummaries = true;
+        // Its own words as well as its calls, which the card nests under the
+        // Agent call that launched it.
+        options.forwardSubagentText = true;
+      }
 
       // Held open for the person: see runs/inbox.ts. A one-off task has no
       // conversation and gets nothing more than its prompt.
@@ -549,16 +683,19 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
 
       let thought: Thought = { activity: null, thinking: null };
       // This run's tool calls, in full, by id: what a refusal names but does not carry.
-      const calls = new Map<string, { toolName: string; input: Record<string, unknown> }>();
+      const calls = new Map<string, { toolName: string; input: Record<string, unknown>; agent?: 'worker' }>();
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
+        trackWorkers(message, workers, (next) => { background = next; });
         if (message.type === 'result') {
           result = message;
-          // Only a fallback; see idleFallback above.
+          // Only a fallback; see idleFallback above. Never while a worker
+          // runs: each turn the lead takes meanwhile ends in a result with no
+          // idle after it, and closing then would cut the person off.
           clearTimeout(idleFallback);
           if (!(message as { queued_turn_count?: number }).queued_turn_count) {
             idleFallback = setTimeout(() => {
-              if (input.pending === 0) input.close();
+              if (input.pending === 0 && !busy()) input.close();
             }, 15_000);
           }
         }
@@ -571,7 +708,10 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
           message.type === 'system' &&
           (message as { subtype?: string }).subtype === 'session_state_changed' &&
           (message as { state?: string }).state === 'idle' &&
-          input.pending === 0
+          input.pending === 0 &&
+          // The SDK holds idle back until its background work is done, so
+          // this is belt and braces: the next idle comes once it is.
+          !busy()
         ) {
           clearTimeout(idleFallback);
           input.close();
@@ -599,8 +739,9 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         // The refusals nobody asked us about: auto mode's classifier turning a
         // call down on its own.
         if (message.type === 'assistant') {
+          const agent = (message as { parent_tool_use_id?: string | null }).parent_tool_use_id ? 'worker' as const : undefined;
           for (const block of ((message as { message?: { content?: unknown } }).message?.content as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }> | undefined) ?? []) {
-            if (block.type === 'tool_use' && block.id && block.name) calls.set(block.id, { toolName: block.name, input: block.input ?? {} });
+            if (block.type === 'tool_use' && block.id && block.name) calls.set(block.id, { toolName: block.name, input: block.input ?? {}, ...(agent ? { agent } : {}) });
           }
           // A refusal names a call from the turn it lands in; a long run's
           // older ones, a Write's whole content among them, are not kept.

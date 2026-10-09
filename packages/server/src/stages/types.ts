@@ -133,6 +133,19 @@ export interface ClaudeTask<Output = unknown> {
     /** What the tool is for, in the words Claude reads beside its name. */
     description: string;
   };
+  /**
+   * Present on a stage whose long work is done by a background subagent, so
+   * the session the person talks to stays free to answer them while it runs.
+   * That session leads: it launches the worker, passes on what the person
+   * says, checks what comes back and submits. The worker's brief is the
+   * stage's own prompt, `buildPrompt`'s output, and the lead's is
+   * prompts/lead.md wrapped round the same text. Only meaningful with
+   * `submit`; see runs/claude.ts.
+   */
+  worker?: {
+    /** What the worker is for, as the lead's Agent tool lists it. */
+    description: string;
+  };
 }
 
 /** A task that is also a column on the board, and so can be reviewed and moved on from. */

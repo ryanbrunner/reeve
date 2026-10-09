@@ -183,6 +183,57 @@ export function liveDatabaseGuard(
   };
 }
 
+/**
+ * What a run may launch with the Agent tool. Two rules for every run, and two
+ * more for a stage with a worker (see `worker` in stages/types.ts):
+ *
+ * - No `isolation`. Reeve owns the card's worktree; an agent in a worktree of
+ *   its own commits on a branch the card never sees, and a remote one works
+ *   on nothing of the card's at all.
+ * - A worker runs in the background, since a worker the lead waits on is the
+ *   stage before workers with extra steps: nobody could talk to it.
+ * - One worker at a time. Two would edit the same tree at once.
+ *
+ * A hook, like the guards above, so the call is refused whatever the
+ * classifier makes of it, and `onLaunch` hears of each worker it lets through
+ * before the call runs, which is when the next launch must already see it.
+ */
+export function agentGuard(opts: {
+  workerType: string | null;
+  workerRunning: () => boolean;
+  onLaunch: (toolUseId: string) => void;
+  onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void;
+}): HookCallback {
+  return (hook, toolUseId) => {
+    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const id = hook.tool_use_id ?? toolUseId ?? '';
+    const isWorker = opts.workerType !== null && input['subagent_type'] === opts.workerType;
+    let reason: string | null = null;
+    if (typeof input['isolation'] === 'string') {
+      reason =
+        `Agents in this run share the card's worktree, so \`isolation: "${input['isolation']}"\` is refused: ` +
+        'its commits would land somewhere the card never sees. Launch it again without `isolation`.';
+    } else if (isWorker && input['run_in_background'] === false) {
+      reason =
+        'The worker always runs in the background, so you stay free to talk to the person while it works. ' +
+        'Launch it again without `run_in_background: false`; you are told when it finishes.';
+    } else if (isWorker && opts.workerRunning()) {
+      reason =
+        'A worker is already running, and two would edit the same worktree at once. Send it what you wanted ' +
+        'done with SendMessage instead, or wait for it to finish and launch the next one then.';
+    }
+    if (!reason) {
+      if (isWorker) opts.onLaunch(id);
+      return Promise.resolve({});
+    }
+    opts.onDenied(hook.tool_name, input, id);
+    return Promise.resolve({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+    });
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -317,12 +368,12 @@ export interface DenialRecorder {
 }
 
 export function denialRecorder(): DenialRecorder {
-  // Only the latest turn's calls, for `observe`: the denial event names the tool
+  // Only the last few calls, for `observe`: the denial event names the tool
   // and the id but carries no input, and it lands while the message that asked
-  // is still executing, so it is always this map the id is in. Holding every
+  // is still executing, so the id is always among the latest. Holding every
   // call of a 200-turn run to caption a denial that may never come is not a
   // trade worth making.
-  let asked = new Map<string, ToolDenialRecord>();
+  const asked = new Map<string, ToolDenialRecord>();
   const denied: ToolDenialRecord[] = [];
   const seen = new Set<string>();
 
@@ -339,7 +390,11 @@ export function denialRecorder(): DenialRecorder {
     },
     observe(message) {
       if (message.type === 'assistant') {
-        asked = asksIn(message);
+        // Merged, not replaced: with a worker running, the lead's messages and
+        // the worker's interleave, and a denial of the worker's call can land
+        // after the lead has spoken. Still only the last few calls.
+        for (const [id, record] of asksIn(message)) asked.set(id, record);
+        while (asked.size > 32) asked.delete(asked.keys().next().value!);
         return null;
       }
       const m = message as { type?: string; subtype?: string; tool_name?: string; tool_use_id?: string };

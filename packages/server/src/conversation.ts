@@ -86,7 +86,9 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
 
   const live = liveStageRun(db, card.id);
   if (live) {
-    const ask = askRegistry.forRun(live.id);
+    // Not the worker's: what it is waiting on is settled by Allow or Deny, and
+    // words typed meanwhile are for the lead, who is still listening.
+    const ask = askRegistry.forRun(live.id, { answerable: true });
     if (ask) {
       writer.append(live.id, 'user_message', { text: words, actor, source, live: true, at: Date.now() });
       askRegistry.settle(ask.id, answerFromText(ask, words, actor));
@@ -155,8 +157,9 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
  * waiting — answered elsewhere, timed out, or stopped.
  */
 export function answerAsk(card: Card, askId: string, answer: Exclude<AskAnswer, { kind: 'unanswered' }>): boolean {
-  const ask = askRegistry.forCard(card.id);
-  if (!ask || ask.id !== askId || ask.kind !== answer.kind) return false;
+  // By id, since the lead and its worker can each be waiting on one.
+  const ask = askRegistry.get(askId);
+  if (!ask || ask.cardId !== card.id || ask.kind !== answer.kind) return false;
   return askRegistry.settle(askId, answer);
 }
 
@@ -176,7 +179,7 @@ export async function allowOnce(db: Db, writer: EventWriter, card: Card, runId: 
   }
   const refused = eventsSince(db, runId, 0)
     .filter((e) => e.kind === 'refused')
-    .map((e) => JSON.parse(e.payload) as { toolUseId?: string; toolName?: string; input?: Record<string, unknown> })
+    .map((e) => JSON.parse(e.payload) as { toolUseId?: string; toolName?: string; input?: Record<string, unknown>; agent?: string })
     .find((e) => e.toolUseId === toolUseId);
   if (!refused?.toolName || !refused.input) return { ok: false, status: 409, error: 'no such refusal in that run' };
   if (eventsSince(db, runId, 0).some((e) => e.kind === 'allowed' && (JSON.parse(e.payload) as { toolUseId?: string }).toolUseId === toolUseId)) {
@@ -185,11 +188,15 @@ export async function allowOnce(db: Db, writer: EventWriter, card: Card, runId: 
   allowances.grant(card.id, refused.toolName, refused.input);
   writer.append(runId, 'allowed', { toolUseId, at: Date.now() });
   const what = typeof refused.input['command'] === 'string' ? refused.input['command'] : `this ${refused.toolName} call`;
-  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, {
-    prompt:
-      `The person has allowed, for one use, the call auto mode refused: ${refused.toolName} \`${oneLine(what)}\`. ` +
-      'Make exactly that call again now, with the same input, and carry on.',
-  });
+  // The allowance is the card's, whoever makes the call, so a worker's refusal
+  // only needs the lead to pass the word on.
+  const prompt = refused.agent === 'worker'
+    ? `The person has allowed, for one use, the call auto mode refused your worker: ${refused.toolName} \`${oneLine(what)}\`. ` +
+      'If the worker is still running, tell it with SendMessage to make exactly that call again, with the same input, and carry on. ' +
+      'If it has finished, make the call yourself, or hand it to the next worker you launch.'
+    : `The person has allowed, for one use, the call auto mode refused: ${refused.toolName} \`${oneLine(what)}\`. ` +
+      'Make exactly that call again now, with the same input, and carry on.';
+  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, { prompt });
 }
 
 function oneLine(text: string): string {

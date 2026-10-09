@@ -33,6 +33,12 @@ export type PendingAsk = AskRequest & {
   runId: string;
   cardId: string;
   createdAt: number;
+  /**
+   * Set when the stage's background worker asked, not the session the person
+   * talks to. Its call is settled only by Allow or Deny: words typed while it
+   * waits are for the lead, who is still free to talk.
+   */
+  agent?: 'worker';
 };
 
 interface Entry {
@@ -45,12 +51,18 @@ class AskRegistry {
   private readonly open = new Map<string, Entry>();
 
   /**
-   * Park until answered. One ask per run at a time is all the SDK produces —
-   * a turn waits on its permission before it does anything else — so the run
-   * id is enough to find it again.
+   * Park until answered. A turn waits on its permission before it does
+   * anything else, so a run asks one thing at a time — unless its worker is
+   * running, when the lead and the worker can each be waiting on one.
    */
-  wait(runId: string, cardId: string, request: AskRequest, timeoutMs: number): { ask: PendingAsk; answer: Promise<AskAnswer> } {
-    const ask = { ...request, id: crypto.randomUUID(), runId, cardId, createdAt: Date.now() } as PendingAsk;
+  wait(
+    runId: string,
+    cardId: string,
+    request: AskRequest,
+    timeoutMs: number,
+    agent?: 'worker',
+  ): { ask: PendingAsk; answer: Promise<AskAnswer> } {
+    const ask = { ...request, id: crypto.randomUUID(), runId, cardId, createdAt: Date.now(), ...(agent ? { agent } : {}) } as PendingAsk;
     let settle!: (answer: AskAnswer) => void;
     const answer = new Promise<AskAnswer>((resolve) => {
       settle = resolve;
@@ -70,14 +82,27 @@ class AskRegistry {
     return true;
   }
 
-  forRun(runId: string): PendingAsk | undefined {
-    for (const { ask } of this.open.values()) if (ask.runId === runId) return ask;
-    return undefined;
+  /**
+   * What the run is waiting on. The lead's ask first, since that is the one a
+   * typed reply answers; `answerable` leaves the worker's out altogether, for
+   * a caller holding words rather than a click.
+   */
+  forRun(runId: string, opts: { answerable?: boolean } = {}): PendingAsk | undefined {
+    const asks = [...this.open.values()].map((e) => e.ask).filter((a) => a.runId === runId);
+    return asks.find((a) => !a.agent) ?? (opts.answerable ? undefined : asks[0]);
   }
 
   forCard(cardId: string): PendingAsk | undefined {
-    for (const { ask } of this.open.values()) if (ask.cardId === cardId) return ask;
-    return undefined;
+    const asks = this.allForCard(cardId);
+    return asks.find((a) => !a.agent) ?? asks[0];
+  }
+
+  allForCard(cardId: string): PendingAsk[] {
+    return [...this.open.values()].map((e) => e.ask).filter((a) => a.cardId === cardId);
+  }
+
+  get(askId: string): PendingAsk | undefined {
+    return this.open.get(askId)?.ask;
   }
 
   /** On Stop, so the run's turn can unwind and the stop can finish. */
