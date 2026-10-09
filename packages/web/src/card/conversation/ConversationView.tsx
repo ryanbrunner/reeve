@@ -412,17 +412,14 @@ function UserItem({ item }: { item: Extract<ConversationItem, { kind: 'user' }> 
   );
 }
 
+// Shown whole: what Claude was thinking is read, not skimmed, and a clamp
+// hid the half of it that said what it meant to do.
 function Thinking({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={() => setOpen((o) => !o)}
-      className="ml-8 border-l-2 border-(--color-edge) py-0.5 pl-3 text-left text-[13px]/[19px] text-(--color-muted) italic"
-    >
+    <div className="ml-8 border-l-2 border-(--color-edge) py-0.5 pl-3 text-[13px]/[19px] whitespace-pre-line text-(--color-muted) italic">
       <span className="mr-1.5 font-mono text-[10px] tracking-[0.06em] text-(--color-muted)/60 uppercase not-italic">thinking</span>
-      <span className={open ? 'whitespace-pre-line' : 'line-clamp-2'}>{text}</span>
-    </button>
+      {text}
+    </div>
   );
 }
 
