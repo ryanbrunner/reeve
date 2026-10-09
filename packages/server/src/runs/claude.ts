@@ -3,6 +3,7 @@ import {
   query,
   tool,
   type AgentDefinition,
+  type HookInput,
   type Options,
   type PermissionResult,
   type SDKMessage,
@@ -429,6 +430,15 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   // listed when the SDK says idle, and holding the run open for one would
   // hold it for ever (spikes/background-agent-check.ts, E).
   const busy = () => workers.size > 0 || agents.size > 0;
+  // Which calls are the worker's, so an ask or a refusal is put down to it
+  // and to nothing else: a subagent the lead sends off in Planning is part of
+  // the lead's own turn, and is treated as the lead was before workers. The
+  // Agent calls that launched a worker, ever, for its messages; the agent ids
+  // its own calls carry, for canUseTool, learnt from the hook that sees each
+  // call first.
+  const workerCalls = new Set<string>();
+  const workerAgents = new Set<string>();
+  const fromWorker = (agentID: string | undefined) => agentID !== undefined && workerAgents.has(agentID);
 
   /**
    * Hold the turn on a person: the run reads `asking` until they answer, the
@@ -480,7 +490,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // A subagent cannot put a question to the person: its chips would sit
     // under the lead's conversation with nothing to say whose they were, and
     // the worker is told to decide and report instead. Refused, not parked.
-    if (toolName === 'AskUserQuestion' && agentID) {
+    if (toolName === 'AskUserQuestion' && fromWorker(agentID)) {
       return {
         behavior: 'deny',
         message:
@@ -512,7 +522,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       refuse(toolName, input, toolUseID);
       return decideToolUse({ toolName, input });
     }
-    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal, agentID ? 'worker' : undefined);
+    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal, fromWorker(agentID) ? 'worker' : undefined);
     if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
     refuse(toolName, input, toolUseID);
     if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
@@ -553,13 +563,25 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
           hooks: [agentGuard({
             workerType,
             workerRunning: () => workers.size > 0,
-            onLaunch: (toolUseId) => workers.set(toolUseId, null),
+            onLaunch: (toolUseId) => {
+              workers.set(toolUseId, null);
+              workerCalls.add(toolUseId);
+            },
             onDenied: refuse,
           })],
         },
         // Every tool: what a person allowed once after auto mode refused it.
         // Only a conversation's run has anyone to allow anything.
         ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, repo.defaultBranch, (c, t, i) => allowances.take(c, t, i))] }] : []),
+        // Every tool: learns the worker's agent id from its first call, which
+        // reaches this hook before it can reach canUseTool. Decides nothing.
+        ...(workerType ? [{
+          hooks: [(hook: HookInput) => {
+            const h = hook as { agent_id?: string; agent_type?: string };
+            if (h.agent_id && h.agent_type === workerType) workerAgents.add(h.agent_id);
+            return Promise.resolve({});
+          }],
+        }] : []),
       ],
     },
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
@@ -579,13 +601,15 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       async (args) => {
         // The lead submits what its worker built, so not before the worker
         // is done: the run would end, and the worker with it, mid-edit.
-        if (workers.size > 0) {
+        // Any agent still in the background counts, worker or not: work the
+        // lead started some other way is unfinished all the same.
+        if (busy()) {
           return {
             isError: true,
             content: [{
               type: 'text',
-              text: `Not recorded — your worker is still running. Wait for it to report, check what it did, then call ${submitName}. ` +
-                'If it should stop early, tell it to wrap up with SendMessage.',
+              text: `Not recorded — your worker, or another agent you launched, is still running in the background. ` +
+                `Wait for it to report, check what it did, then call ${submitName}. If it should stop early, tell it to wrap up with SendMessage.`,
             }],
           };
         }
@@ -749,7 +773,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         // The refusals nobody asked us about: auto mode's classifier turning a
         // call down on its own.
         if (message.type === 'assistant') {
-          const agent = (message as { parent_tool_use_id?: string | null }).parent_tool_use_id ? 'worker' as const : undefined;
+          const parent = (message as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+          const agent = parent && workerCalls.has(parent) ? 'worker' as const : undefined;
           for (const block of ((message as { message?: { content?: unknown } }).message?.content as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }> | undefined) ?? []) {
             if (block.type === 'tool_use' && block.id && block.name) calls.set(block.id, { toolName: block.name, input: block.input ?? {}, ...(agent ? { agent } : {}) });
           }

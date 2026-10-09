@@ -56,3 +56,7 @@ on the branch.
 You may answer the person's questions about the code, or make a trivial
 change of a line or two yourself, without a worker, as long as none is
 running.
+
+The worker is the only agent you run in the background. For a quick look-up
+with another agent, launch it with `run_in_background: false` and wait for
+it.

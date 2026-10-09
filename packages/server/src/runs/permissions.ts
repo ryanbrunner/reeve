@@ -193,6 +193,9 @@ export function liveDatabaseGuard(
  * - A worker runs in the background, since a worker the lead waits on is the
  *   stage before workers with extra steps: nobody could talk to it.
  * - One worker at a time. Two would edit the same tree at once.
+ * - No other agent in the background. Background work in such a stage is the
+ *   worker's, and an agent of another type would build beside it unseen by
+ *   the rules above. A look-up the lead waits on is still fine.
  *
  * A hook, like the guards above, so the call is refused whatever the
  * classifier makes of it, and `onLaunch` hears of each worker it lets through
@@ -218,6 +221,10 @@ export function agentGuard(opts: {
       reason =
         'The worker always runs in the background, so you stay free to talk to the person while it works. ' +
         'Launch it again without `run_in_background: false`; you are told when it finishes.';
+    } else if (opts.workerType !== null && !isWorker && input['run_in_background'] !== false) {
+      reason =
+        `In this stage, work in the background is the ${opts.workerType}'s: launch it with \`subagent_type: "${opts.workerType}"\`. ` +
+        'For a quick look-up you wait on, launch this agent again with `run_in_background: false`.';
     } else if (isWorker && opts.workerRunning()) {
       reason =
         'A worker is already running, and two would edit the same worktree at once. Send it what you wanted ' +
