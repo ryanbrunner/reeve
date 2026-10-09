@@ -88,6 +88,16 @@ export function DiffTab({
 }
 
 function FileDiff({ file }: { file: ApiDiffFile }) {
+  // Size both gutters to this file's own widest line number rather than a flat
+  // 3rem each, so a short file (most of them) gives that width back to the code.
+  const lineNumbers = file.hunks
+    .flatMap((hunk) => hunk.lines.flatMap((line) => [line.oldLine, line.newLine]))
+    .filter((n): n is number => n != null);
+  const gutterWidth = Math.max(1, ...lineNumbers.map((n) => n.toString().length));
+  // Each number column keeps its px-2 (1rem) padding, so the track needs that
+  // added back on top of the digits themselves or the widest number clips.
+  const gridStyle = { gridTemplateColumns: `calc(${gutterWidth}ch + 1rem) calc(${gutterWidth}ch + 1rem) 1rem minmax(0,1fr)` };
+
   return (
     <div className="flex min-h-0 grow flex-col overflow-hidden rounded-md border border-(--color-edge)">
       <div className="flex min-w-0 shrink-0 items-baseline justify-between gap-2 border-b border-(--color-edge) px-2.5 py-1.5">
@@ -115,9 +125,10 @@ function FileDiff({ file }: { file: ApiDiffFile }) {
               {hunk.lines.map((line, i) => (
                 <div
                   key={i}
-                  className={`grid grid-cols-[3rem_3rem_1rem_minmax(0,1fr)] font-mono text-[11px]/[17px] ${
+                  className={`grid font-mono text-[11px]/[17px] ${
                     line.kind === 'add' ? 'bg-emerald-500/10' : line.kind === 'del' ? 'bg-red-500/10' : ''
                   }`}
+                  style={gridStyle}
                 >
                   <span className="px-2 text-right text-(--color-muted)/60 select-none">{line.oldLine ?? ''}</span>
                   <span className="px-2 text-right text-(--color-muted)/60 select-none">{line.newLine ?? ''}</span>
