@@ -119,7 +119,9 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
   const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, vibes);
 
   return (
-    <div className="flex min-w-0 grow flex-col">
+    // min-h-0, or as a column's flex item this grows to its content and the
+    // tabpanel below never scrolls: a long plan ran off the bottom of the panel.
+    <div className="flex min-h-0 min-w-0 grow flex-col">
       <div role="tablist" aria-label="Card details" className={`flex shrink-0 border-b border-(--color-edge) ${side ? 'gap-3.5 overflow-x-auto pr-2 pl-4 [scrollbar-width:none]' : 'gap-[22px] px-5'}`}>
         {tabs.map((t) => (
           <button
