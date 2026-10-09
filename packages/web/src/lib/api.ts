@@ -191,6 +191,9 @@ export const api = {
     post(`/api/cards/${id}/crit`, { target }).then(json<CritReviewResponse>),
   /** Opens the running app in Gloss, or answers with the round already waiting. Each round there is a verdict. */
   reviewWithGloss: (id: string) => post(`/api/cards/${id}/gloss`, {}).then(json<GlossReviewResponse>),
+  /** One of Planning's drawn mockups, opened in Gloss: its comments go to the conversation. */
+  reviewMockupInGloss: (id: string, runId: string, label: string) =>
+    post(`/api/cards/${id}/gloss-mockup`, { runId, label }).then(json<GlossReviewResponse>),
 };
 
 /** A column's cards in order, or only one lane's of them when a project is given: null is No project. */

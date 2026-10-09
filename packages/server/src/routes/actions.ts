@@ -19,7 +19,8 @@ import {
   liveStageRun,
 } from '../db/queries.js';
 import { GitError, checkWorktree, commitsSince } from '../git/worktree.js';
-import { startGlossReview } from '../gloss.js';
+import { startGlossReview, startMockupReview } from '../gloss.js';
+import { config } from '../config.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { canMergePr, isPrConflicting, landPullRequest, openPullRequest } from '../pullRequest.js';
@@ -281,6 +282,28 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
     const body: GlossReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
     return c.json(body, review.reused ? 200 : 201);
+  });
+
+  /**
+   * Open one of the mockups Planning drew in Gloss, before anything is built.
+   * Its comments go into the conversation; see `startMockupReview`.
+   */
+  routes.post('/:id/gloss-mockup', async (c) => {
+    const cardId = c.req.param('id');
+    const card = getCard(db, cardId);
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
+    const repo = repoFor(card.repoId);
+    if (!repo) return c.json({ error: 'card has no repo' }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { runId?: unknown; label?: unknown };
+    if (typeof body.runId !== 'string' || typeof body.label !== 'string') return c.json({ error: 'needs runId and label' }, 400);
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
+    if (health.state !== 'ok') return c.json({ error: 'card has no usable worktree' }, 409);
+    const url = `http://${config.hostname}:${config.port}/api/cards/${encodeURIComponent(cardId)}/mockups/${encodeURIComponent(body.runId)}/${encodeURIComponent(body.label)}`;
+    const review = await startMockupReview(db, writer, card, health.path, body.label, url);
+    if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
+    const res: GlossReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
+    return c.json(res, review.reused ? 200 : 201);
   });
 
   /** Run the repo's test command against the worktree. */

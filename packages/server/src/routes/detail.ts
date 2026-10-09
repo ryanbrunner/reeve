@@ -14,6 +14,7 @@ import {
   deleteRef,
   getCard,
   getQuestion,
+  getRun,
   insertCardEvent,
   latestClaudeRunForStage,
   listRepos,
@@ -286,6 +287,23 @@ export function detailRoutes(db: Db, writer: EventWriter) {
       : { kind: 'permission', allow: body.decision === 'allow', reason: body.reason ?? null, actor: 'human' });
     if (!answered) return c.json({ error: 'not waiting on that', detail: 'answered already, timed out, or stopped' }, 409);
     return c.json({ ok: true });
+  });
+
+  /**
+   * A mockup Planning drew, as the HTML it wrote, for Gloss to open. Claude
+   * wrote this page and it is served from the same origin as an API with no
+   * auth, so it is held to no scripts and no connections at all: a mockup is
+   * a static picture, and it was always drawn with JavaScript off.
+   */
+  routes.get('/:id/mockups/:runId/:label', (c) => {
+    const run = getRun(db, c.req.param('runId'));
+    if (!run || run.cardId !== c.req.param('id') || run.stage !== 'planning') return c.text('not found', 404);
+    const output = run.structuredOutput as { mockups?: Array<{ label?: string; html?: string }> } | null;
+    const mockup = output?.mockups?.find((m) => m.label === c.req.param('label'));
+    if (!mockup?.html) return c.text('not found', 404);
+    c.header('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'");
+    c.header('X-Content-Type-Options', 'nosniff');
+    return c.html(mockup.html);
   });
 
   /**

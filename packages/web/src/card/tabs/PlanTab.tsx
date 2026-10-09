@@ -145,7 +145,7 @@ function Designs({ detail }: { detail: CardDetail }) {
         </Empty>
       ) : (
         <div className="flex flex-wrap gap-3">
-          {mockups.map((m) => <Thumb key={m.id} asset={m} onRemove={() => remove.mutate(m.id)} />)}
+          {mockups.map((m) => <Thumb key={m.id} asset={m} cardId={detail.card.id} onRemove={() => remove.mutate(m.id)} />)}
         </div>
       )}
       {error && <p className="font-mono text-[10px]/4 text-red-300">{error}</p>}
@@ -153,8 +153,15 @@ function Designs({ detail }: { detail: CardDetail }) {
   );
 }
 
-function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
+function Thumb({ asset, cardId, onRemove }: { asset: ApiAsset; cardId: string; onRemove: () => void }) {
   const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+  // A mockup Claude drew is HTML underneath, which Gloss can open and a
+  // person can comment on before anything is built. A person's is a picture.
+  const gloss = useMutation({
+    mutationFn: () => api.reviewMockupInGloss(cardId, asset.runId!, asset.label),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['card', cardId] }),
+  });
   // Stable, or every poll of the card would re-run the lightbox's effect.
   const close = useCallback(() => setOpen(false), []);
   const kind = asset.runId ? 'Mockup by Claude' : 'Mockup';
@@ -184,7 +191,17 @@ function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
         <span className="truncate">{asset.label}</span>
         <span className="flex shrink-0 items-baseline gap-2">
           {/* A mockup with a run is one Planning drew; a person's has none. */}
-          {asset.runId && <span className="text-sky-300">by Claude</span>}
+          {asset.runId && (
+            <button
+              type="button"
+              onClick={() => gloss.mutate()}
+              disabled={gloss.isPending}
+              title={gloss.error ? gloss.error.message : 'Open in Gloss and comment on it'}
+              className={gloss.error ? 'text-red-300' : 'text-sky-300 hover:underline'}
+            >
+              {gloss.isPending ? 'opening…' : gloss.isSuccess ? 'in Gloss' : 'Gloss'}
+            </button>
+          )}
           <button type="button" onClick={onRemove} aria-label={`Remove ${asset.label}`} className="hover:text-red-300">
             ✕
           </button>

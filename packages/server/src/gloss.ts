@@ -18,6 +18,7 @@ import {
 import type { Card, Repo, Run } from './db/schema.js';
 import { failureOutput } from './git/worktree.js';
 import { shellQuote } from './handoff.js';
+import { sendToCard } from './conversation.js';
 import { approveStage, sendBackForRevision } from './review.js';
 import { ensureDevServer, waitForServer } from './runs/devServer.js';
 import type { EventWriter } from './runs/events.js';
@@ -453,4 +454,92 @@ function pagePath(page: string | null): string | null {
   } catch {
     return page;
   }
+}
+
+// ---------------------------------------------------------------------------
+// A mockup, in Gloss
+// ---------------------------------------------------------------------------
+
+export const GLOSS_MOCKUP_TASK = 'gloss_mockup';
+
+/**
+ * Review one of the mockups Planning drew, in Gloss, before anything is built:
+ * the HTML Claude wrote, served by this server (see the mockup route in
+ * routes/detail.ts) and opened in a Gloss window. One round, not a loop —
+ * there is no build to reload onto — and its comments go into the card's
+ * conversation, framed so Claude revises the mockup and the plan with it.
+ * An approval is recorded and moves nothing: the plan has its own gate.
+ */
+export async function startMockupReview(
+  db: Db,
+  writer: EventWriter,
+  card: Card,
+  worktreePath: string,
+  label: string,
+  url: string,
+): Promise<GlossStart> {
+  try {
+    await exec('gloss', ['--help'], { timeout: GLOSS_TIMEOUT_MS });
+  } catch (cause) {
+    return (cause as { code?: unknown }).code === 'ENOENT'
+      ? { ok: false, error: 'gloss is not installed', detail: 'there is no gloss on the server’s PATH', status: 400 }
+      : { ok: false, error: 'gloss did not run', detail: failureOutput(cause, GLOSS_TIMEOUT_MS), status: 400 };
+  }
+  const live = liveTaskRun(db, card.id, GLOSS_MOCKUP_TASK);
+  if (live) return { ok: true, runId: live.id, url: live.url ?? url, reused: true };
+
+  const session: Session = { cardId: card.id, stage: card.stage as Stage, cwd: worktreePath, name: `reeve-mockup-${card.id.slice(0, 8)}`, url };
+  try {
+    await gloss(session, 'open', url);
+  } catch (cause) {
+    return { ok: false, error: 'Gloss did not open', detail: failureOutput(cause, GLOSS_TIMEOUT_MS), status: 409 };
+  }
+
+  const out: string[] = [];
+  const handle = startShellRun({
+    db, writer, cardId: card.id, stage: card.stage,
+    command: `gloss wait --name ${shellQuote(session.name)}`,
+    cwd: worktreePath,
+    task: GLOSS_MOCKUP_TASK,
+    onLine: (kind, line) => {
+      if (kind === 'stdout') out.push(line);
+    },
+  });
+  void handle.done.then(async (result) => {
+    try {
+      if (result.stopReason === 'cancelled_by_user' || result.exitCode !== 0) {
+        await gloss(session, 'close').catch(() => {});
+        return;
+      }
+      const text = out.join('\n');
+      const parsed = glossVerdict.safeParse(JSON.parse(text.slice(text.indexOf('{'))));
+      if (!parsed.success) throw new Error('the verdict was not in the shape expected');
+      const comments = parsed.data.comments.filter((c) => c.body.trim());
+      if (parsed.data.approved || comments.length === 0) {
+        await gloss(session, 'close').catch(() => {});
+        insertCardEvent(db, {
+          cardId: card.id, actor: 'human', kind: 'gloss_reviewed', stage: card.stage,
+          runId: handle.runId, body: `The mockup “${label}” was approved in Gloss.`, meta: { outcome: 'mockup_approved', label },
+        });
+        return;
+      }
+      const fresh = getCard(db, card.id);
+      if (!fresh) return;
+      const notes = formatNotes(parsed.data, comments);
+      const sent = await sendToCard(db, writer, fresh, `**${comments.length} comment${comments.length === 1 ? '' : 's'} on the mockup “${label}”**\n\n${notes}`, {
+        actor: 'human',
+        source: 'gloss',
+        prompt:
+          `The person reviewed your mockup “${label}” — the HTML you drew while planning — in Gloss, and left these comments:\n\n${notes}\n\n` +
+          'Redraw the mockup to answer them, change the plan where they change what is to be built, and submit the plan again.',
+      });
+      await gloss(session, 'ready', sent.ok ? 'Your comments are with Claude, in the card’s conversation.' : `Reeve could not send them: ${sent.error}`).catch(() => {});
+    } catch (err) {
+      insertCardEvent(db, {
+        cardId: card.id, actor: 'human', kind: 'gloss_reviewed', stage: card.stage,
+        runId: handle.runId, body: `Mockup review ended badly: ${String(err)}`, meta: { outcome: 'failed', label },
+      });
+    }
+  });
+  return { ok: true, runId: handle.runId, url, reused: false };
 }
