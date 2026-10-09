@@ -19,7 +19,7 @@ import {
   CliError,
   activityLabel,
   cardRef,
-  formatTokens,
+  formatCost,
   formatTime,
   note,
   parseOrUsage,
@@ -39,7 +39,7 @@ import { move } from './card/move.js';
 import { note as noteCard } from './card/note.js';
 import { accept, dismiss } from './card/suggestion.js';
 import { followRun } from './run.js';
-import { renderRuns, totalTokens } from './runs.js';
+import { renderRuns, totalCost } from './runs.js';
 
 /**
  * `reeve card <action> [<card>]`: the buttons on a card's rail and its
@@ -337,7 +337,7 @@ function render(detail: CardDetail, projectTitle: string | null): string {
     const lines = renderRuns(detail.runs.slice(0, RUNS_SHOWN), '  ');
     const more = detail.runs.length - RUNS_SHOWN;
     if (more > 0) lines.push(`  …and ${more} more`);
-    sections.push([`Runs (${detail.runs.length} · ${formatTokens(totalTokens(detail.runs))})`, ...lines].join('\n'));
+    sections.push([`Runs (${detail.runs.length} · ${formatCost(totalCost(detail.runs))})`, ...lines].join('\n'));
   }
 
   return sections.join('\n\n');
