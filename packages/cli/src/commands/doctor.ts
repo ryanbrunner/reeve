@@ -21,13 +21,18 @@ const exec = promisify(execFile);
  * binding is the one an install gets wrong silently — `better-sqlite3`'s
  * native binary has to match whatever Node ran `npm install`, Homebrew's, say,
  * rather than a shell's `nvm` one — and it is tried on an in-memory database,
- * never the board's. `gh`, Chromium and the web build only warn, because each
- * serves one feature — pull requests, screenshots, `reeve serve` — and the
- * board works without it. Playwright never downloads Chromium on install, by
- * design, so a fresh install is expected to warn about it until a person runs
- * the one command the line names. The server and the data
- * paths are information. Like `status`, a failed check is set as the exit
- * status rather than thrown: it is an answer, not a command that broke.
+ * never the board's. `gh`, its token's `workflow` scope, Chromium and the web
+ * build only warn, because each serves one feature — pull requests, a pull
+ * request that reaches `.github/workflows/`, screenshots, `reeve serve` — and
+ * the board works without it. A token without `workflow` is the one GitHub
+ * only refuses mid-merge, with "refusing to allow an OAuth App to create or
+ * update workflow ... without `workflow` scope", which is why this asks
+ * ahead of it rather than waiting to hear it from a card. Playwright never
+ * downloads Chromium on install, by design, so a fresh install is expected to
+ * warn about it until a person runs the one command the line names. The
+ * server and the data paths are information. Like `status`, a failed check
+ * is set as the exit status rather than thrown: it is an answer, not a
+ * command that broke.
  *
  * The probes that need the Agent SDK, Playwright or `gh` live in the server,
  * beside the code whose failures they predict, and are reached the way
@@ -56,6 +61,8 @@ const HEALTHZ_TIMEOUT_MS = 5_000;
 const GIT_FIX = 'install git: on macOS `xcode-select --install` or `brew install git`, elsewhere https://git-scm.com/downloads';
 const CLAUDE_FIX = 'run `claude` and log in, or set ANTHROPIC_API_KEY';
 const GH_FIX = 'only pull requests need it: install it from https://cli.github.com if it is missing, then `gh auth login`';
+const GH_WORKFLOW_FIX =
+  'only merging or pushing a change under .github/workflows/ needs it: `gh auth refresh -h github.com -s workflow`';
 const SQLITE_FIX = 'reinstall Reeve with the Node that runs it, so better-sqlite3 gets a native binary built for that Node';
 // `checkChromium`'s own detail already ends in the command that installs it.
 const CHROMIUM_FIX = 'only screenshots need it: Testing still runs without Chromium, and reports them as unavailable';
@@ -159,6 +166,23 @@ function webBuildCheck(server: Server): Check {
   );
 }
 
+/**
+ * Whether the token `gh` is using carries the `workflow` scope, from the same
+ * `gh auth status` `ghProbe` already ran. Without it, GitHub refuses a push
+ * or `gh pr merge` that touches a file under `.github/workflows/` — "refusing
+ * to allow an OAuth App to create or update workflow ... without `workflow`
+ * scope" — but only once a card's diff reaches there, so this is worth
+ * knowing before that merge rather than from its failure.
+ */
+function ghWorkflowScopeCheck(gh: Awaited<ReturnType<Server['ghProbe']>>): Check {
+  if (!gh.ok) return { name: 'gh workflow scope', level: 'optional', status: 'info', detail: `skipped: ${gh.detail}`, fix: null };
+  if (gh.scopes === null) {
+    return { name: 'gh workflow scope', level: 'optional', status: 'info', detail: 'no scopes reported by gh auth status', fix: null };
+  }
+  const has = gh.scopes.includes('workflow');
+  return verdict('gh workflow scope', 'optional', has, `token scopes: ${gh.scopes.join(', ')}`, GH_WORKFLOW_FIX);
+}
+
 /** Errors worth a line, not a paragraph. */
 const firstLine = (e: unknown) => {
   const text = e instanceof Error ? e.message : String(e);
@@ -228,6 +252,9 @@ export async function doctor(args: string[]): Promise<void> {
   const unloaded = (name: string, level: CheckLevel) => verdict(name, level, false, broken, 'reinstall Reeve');
 
   const running = isRunning(url);
+  // Run once and shared, so the workflow-scope check below reads the same
+  // `gh auth status` rather than asking `gh` a second time for it.
+  const gh = server ? server.ghProbe() : null;
   // In parallel, printed in this order. The credentials probe starts the
   // Claude CLI and is the slowest by far; its own timeout bounds the command.
   const checks = await Promise.all([
@@ -242,7 +269,8 @@ export async function doctor(args: string[]): Promise<void> {
         return verdict('sqlite', 'required', r.ok, r.detail, SQLITE_FIX);
       })()
     : unloaded('sqlite', 'required'),
-    server ? server.ghProbe().then((r) => verdict('gh', 'optional', r.ok, r.detail, GH_FIX)) : unloaded('gh', 'optional'),
+    gh ? gh.then((r) => verdict('gh', 'optional', r.ok, r.detail, GH_FIX)) : unloaded('gh', 'optional'),
+    gh ? gh.then(ghWorkflowScopeCheck) : unloaded('gh workflow scope', 'optional'),
     server ?
       server.checkChromium().then((r) => verdict('chromium', 'optional', r.ok, r.detail, CHROMIUM_FIX))
     : unloaded('chromium', 'optional'),
