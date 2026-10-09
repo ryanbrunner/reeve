@@ -144,13 +144,16 @@ async function partA() {
   const inbox = new Inbox();
   const abort = new AbortController();
   const hookCalls: string[] = [];
+  const hookAgentIds: string[] = [];
+  const blockAgentIds: string[] = [];
   const canUseCalls: string[] = [];
   const opts = baseOptions(dir, abort, {
     hooks: {
       PreToolUse: [{
-        hooks: [async (input) => {
-          const i = input as { tool_name?: string; agent_id?: string; agent_type?: string };
+        hooks: [async (input, toolUseID) => {
+          const i = input as { tool_name?: string; agent_id?: string; agent_type?: string; tool_use_id?: string };
           hookCalls.push(`${i.tool_name}@${i.agent_id ? `sub:${i.agent_type}` : 'main'}`);
+          if (i.tool_name === 'Agent') hookAgentIds.push(`${i.tool_use_id}/${toolUseID}`);
           return {};
         }],
       }],
@@ -202,6 +205,9 @@ async function partA() {
           note('  worker says', t.slice(0, 140));
         } else {
           note('lead says', t.slice(0, 160));
+          for (const b of (m as { message?: { content?: Array<{ type?: string; name?: string; id?: string }> } }).message?.content ?? []) {
+            if (b.type === 'tool_use' && b.name === 'Agent' && b.id) blockAgentIds.push(b.id);
+          }
           if (/SendMessage/.test(t)) sendMessageUsed = true;
           if (askedAt && !replyAt && /42|forty/i.test(t)) replyAt = Date.now();
           if (notifiedAt) leadTurnAfterNotify = true;
@@ -268,6 +274,7 @@ async function partA() {
   find('A7 PreToolUse hook saw', hookCalls.join(','));
   find('A8 canUseTool saw', canUseCalls.join(',') || '(nothing)');
   find('A9 lead turn after notification', leadTurnAfterNotify);
+  find('A10 hook ids = block ids', `hook=${hookAgentIds.join(',')} block=${blockAgentIds.join(',')}`);
   note('message kinds', Object.fromEntries(kinds));
 }
 
