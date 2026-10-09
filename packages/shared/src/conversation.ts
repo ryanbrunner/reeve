@@ -75,7 +75,17 @@ export type ConversationItem =
       at: number;
     }
   /** A call auto mode's classifier refused on its own, which a person may allow once. */
-  | { kind: 'refused'; id: string; toolUseId: string; toolName: string; input: Record<string, unknown>; allowed: boolean; at: number }
+  | {
+      kind: 'refused';
+      id: string;
+      toolUseId: string;
+      toolName: string;
+      input: Record<string, unknown>;
+      allowed: boolean;
+      /** Set when it was the stage's background worker's call. */
+      agent?: 'worker';
+      at: number;
+    }
   | { kind: 'submitted'; id: string; summary: string; at: number }
   | { kind: 'error'; id: string; text: string; at: number };
 
@@ -333,6 +343,7 @@ export class RunProjector {
           toolName: String(payload['toolName'] ?? 'a tool'),
           input: isRecord(payload['input']) ? payload['input'] : {},
           allowed: false,
+          ...(payload['agent'] === 'worker' ? { agent: 'worker' as const } : {}),
           at,
         });
         return;

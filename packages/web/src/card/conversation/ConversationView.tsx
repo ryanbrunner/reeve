@@ -682,7 +682,7 @@ function RefusedItem({ item, detail, stage, runId }: {
   return (
     <div className="ml-8 rounded-md border border-(--color-activity-error-border)/60 bg-(--color-card-core) px-3 py-2">
       <div className="flex items-center gap-2 font-mono text-[11px]/4 text-red-300">
-        ✕ Auto mode refused this {item.toolName} call
+        ✕ Auto mode refused {item.agent === 'worker' ? "the worker's" : 'this'} {item.toolName} call
         <span className="grow" />
         {item.allowed ? (
           <span className="text-(--color-activity-review-mark)">✓ allowed once by you</span>
