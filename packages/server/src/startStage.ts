@@ -28,7 +28,7 @@ import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
 import { serverEnv, serverVars } from './runs/serverUrl.js';
 import { startShellRun, type ShellRunHandle } from './runs/shell.js';
-import { setStackedOn, stackParent, stackedOn, unstack } from './stacks.js';
+import { isRestacking, setStackedOn, stackParent, stackedOn, unstack } from './stacks.js';
 import { stageDefinition } from './stages/index.js';
 
 /**
@@ -452,6 +452,9 @@ export async function startStage(
   if (isResolvingConflicts(card.id)) {
     return { ok: false, status: 409, error: 'conflicts are being resolved', detail: 'start it again once the resolution is done' };
   }
+  if (isRestacking(card.id)) {
+    return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: 'start it again in a moment' };
+  }
   // The move route and approval already keep a blocked card from moving on,
   // so this is for the one that got past Backlog first: a dependency added, or
   // put back out of Release, after the card had left. It keeps its column, can
@@ -491,12 +494,28 @@ export async function startStage(
     // stage is running there: a Run pressed beside one is refused below, and
     // must not merge underneath it first. A merge that brought commits in
     // may have brought dependencies with them, so setup runs again.
-    if (reused) {
+    // So is a tree made again from a branch the card already had, when it
+    // should be stacked on another card and is not yet: a fresh branch is cut
+    // from the parent's, but a kept one has to have the parent merged in.
+    const candidate = stackParent(db, card);
+    const unstacked = candidate !== null && card.stackedOnId !== candidate.id;
+    if (reused || unstacked) {
       const live = liveStageRun(db, card.id);
       if (live) return { ok: false, status: 409, error: 'a run is already active for this card', detail: live.id };
       const merged = await mergeLatestBase(db, card, repo, path);
       if (merged.state === 'merged' && startSetup(db, writer, card, repo, path, card.branchName)) {
         setup = await setupSettled(card.id);
+      }
+      // Its dependency was let through only because this card builds on it.
+      // If its branch could not be taken in, the card would run without the
+      // very work it waits for — and could open its pull request against main
+      // without it — so it does not start.
+      const after = getCard(db, card.id);
+      if (candidate && after?.stackedOnId !== candidate.id) {
+        return {
+          ok: false, status: 409, error: `could not build on #${candidate.number}`,
+          detail: merged.state === 'skipped' ? merged.why : `#${candidate.number}'s branch is not in this card's`,
+        };
       }
     }
 
@@ -570,6 +589,8 @@ export async function continueStage(
   run: Omit<ClaudeRunParams, 'db' | 'writer' | 'card' | 'repo' | 'worktreePath'>,
 ): Promise<ContinueStageResult> {
   if (starting.has(card.id)) return { ok: false, error: 'the stage is already starting' };
+  // Mid-merge onto the default branch: a run now would start on half of one.
+  if (isRestacking(card.id)) return { ok: false, error: 'it is being moved onto the default branch; send it again in a moment' };
   starting.add(card.id);
 
   try {

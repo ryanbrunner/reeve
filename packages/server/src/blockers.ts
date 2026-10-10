@@ -73,13 +73,23 @@ export function blockedMove(db: Db, card: Card, to: Stage): Blocked | null {
   const blocked = blockedStart(db, card);
   if (blocked || to !== 'release') return blocked;
   // A stacked card's pull request targets its parent's branch, which is on
-  // GitHub only once the parent has a pull request of its own.
+  // GitHub only once the parent has a pull request of its own, open, in
+  // Release — the same test the board makes (`awaitingMerge`). And it must
+  // actually be on that branch: one that has not taken it in yet would open
+  // against main without the work it needs.
   const parent = stackParent(db, card);
-  if (parent && !parent.prUrl) {
+  if (parent && !awaitingMerge(parent)) {
     return {
       status: 409,
       error: 'waiting on the pull request it builds on',
-      detail: `#${parent.number} ${parent.title} has no pull request yet, and this card's targets its branch`,
+      detail: `#${parent.number} ${parent.title} has no open pull request in Release yet, and this card's targets its branch`,
+    };
+  }
+  if (parent && card.stackedOnId !== parent.id) {
+    return {
+      status: 409,
+      error: 'not yet built on the card it waits on',
+      detail: `start a stage on it first, which merges #${parent.number}'s branch in`,
     };
   }
   return null;

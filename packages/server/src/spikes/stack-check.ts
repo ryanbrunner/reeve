@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { blockedMove } from '../blockers.js';
 import { config } from '../config.js';
-import { addDependency, createCard, createRepo, getCard, insertRun, cardEventsFor } from '../db/queries.js';
+import { addDependency, createCard, createRepo, getCard, insertRun, cardEventsFor, removeDependency } from '../db/queries.js';
 import { card as cardTable } from '../db/schema.js';
 import { diffSince } from '../git/worktree.js';
 import { createApp } from '../index.js';
@@ -97,10 +97,9 @@ check('and the diff is still its own work only', JSON.stringify(await files(chil
 // In Release with a pull request: merging it is refused while stacked.
 db.update(cardTable).set({ stage: 'release', prUrl: 'https://github.com/example/stack/pull/2' }).where(eq(cardTable.id, child.id)).run();
 child = getCard(db, childCard.id)!;
-check('the Merge button is not offered while it is stacked', !canMergePr(child));
+check('the Merge button is not offered while it is stacked', !canMergePr(db, child));
 const land = await landPullRequest(db, child, repo, 'human');
-check('and merging it is refused, naming the parent', !land.ok && land.error === 'it builds on another card that has not landed', JSON.stringify(land));
-db.update(cardTable).set({ prUrl: null }).where(eq(cardTable.id, child.id)).run();
+check('and merging it is refused, naming what it waits on', !land.ok && land.error === 'it waits on cards that have not landed', JSON.stringify(land));
 
 // The parent squash-merges on origin.
 const other = join(root, 'merger');
@@ -116,6 +115,16 @@ db.update(cardTable).set({ mergedAt: new Date(), stage: 'release' }).where(eq(ca
 parent = getCard(db, parentCard.id)!;
 check('once the parent merges, the card is due to move', stackedOn(db, getCard(db, childCard.id)!) === null);
 
+// It has a pull request, and there is no GitHub here to point it at main:
+// the stack must not end with the pull request still on the parent's branch.
+await restackChildren(db);
+child = getCard(db, childCard.id)!;
+check('a restack whose pull request cannot be retargeted leaves the card stacked', child.stackedOnId === parent.id);
+check('and still unmergeable', !canMergePr(db, child));
+const said = (cardId: string, pattern: RegExp) => cardEventsFor(db, cardId).some((e) => e.kind === 'note' && pattern.test(e.body ?? ''));
+check('and says why', said(child.id, /stays on that card's branch for now, because pointing its pull request at main failed/));
+
+db.update(cardTable).set({ prUrl: null }).where(eq(cardTable.id, child.id)).run();
 await restackChildren(db);
 child = getCard(db, childCard.id)!;
 const mainTip = g(repoPath, 'rev-parse', 'origin/main');
@@ -123,8 +132,55 @@ check('the restack moves it onto main', child.stackedOnId === null && child.base
 check('with main merged into its branch', g(child.worktreePath!, 'merge-base', '--is-ancestor', mainTip, 'HEAD') === '');
 check('and its diff is still its own work only', JSON.stringify(await files(child.worktreePath!, child.baseSha!)) === '["page.ts"]', JSON.stringify(await files(child.worktreePath!, child.baseSha!)));
 check('its base is main again', baseBranchFor(db, child, repo) === 'main');
-const notes = cardEventsFor(db, child.id).filter((e) => e.kind === 'note').map((e) => e.body ?? '');
-check('and the card says what happened', notes.some((n) => /now builds on main/.test(n)), notes.at(-1));
+check('and the card says what happened', said(child.id, /now builds on main/));
+
+// A card cut from main before its dependency could be built on.
+const lateCard = createCard(db, { repoId: repo.id, title: 'Cart badge', body: '', stage: 'in_progress' });
+await ensureWorktree(db, writer, getCard(db, lateCard.id)!, repo);
+let late = getCard(db, lateCard.id)!;
+const second = createCard(db, { repoId: repo.id, title: 'Cart totals', body: '', stage: 'in_progress' });
+await ensureWorktree(db, writer, getCard(db, second.id)!, repo);
+let p2 = getCard(db, second.id)!;
+commit(p2.worktreePath!, 'totals.ts', 'export const totals = 1;\n');
+insertRun(db, {
+  id: crypto.randomUUID(), cardId: p2.id, kind: 'claude', stage: 'in_progress', status: 'succeeded',
+  sessionId: crypto.randomUUID(), prompt: 'p', cwd: p2.worktreePath!, startedAt: new Date(), finishedAt: new Date(),
+});
+addDependency(db, late.id, p2.id);
+late = getCard(db, lateCard.id)!;
+check('a card already on main is not yet stacked on its new dependency', late.stackedOnId === null);
+db.update(cardTable).set({ stage: 'release', prUrl: 'https://github.com/example/stack/pull/3' }).where(eq(cardTable.id, p2.id)).run();
+check('and may not go to Release until it is', blockedMove(db, late, 'release')?.error === 'not yet built on the card it waits on', JSON.stringify(blockedMove(db, late, 'release')));
+db.update(cardTable).set({ stage: 'testing', prUrl: null }).where(eq(cardTable.id, p2.id)).run();
+const lateMerge = await mergeLatestBase(db, late, repo, late.worktreePath!);
+late = getCard(db, lateCard.id)!;
+check('its next stage start merges the dependency\'s branch in and stacks it', late.stackedOnId === p2.id && existsSync(join(late.worktreePath!, 'totals.ts')), JSON.stringify(lateMerge));
+
+// A dependency whose branch conflicts with the card's: it is not stacked.
+const clashCard = createCard(db, { repoId: repo.id, title: 'Cart footer', body: '', stage: 'in_progress' });
+await ensureWorktree(db, writer, getCard(db, clashCard.id)!, repo);
+let clash = getCard(db, clashCard.id)!;
+commit(clash.worktreePath!, 'totals.ts', 'export const totals = 2;\n');
+addDependency(db, clash.id, p2.id);
+clash = getCard(db, clashCard.id)!;
+const clashMerge = await mergeLatestBase(db, clash, repo, clash.worktreePath!);
+clash = getCard(db, clashCard.id)!;
+check('a dependency that conflicts leaves the card unstacked', clashMerge.state === 'skipped' && clash.stackedOnId === null, JSON.stringify(clashMerge));
+
+// The link removed: the card is moved off the branch it no longer waits on.
+removeDependency(db, late.id, p2.id);
+check('a removed dependency ends the stack', stackedOn(db, getCard(db, lateCard.id)!) === null);
+await restackChildren(db);
+late = getCard(db, lateCard.id)!;
+check('and the next sync moves it onto main', late.stackedOnId === null && baseBranchFor(db, late, repo) === 'main');
+check('saying it no longer waits on it', said(late.id, /no longer waits on #/));
+
+// Merging waits on any dependency, stacked or not.
+const gated = createCard(db, { repoId: repo.id, title: 'Gated', body: '', stage: 'release' });
+db.update(cardTable).set({ prUrl: 'https://github.com/example/stack/pull/9' }).where(eq(cardTable.id, gated.id)).run();
+addDependency(db, gated.id, p2.id);
+const gatedLand = await landPullRequest(db, getCard(db, gated.id)!, repo, 'human');
+check('a card with an unlanded dependency may not merge, stacked or not', !gatedLand.ok && gatedLand.error === 'it waits on cards that have not landed', JSON.stringify(gatedLand));
 
 console.log(`\n${failures === 0 ? 'all good' : `${failures} FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

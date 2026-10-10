@@ -19,6 +19,7 @@ import {
   type MergeStart,
 } from './git/worktree.js';
 import { claimResolving, forgetConflict, isMergingPr, isOpeningPr, releaseResolving } from './pullRequest.js';
+import { isRestacking } from './stacks.js';
 import { startClaudeRun, type ClaudeRunHandle, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -89,6 +90,7 @@ export async function resolveConflicts(
   if (!branch || !worktreePath) return refuse(400, 'nothing to merge into', 'the card has no worktree');
   if (isOpeningPr(card.id)) return refuse(409, 'a pull request is being opened', `#${card.number}`);
   if (isMergingPr(card.id)) return refuse(409, 'the pull request is being merged', prUrl);
+  if (isRestacking(card.id)) return refuse(409, 'it is being moved onto the default branch', prUrl);
   if (liveTaskRun(db, card.id, RESOLVE_CONFLICTS_TASK)) return refuse(409, 'already resolving conflicts', `#${card.number}`);
   // The Release conversation works in the same tree. A merge under it would
   // change the files it is reading and committing; it goes first, and this

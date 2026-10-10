@@ -118,7 +118,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const repo = repoFor(card.repoId);
     if (!repo) return c.json({ error: 'card has no repo', detail: 'a merge needs a repo' }, 400);
     if (card.mergedAt) return c.json({ error: 'already merged', detail: card.prUrl ?? `#${card.number}` }, 409);
-    if (!canMergePr(card)) {
+    if (!canMergePr(db, card)) {
       return c.json({
         error: 'not ready to merge',
         detail: card.stage !== 'release' ? 'only a Release card’s pull request is merged'

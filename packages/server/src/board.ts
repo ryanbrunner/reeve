@@ -67,7 +67,7 @@ export function toBoardCard(
   return toApiCard(card, repoName, laneColor, run, activity, {
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
-    prMergeable: canMergePr(card),
+    prMergeable: canMergePr(db, card),
     resolvingConflicts: isResolvingConflicts(card.id),
     mergingPr: isMergingPr(card.id),
     startingStage: isStartingStage(card.id),

@@ -4,7 +4,7 @@ import { dependenciesOf, getCard, hasImplementationRun, insertCardEvent, listRep
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import { fetchBranch, pushBranch, retargetPullRequest } from './git/github.js';
 import { abortMerge, checkWorktree, isDirty, startMerge } from './git/worktree.js';
-import { isMergingPr, isOpeningPr, isResolvingConflicts } from './pullRequest.js';
+import { forgetMergeable, isMergingPr, isOpeningPr, isResolvingConflicts } from './pullRequest.js';
 import { isStartingStage, setBaseSha } from './startStage.js';
 
 /**
@@ -54,9 +54,21 @@ export function stackParent(db: Db, card: Card, open = dependenciesOf(db, card.i
 export function stackedOn(db: Db, card: Card): Card | null {
   if (!card.stackedOnId) return null;
   const parent = getCard(db, card.stackedOnId);
-  if (!parent || parent.mergedAt || parent.archivedAt || !parent.branchName) return null;
+  if (!parent || parent.mergedAt || parent.archivedAt || !parent.branchName || parent.repoId !== card.repoId) return null;
+  // Still a dependency: a person who removes the link has said this card no
+  // longer waits on it, so it is moved onto the default branch like one
+  // whose parent has landed, rather than left stacked on nothing.
+  if (!dependenciesOf(db, card.id).some((d) => d.id === parent.id)) return null;
   return parent;
 }
+
+/**
+ * Cards being moved onto the default branch right now. A stage start, a push,
+ * a resolution and a merge all leave such a card alone until it is done:
+ * each would otherwise work in the same tree mid-merge.
+ */
+const restacking = new Set<string>();
+export const isRestacking = (cardId: string) => restacking.has(cardId);
 
 /** The branch this card's work is based on and its pull request targets. */
 export function baseBranchFor(db: Db, card: Card, repo: Repo): string {
@@ -87,16 +99,30 @@ export type Unstack =
  * — and a conflict is left in the branch's history for Resolve conflicts.
  */
 export async function unstack(db: Db, card: Card, repo: Repo): Promise<Unstack> {
+  if (restacking.has(card.id)) return { state: 'waiting', why: 'it is already being moved' };
+  restacking.add(card.id);
+  try {
+    return await unstackLocked(db, card, repo);
+  } finally {
+    restacking.delete(card.id);
+  }
+}
+
+async function unstackLocked(db: Db, card: Card, repo: Repo): Promise<Unstack> {
   const parent = card.stackedOnId ? getCard(db, card.stackedOnId) : undefined;
   const base = repo.defaultBranch;
   const who = parent ? `#${parent.number}` : 'the card it was built on';
-  const why = parent?.mergedAt ? `${who} has merged` : `${who} was taken off the board without merging`;
+  const why = parent?.mergedAt ? `${who} has merged`
+    : parent?.archivedAt ? `${who} was taken off the board without merging`
+    : `this card no longer waits on ${who}`;
 
   const health = card.worktreePath ? await checkWorktree(repo.repoPath, card.worktreePath) : null;
   if (health?.state !== 'ok') {
-    // No tree to merge in: the next one is cut from the default branch.
+    // No tree to merge in: the next one is cut from the default branch. The
+    // stack ends only once its pull request, if any, points there too.
+    const retargeted = await retarget(db, card, repo, base);
+    if (retargeted !== true) return { state: 'waiting', why: retargeted };
     setStackedOn(db, card, null);
-    await retarget(db, card, repo, base);
     return { state: 'moved', baseSha: card.baseSha ?? '' };
   }
   if (await isDirty(health.path, { ignore: ['.reeve'] })) return { state: 'waiting', why: 'the worktree has uncommitted changes' };
@@ -108,11 +134,24 @@ export async function unstack(db: Db, card: Card, repo: Repo): Promise<Unstack> 
     return { state: 'waiting', why: `fetching origin/${base} failed: ${e instanceof Error ? e.message : String(e)}` };
   }
 
-  const merge = await startMerge(health.path, `origin/${base}`);
+  let merge: Awaited<ReturnType<typeof startMerge>>;
+  try {
+    merge = await startMerge(health.path, `origin/${base}`);
+  } catch (e) {
+    return { state: 'waiting', why: `merging origin/${base} failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
   if (!merge.clean) {
-    await abortMerge(health.path);
+    try {
+      await abortMerge(health.path);
+    } catch (e) {
+      return { state: 'waiting', why: `merging origin/${base} conflicted, and the merge could not be aborted: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    // Pointed at the default branch even so, where Resolve conflicts takes
+    // it up; until that has happened the card stays stacked, and unmergeable.
+    const retargeted = await retarget(db, card, repo, base);
+    if (retargeted !== true) return { state: 'waiting', why: retargeted };
     setStackedOn(db, card, null);
-    await retarget(db, card, repo, base);
+    forgetMergeable(card.id);
     insertCardEvent(db, {
       cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
       body: `${why}, so this card now builds on ${base}, but merging origin/${base} into its branch conflicted in ` +
@@ -123,15 +162,22 @@ export async function unstack(db: Db, card: Card, repo: Repo): Promise<Unstack> 
   }
 
   setBaseSha(db, card, fetched);
-  setStackedOn(db, card, null);
+  // Pushed and pointed at the default branch before the stack ends: until
+  // then the card stays unmergeable, since its pull request would still land
+  // on the parent's branch. Either failing leaves it to the next sync, which
+  // finds main already merged in and only has these two to do again.
   if (card.prUrl) {
     try {
       await pushBranch(health.path, card.branchName!);
     } catch (e) {
-      console.error(`[reeve] could not push #${card.number} after moving it onto ${base}: ${e instanceof Error ? e.message : String(e)}`);
+      return { state: 'waiting', why: `pushing its branch failed: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
-  await retarget(db, card, repo, base);
+  const retargeted = await retarget(db, card, repo, base);
+  if (retargeted !== true) return { state: 'waiting', why: retargeted };
+  setStackedOn(db, card, null);
+  // GitHub's last word was about merging into the parent's branch.
+  forgetMergeable(card.id);
   insertCardEvent(db, {
     cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
     body: `${why}, so this card now builds on ${base}: merged origin/${base} (${fetched.slice(0, 7)}) into its branch` +
@@ -141,14 +187,15 @@ export async function unstack(db: Db, card: Card, repo: Repo): Promise<Unstack> 
   return { state: 'moved', baseSha: fetched };
 }
 
-/** Its pull request at `base`, if it has one. Logged rather than thrown: the card has moved either way. */
-async function retarget(db: Db, card: Card, repo: Repo, base: string): Promise<void> {
+/** Its pull request at `base`, if it has one: true, or why it could not be. */
+async function retarget(db: Db, card: Card, repo: Repo, base: string): Promise<true | string> {
   const fresh = getCard(db, card.id);
-  if (!fresh?.prUrl || fresh.mergedAt) return;
+  if (!fresh?.prUrl || fresh.mergedAt) return true;
   try {
     await retargetPullRequest(repo.repoPath, fresh.prUrl, base);
+    return true;
   } catch (e) {
-    console.error(`[reeve] could not point #${card.number}'s pull request at ${base}: ${e instanceof Error ? e.message : String(e)}`);
+    return `pointing its pull request at ${base} failed: ${e instanceof Error ? e.message : String(e)}`;
   }
 }
 
