@@ -1229,7 +1229,9 @@ export function deleteRef(db: Db, id: string) {
  * Release is not enough while the pull request is open, or not even opened yet.
  * What waits on a card builds on its code, and a worktree is cut from main:
  * start the dependent before the merge and it is built without the very thing
- * it waited for. `prUrl` covers one already open; `branchName` is set once,
+ * it waited for. The exception is a card that can be stacked on its one
+ * unfinished dependency's branch instead (stacks.ts): `blockersOf` leaves
+ * that dependency out, and the dependency is still "not done" here. `prUrl` covers one already open; `branchName` is set once,
  * the moment a card's first worktree is made, and never cleared again —
  * including by a failed or still-retrying attempt to open the pull request —
  * so a card with either still has work that has not landed until `mergedAt`

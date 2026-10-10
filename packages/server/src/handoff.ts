@@ -5,6 +5,7 @@ import type { Db } from './db/client.js';
 import { answeredQuestionsFor, latestClaudeRunForStage } from './db/queries.js';
 import type { Card, Repo } from './db/schema.js';
 import { stageContextFor } from './runs/claude.js';
+import { baseBranchFor } from './stacks.js';
 import { renderNotes, renderPrompt } from './stages/template.js';
 
 const HANDOFF_PATH = '.reeve/handoff.md';
@@ -54,7 +55,7 @@ export function writeHandoff(db: Db, card: Card, repo: Repo, worktreePath: strin
     stage: STAGE_LABELS[card.stage],
     worktreePath,
     branch: card.branchName ?? '(unknown)',
-    baseBranch: repo.defaultBranch,
+    baseBranch: baseBranchFor(db, card, repo),
     // Where the branch was cut, so the log is the card's commits alone: the
     // local default branch may never have heard of what the card started from.
     baseRef: card.baseSha ?? `origin/${repo.defaultBranch}`,

@@ -173,8 +173,17 @@ export const card = sqliteTable(
     priorityRationale: text('priority_rationale'),
     branchName: text('branch_name'),
     worktreePath: text('worktree_path'),
-    // Captured once at worktree creation; the diff is `git diff <base_sha>` with no second ref.
+    // Captured at worktree creation, and moved on whenever a base is merged
+    // in; the diff is `git diff <base_sha>` with no second ref.
     baseSha: text('base_sha'),
+    /**
+     * The card whose unmerged branch this one was cut from, or has since had
+     * merged in, while that card has not landed: see stacks.ts. Its branch is
+     * this card's base, and its pull request's. Cleared once the card it
+     * builds on merges and this one has been moved onto the default branch.
+     * Not a foreign key, which SQLite could only add by rebuilding `card`.
+     */
+    stackedOnId: text('stacked_on_id'),
     /**
      * The squash commit this card landed as on the default branch. Stored
      * rather than derived like everything else about a card: a squash leaves no

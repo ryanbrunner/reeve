@@ -238,7 +238,7 @@ function StartPlanning({ detail }: { detail: CardDetail }) {
     },
   });
   // The server's own sentence, so the button never offers a move it refuses.
-  const refusal = blockedMoveRefusal(detail.card.stage, 'planning', detail.card.dependsOn);
+  const refusal = blockedMoveRefusal(detail.card.stage, 'planning', detail.card.dependsOn, detail.card.stackedOn);
   return (
     <div className="mt-3 flex flex-col items-center gap-1.5">
       <Button tone="sky" disabled={refusal !== null || move.isPending} title={refusal ?? undefined} onClick={() => move.mutate()}>

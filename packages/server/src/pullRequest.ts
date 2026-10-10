@@ -24,6 +24,7 @@ import {
 import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
+import { baseBranchFor, restackChildren } from './stacks.js';
 import { maybeStartStage, removeCardWorktree } from './startStage.js';
 
 /**
@@ -197,7 +198,9 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
     // commits rarely settle one, and its button is how it gets settled.
     mergeable.delete(card.id);
 
-    const base = repo.defaultBranch;
+    // A stacked card's targets the branch of the card it builds on, so it
+    // reads as its own change; it is pointed at the default once that lands.
+    const base = baseBranchFor(db, card, repo);
     let pr: { url: string; number: number };
     let reused: boolean;
     try {
@@ -283,7 +286,7 @@ export function enterRelease(db: Db, writer: EventWriter, card: Card, repo: Repo
  * verdict cannot merge what the board has stopped offering.
  */
 export const canMergePr = (card: Card) =>
-  card.stage === 'release' && card.prUrl !== null && card.mergedAt === null && isPrMergeable(card);
+  card.stage === 'release' && card.prUrl !== null && card.mergedAt === null && card.stackedOnId === null && isPrMergeable(card);
 
 export type LandResult =
   | { ok: true; merged: boolean }
@@ -317,6 +320,17 @@ export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'hu
   if (landing.has(card.id)) return { ok: false, status: 409, error: 'already merging', detail: url };
   if (opening.has(card.id)) return { ok: false, status: 409, error: 'a push to the pull request is under way', detail: url };
   if (resolving.has(card.id)) return { ok: false, status: 409, error: 'conflicts are being resolved', detail: url };
+  // A stacked card lands after the card it builds on, once it has been moved
+  // onto the default branch: merged now, it would land on the parent's branch.
+  if (card.stackedOnId) {
+    const parent = getCard(db, card.stackedOnId);
+    return {
+      ok: false, status: 409, error: 'it builds on another card that has not landed',
+      detail: parent?.mergedAt
+        ? `#${parent.number} has merged; this card is moved onto ${repo.defaultBranch} at the next merge sync, and can merge then`
+        : `merge #${parent?.number ?? '?'} first`,
+    };
+  }
   landing.add(card.id);
   try {
     await mergePullRequest(repo.repoPath, url);
@@ -448,6 +462,8 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
       if (keepsDefaultBranch(repo, into)) landedOnDefault.set(repo.id, repo);
     }
     for (const repo of landedOnDefault.values()) await syncDefaultBranch(repo);
+    // Cards built on one that has just landed, moved onto the default branch.
+    await restackChildren(db);
   } finally {
     syncing = false;
   }

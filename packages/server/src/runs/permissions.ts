@@ -81,7 +81,7 @@ export function personDenial({ toolName, input }: ToolDecision, reason: string |
  * applies to every stage.
  */
 export function mergeGuard(
-  baseBranch: string,
+  baseBranch: string | readonly string[],
   onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void,
 ): HookCallback {
   return (hook, toolUseId) => {
@@ -106,7 +106,7 @@ export function mergeGuard(
 export function allowanceHook(
   cardId: string,
   worktreePath: string,
-  baseBranch: string,
+  baseBranch: string | readonly string[],
   take: (cardId: string, toolName: string, input: Record<string, unknown>) => boolean,
 ): HookCallback {
   return (hook) => {
@@ -129,7 +129,7 @@ const MERGE_OR_CLOSE = /\bgh\s+pr\s+(merge|close)\b/;
 const GIT_PUSH = /\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g;
 
 /** Exported for the spike that checks it. */
-export function mergeRefusal(command: string, baseBranch: string): string | null {
+export function mergeRefusal(command: string, baseBranch: string | readonly string[]): string | null {
   if (MERGE_OR_CLOSE.test(command)) {
     return [
       `Denied: \`${short(command)}\`.`,
@@ -137,13 +137,16 @@ export function mergeRefusal(command: string, baseBranch: string): string | null
       'Say in your reply that it is ready, and why, and leave it there.',
     ].join(' ');
   }
+  // The default branch, and for a stacked card the branch of the card it
+  // builds on: that one is another card's work, landed by its own pull request.
+  const bases = typeof baseBranch === 'string' ? [baseBranch] : baseBranch;
   for (const m of command.matchAll(GIT_PUSH)) {
     const args = (m[1] ?? '').trim().split(/\s+/);
-    const toBase = args.some((a) => a === baseBranch || a.endsWith(`:${baseBranch}`) || a.endsWith(`:refs/heads/${baseBranch}`));
-    if (toBase) {
+    const hit = bases.find((b) => args.some((a) => a === b || a.endsWith(`:${b}`) || a.endsWith(`:refs/heads/${b}`)));
+    if (hit) {
       return [
         `Denied: \`${short(command)}\`.`,
-        `Nothing in a card pushes to \`${baseBranch}\`: the work lands through its pull request, merged by the person.`,
+        `Nothing in a card pushes to \`${hit}\`: the work lands through its pull request, merged by the person.`,
         'Push the card\'s own branch instead if it needs pushing.',
       ].join(' ');
     }

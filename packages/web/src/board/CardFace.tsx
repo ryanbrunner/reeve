@@ -228,7 +228,9 @@ const NAMED = 3;
  * the blocked chip alone: the first number and how many more.
  */
 function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
-  const open = card.dependsOn.filter((d) => !d.done);
+  // The one it builds on is not holding it up, so it gets a chip of its own.
+  const open = card.dependsOn.filter((d) => !d.done && d.id !== card.stackedOn?.id);
+  const stacked = card.stackedOn;
   const ref = (d: ApiCardLink) => refFrom(card, d);
   // A Release card whose pull request is still open is not done here, and saying
   // so plainly keeps it from reading as work still under way.
@@ -240,6 +242,16 @@ function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
   const named = vibes ? 1 : NAMED;
   return (
     <>
+      {stacked && !vibes && (
+        <span
+          title={`Builds on ${ref(stacked)} ${stacked.title}, which has not merged: this card's branch is cut from its branch, and moves onto the default branch once it lands.`}
+          className={`${chip} bg-sky-500/15 text-sky-200`}
+        >
+          <WaitsGlyph open />
+          <span className="sr-only">Stacked:</span>
+          on {ref(stacked)}
+        </span>
+      )}
       {open.length > 0 ?
         <span
           title={`Waits on\n${list}`}
@@ -250,7 +262,7 @@ function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
           {!vibes && 'waits on'} {open.slice(0, named).map(ref).join(' ')}
           {open.length > named && ` +${open.length - named}`}
         </span>
-      : !vibes && card.dependsOn.length > 0 && (
+      : !vibes && !stacked && card.dependsOn.length > 0 && (
           <span title={`Waited on, all done\n${list}`} className={`${chip} bg-slate-500/15 text-(--color-muted)`}>
             <WaitsGlyph open />
             <span className="sr-only">Dependencies done:</span>

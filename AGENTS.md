@@ -337,6 +337,33 @@ switched on.
     - Between turns it is estimated from `shared/src/pricing.ts`, calibrated
       by the run's own exact figures.
     - Prices there are list prices, and need updating when they change.
+- **A card can build on another's unmerged branch** (`packages/server/src/stacks.ts`).
+  - **When it can.** Its one unfinished dependency must be a task in the same
+    repo that has been built (an In Progress run succeeded) on a branch that
+    hasn't merged. That dependency, its stack parent, then holds nothing back
+    (`blockersOf`) except Release, which waits for the parent's pull request
+    to be open.
+  - **Its branch.** The card's worktree is cut from the parent's local
+    branch, which every worktree of the repo shares, and `card.stackedOnId`
+    records the parent.
+  - **Revisions.** `mergeLatestBase` merges the parent's revisions in, and
+    `baseSha` follows the parent's tip so the diff is the card's own work.
+  - **Its pull request** targets the parent's branch. Merging it is refused
+    while it is stacked.
+  - **Restacking.** When the parent squash-merges, the merge sync's
+    `restackChildren`:
+    - merges `origin/<default>` into the card
+    - moves `baseSha` there
+    - pushes, and retargets the PR with `gh pr edit --base`
+    - clears the stack
+
+    A conflict is left for Resolve conflicts against the default branch.
+  - **No stacking** for a card waiting on two unmerged cards, or on one in
+    another repo: it waits as before.
+  - Every place that once assumed the default branch asks `baseBranchFor`
+    instead: the PR base, the Release prompt, the rail, the diff label and the
+    handoff. `mergeGuard` also refuses pushes to the parent's branch.
+  - `spikes/stack-check.ts` drives all of it with real git and no GitHub.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
   since auto mode may approve them. The Merge button, and VIBES MODE, land a

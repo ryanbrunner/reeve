@@ -53,6 +53,7 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     implemented: false,
     vibes: false,
     dependsOn: [],
+    stackedOn: null,
     dependents: [],
     suggestedBy: null,
     suggestions: [],

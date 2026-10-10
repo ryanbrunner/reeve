@@ -42,6 +42,11 @@ export interface StageContext {
    */
   project?: string;
   /**
+   * The branch the card's work is based on: the repo's default, or for a
+   * stacked card the branch of the card it builds on (stacks.ts).
+   */
+  baseBranch?: string;
+  /**
    * Whether Settings allows this run to suggest cards of its own. Undefined
    * means on, the same reading `getSettings` gives a board with no row yet, so
    * a hand-built context (a spike) that never sets it behaves as it always did.

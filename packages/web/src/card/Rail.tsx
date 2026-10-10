@@ -795,7 +795,7 @@ function StageList({ detail }: { detail: CardDetail }) {
           // `detail.dependencies`: only the links carry the server's `done`.
           const refusal =
             stageEntryRefusal(detail.card.stage, stage, detail.card.implemented) ??
-            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn);
+            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn, detail.card.stackedOn);
           const button = (
             <button
               key={stage}

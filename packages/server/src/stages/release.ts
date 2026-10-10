@@ -57,7 +57,7 @@ export const releaseStage: StageDefinition<ReleaseOutput> = {
       body: ctx.brief,
       pullRequest: prepared?.['pullRequest'] ?? '',
       branch: ctx.card.branchName ?? 'the card’s branch',
-      base: ctx.repo.defaultBranch,
+      base: ctx.baseBranch ?? ctx.repo.defaultBranch,
       commits: prepared?.['commits'] ?? '',
       plan: artifact('plan', 'The plan'),
       implementation: artifact('summary', 'What was built'),

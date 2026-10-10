@@ -173,6 +173,14 @@ export async function mergePullRequest(cwd: string, url: string): Promise<void> 
   await gh(cwd, ['pr', 'merge', url, '--squash']);
 }
 
+/**
+ * Point the pull request at another base: a stacked card's, once the card it
+ * was built on has merged and its branch has been brought onto the default.
+ */
+export async function retargetPullRequest(cwd: string, url: string, base: string): Promise<void> {
+  await gh(cwd, ['pr', 'edit', url, '--base', base]);
+}
+
 /** Set the pull request's title and description: what Release wrote for it. */
 export async function editPullRequest(cwd: string, url: string, title: string, body: string): Promise<void> {
   await gh(cwd, ['pr', 'edit', url, '--title', title, '--body', body]);

@@ -4,6 +4,7 @@ import {
   stoppedAtLimit,
   stageEntryRefusal,
   type ApiCard,
+  type ApiCardLink,
   type CardActivity,
   type RunnableStage,
   type Stage,
@@ -22,6 +23,7 @@ import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { canMergePr, isMergingPr, isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { askRegistry } from './runs/asks.js';
+import { stackParent, stackedOn } from './stacks.js';
 import { stageDefinition } from './stages/index.js';
 // A cycle, as startStage reads cardActivity from here. Harmless: neither side
 // calls the other while the modules are still loading.
@@ -58,6 +60,7 @@ export function toBoardCard(
   links: (id: string) => CardLinks = cardLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
+  const cardLinks = links(card.id);
   // Only Release offers a resolution. A card dragged back for another round keeps
   // its pull request, and its conflicts wait until it returns.
   const openInDone = card.stage === 'release' && card.prUrl !== null && card.mergedAt === null;
@@ -71,7 +74,19 @@ export function toBoardCard(
     implemented: hasImplementationRun(db, card.id),
     pendingSuggestion: isPendingSuggestion(card),
     waitingOn: activity === 'needs_input' && run ? waitingOn(card, run) : null,
-  }, links(card.id));
+    stackedOn: stackedOnLink(db, card, cardLinks),
+  }, cardLinks);
+}
+
+/**
+ * The dependency this card builds on, or may build on now (stacks.ts), as the
+ * board names it. Asked only of a card with something unfinished to wait on,
+ * which is rare: most cards' dependencies are done or absent.
+ */
+function stackedOnLink(db: Db, card: Card, links: CardLinks): ApiCardLink | null {
+  if (!links.dependsOn.some((d) => !d.done)) return null;
+  const parent = stackedOn(db, card) ?? stackParent(db, card);
+  return parent ? links.dependsOn.find((d) => d.id === parent.id) ?? null : null;
 }
 
 /**

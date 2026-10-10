@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { Db } from './db/client.js';
 import { artifactsForCard, dependenciesOf, getCard, tasksInProject } from './db/queries.js';
 import { cardDependency, type Card } from './db/schema.js';
+import { stackParent, stackedOn } from './stacks.js';
 
 /**
  * What the rest of a project has done, for a stage run on one of its tasks.
@@ -46,6 +47,14 @@ export function projectContextFor(db: Db, task: Card): string {
       'Merged work is already on the base branch your worktree came from.',
     '',
   ];
+  const parent = stackedOn(db, task) ?? stackParent(db, task);
+  if (parent) {
+    out.push(
+      `This card builds on **#${parent.number} ${parent.title}**, which has not merged yet: its branch is this card's base, ` +
+        'so its work is already in your worktree. Use it as it is; a change it needs belongs on that card, not this one.',
+      '',
+    );
+  }
   const brief = project.body.trim();
   if (brief) out.push('The project brief opens:', '', quote(clip(brief, PROJECT_BRIEF)), '');
 

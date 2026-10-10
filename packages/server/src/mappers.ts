@@ -150,7 +150,7 @@ export function toApiCard(
   derived: Pick<
     ApiCard,
     | 'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage'
-    | 'implemented' | 'pendingSuggestion' | 'waitingOn'
+    | 'implemented' | 'pendingSuggestion' | 'waitingOn' | 'stackedOn'
   >,
   links: Pick<ApiCard, 'dependsOn' | 'dependents' | 'suggestedBy' | 'suggestions'>,
 ): ApiCard {

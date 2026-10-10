@@ -40,6 +40,7 @@ import { Inbox } from './inbox.js';
 import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
 import { runRegistry } from './registry.js';
 import { projectContextFor } from '../projectContext.js';
+import { baseBranchFor, protectedBranches } from '../stacks.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
 const ABORT_MARKER = 'aborted by user';
@@ -152,6 +153,7 @@ export function stageContextFor(
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
     project: projectContextFor(db, base.card),
+    baseBranch: baseBranchFor(db, base.card, base.repo),
     notes: unreadNotesFor(db, base.card.id),
     suggestTasks: getSettings(db).suggestTasks,
   };
@@ -700,7 +702,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       PreToolUse: [
         {
           matcher: 'Bash',
-          hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
+          hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(protectedBranches(db, card, repo), refuse)],
         },
         // No matcher: agentGuard checks the tool's name itself, rather than
         // trusting an alternation to match the way a Claude Code setting does.
@@ -717,7 +719,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         },
         // Every tool: what a person allowed once after auto mode refused it.
         // Only a conversation's run has anyone to allow anything.
-        ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, repo.defaultBranch, (c, t, i) => allowances.take(c, t, i))] }] : []),
+        ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, protectedBranches(db, card, repo), (c, t, i) => allowances.take(c, t, i))] }] : []),
         // Every tool: learns the worker's agent id from its first call, which
         // reaches this hook before it can reach canUseTool. Decides nothing.
         ...(workerType ? [{

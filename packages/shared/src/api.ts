@@ -225,6 +225,13 @@ export interface ApiCard {
    */
   dependsOn: ApiCardLink[];
   /**
+   * The one of `dependsOn` this card builds on while it has not merged, or may
+   * build on now: its branch is this card's base, so it does not hold the card
+   * back, and only Release waits for its pull request (see stacks.ts on the
+   * server). Null for a card with nothing to stack on.
+   */
+  stackedOn: ApiCardLink | null;
+  /**
    * Live cards waiting on this one, by id. Ids rather than a count because the
    * board lights them up when this card is hovered; the face only shows how
    * many.
