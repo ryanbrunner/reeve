@@ -1,4 +1,4 @@
-import { STAGE_LABELS, canStartRun, type ApiCard, type CardActivity } from '@reeve/shared';
+import { STAGE_LABELS, canStartRun, stoppedAtLimit, type ApiCard, type CardActivity } from '@reeve/shared';
 import { api } from './client.js';
 import { cardRef, note } from './output.js';
 
@@ -50,7 +50,11 @@ export async function watchStart(card: ApiCard, before: Set<string>): Promise<Ap
     return card;
   }
   if (!canStartRun(card)) {
-    note(`No ${stage} run: ${HELD[card.activity] ?? card.activity}.`);
+    // Waiting on the person, but for room rather than an answer.
+    const held = stoppedAtLimit(card.latestRun)
+      ? `its last run there stopped at its limit; \`reeve card reply ${card.number} <message>\` carries it on with a fresh one`
+      : HELD[card.activity] ?? card.activity;
+    note(`No ${stage} run: ${held}.`);
     return card;
   }
   note(`${stage} runs Claude: starting a run for ${label}…`);

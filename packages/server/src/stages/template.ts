@@ -44,6 +44,11 @@ export function renderSuggesting(enabled: boolean): string {
  * and the whole suite once, at the end, kept to its tail.
  */
 export function renderTests(repo: { testCommand: string | null; focusedTestCommand: string | null }, final: string): string {
+  // Nothing to point at at all: say so, rather than send it looking for a
+  // runner the repo may not have.
+  if (!repo.testCommand?.trim() && !repo.focusedTestCommand?.trim()) {
+    return "This repo defines no test command. If the plan names focused tests, run them; otherwise there is nothing Reeve knows to run.";
+  }
   const focused = repo.focusedTestCommand?.trim()
     ? `the plan's focused tests if it names them, or \`${repo.focusedTestCommand.trim()}\` with \`{{paths}}\` replaced by the test files or directories that cover what you changed`
     : "the plan's focused tests if it names them, or else the narrowest command the repo's own runner allows for what you changed";

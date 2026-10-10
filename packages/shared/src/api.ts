@@ -113,7 +113,7 @@ export interface ApiRunPulse {
    * Tool calls started and not yet answered, and shells left running in the
    * background (verb `Background`), oldest first: the lead's and its worker's.
    */
-  inFlight: Array<{ verb: string; target: string; since: number; worker: boolean }>;
+  inFlight: Array<{ verb: string; target: string; since: number; worker: boolean; background: boolean }>;
   /**
    * Spent so far: exact as of the last turn's end, plus an estimate for the
    * tokens since. Null for a model with no known price before its first turn ends.

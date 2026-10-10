@@ -333,7 +333,10 @@ const CALIBRATION = 1.4;
 
 export class Pulse {
   private lastEventAt = Date.now();
-  private readonly inFlight = new Map<string, ApiRunPulse['inFlight'][number]>();
+  // By tool_use id, with the loop each call belongs to (the Agent call that
+  // launched it, or null for the lead's), so a loop's calls can be dropped
+  // when it ends: a stopped worker's never get their results.
+  private readonly inFlight = new Map<string, ApiRunPulse['inFlight'][number] & { loop: string | null }>();
   // Shells left running in the background — a test suite, a dev server —
   // by task id. Their Bash call returned at once, so without these a run
   // waiting on its tests would read as silent.
@@ -375,7 +378,10 @@ export class Pulse {
       for (const block of (Array.isArray(m?.content) ? m.content : []) as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }>) {
         if (block.type !== 'tool_use' || !block.id || !block.name) continue;
         const { verb, target } = toolLabel(block.name, block.input ?? {});
-        this.inFlight.set(block.id, { verb, target: target.slice(0, 160), since: Date.now(), worker: parent !== null && this.workerCalls.has(parent) });
+        this.inFlight.set(block.id, {
+          verb, target: target.slice(0, 160), since: Date.now(),
+          worker: parent !== null && this.workerCalls.has(parent), background: false, loop: parent,
+        });
       }
     } else if (message.type === 'user') {
       const content = (message as { message?: { content?: unknown } }).message?.content;
@@ -391,9 +397,14 @@ export class Pulse {
         this.pricedAtExact = this.pricedTotal;
       }
       this.calls.delete(null);
+      // The lead's turn is over, and with it any call of its own.
+      for (const [id, call] of this.inFlight) if (call.loop === null) this.inFlight.delete(id);
     } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
       const id = (message as { tool_use_id?: string }).tool_use_id;
-      if (id) this.calls.delete(id);
+      if (id) {
+        this.calls.delete(id);
+        for (const [call, entry] of this.inFlight) if (entry.loop === id) this.inFlight.delete(call);
+      }
     } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'background_tasks_changed') {
       const tasks = (message as { tasks?: Array<{ task_id?: string; task_type?: string; description?: string }> }).tasks ?? [];
       const listed = new Set<string>();
@@ -401,7 +412,7 @@ export class Pulse {
         if (!t.task_id || /agent/i.test(t.task_type ?? '')) continue;
         listed.add(t.task_id);
         if (!this.shells.has(t.task_id)) {
-          this.shells.set(t.task_id, { verb: 'Background', target: (t.description ?? 'a command').slice(0, 160), since: Date.now(), worker: false });
+          this.shells.set(t.task_id, { verb: 'Background', target: (t.description ?? 'a command').slice(0, 160), since: Date.now(), worker: false, background: true });
         }
       }
       for (const id of this.shells.keys()) if (!listed.has(id)) this.shells.delete(id);
@@ -418,7 +429,7 @@ export class Pulse {
     const estimated = this.pricedTotal > this.pricedAtExact;
     return {
       lastEventAt: this.lastEventAt,
-      inFlight: [...this.inFlight.values(), ...this.shells.values()].sort((a, b) => a.since - b.since),
+      inFlight: [...[...this.inFlight.values()].map(({ loop: _loop, ...call }) => call), ...this.shells.values()].sort((a, b) => a.since - b.since),
       // Nothing to say for a model with no price until its first turn ends.
       costUsd: this.exact === null && (this.unpriced || !estimated) ? null : (this.exact ?? 0) + since,
       costExact: !estimated,

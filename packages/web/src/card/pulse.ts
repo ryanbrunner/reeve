@@ -31,21 +31,35 @@ export interface PulseReading {
 
 export function readPulse(pulse: ApiRunPulse | null | undefined, now: number, lastLiveAt?: number | null): PulseReading {
   if (!pulse) return { text: null, tone: 'calm' };
-  const calls = pulse.inFlight.filter((c) => !NOT_WORK.has(c.verb));
-  const oldest = calls[0];
-  if (oldest) {
-    const age = now - oldest.since;
+  const work = pulse.inFlight.filter((c) => !NOT_WORK.has(c.verb));
+  // The newest call in the foreground is what the run is doing now; an older
+  // one still open is usually the call that launched it, like an agent's.
+  const current = work.filter((c) => !c.background).at(-1);
+  if (current) {
+    const age = now - current.since;
     if (age < SHOWN_AFTER_MS) return { text: null, tone: 'calm' };
-    const who = oldest.worker ? 'worker: ' : '';
-    const what = `${who}${oldest.verb}${oldest.target ? ` ${oldest.target}` : ''}`;
+    const what = describe(current);
     return age >= LONG_CALL_MS
       ? { text: `${what} has been running ${duration(age)}`, tone: 'warn' }
       : { text: `${what} · ${duration(age)}`, tone: 'calm' };
   }
+  // Nothing in the foreground, but a shell left running in the background —
+  // a test suite, most often — is what the run is waiting on. A dev server
+  // can run for the whole stage, so it is never called long.
+  const shell = work.filter((c) => c.background).at(-1);
   const heard = Math.max(pulse.lastEventAt, lastLiveAt ?? 0);
   const quiet = now - heard;
+  if (shell && quiet < LONG_CALL_MS) {
+    return quiet >= SHOWN_AFTER_MS ? { text: `waiting on ${describe(shell)} · ${duration(now - shell.since)}`, tone: 'calm' } : { text: null, tone: 'calm' };
+  }
   if (quiet >= QUIET_MS) return { text: `No word from Claude for ${duration(quiet)}: it may be stuck`, tone: 'warn' };
   return { text: null, tone: 'calm' };
+}
+
+function describe(call: ApiRunPulse['inFlight'][number]): string {
+  const who = call.worker ? 'worker: ' : '';
+  const verb = call.background ? 'background' : call.verb;
+  return `${who}${verb}${call.target ? ` ${call.target}` : ''}`;
 }
 
 /** Spend against the budget: `≈ $3.10 of $10`, amber from 80%. */
