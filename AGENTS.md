@@ -341,28 +341,38 @@ switched on.
   - **When it can.** Its one unfinished dependency must be a task in the same
     repo that has been built (an In Progress run succeeded) on a branch that
     hasn't merged. That dependency, its stack parent, then holds nothing back
-    (`blockersOf`) except Release, which waits for the parent's pull request
-    to be open.
+    (`blockersOf`) except Release. Release waits for the parent's pull request
+    to be open in Release, and for the card to really be on its branch. A
+    start that can't take the parent's branch in is refused, since the card
+    would otherwise run without the work it waits for.
   - **Its branch.** The card's worktree is cut from the parent's local
     branch, which every worktree of the repo shares, and `card.stackedOnId`
     records the parent.
   - **Revisions.** `mergeLatestBase` merges the parent's revisions in, and
     `baseSha` follows the parent's tip so the diff is the card's own work.
-  - **Its pull request** targets the parent's branch. Merging it is refused
-    while it is stacked.
+  - **Its pull request** targets the parent's branch.
+  - **Merging is refused**, for every card, while any dependency hasn't
+    landed, or while GitHub says the pull request targets anything but the
+    default branch. Merging is where landing order is finally kept.
   - **Restacking.** When the parent squash-merges, the merge sync's
     `restackChildren`:
     - merges `origin/<default>` into the card
     - moves `baseSha` there
     - pushes, and retargets the PR with `gh pr edit --base`
-    - clears the stack
+    - clears the stack, only once the push and retarget have both succeeded
 
     A conflict is left for Resolve conflicts against the default branch.
+    Removing the dependency link ends the stack the same way. Starts, pushes,
+    resolutions and merges wait while a card is being restacked
+    (`isRestacking`).
   - **No stacking** for a card waiting on two unmerged cards, or on one in
     another repo: it waits as before.
   - Every place that once assumed the default branch asks `baseBranchFor`
     instead: the PR base, the Release prompt, the rail, the diff label and the
     handoff. `mergeGuard` also refuses pushes to the parent's branch.
+  - **Known gap:** a card already holding newer default-branch commits than
+    its parent's base, when it is stacked, counts those in its diff until it
+    moves onto the default branch, because `baseSha` is the parent's tip.
   - `spikes/stack-check.ts` drives all of it with real git and no GitHub.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
