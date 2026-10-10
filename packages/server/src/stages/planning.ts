@@ -68,6 +68,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       body: ctx.brief,
+      project: ctx.project ?? '',
       mockups: prepared?.['mockups'] ?? '',
       seed: seedGuidance(ctx.repo.seedCommand),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),

@@ -6,6 +6,8 @@ You are implementing a piece of work in the repository at `{{worktreePath}}`.
 
 {{body}}
 
+{{project}}
+
 ## The approved plan
 
 {{plan}}

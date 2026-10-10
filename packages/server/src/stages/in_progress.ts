@@ -58,6 +58,7 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       body: ctx.brief,
+      project: ctx.project ?? '',
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
       mockups: prepared?.['mockups'] ?? '',
       testCommand: renderTests(

@@ -39,6 +39,7 @@ import { allowances, askRegistry, type AskAnswer, type AskQuestion, type AskRequ
 import { Inbox } from './inbox.js';
 import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
 import { runRegistry } from './registry.js';
+import { projectContextFor } from '../projectContext.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
 const ABORT_MARKER = 'aborted by user';
@@ -150,6 +151,7 @@ export function stageContextFor(
       .filter((a) => a.stage !== excludeStage && a.supersededBy === null)
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
+    project: projectContextFor(db, base.card),
     notes: unreadNotesFor(db, base.card.id),
     suggestTasks: getSettings(db).suggestTasks,
   };

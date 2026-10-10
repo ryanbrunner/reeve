@@ -37,6 +37,11 @@ export interface StageContext {
    */
   notes?: string[];
   /**
+   * Where the rest of the card's project stands, for a task in one: see
+   * projectContext.ts. Empty for a card in no project, or alone in one.
+   */
+  project?: string;
+  /**
    * Whether Settings allows this run to suggest cards of its own. Undefined
    * means on, the same reading `getSettings` gives a board with no row yet, so
    * a hand-built context (a spike) that never sets it behaves as it always did.

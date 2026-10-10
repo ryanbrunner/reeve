@@ -128,6 +128,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       criteria,
+      project: ctx.project ?? '',
       plan: ctx.priorArtifacts?.find((a) => a.kind === 'plan')?.content ?? '_No plan was recorded._',
       implementation: ctx.priorArtifacts?.find((a) => a.kind === 'summary')?.content ?? '_No notes were recorded._',
       screenshots: prepared?.['screenshots'] ?? 'No screenshots were taken.',

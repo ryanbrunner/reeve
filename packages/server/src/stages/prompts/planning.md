@@ -6,6 +6,8 @@ You are planning a single piece of work in the repository at `{{worktreePath}}`.
 
 {{body}}
 
+{{project}}
+
 ## What to do
 
 Read enough of the codebase to plan this concretely. Look for existing
