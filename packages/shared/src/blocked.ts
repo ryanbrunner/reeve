@@ -14,10 +14,23 @@ import type { Stage } from './stages.js';
  * way, and for a dependency whose pull request is still being opened it
  * refuses a move this lets through.
  */
-export function blockedMoveRefusal(from: Stage, to: Stage, dependsOn: readonly ApiCardLink[]): string | null {
+export function blockedMoveRefusal(
+  from: Stage,
+  to: Stage,
+  dependsOn: readonly ApiCardLink[],
+  stackedOn: ApiCardLink | null = null,
+): string | null {
   if (to === 'backlog' || to === from) return null;
-  const open = dependsOn.filter((d) => !d.done);
-  if (open.length === 0) return null;
+  // The one it builds on holds it back from nothing but Release, and from
+  // that only until its own pull request is open, since this card's targets
+  // its branch.
+  const open = dependsOn.filter((d) => !d.done && d.id !== stackedOn?.id);
+  if (open.length === 0) {
+    if (to === 'release' && stackedOn && !stackedOn.awaitingMerge) {
+      return `Builds on #${stackedOn.number}, which has no pull request yet: it goes to Release once that one has.`;
+    }
+    return null;
+  }
   const names = open.map((d) => `#${d.number}${d.awaitingMerge ? ' (PR not merged)' : ''}`).join(', ');
   const them = open.length === 1 ? 'it is' : 'they are';
   return `Waits on ${names}: it can only go back to Backlog until ${them} cleared.`;

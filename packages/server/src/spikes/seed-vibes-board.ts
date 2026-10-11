@@ -21,7 +21,7 @@ const { db } = createApp();
 
 const repo = createRepo(db, {
   name: 'storefront', repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
 });
 

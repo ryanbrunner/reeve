@@ -23,7 +23,7 @@ const url = `http://127.0.0.1:${port}`;
 const repo = createRepo(db, {
   name: `origin-guard-${Date.now()}`, repoPath: '/tmp/origin-guard-missing',
   worktreeRoot: '/tmp/origin-guard-worktrees', defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null, teardownCommand: null, finishCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null, teardownCommand: null, finishCommand: null,
   laneColor: null,
 });
 const card = createCard(db, { title: 'origin guard check', repoId: repo.id });

@@ -1,8 +1,9 @@
 import { STAGE_LABELS, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { awaitingMerge, dependenciesOf, stillBlocking } from './db/queries.js';
+import { awaitingMerge, dependenciesOf, getCard, stillBlocking } from './db/queries.js';
 import type { Card } from './db/schema.js';
 import { isOpeningPr } from './pullRequest.js';
+import { stackParent } from './stacks.js';
 
 /**
  * The rule the board exists for: a card does not start, or move on, until what
@@ -24,7 +25,11 @@ import { isOpeningPr } from './pullRequest.js';
  * and no `mergedAt`.
  */
 export function blockersOf(db: Db, cardId: string): Card[] {
-  return dependenciesOf(db, cardId).filter(stillBlocking);
+  const open = dependenciesOf(db, cardId).filter(stillBlocking);
+  // Less the one it can build on: see stacks.ts.
+  const card = open.length === 1 ? getCard(db, cardId) : undefined;
+  const parent = card ? stackParent(db, card, open) : null;
+  return parent ? [] : open;
 }
 
 export type Blocked = { status: 409; error: string; detail: string };
@@ -65,5 +70,27 @@ function where(c: Card): string {
  */
 export function blockedMove(db: Db, card: Card, to: Stage): Blocked | null {
   if (to === 'backlog' || to === card.stage) return null;
-  return blockedStart(db, card);
+  const blocked = blockedStart(db, card);
+  if (blocked || to !== 'release') return blocked;
+  // A stacked card's pull request targets its parent's branch, which is on
+  // GitHub only once the parent has a pull request of its own, open, in
+  // Release — the same test the board makes (`awaitingMerge`). And it must
+  // actually be on that branch: one that has not taken it in yet would open
+  // against main without the work it needs.
+  const parent = stackParent(db, card);
+  if (parent && !awaitingMerge(parent)) {
+    return {
+      status: 409,
+      error: 'waiting on the pull request it builds on',
+      detail: `#${parent.number} ${parent.title} has no open pull request in Release yet, and this card's targets its branch`,
+    };
+  }
+  if (parent && card.stackedOnId !== parent.id) {
+    return {
+      status: 409,
+      error: 'not yet built on the card it waits on',
+      detail: `start a stage on it first, which merges #${parent.number}'s branch in`,
+    };
+  }
+  return null;
 }

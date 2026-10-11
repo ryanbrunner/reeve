@@ -55,6 +55,13 @@ export interface SendOptions {
    * questions they answer. The conversation still shows `text`.
    */
   prompt?: string;
+  /**
+   * Never the answer to what the run is parked on: an instruction from the
+   * board rather than the person's reply. Allowing a refused call once is
+   * one, and with a worker running the lead can be parked on a question of
+   * its own when it comes.
+   */
+  notAnAnswer?: boolean;
 }
 
 /**
@@ -86,7 +93,9 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
 
   const live = liveStageRun(db, card.id);
   if (live) {
-    const ask = askRegistry.forRun(live.id);
+    // Not the worker's: what it is waiting on is settled by Allow or Deny, and
+    // words typed meanwhile are for the lead, who is still listening.
+    const ask = opts.notAnAnswer ? undefined : askRegistry.forRun(live.id, { answerable: true });
     if (ask) {
       writer.append(live.id, 'user_message', { text: words, actor, source, live: true, at: Date.now() });
       askRegistry.settle(ask.id, answerFromText(ask, words, actor));
@@ -155,8 +164,9 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
  * waiting — answered elsewhere, timed out, or stopped.
  */
 export function answerAsk(card: Card, askId: string, answer: Exclude<AskAnswer, { kind: 'unanswered' }>): boolean {
-  const ask = askRegistry.forCard(card.id);
-  if (!ask || ask.id !== askId || ask.kind !== answer.kind) return false;
+  // By id, since the lead and its worker can each be waiting on one.
+  const ask = askRegistry.get(askId);
+  if (!ask || ask.cardId !== card.id || ask.kind !== answer.kind) return false;
   return askRegistry.settle(askId, answer);
 }
 
@@ -176,7 +186,7 @@ export async function allowOnce(db: Db, writer: EventWriter, card: Card, runId: 
   }
   const refused = eventsSince(db, runId, 0)
     .filter((e) => e.kind === 'refused')
-    .map((e) => JSON.parse(e.payload) as { toolUseId?: string; toolName?: string; input?: Record<string, unknown> })
+    .map((e) => JSON.parse(e.payload) as { toolUseId?: string; toolName?: string; input?: Record<string, unknown>; agent?: string })
     .find((e) => e.toolUseId === toolUseId);
   if (!refused?.toolName || !refused.input) return { ok: false, status: 409, error: 'no such refusal in that run' };
   if (eventsSince(db, runId, 0).some((e) => e.kind === 'allowed' && (JSON.parse(e.payload) as { toolUseId?: string }).toolUseId === toolUseId)) {
@@ -185,11 +195,15 @@ export async function allowOnce(db: Db, writer: EventWriter, card: Card, runId: 
   allowances.grant(card.id, refused.toolName, refused.input);
   writer.append(runId, 'allowed', { toolUseId, at: Date.now() });
   const what = typeof refused.input['command'] === 'string' ? refused.input['command'] : `this ${refused.toolName} call`;
-  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, {
-    prompt:
-      `The person has allowed, for one use, the call auto mode refused: ${refused.toolName} \`${oneLine(what)}\`. ` +
-      'Make exactly that call again now, with the same input, and carry on.',
-  });
+  // The allowance is the card's, whoever makes the call, so a worker's refusal
+  // only needs the lead to pass the word on.
+  const prompt = refused.agent === 'worker'
+    ? `The person has allowed, for one use, the call auto mode refused your worker: ${refused.toolName} \`${oneLine(what)}\`. ` +
+      'If the worker is still running, tell it with SendMessage to make exactly that call again, with the same input, and carry on. ' +
+      'If it has finished, make the call yourself, or hand it to the next worker you launch.'
+    : `The person has allowed, for one use, the call auto mode refused: ${refused.toolName} \`${oneLine(what)}\`. ` +
+      'Make exactly that call again now, with the same input, and carry on.';
+  return sendToCard(db, writer, card, `Allowed once: \`${oneLine(what)}\``, { prompt, notAnAnswer: true });
 }
 
 function oneLine(text: string): string {
@@ -231,8 +245,17 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
         // refusal it answers — so the cache is checked against its last one.
         const cached = isTerminal(r.status) ? projected.get(r.id) : undefined;
         if (cached && cached.status === r.status && cached.lastSeq === latestSeq(db, r.id)) return cached;
-        const projector = new RunProjector(r.parentRunId ? null : r.prompt);
-        for (const e of eventsSince(db, r.id, 0)) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
+        const projector = projectorFor(r.id, r.parentRunId ? null : r.prompt);
+        // Only what is new since the last request: a live run's projector is
+        // kept, and a long run's whole transcript is not read again each time
+        // the modal refetches. In pages, for the first read of a long one.
+        for (let page = eventsSince(db, r.id, projector.lastSeq, FOLD_PAGE); page.length > 0; page = eventsSince(db, r.id, projector.lastSeq, FOLD_PAGE)) {
+          for (const e of page) projector.add({ seq: e.seq, kind: e.kind, payload: e.payload, at: e.at?.getTime() });
+          if (page.length < FOLD_PAGE) break;
+        }
+        // Finished, it is projected for the last time: the view is cached
+        // below, and the projector has nothing more to fold.
+        if (isTerminal(r.status)) live.delete(r.id);
         const view: ConversationRun = {
           runId: r.id,
           status: r.status,
@@ -250,6 +273,28 @@ export function conversationFor(db: Db, card: Card): ApiConversation {
       }),
     })),
   };
+}
+
+/**
+ * Live runs' projectors, kept between requests so each one folds in only the
+ * events since the last. A handful at most: one per run in flight, dropped
+ * once it ends. Rebuilt if the run's prompt has appeared since — Testing
+ * writes it after its screenshots, and the prompt is the projection's first
+ * item.
+ */
+const live = new Map<string, { projector: RunProjector; prompt: string | null }>();
+const FOLD_PAGE = 2_000;
+
+function projectorFor(runId: string, prompt: string | null): RunProjector {
+  const kept = live.get(runId);
+  if (kept && kept.prompt === prompt) return kept.projector;
+  const projector = new RunProjector(prompt);
+  live.delete(runId);
+  live.set(runId, { projector, prompt });
+  // A run that ended with nobody reading its conversation afterwards is never
+  // dropped above; the oldest go once there are more than any board runs.
+  while (live.size > 50) live.delete(live.keys().next().value!);
+  return projector;
 }
 
 /**

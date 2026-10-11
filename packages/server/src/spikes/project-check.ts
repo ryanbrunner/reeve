@@ -19,7 +19,7 @@ const repo = (name: string) =>
   listRepos(db).find((r) => r.name === name) ??
   createRepo(db, {
     name, repoPath: `/tmp/${name}`, worktreeRoot: `/tmp/${name}-worktrees`, defaultBranch: 'main',
-    setupCommand: null, testCommand: null, serverCommand: null,
+    setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
     teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
   });
 const web = repo(`check-web-${Date.now()}`);

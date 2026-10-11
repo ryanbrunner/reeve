@@ -17,7 +17,7 @@ import { runRegistry } from '../runs/registry.js';
 import { fillVars, serverEnv, serverVars } from '../runs/serverUrl.js';
 import { startShellRun } from '../runs/shell.js';
 import { recordSuggestions } from '../suggestions.js';
-import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting, renderTests } from './template.js';
 import type { StageContext, StageDefinition } from './types.js';
 
 /**
@@ -38,6 +38,12 @@ export const testingStage: StageDefinition<TestingOutput> = {
     description:
       'Submit the test report: each criterion\'s verdict with its evidence, the suite\'s result and what you fixed. ' +
       'Call it once verification is done and anything you fixed is committed, and again after any revision. It ends your turn.',
+  },
+  // Verifying — the suite, every criterion, the screenshots, the fixes — runs
+  // in the background, so the person can talk to the stage meanwhile: see
+  // `worker` in ./types.ts. The screenshots are taken before either starts.
+  worker: {
+    description: 'Verifies the card: runs the tests, checks every criterion and screenshot, fixes and commits what it can, following the brief it was started with.',
   },
   maxBudgetUsd: 8,
   maxTurns: 150,
@@ -122,11 +128,12 @@ export const testingStage: StageDefinition<TestingOutput> = {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       criteria,
+      project: ctx.project ?? '',
       plan: ctx.priorArtifacts?.find((a) => a.kind === 'plan')?.content ?? '_No plan was recorded._',
       implementation: ctx.priorArtifacts?.find((a) => a.kind === 'summary')?.content ?? '_No notes were recorded._',
       screenshots: prepared?.['screenshots'] ?? 'No screenshots were taken.',
       testCommand: ctx.repo.testCommand
-        ? `Run \`${ctx.repo.testCommand}\`.`
+        ? renderTests(ctx.repo, 'Run {{command}}, the whole suite, once your fixes are in, and report how it ends.')
         : 'This repo defines no test command, so verify by reading and by the screenshots.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),

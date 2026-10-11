@@ -21,12 +21,12 @@ import { parseStage } from '../resolve.js';
  */
 
 const KEYS =
-  'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort or <stage>.max-budget-usd for planning, in-progress or testing';
+  'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort, <stage>.max-budget-usd or <stage>.max-turns for planning, in-progress or testing';
 
 type Key =
   | { kind: 'maxConcurrentRuns' }
   | { kind: 'suggestTasks' }
-  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' };
+  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
 function parseKey(input: string): Key {
@@ -39,11 +39,11 @@ function parseKey(input: string): Key {
   const dot = input.lastIndexOf('.');
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
   const rawField = kebab(input.slice(dot + 1));
-  const field = rawField === 'max-budget-usd' ? 'maxBudgetUsd' : rawField;
-  if (stage && isRunnable(stage) && (field === 'model' || field === 'effort' || field === 'maxBudgetUsd')) {
+  const field = rawField === 'max-budget-usd' ? 'maxBudgetUsd' : rawField === 'max-turns' ? 'maxTurns' : rawField;
+  if (stage && isRunnable(stage) && (field === 'model' || field === 'effort' || field === 'maxBudgetUsd' || field === 'maxTurns')) {
     return { kind: 'stage', stage, field };
   }
-  if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model, effort or budget`);
+  if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model, effort or limits`);
   throw usageError(`'${input}' is not a setting. Settings: ${KEYS}`);
 }
 
@@ -67,6 +67,12 @@ function requireBudget(value: string): number {
   return n;
 }
 
+function requireTurns(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw usageError(`'${value}' is not a turn limit. It must be a whole number`);
+  return n;
+}
+
 /**
  * The body that changes one key. A stage's model and effort are saved as a
  * pair — the server replaces the stage's whole entry — so the one not being
@@ -87,6 +93,7 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
   const next = { ...current.stageDefaults[key.stage] };
   if (key.field === 'effort') next.effort = value === null ? null : requireEffort(value);
   else if (key.field === 'maxBudgetUsd') next.maxBudgetUsd = value === null ? null : requireBudget(value);
+  else if (key.field === 'maxTurns') next.maxTurns = value === null ? null : requireTurns(value);
   else next.model = value;
   const stageDefaults: Partial<StageRunDefaults> = {};
   stageDefaults[key.stage] = next;
@@ -99,7 +106,7 @@ function layered(value: string | null, builtIn: string | null | undefined): stri
   return `${builtIn ?? "Claude's default"} (default)`;
 }
 
-/** The same layering, for the dollar figure, which has no "Claude's default" below the stage's own. */
+/** The same layering, for the limits, which have no "Claude's default" below the stage's own. */
 function layeredBudget(value: number | null, builtIn: number | null | undefined): string {
   if (value !== null) return `$${value}`;
   return builtIn == null ? 'stage default' : `$${builtIn} (default)`;
@@ -119,7 +126,10 @@ function render(settings: ApiSettings, models: ModelsResponse | null): string {
     const model = layered(own.model, builtIn?.model);
     const effort = layered(own.effort, builtIn?.effort);
     const budget = layeredBudget(own.maxBudgetUsd, builtIn?.maxBudgetUsd);
-    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget}`;
+    const turns = own.maxTurns !== null ? String(own.maxTurns)
+      : builtIn?.maxTurns != null ? `${builtIn.maxTurns} (default)`
+      : 'none';
+    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget.padEnd(14)}  turns ${turns}`;
   });
   return [...rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`), '', 'Stage runs', ...stages].join('\n');
 }
@@ -158,7 +168,7 @@ async function set(args: string[], unset: boolean): Promise<void> {
     return print(`Suggest follow-up cards: ${saved.suggestTasks ? 'on' : 'off'}`);
   }
   const stored = saved.stageDefaults[key.stage][key.field];
-  const fieldName = key.field === 'maxBudgetUsd' ? 'max-budget-usd' : key.field;
+  const fieldName = key.field === 'maxBudgetUsd' ? 'max-budget-usd' : key.field === 'maxTurns' ? 'max-turns' : key.field;
   const shown = stored === null ? 'back to the default' : key.field === 'maxBudgetUsd' ? `$${stored}` : stored;
   print(`${STAGE_LABELS[key.stage]} ${fieldName}: ${shown}`);
 }

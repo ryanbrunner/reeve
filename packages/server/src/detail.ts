@@ -29,7 +29,8 @@ import {
   stageHistory,
 } from './db/queries.js';
 import type { Card, Repo, Run } from './db/schema.js';
-import { behindBase, checkWorktree } from './git/worktree.js';
+import { behindBase, checkWorktree, commitsBehind } from './git/worktree.js';
+import { stackedOn } from './stacks.js';
 import {
   toApiAsset,
   toApiCardEvent,
@@ -214,7 +215,10 @@ async function worktreeFacts(
   repo: Repo | null,
   runs: Run[],
 ): Promise<ApiWorktree> {
-  const baseBranch = repo?.defaultBranch ?? 'main';
+  // A stacked card's base is the branch it builds on, which every worktree of
+  // the repo shares, so it is counted against that rather than origin's.
+  const parent = stackedOn(db, card);
+  const baseBranch = parent?.branchName ?? repo?.defaultBranch ?? 'main';
   const health = card.worktreePath && repo
     ? await checkWorktree(repo.repoPath, card.worktreePath)
     : { state: 'none' as const };
@@ -226,7 +230,9 @@ async function worktreeFacts(
     path: card.worktreePath,
     base: card.baseSha,
     baseBranch,
-    behind: exists && card.worktreePath ? await behindBase(card.worktreePath, baseBranch) : null,
+    behind: exists && card.worktreePath
+      ? parent ? await commitsBehind(card.worktreePath, baseBranch) : await behindBase(card.worktreePath, baseBranch)
+      : null,
     exists,
     server: server
       ? {

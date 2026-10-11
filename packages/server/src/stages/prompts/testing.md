@@ -16,6 +16,8 @@ A criterion you cannot check is a `fail` whose evidence says why. Do not pass
 something because it looks plausible in the code; the point of this stage is
 that someone actually looked.
 
+{{project}}
+
 ## The plan
 
 {{plan}}

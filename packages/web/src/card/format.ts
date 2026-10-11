@@ -1,3 +1,5 @@
+import type { ApiRunSummary } from '@reeve/shared';
+
 /**
  * Turning machine facts into things a person reads.
  *
@@ -33,6 +35,29 @@ export function when(ms: number | null | undefined): string {
 /** Costs are small and the third decimal is where the difference lives. */
 export function cost(usd: number | null | undefined): string {
   return usd == null ? '—' : `$${usd.toFixed(3)}`;
+}
+
+/**
+ * Several runs' spend as one figure: each ended run's own cost, and a live
+ * run's pulse, so the total moves while a run is under way rather than
+ * jumping at its end. Not exact while any live run's share is an estimate.
+ * Null while none of them has a cost to add.
+ */
+export function sumCost(runs: ApiRunSummary[]): { usd: number; exact: boolean } | null {
+  let usd = 0;
+  let exact = true;
+  let counted = false;
+  for (const r of runs) {
+    if (r.totalCostUsd != null) {
+      usd += r.totalCostUsd;
+      counted = true;
+    } else if (r.pulse?.costUsd != null) {
+      usd += r.pulse.costUsd;
+      exact &&= r.pulse.costExact;
+      counted = true;
+    }
+  }
+  return counted ? { usd, exact } : null;
 }
 
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;

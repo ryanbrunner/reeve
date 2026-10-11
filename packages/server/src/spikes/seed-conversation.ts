@@ -1,9 +1,11 @@
 /**
- * Seeds five cards whose stage is a conversation in each state the composer
+ * Seeds eight cards whose stage is a conversation in each state the composer
  * and the thread render — waiting on a reply, parked on a permission, parked
- * on a question, working with a message just interjected, and a Release that
- * has written its pull request — so the card modal's conversation can be
- * looked at without spending API credit.
+ * on a question, working with a message just interjected, a Release that has
+ * written its pull request, and a stage's background worker: building while
+ * the person talks to the lead, parked on a permission of its own, and done
+ * with its work submitted — so the card modal's conversation can be looked at
+ * without spending API credit.
  *
  * Into a server that is ALREADY RUNNING on the same scratch database. Opening
  * it here does not reap, so the two live cards stay live; a server started
@@ -49,6 +51,13 @@ const result = (id: string, content: string, isError = false) => ({
   kind: 'tool_result',
   payload: { type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } },
 });
+const worker = (agentId: string, ...content: unknown[]) => ({ kind: 'assistant', payload: { type: 'assistant', parent_tool_use_id: agentId, message: { role: 'assistant', content } } });
+const workerResult = (agentId: string, id: string, content: string, isError = false) => ({
+  kind: 'tool_result',
+  payload: { type: 'user', parent_tool_use_id: agentId, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } },
+});
+const task = (subtype: string, fields: Record<string, unknown>) => ({ kind: `system:${subtype}`, payload: { type: 'system', subtype, ...fields } });
+const LAUNCHED = 'Async agent launched successfully.\nagentId: a7e0596bd411b24e3 (use SendMessage with to: \'a7e0596bd411b24e3\' to continue this agent)';
 const user = (t: string, extra: Record<string, unknown> = {}) => ({ kind: 'user_message', payload: { text: t, actor: 'human', source: 'chat', at: now - 60_000, ...extra } });
 
 function card(title: string, stage: CardStage, status: 'awaiting_reply' | 'asking' | 'running' | 'succeeded', events: Array<{ kind: string; payload: unknown }>, prompt: string, resultText: string | null = null, output: unknown = null) {
@@ -157,4 +166,75 @@ card('Pick a default for new cards\' model', 'in_progress', 'asking', [
   db.update(cardTable).set({ prUrl: 'https://github.com/example/reeve/pull/151', prNumber: 151, prOpenedAt: ago(5) }).where(eq(cardTable.id, c.id)).run();
 }
 
-console.log(`seeded 5 conversation cards into ${config.dbFile}`);
+/** A lead's launch of the stage's worker, and the worker's first few steps. */
+function launch(description: string) {
+  const agent = use('Agent', { description, subagent_type: 'worker', name: 'worker', prompt: 'Do the work in your brief.' });
+  const read = use('Read', { file_path: 'packages/server/src/runs/claude.ts' });
+  const grep = use('Grep', { pattern: 'idleFallback', path: 'packages/server/src' });
+  const edit = use('Edit', { file_path: 'packages/server/src/runs/claude.ts', old_string: 'a', new_string: 'b' });
+  return {
+    agent,
+    events: [
+      assistant(text('The plan is clear. Handing the build to a worker so we can keep talking.'), agent),
+      task('task_started', { task_id: 'seedtask1', tool_use_id: agent.id, description, subagent_type: 'worker', is_backgrounded: true }),
+      result(agent.id, LAUNCHED),
+      assistant(text('The worker is building it now. Ask me anything meanwhile.')),
+      worker(agent.id, text('Reading the run loop first, since the fallback timer lives there.'), read, grep),
+      workerResult(agent.id, read.id, '1  import {\n2    createSdkMcpServer,\n3    query,\n…'),
+      workerResult(agent.id, grep.id, 'packages/server/src/runs/claude.ts:612:    let idleFallback: NodeJS.Timeout | undefined;'),
+      task('task_progress', { task_id: 'seedtask1', tool_use_id: agent.id, usage: { total_tokens: 41_200, tool_uses: 2, duration_ms: 48_000 }, last_tool_name: 'Grep' }),
+      worker(agent.id, edit),
+      workerResult(agent.id, edit.id, 'The file has been updated.'),
+    ],
+  };
+}
+
+// 6. A worker building in the background while the person talks to the lead.
+{
+  const { agent, events } = launch('Keep the input open while a worker runs');
+  const send = use('SendMessage', { to: 'a7e0596bd411b24e3', summary: 'also cover Stop', message: 'Also make sure Stop ends the worker.' });
+  const tc = use('Bash', { command: 'npm run typecheck', description: 'Typecheck' });
+  card('Let a stage talk while its worker builds', 'in_progress', 'running', [
+    ...events,
+    user('How will you know when the worker is done?', { live: true }),
+    assistant(text('Its end arrives as a task notification naming the Agent call, and the run only closes once nothing is left in the background.')),
+    user('Make sure Stop ends it too.', { live: true }),
+    assistant(send),
+    result(send.id, 'Message sent.'),
+    assistant(text('Passed that on to the worker.')),
+    task('task_progress', { task_id: 'seedtask1', tool_use_id: agent.id, usage: { total_tokens: 88_400, tool_uses: 4, duration_ms: 131_000 }, summary: 'Gating the idle fallback on the worker set; next, Stop' }),
+    worker(agent.id, text('Got the message about Stop; abort already kills the worker, so I will add a check for it.'), tc),
+  ], PROMPT);
+}
+
+// 7. The worker parked on a permission while the lead is free to talk.
+{
+  const { agent, events } = launch('Clear the stale model cache and rebuild it');
+  const rm = use('Bash', { command: 'rm -rf ~/.reeve/cache', description: 'Clear the stale model cache' });
+  card('Worker asks before clearing a cache', 'in_progress', 'asking', [
+    ...events,
+    worker(agent.id, rm),
+    { kind: 'ask', payload: { id: 'seed-ask-worker', kind: 'permission', toolName: 'Bash', input: rm.input, runId: '', cardId: '', createdAt: now, toolUseId: rm.id, agent: 'worker' } },
+    user('Is that cache shared with other boards?', { live: true }),
+    assistant(text('No — it is per user, under ~/.reeve, and only holds the model list. Clearing it costs one listing call on the next boot.')),
+  ], PROMPT);
+}
+
+// 8. The worker done, its work checked by the lead and submitted.
+{
+  const { agent, events } = launch('Show a worker nested under its Agent call');
+  const log = use('Bash', { command: 'git log main..HEAD --oneline', description: 'The worker’s commits' });
+  const submit = use('mcp__reeve__submit_in_progress', { summary: 'Nests a worker’s steps under its Agent call.' });
+  card('Show the worker on the card', 'in_progress', 'succeeded', [
+    ...events,
+    worker(agent.id, text('Done. Two commits: the projection, then the block that renders it. Typecheck passes.')),
+    task('task_notification', { task_id: 'seedtask1', tool_use_id: agent.id, status: 'completed', summary: 'Nests a worker’s steps under its Agent call', usage: { total_tokens: 152_000, tool_uses: 23, duration_ms: 412_000 } }),
+    assistant(text('The worker is done. Checking its commits before I submit.'), log),
+    result(log.id, '3f1c2aa Render a worker under its Agent call\n9d0e441 Fold subagent messages into the projection'),
+    assistant(submit),
+    result(submit.id, 'Recorded. Reeve writes the documents from this.'),
+    { kind: 'submitted', payload: { tool: 'submit_in_progress', summary: 'Nests a worker’s steps under its Agent call. (4 files changed)' } },
+  ], PROMPT);
+}
+
+console.log(`seeded 8 conversation cards into ${config.dbFile}`);

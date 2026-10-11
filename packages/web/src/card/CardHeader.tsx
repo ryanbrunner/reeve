@@ -5,7 +5,7 @@ import { ProjectProgress } from '../board/ProjectProgress.js';
 import { api } from '../lib/api.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { AttentionBand } from './AttentionBand.js';
-import { cost, plural, when } from './format.js';
+import { cost, plural, sumCost, when } from './format.js';
 import { ModelEffort } from './ModelEffort.js';
 import { SmallButton } from './ui.js';
 import type { LiveRun } from './useCardDetail.js';
@@ -36,7 +36,8 @@ export function CardHeader({
 }) {
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
-  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
+  // A live run's spend counted too, so the figure moves while it works.
+  const spent = sumCost(runs);
   const running = card.activity === 'running';
   const createdBy = detail.events.find((e) => e.kind === 'created')?.actor;
 
@@ -259,7 +260,9 @@ export function CardHeader({
                 there are two this is the line that changes. Claude is the other
                 author, of the tasks a project was split into. */}
             Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
-            {runs.length === 0 ? 'No runs yet' : `${plural(runs.length, 'run')} · ${cost(spent)}`}
+            {runs.length === 0
+              ? 'No runs yet'
+              : `${plural(runs.length, 'run')} · ${spent && !spent.exact ? '≈ ' : ''}${cost(spent?.usd ?? 0)}`}
             {running && runs.length > 0 && ' so far'}
           </div>
           {failed && <p className="mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, isRunnable, isTerminal, type CardDetail } from '@reeve/shared';
+import { STAGE_LABELS, isRunnable, isTerminal, stoppedAtLimit, type ApiConversation, type CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { AttentionBand } from '../AttentionBand.js';
+import { useNow } from '../../lib/useNow.js';
 import { cost, duration } from '../format.js';
+import { readPulse, readSpend, readTurns } from '../pulse.js';
 import type { LiveRun } from '../useCardDetail.js';
-import type { StageTab } from './ConversationView.js';
+import { runningWorker, type StageTab } from './ConversationView.js';
 
 /**
  * Where a person talks to Claude about the card: pinned under the thread, as
@@ -18,8 +20,10 @@ import type { StageTab } from './ConversationView.js';
  * says changes — what Claude is doing, that it is waiting, that the work is
  * ready — with the gate above it whenever there is work to approve.
  */
-export function Composer({ detail, live, tab, onClose }: {
+export function Composer({ detail, conversation, live, tab, onClose }: {
   detail: CardDetail;
+  /** For what the live run's worker is doing, and whose ask it is parked on. */
+  conversation: ApiConversation | null;
   live: LiveRun | null;
   /** The stage tab being read. Only the card's own stage can be talked to. */
   tab: StageTab;
@@ -32,7 +36,12 @@ export function Composer({ detail, live, tab, onClose }: {
 
   const run = detail.runs.find((r) => r.kind === 'claude' && r.task === null && r.stage === card.stage) ?? null;
   const liveRun = run && !isTerminal(run.status) ? run : null;
-  const asking = liveRun?.status === 'asking';
+  const liveView = liveRun ? conversation?.stages.find((s) => s.stage === card.stage)?.runs.find((r) => r.runId === liveRun.id) : undefined;
+  const worker = runningWorker(liveView);
+  // Parked only on the worker: typed words still go to the lead, who is
+  // listening, and the worker's call waits for its buttons.
+  const workerAsking = liveRun?.status === 'asking' && openAsks(liveView).every((a) => a.agent === 'worker') && openAsks(liveView).length > 0;
+  const asking = liveRun?.status === 'asking' && !workerAsking;
   const runnable = isRunnable(card.stage);
   const readOnly = tab !== card.stage;
 
@@ -69,7 +78,9 @@ export function Composer({ detail, live, tab, onClose }: {
         ? 'Claude is starting…'
         : asking
           ? 'Answer Claude — or type a reason to deny what it asked'
-          : liveRun
+          : worker
+            ? 'Talk to Claude — the worker keeps going while you do'
+            : liveRun
             ? 'Interject — Claude reads this before its next step'
             : card.stage === 'release' && card.activity !== 'needs_input'
               ? card.mergedAt != null ? 'Merged — this card is finished' : 'Ask Claude about the release: the description, the notes, what to check before merging'
@@ -90,7 +101,7 @@ export function Composer({ detail, live, tab, onClose }: {
     <div className="shrink-0 border-t border-(--color-edge) bg-(--color-card-core) px-5 pt-2.5 pb-3.5 max-sm:px-4">
       <div className="mx-auto max-w-[780px]">
         {!readOnly && <AttentionBand detail={detail} live={live} onClose={onClose} conversation />}
-        <StatusLine detail={detail} live={live} readOnly={readOnly} tab={tab} />
+        <StatusLine detail={detail} live={live} readOnly={readOnly} tab={tab} worker={worker !== null} workerAsking={workerAsking} />
         <div className={`rounded-lg border bg-(--color-panel) transition-colors ${disabled ? 'border-(--color-edge) opacity-70' : 'border-(--color-edge) focus-within:border-sky-600'}`}>
           <textarea
             ref={box}
@@ -142,33 +153,70 @@ export function Composer({ detail, live, tab, onClose }: {
   );
 }
 
+/** The asks a run is still waiting on a person for. */
+function openAsks(run: ApiConversation['stages'][number]['runs'][number] | undefined) {
+  return (run?.items ?? []).flatMap((i) => (i.kind === 'ask' && i.outcome === null && i.askId !== null ? [i] : []));
+}
+
 /** One line of what is going on, in the thread's mono voice, above the box. */
-function StatusLine({ detail, live, readOnly, tab }: { detail: CardDetail; live: LiveRun | null; readOnly: boolean; tab: StageTab }) {
+function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
+  detail: CardDetail;
+  live: LiveRun | null;
+  readOnly: boolean;
+  tab: StageTab;
+  /** The stage's worker is running behind the lead. */
+  worker: boolean;
+  /** What the run is parked on is the worker's, not the lead's. */
+  workerAsking: boolean;
+}) {
   const { card } = detail;
   const run = card.latestRun;
   let main: React.ReactNode = null;
   let side: React.ReactNode = null;
+  // The pulse is the poll's; the clock and the stream's last word are ours,
+  // so a call's time counts up and silence is noticed between polls.
+  const pulse = run?.pulse ?? null;
+  const now = useNow(pulse !== null);
 
   if (readOnly) {
     main = <span>{STAGE_LABELS[tab]} is read-only now: each stage is its own session.</span>;
   } else if (card.startingStage) {
     main = <span className="text-sky-300">Starting {STAGE_LABELS[card.stage]}…</span>;
+  } else if (run?.status === 'asking' && workerAsking) {
+    main = <span className="text-(--color-activity-input-mark)">◆ The worker is waiting on you above</span>;
+    side = <span>Allow or Deny it there · typing here talks to Claude</span>;
   } else if (run?.status === 'asking') {
     main = <span className="text-(--color-activity-input-mark)">◆ Paused — Claude is waiting on you above</span>;
     side = <span>Typing here answers it</span>;
   } else if (card.activity === 'running') {
-    const asking = false;
     const elapsed = live?.elapsedMs ?? (run?.startedAt ? Date.now() - run.startedAt : null);
     const doing = live?.activity ?? detail.thought?.activity ?? null;
-    main = asking ? (
-      <span className="text-(--color-activity-input-mark)">◆ Paused — Claude is waiting on you above</span>
-    ) : (
-      <span className="flex min-w-0 items-center gap-1.5 text-sky-300">
-        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-(--color-activity-running-mark)" />
-        <span className="truncate">Claude is working{doing ? ` · ${doing}` : ''}</span>
+    // What it is waiting on and for how long beats the last thing it said:
+    // that is what tells a long test run from a stuck one.
+    const reading = readPulse(pulse, now, live?.lastAt);
+    const warn = reading.tone === 'warn';
+    const spend = readSpend(pulse);
+    const turns = readTurns(pulse);
+    main = (
+      <span className={`flex min-w-0 items-center gap-1.5 ${warn ? 'text-(--color-activity-input-mark)' : 'text-sky-300'}`}>
+        <span className={`size-1.5 shrink-0 rounded-full ${warn ? 'bg-(--color-activity-input-mark)' : 'animate-pulse bg-(--color-activity-running-mark)'}`} />
+        <span className="truncate" title={warn ? 'Stop it, or send a message: Claude reads it at its next step' : undefined}>
+          {worker ? 'The worker is running' : 'Claude is working'}
+          {reading.text ? ` · ${reading.text}` : doing ? ` · ${doing}` : ''}
+        </span>
       </span>
     );
-    side = <span className="shrink-0">{duration(elapsed)}{run?.totalCostUsd != null ? ` · ${cost(run.totalCostUsd)}` : ''}</span>;
+    side = (
+      <span className="shrink-0">
+        {duration(elapsed)}
+        {spend ? <span className={spend.tone === 'warn' ? 'text-(--color-activity-input-mark)' : ''}> · {spend.text}</span> : null}
+        {turns ? <span className="text-(--color-activity-input-mark)"> · {turns}</span> : null}
+        {!spend && run?.totalCostUsd != null ? ` · ${cost(run.totalCostUsd)}` : ''}
+      </span>
+    );
+  } else if (stoppedAtLimit(run)) {
+    main = <span className="text-(--color-activity-input-mark)">◆ Stopped at its {run?.stopReason === 'max_turns' ? 'turn limit' : 'budget'}</span>;
+    side = <span>Continue above, or reply: either carries on with a fresh budget</span>;
   } else if (card.activity === 'needs_input') {
     main = <span className="text-(--color-activity-input-mark)">◆ Claude is waiting on your reply</span>;
     side = <span>Replying carries on the same conversation</span>;

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
+import { STAGE_LABELS, isTerminal, nextStage, stoppedAtLimit, type CardDetail } from '@reeve/shared';
 import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
@@ -84,6 +84,7 @@ export function AttentionBand({
     // Claude's submitted work still stands after a reply about it, so the
     // gate stays while nothing is running on top of it.
     const deliverable = card.activity !== 'running' && hasDeliverable(detail);
+    if (stoppedAtLimit(card.latestRun)) return <div className={frame}><AtLimit detail={detail} /></div>;
     if (card.activity === 'needs_input' && openQuestions) return <div className={frame}><NeedsInput detail={detail} /></div>;
     if (card.activity === 'error') return <div className={frame}><Failed detail={detail} /></div>;
     if (deliverable) {
@@ -100,7 +101,7 @@ export function AttentionBand({
 
   return (
     <div className={frame}>
-      {card.activity === 'needs_input' && <NeedsInput detail={detail} />}
+      {stoppedAtLimit(card.latestRun) ? <AtLimit detail={detail} /> : card.activity === 'needs_input' && <NeedsInput detail={detail} />}
       {card.activity === 'needs_review' && <NeedsReview detail={detail} />}
       {card.activity === 'running' && <Running detail={detail} live={live} />}
       {card.activity === 'error' && <Failed detail={detail} />}
@@ -573,6 +574,47 @@ function Failed({ detail }: { detail: CardDetail }) {
         </Button>
       </div>
       {refused && <p className="basis-full text-sm/5 text-red-300">{refused.message}</p>}
+    </div>
+  );
+}
+
+/** What Continue says, as the person's own words in the conversation. */
+const CONTINUE =
+  'You were stopped at your limit before you finished. Carry on from where you left off; any worker from before was stopped with you.';
+
+/**
+ * A run its budget or turn limit stopped mid-work: not broken, out of room.
+ * Continue carries the same conversation on, as a reply does, and the fork
+ * gets a fresh budget. Raising the card's limit first, in the rail, gives it
+ * more room than the last one had.
+ */
+function AtLimit({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const run = detail.card.latestRun;
+  const go = useMutation({
+    mutationFn: () => api.sendMessage(detail.card.id, CONTINUE),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['conversation', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  const what = run?.stopReason === 'max_turns'
+    ? 'its turn limit'
+    : `its $${(run?.budgetUsd ?? 0).toFixed(2)} budget${run?.totalCostUsd != null ? `, having spent $${run.totalCostUsd.toFixed(2)}` : ''}`;
+  return (
+    <div className="flex items-center gap-4">
+      <div className="min-w-0 grow">
+        <div className="text-sm/5 font-medium text-(--color-activity-input-mark)">Stopped at its limit</div>
+        <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+          The run reached {what}, mid-way. Continue picks up where it stopped with a fresh budget. Raise the card's
+          limits in the rail first if it needs more room.
+        </p>
+      </div>
+      <Button tone="input" disabled={go.isPending} onClick={() => go.mutate()}>
+        {go.isPending ? 'Continuing…' : 'Continue'}
+      </Button>
+      {go.error && <p className="basis-full text-sm/5 text-red-300">{go.error.message}</p>}
     </div>
   );
 }

@@ -11,7 +11,8 @@
  *   REEVE_DB=/tmp/gloss-check.db npx tsx packages/server/src/spikes/gloss-check.ts
  *
  * Not covered: the rounds after a revision (`gloss working`, `ready`, the next
- * wait), which need a real revision run to finish.
+ * wait), which need a real revision run to finish — see
+ * gloss-round-trip-check.ts, which pays for one to cover them.
  */
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,7 +53,7 @@ const withServer = (name: string, serverCommand: string | null) =>
     name: `${name}-${Date.now()}`,
     // Not a git repo: whatever an approval or a revision would start next is refused.
     repoPath: dir, worktreeRoot: dir, defaultBranch: 'main',
-    setupCommand: null, testCommand: null, serverCommand,
+    setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand,
     teardownCommand: null, finishCommand: null, laneColor: null,
   });
 const repo = withServer('gloss-check', `node -e "require('http').createServer((q,s)=>s.end('ok')).listen({{port}})"`);

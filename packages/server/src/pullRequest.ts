@@ -6,9 +6,12 @@ import {
   archiveCard,
   archivedMergedWorktrees,
   cardsAwaitingMerge,
+  dependenciesOf,
+  getCard,
   insertCardEvent,
   listRepos,
   mergedCardsDueForArchive,
+  stillBlocking,
 } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import {
@@ -23,6 +26,7 @@ import {
 import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
+import { baseBranchFor, isRestacking, restackChildren, stackParent } from './stacks.js';
 import { removeCardWorktree } from './startStage.js';
 
 /**
@@ -82,6 +86,11 @@ const mergeable = new Map<string, string>();
 
 export const isPrMergeable = (card: Pick<Card, 'id' | 'prUrl'>) =>
   card.prUrl !== null && mergeable.get(card.id) === card.prUrl;
+
+/** A pull request pointed at another base: GitHub's verdict was about merging into the old one. */
+export function forgetMergeable(cardId: string): void {
+  mergeable.delete(cardId);
+}
 
 /** After a push, GitHub's last verdict is about a branch that no longer exists. */
 export function forgetConflict(cardId: string): void {
@@ -162,6 +171,9 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
   if (landing.has(card.id)) {
     return { ok: false, status: 409, error: 'the pull request is being merged', detail: card.prUrl ?? `#${card.number}` };
   }
+  if (isRestacking(card.id)) {
+    return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: 'its pull request is pushed and retargeted as part of that' };
+  }
   opening.add(card.id);
 
   const failed = (status: 409 | 502, error: string, detail: string): PullRequestResult => {
@@ -196,7 +208,17 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
     // commits rarely settle one, and its button is how it gets settled.
     mergeable.delete(card.id);
 
-    const base = repo.defaultBranch;
+    // A stacked card's targets the branch of the card it builds on, so it
+    // reads as its own change; it is pointed at the default once that lands.
+    // One that should build on another but has not taken its branch in yet
+    // would open against main without it. Release no longer runs on arrival,
+    // so it waits for a person: starting its Release run merges the branch in,
+    // and the pull request opens from there (Retry, or the run's submit).
+    const candidate = stackParent(db, card);
+    if (candidate && card.stackedOnId !== candidate.id) {
+      return failed(409, `not yet built on #${candidate.number}`, 'run it in Release to merge that card\'s branch in, then open the pull request');
+    }
+    const base = baseBranchFor(db, card, repo);
     let pr: { url: string; number: number };
     let reused: boolean;
     try {
@@ -271,8 +293,17 @@ export const enterRelease = maybeOpenPullRequest;
  * from this and the route refuses by it, so a page left open since the last
  * verdict cannot merge what the board has stopped offering.
  */
-export const canMergePr = (card: Card) =>
-  card.stage === 'release' && card.prUrl !== null && card.mergedAt === null && isPrMergeable(card);
+export const canMergePr = (db: Db, card: Card) =>
+  card.stage === 'release' && card.prUrl !== null && card.mergedAt === null && card.stackedOnId === null &&
+  !isRestacking(card.id) && isPrMergeable(card) && !waitsOnUnlanded(db, card);
+
+/**
+ * Whether anything this card waits on has yet to land. Merging is where the
+ * order the work has to happen in is finally kept: a card stacked on another
+ * reaches Release before that one merges, and nothing else stops its pull
+ * request landing first.
+ */
+const waitsOnUnlanded = (db: Db, card: Card) => dependenciesOf(db, card.id).some(stillBlocking);
 
 export type LandResult =
   | { ok: true; merged: boolean }
@@ -306,8 +337,35 @@ export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'hu
   if (landing.has(card.id)) return { ok: false, status: 409, error: 'already merging', detail: url };
   if (opening.has(card.id)) return { ok: false, status: 409, error: 'a push to the pull request is under way', detail: url };
   if (resolving.has(card.id)) return { ok: false, status: 409, error: 'conflicts are being resolved', detail: url };
+  if (isRestacking(card.id)) return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: url };
+  const waiting = dependenciesOf(db, card.id).filter(stillBlocking);
+  if (waiting.length > 0) {
+    return {
+      ok: false, status: 409, error: 'it waits on cards that have not landed',
+      detail: waiting.map((c) => `#${c.number} ${c.title}`).join(', '),
+    };
+  }
+  // A stacked card lands after the card it builds on, once it has been moved
+  // onto the default branch: merged now, it would land on the parent's branch.
+  if (card.stackedOnId) {
+    const parent = getCard(db, card.stackedOnId);
+    return {
+      ok: false, status: 409, error: 'it builds on another card that has not landed',
+      detail: parent?.mergedAt
+        ? `#${parent.number} has merged; this card is moved onto ${repo.defaultBranch} at the next merge sync, and can merge then`
+        : `merge #${parent?.number ?? '?'} first`,
+    };
+  }
   landing.add(card.id);
   try {
+    // Only ever onto the default branch. A pull request still pointed at
+    // another card's branch — a retarget that failed, or one changed on
+    // GitHub — would land there, and the card would read merged with its
+    // work nowhere near main.
+    const pr = await pullRequestState(repo.repoPath, url);
+    if (pr.base && pr.base !== repo.defaultBranch) {
+      return { ok: false, status: 409, error: `its pull request targets ${pr.base}`, detail: `point it at ${repo.defaultBranch} first` };
+    }
     await mergePullRequest(repo.repoPath, url);
   } catch (e) {
     const detail = reason(e);
@@ -437,6 +495,8 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
       if (keepsDefaultBranch(repo, into)) landedOnDefault.set(repo.id, repo);
     }
     for (const repo of landedOnDefault.values()) await syncDefaultBranch(repo);
+    // Cards built on one that has just landed, moved onto the default branch.
+    await restackChildren(db);
   } finally {
     syncing = false;
   }

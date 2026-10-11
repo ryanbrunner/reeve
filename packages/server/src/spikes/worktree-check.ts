@@ -119,7 +119,7 @@ write('logs/keep.txt', 'listed, but not ignored\n');
   const writer = new EventWriter(db);
   const dbRepo = createRepo(db, {
     name: 'worktree-check', repoPath: repo, worktreeRoot, defaultBranch: 'main',
-    setupCommand: 'cat .env', testCommand: null, serverCommand: null,
+    setupCommand: 'cat .env', testCommand: null, focusedTestCommand: null, serverCommand: null,
     teardownCommand: null, finishCommand: null, laneColor: null,
   });
   const startCard = (title: string) => getCard(db, createCard(db, { title, repoId: dbRepo.id, stage: 'planning' }).id)!;

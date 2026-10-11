@@ -221,7 +221,7 @@ function Conversation({ detail, live, onClose, onOpen, editTitle }: {
               setSideOpen(true);
             }}
           />
-          <Composer detail={detail} live={live} tab={tab} onClose={onClose} />
+          <Composer detail={detail} conversation={conversation} live={live} tab={tab} onClose={onClose} />
         </section>
         {sideOpen ? (
           <aside aria-label="Documents and facts" className="flex w-[420px] shrink-0 flex-col border-l border-(--color-edge) bg-(--color-card-core) max-md:w-full max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-10">

@@ -35,6 +35,29 @@ export function renderSuggesting(enabled: boolean): string {
   return renderPrompt(enabled ? 'suggested_tasks' : 'no_suggested_tasks', {});
 }
 
+/**
+ * How a stage that builds or checks code should run its tests, worded once
+ * for In Progress and Testing. Big repos are why: a whole suite run after
+ * every edit is most of a run's time, and its output most of its context.
+ * So the tests near the change while working — the plan's own focused
+ * tests, or the repo's focused command, or the narrowest the runner allows —
+ * and the whole suite once, at the end, kept to its tail.
+ */
+export function renderTests(repo: { testCommand: string | null; focusedTestCommand: string | null }, final: string): string {
+  // Nothing to point at at all: say so, rather than send it looking for a
+  // runner the repo may not have.
+  if (!repo.testCommand?.trim() && !repo.focusedTestCommand?.trim()) {
+    return "This repo defines no test command. If the plan names focused tests, run them; otherwise there is nothing Reeve knows to run.";
+  }
+  const focused = repo.focusedTestCommand?.trim()
+    ? `the plan's focused tests if it names them, or \`${repo.focusedTestCommand.trim()}\` with \`{{paths}}\` replaced by the test files or directories that cover what you changed`
+    : "the plan's focused tests if it names them, or else the narrowest command the repo's own runner allows for what you changed";
+  return renderPrompt('tests', {
+    focused,
+    final: repo.testCommand?.trim() ? final.replace('{{command}}', `\`${repo.testCommand.trim()}\``) : '',
+  });
+}
+
 /** The notes block, or nothing at all when there are none. Every stage renders it. */
 export function renderNotes(notes: string[] | undefined): string {
   if (!notes?.length) return '';

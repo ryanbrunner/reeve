@@ -113,11 +113,19 @@ finished stage: it passes the gate and moves the card one column, where
 `card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
-exit status: 0 it finished and awaits review, 3 Claude is waiting on you, 4 the
-run failed, 5 nothing was running, 6 `--timeout` ran out. On 3, `card
+exit status: 0 it finished and awaits review, 3 Claude is waiting on you (or its
+run stopped at its budget or turn limit: a reply carries it on), 4 the run failed, 5 nothing was running, 6 `--timeout` ran out. On 3, `card
 questions` says what about — a plan's questions, the question a turn ended
 on, or a call the run wants to make — and `answer`, `reply` or `permit` is the
 way back.
+
+In Progress and Testing hand their work to a background worker, and the
+session `card reply` talks to leads it. While the worker runs, a reply gets a
+prompt answer instead of waiting for the work to finish, and a change you ask
+for is passed on to the worker. `card wait` keeps waiting through that, since
+the run is still working. A call the worker wants to make is settled only by
+`permit`, and a `reply` meanwhile still goes to the lead. `run follow` shows
+the worker's steps indented under `· worker started`.
 
 ## Writing
 
@@ -130,7 +138,7 @@ reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
 reeve card archive <card> [--detach-open]
 reeve card restore <card>
-reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--seed CMD] [--server CMD] …
+reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--focused-test CMD] [--seed CMD] [--server CMD] …
 reeve repos show <repo> [--json]
 reeve card accept <card>
 reeve card dismiss <card>
