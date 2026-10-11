@@ -58,9 +58,10 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
   const levels = effortLevelsFor(models, effectiveModel);
   // Matched by alias or resolved id, so a default stored as either still
   // lights up the family it belongs to rather than the plain "default" row.
-  const matchedFamily = Object.values(families).find(
-    (m) => m && effectiveModel != null && (m.value === effectiveModel || m.resolvedModel === effectiveModel),
-  );
+  const familyMatching = (value: string | null) =>
+    Object.values(families).find((m) => m && value != null && (m.value === value || m.resolvedModel === value));
+  const matchedFamily = familyMatching(effectiveModel);
+  const defaultFamily = familyMatching(defaultModel);
   const overflowModel = matchedFamily ? null : (findModel(models, effectiveModel)?.value ?? effectiveModel);
 
   const pickModel = (value: string | null) =>
@@ -85,7 +86,7 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
                   disabled={!m || set.isPending}
                   aria-pressed={active}
                   title={m?.displayName ?? `No ${FAMILY_LABEL[family]} listed`}
-                  onClick={() => m && pickModel(active ? null : m.value)}
+                  onClick={() => m && pickModel(active || m.value === defaultFamily?.value ? null : m.value)}
                   style={active ? { background: `${tone}33`, color: tone, borderColor: tone } : undefined}
                   className={`border-r border-(--color-edge) px-2 py-1 font-mono text-[11px]/4 whitespace-nowrap last:border-r-0 disabled:opacity-30 ${
                     active ? '' : 'text-(--color-muted) hover:bg-white/4 hover:text-(--color-text)'
@@ -190,7 +191,7 @@ function EffortSlider({ levels, effort, defaultEffort, onChange, disabled }: {
 
   const pick = (at: number) => {
     const clamped = Math.max(0, Math.min(last, at));
-    if (clamped === index) return;
+    if (known && clamped === index) return;
     const picked = stops[clamped] ?? null;
     onChange(picked === defaultEffort ? null : picked);
   };
