@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { isRunnable, RUNNABLE_STAGES, type CardActivity, type CardDetail, type RunnableStage } from '@reeve/shared';
 import {
-  ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
-  SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
+  ACTIVITY_LABELS, ACTIVITY_MARKS, isMerged, MERGED_LABEL, MERGED_MARK, MERGED_STYLE, REVIEW_FAILED_LABEL,
+  REVIEW_FAILED_MARK, REVIEW_FAILED_STYLE, shownActivity, STARTING_LABEL, SUGGESTION_LABEL, SUGGESTION_MARK,
+  SUGGESTION_STYLE,
 } from '../board/activity.js';
 import { api } from '../lib/api.js';
 import { familyOf, MODEL_TINT } from '../lib/modelTint.js';
@@ -37,6 +38,7 @@ const GLOW: Record<CardActivity, string> = {
 
 const MERGED_GLOW = `${MERGED_STYLE} modal-glow-merged`;
 const SUGGESTION_GLOW = `${SUGGESTION_STYLE} modal-glow-suggested`;
+const REVIEW_FAILED_GLOW = `${REVIEW_FAILED_STYLE} modal-glow-error`;
 
 export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = false }: {
   cardId: string;
@@ -114,6 +116,10 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
   // A suggestion waiting on a decision, in the pink and lightbulb the board
   // card wears. The band in the header is where it is decided.
   const suggested = !vibes && !merged && data?.card.pendingSuggestion === true;
+  // A submitted result the stage itself judged failing, in the same red the
+  // board card wears for it. See CardFace for why it never overrides merged
+  // or suggested.
+  const reviewFailed = !vibes && !merged && !suggested && data?.card.reviewFailed === true;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 sm:p-10">
@@ -124,7 +130,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
         aria-modal="true"
         aria-labelledby="card-title"
         tabIndex={-1}
-        className={`relative flex h-[min(900px,100%)] w-[min(1320px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : suggested ? SUGGESTION_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
+        className={`relative flex h-[min(900px,100%)] w-[min(1320px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : suggested ? SUGGESTION_GLOW : reviewFailed ? REVIEW_FAILED_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
         style={runningTint}
       >
         {isLoading && <Middle>Loading card…</Middle>}
@@ -165,13 +171,18 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
             <span className="sr-only">
               {merged ? MERGED_LABEL
                 : suggested ? SUGGESTION_LABEL
+                : reviewFailed ? REVIEW_FAILED_LABEL
                 : data.card.startingStage ? STARTING_LABEL
                 : ACTIVITY_LABELS[activity]}
             </span>
           </>
         )}
         {/* Decorative, and behind the header rather than the whole panel. */}
-        {data && (merged ? MERGED_MARK : suggested ? SUGGESTION_MARK : ACTIVITY_MARKS[activity])}
+        {data &&
+          (merged ? MERGED_MARK
+          : suggested ? SUGGESTION_MARK
+          : reviewFailed ? REVIEW_FAILED_MARK
+          : ACTIVITY_MARKS[activity])}
       </div>
     </div>,
     document.body,

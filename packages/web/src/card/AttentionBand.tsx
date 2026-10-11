@@ -88,8 +88,15 @@ export function AttentionBand({
     if (card.activity === 'needs_input' && openQuestions) return <div className={frame}><NeedsInput detail={detail} /></div>;
     if (card.activity === 'error') return <div className={frame}><Failed detail={detail} /></div>;
     if (deliverable) {
+      // Testing's own verdict can fail a submitted report, not just ask a
+      // question about it — red rather than the green a clean pass wears.
+      const failed = card.reviewFailed;
+      const border = failed ? 'border-(--color-activity-error-border)' : 'border-(--color-activity-review-border)';
+      const fill = failed ? '--color-activity-error-fill' : '--color-activity-review-fill';
       return (
-        <div className="relative mb-2.5 rounded-lg border border-(--color-activity-review-border) bg-[linear-gradient(var(--color-activity-review-fill),var(--color-activity-review-fill)),var(--color-card-core)] px-3 py-2.5">
+        <div
+          className={`relative mb-2.5 rounded-lg border ${border} bg-[linear-gradient(var(${fill}),var(${fill})),var(--color-card-core)] px-3 py-2.5`}
+        >
           <NeedsReview detail={detail} conversation />
         </div>
       );
@@ -131,13 +138,19 @@ function NeedsReview({ detail, conversation = false }: { detail: CardDetail; con
 
   const to = nextStage(detail.card.stage);
   const checks = detail.checks;
+  // "Ready for review" reads oddly over a report that found something
+  // broken: the heading says so, while Approve and Reject stay exactly as
+  // they are — the gate's decision is still the person's.
+  const failed = detail.card.reviewFailed;
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-4">
         <div className="min-w-0 grow">
           <div className="text-sm/5 font-medium text-(--color-text)">
-            {conversation ? `${WORK[detail.card.stage] ?? 'Work'} ready for review` : 'Ready for review'}
+            {failed
+              ? `${WORK[detail.card.stage] ?? 'Work'} needs a fix`
+              : conversation ? `${WORK[detail.card.stage] ?? 'Work'} ready for review` : 'Ready for review'}
           </div>
           <p className="mt-0.5 text-sm/5 text-(--color-muted)">
             {checks

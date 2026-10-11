@@ -57,7 +57,9 @@ export function stageState(detail: CardDetail, stage: StageTab, runs: Conversati
     switch (detail.card.activity) {
       case 'running': return 'running';
       case 'needs_input': return 'input';
-      case 'needs_review': return 'review';
+      // A submitted result the stage judged failing reads the same as an
+      // error dot: red, 'failed', rather than the green of a clean pass.
+      case 'needs_review': return detail.card.reviewFailed ? 'error' : 'review';
       case 'error': return 'error';
       case 'idle': return runs.length ? 'idle' : 'none';
     }
