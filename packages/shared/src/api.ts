@@ -477,6 +477,8 @@ export interface StageRunDefault {
   maxBudgetUsd: number | null;
   /** API calls one loop may make, the lead's turn or a worker's run, before the SDK stops it. */
   maxTurns: number | null;
+  /** The stage's own prompt template, in place of the file Reeve ships. Null means "use the file on disk". */
+  prompt: string | null;
 }
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;

@@ -156,6 +156,8 @@ export function stageContextFor(
     baseBranch: baseBranchFor(db, base.card, base.repo),
     notes: unreadNotesFor(db, base.card.id),
     suggestTasks: getSettings(db).suggestTasks,
+    promptOverride:
+      excludeStage && isRunnable(excludeStage) ? (getSettings(db).stageDefaults[excludeStage].prompt ?? undefined) : undefined,
   };
 }
 

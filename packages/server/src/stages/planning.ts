@@ -73,7 +73,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       seed: seedGuidance(ctx.repo.seedCommand),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
-    });
+    }, ctx.promptOverride);
   },
 
   onComplete(ctx, output) {

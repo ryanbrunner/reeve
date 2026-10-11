@@ -137,7 +137,7 @@ export const testingStage: StageDefinition<TestingOutput> = {
         : 'This repo defines no test command, so verify by reading and by the screenshots.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
-    });
+    }, ctx.promptOverride);
   },
 
   onComplete(_ctx, output) {

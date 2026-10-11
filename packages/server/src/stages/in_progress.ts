@@ -67,7 +67,7 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       ),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
-    });
+    }, ctx.promptOverride);
   },
 
   onComplete(ctx, output) {

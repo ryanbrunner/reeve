@@ -46,6 +46,7 @@ import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
+import { defaultPromptText } from '../stages/template.js';
 import { usageState } from '../usage.js';
 
 // A stage's old name still names it — `done` is Release — so a client or a
@@ -174,6 +175,10 @@ const settingsSchema = z.object({
       // Optional, so a client that only knows model and effort clears nothing.
       maxBudgetUsd: budgetSchema.optional(),
       maxTurns: maxTurnsSchema.optional(),
+      // Well above any shipped prompt's length (the largest today is under
+      // 4,000 characters) — the cap is there to refuse an accident, not to
+      // pinch someone who grew a template.
+      prompt: z.string().max(20_000).nullable().optional(),
     }))
     .optional(),
 });
@@ -188,6 +193,7 @@ function builtInStageDefaults(): StageRunDefaults {
         effort: STAGE_DEFINITIONS[s]?.effort ?? null,
         maxBudgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
         maxTurns: STAGE_DEFINITIONS[s]?.maxTurns ?? null,
+        prompt: defaultPromptText(s),
       },
     ]),
   ) as StageRunDefaults;
