@@ -215,6 +215,9 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
   const [suggestTasks, setSuggestTasks] = useState(settings.suggestTasks);
+  // Four full prompts is a lot of vertical space, so each stays collapsed
+  // until asked for.
+  const [expandedPrompt, setExpandedPrompt] = useState<RunnableStage | null>(null);
   const [saved, setSaved] = useState(false);
   // Asked of the CLI once per server process, so there is nothing to refetch.
   const { data: catalogue } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
@@ -257,6 +260,10 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
+      // The server normalizes a blank or default-text prompt override to
+      // null; without this the form would keep showing it as Custom with an
+      // empty textarea, when a fresh run now uses the shipped file again.
+      setStageDefaults(s.stageDefaults);
     },
   });
 
@@ -379,6 +386,66 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 />
                 turns
               </label>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Prompts</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What each stage is told to do, beyond its model and budget. A blank one runs the file Reeve ships with.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const builtIn = catalogue?.builtIn[stage]?.prompt ?? '';
+          const row = stageDefaults[stage];
+          const custom = row.prompt !== null;
+          const expanded = expandedPrompt === stage;
+          const vars = [...builtIn.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+          if (!expanded) {
+            return (
+              <div key={stage} className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+                    {custom ? 'Custom' : 'Default'}
+                  </span>
+                  <SmallButton onClick={() => setExpandedPrompt(stage)}>Edit</SmallButton>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={stage} className="flex flex-col gap-2 rounded-md border border-sky-700 bg-white/2 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+                {custom && (
+                  <span className="rounded-sm border border-sky-700 px-1.5 py-px font-mono text-[10px]/4 text-sky-300">
+                    Custom
+                  </span>
+                )}
+              </div>
+              <textarea
+                value={row.prompt ?? builtIn}
+                spellCheck={false}
+                onChange={(e) => {
+                  setSaved(false);
+                  setStage(stage, { prompt: e.target.value });
+                }}
+                rows={12}
+                className="w-full resize-y rounded-sm border border-(--color-edge) bg-(--color-ink) p-2 font-mono text-[11px]/[18px] text-(--color-text) outline-none focus:border-sky-600"
+              />
+              {vars.length > 0 && (
+                <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+                  Vars this stage fills in: {vars.map((v) => `{{${v}}}`).join(', ')}
+                </span>
+              )}
+              <div className="flex items-center gap-2">
+                {custom && (
+                  <SmallButton onClick={() => setStage(stage, { prompt: null })}>Reset to default</SmallButton>
+                )}
+                <SmallButton onClick={() => setExpandedPrompt(null)}>Collapse</SmallButton>
+              </div>
             </div>
           );
         })}

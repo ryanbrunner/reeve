@@ -68,7 +68,7 @@ export const releaseStage: StageDefinition<ReleaseOutput> = {
         : 'This repo defines no finish command.',
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
-    });
+    }, ctx.promptOverride);
   },
 
   onComplete(_ctx, output) {

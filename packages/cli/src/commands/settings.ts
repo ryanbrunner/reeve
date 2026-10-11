@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   EFFORT_LEVELS,
@@ -21,12 +23,13 @@ import { parseStage } from '../resolve.js';
  */
 
 const KEYS =
-  'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort, <stage>.max-budget-usd or <stage>.max-turns for planning, in-progress or testing';
+  'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort, <stage>.max-budget-usd, ' +
+  '<stage>.max-turns or <stage>.prompt for planning, in-progress, testing or release';
 
 type Key =
   | { kind: 'maxConcurrentRuns' }
   | { kind: 'suggestTasks' }
-  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' };
+  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'prompt' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
 function parseKey(input: string): Key {
@@ -40,10 +43,14 @@ function parseKey(input: string): Key {
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
   const rawField = kebab(input.slice(dot + 1));
   const field = rawField === 'max-budget-usd' ? 'maxBudgetUsd' : rawField === 'max-turns' ? 'maxTurns' : rawField;
-  if (stage && isRunnable(stage) && (field === 'model' || field === 'effort' || field === 'maxBudgetUsd' || field === 'maxTurns')) {
+  if (
+    stage &&
+    isRunnable(stage) &&
+    (field === 'model' || field === 'effort' || field === 'maxBudgetUsd' || field === 'maxTurns' || field === 'prompt')
+  ) {
     return { kind: 'stage', stage, field };
   }
-  if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model, effort or limits`);
+  if (stage && !isRunnable(stage)) throw usageError(`${STAGE_LABELS[stage]} runs no Claude, so it has no model, effort, limits or prompt`);
   throw usageError(`'${input}' is not a setting. Settings: ${KEYS}`);
 }
 
@@ -74,6 +81,22 @@ function requireTurns(value: string): number {
 }
 
 /**
+ * A prompt override is usually too long for one shell argument, so `@<path>`
+ * reads the file instead — the convention `@file` already signals elsewhere.
+ * The path is resolved against the cwd the command runs from, same as any
+ * other relative path this CLI takes.
+ */
+function requirePrompt(value: string): string {
+  if (!value.startsWith('@')) return value;
+  const path = resolve(value.slice(1));
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (err) {
+    throw usageError(`could not read '${path}': ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
  * The body that changes one key. A stage's model and effort are saved as a
  * pair — the server replaces the stage's whole entry — so the one not being
  * set is carried over from what is stored, or it would be wiped.
@@ -94,6 +117,7 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
   if (key.field === 'effort') next.effort = value === null ? null : requireEffort(value);
   else if (key.field === 'maxBudgetUsd') next.maxBudgetUsd = value === null ? null : requireBudget(value);
   else if (key.field === 'maxTurns') next.maxTurns = value === null ? null : requireTurns(value);
+  else if (key.field === 'prompt') next.prompt = value === null ? null : requirePrompt(value);
   else next.model = value;
   const stageDefaults: Partial<StageRunDefaults> = {};
   stageDefaults[key.stage] = next;
@@ -129,7 +153,11 @@ function render(settings: ApiSettings, models: ModelsResponse | null): string {
     const turns = own.maxTurns !== null ? String(own.maxTurns)
       : builtIn?.maxTurns != null ? `${builtIn.maxTurns} (default)`
       : 'none';
-    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget.padEnd(14)}  turns ${turns}`;
+    // Never the text itself — a stage's prompt can run to thousands of
+    // characters, which would blow the table apart. `--json` carries the
+    // real value, through ApiSettings, for a script that wants it.
+    const prompt = own.prompt !== null ? ' (prompt custom)' : '';
+    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget.padEnd(14)}  turns ${turns}${prompt}`;
   });
   return [...rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`), '', 'Stage runs', ...stages].join('\n');
 }
@@ -169,7 +197,13 @@ async function set(args: string[], unset: boolean): Promise<void> {
   }
   const stored = saved.stageDefaults[key.stage][key.field];
   const fieldName = key.field === 'maxBudgetUsd' ? 'max-budget-usd' : key.field === 'maxTurns' ? 'max-turns' : key.field;
-  const shown = stored === null ? 'back to the default' : key.field === 'maxBudgetUsd' ? `$${stored}` : stored;
+  // The prompt itself can run to thousands of characters, so this echoes
+  // custom/default rather than dumping it; --json carries the real text.
+  const shown =
+    key.field === 'prompt' ? (stored === null ? 'back to the default' : 'custom')
+    : stored === null ? 'back to the default'
+    : key.field === 'maxBudgetUsd' ? `$${stored}`
+    : stored;
   print(`${STAGE_LABELS[key.stage]} ${fieldName}: ${shown}`);
 }
 

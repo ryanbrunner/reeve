@@ -52,6 +52,13 @@ export interface StageContext {
    * a hand-built context (a spike) that never sets it behaves as it always did.
    */
   suggestTasks?: boolean;
+  /**
+   * Settings' override for this run's stage, in place of the file Reeve ships
+   * under `stages/prompts/`. Undefined means no override is set, or this run
+   * is not one of the four runnable stages — the same reading `suggestTasks`
+   * gives a hand-built context (a spike, a one-off task) that never sets it.
+   */
+  promptOverride?: string;
 }
 
 export interface ArtifactDraft {

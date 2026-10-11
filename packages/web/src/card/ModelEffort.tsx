@@ -68,51 +68,46 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
     set.mutate({ model: value, effort: keepEffort(models, value ?? defaultModel, effort) });
 
   return (
-    <div className="flex w-[260px] shrink-0 flex-col gap-2.5">
-      <div className="flex flex-col items-end gap-1">
-        <span className="font-mono text-[10px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-          Model
-        </span>
-        <div className="flex items-center gap-1">
-          <div role="group" aria-label="Model family for this card's runs" className="flex overflow-hidden rounded-sm border border-(--color-edge)">
-            {(Object.keys(FAMILY_LABEL) as ModelFamily[]).map((family) => {
-              const m = families[family];
-              const active = Boolean(m && matchedFamily && m.value === matchedFamily.value);
-              const tone = modelFamilyColor(family);
-              return (
-                <button
-                  key={family}
-                  type="button"
-                  disabled={!m || set.isPending}
-                  aria-pressed={active}
-                  title={m?.displayName ?? `No ${FAMILY_LABEL[family]} listed`}
-                  onClick={() => m && pickModel(active || m.value === defaultFamily?.value ? null : m.value)}
-                  style={active ? { background: `${tone}33`, color: tone, borderColor: tone } : undefined}
-                  className={`border-r border-(--color-edge) px-2 py-1 font-mono text-[11px]/4 whitespace-nowrap last:border-r-0 disabled:opacity-30 ${
-                    active ? '' : 'text-(--color-muted) hover:bg-white/4 hover:text-(--color-text)'
-                  }`}
-                >
-                  {FAMILY_LABEL[family]}
-                </button>
-              );
-            })}
-          </div>
-          <Dropdown
-            variant="chip"
-            label="Other model for this card's runs"
-            // The resolved model — the card's own pin, or whatever stands in
-            // for it — unless the toggle already shows it: `null` when a
-            // family matched, so this falls through to the plain "…"
-            // placeholder rather than restating what the toggle already said.
-            value={overflowModel ?? ''}
-            disabled={set.isPending}
-            placeholder="…"
-            options={overflow}
-            onChange={(v) => pickModel(v === OVERFLOW_DEFAULT ? null : v)}
-            title="Every other model, including one this CLI no longer lists"
-            className="block max-w-[64px] truncate rounded-sm border border-(--color-edge) px-1.5 py-1 font-mono text-[11px]/4 text-(--color-muted) hover:text-(--color-text)"
-          />
+    <div className="flex w-[260px] shrink-0 flex-col gap-1">
+      <div className="flex items-center justify-end gap-1">
+        <div role="group" aria-label="Model family for this card's runs" className="flex overflow-hidden rounded-sm border border-(--color-edge)">
+          {(Object.keys(FAMILY_LABEL) as ModelFamily[]).map((family) => {
+            const m = families[family];
+            const active = Boolean(m && matchedFamily && m.value === matchedFamily.value);
+            const tone = modelFamilyColor(family);
+            return (
+              <button
+                key={family}
+                type="button"
+                disabled={!m || set.isPending}
+                aria-pressed={active}
+                title={m?.displayName ?? `No ${FAMILY_LABEL[family]} listed`}
+                onClick={() => m && pickModel(active || m.value === defaultFamily?.value ? null : m.value)}
+                style={active ? { background: `${tone}33`, color: tone, borderColor: tone } : undefined}
+                className={`border-r border-(--color-edge) px-2 py-1 font-mono text-[11px]/4 whitespace-nowrap last:border-r-0 disabled:opacity-30 ${
+                  active ? '' : 'text-(--color-muted) hover:bg-white/4 hover:text-(--color-text)'
+                }`}
+              >
+                {FAMILY_LABEL[family]}
+              </button>
+            );
+          })}
         </div>
+        <Dropdown
+          variant="chip"
+          label="Other model for this card's runs"
+          // The resolved model — the card's own pin, or whatever stands in
+          // for it — unless the toggle already shows it: `null` when a
+          // family matched, so this falls through to the plain "…"
+          // placeholder rather than restating what the toggle already said.
+          value={overflowModel ?? ''}
+          disabled={set.isPending}
+          placeholder="…"
+          options={overflow}
+          onChange={(v) => pickModel(v === OVERFLOW_DEFAULT ? null : v)}
+          title="Every other model, including one this CLI no longer lists"
+          className="block max-w-[64px] truncate rounded-sm border border-(--color-edge) px-1.5 py-1 font-mono text-[11px]/4 text-(--color-muted) hover:text-(--color-text)"
+        />
       </div>
       <EffortSlider
         levels={levels}
@@ -171,10 +166,7 @@ function EffortSlider({ levels, effort, defaultEffort, onChange, disabled }: {
 
   if (levels.length === 0) {
     return (
-      <div className="flex w-full flex-col items-end gap-1">
-        <span className="font-mono text-[10px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-          Effort
-        </span>
+      <div className="flex w-full justify-end">
         <span title="This model reports no effort levels of its own" className="font-mono text-[10px]/4 text-(--color-muted)">
           No effort on this model
         </span>
@@ -216,10 +208,7 @@ function EffortSlider({ levels, effort, defaultEffort, onChange, disabled }: {
   };
 
   return (
-    <div className="flex w-full flex-col gap-1">
-      <span className="text-right font-mono text-[10px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase">
-        Effort
-      </span>
+    <div className="flex w-full flex-col">
       <div className="flex w-full items-center gap-2">
         <div
           ref={track}
