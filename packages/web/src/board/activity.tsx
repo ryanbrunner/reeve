@@ -104,6 +104,20 @@ export const SUGGESTION_MARK = (
 
 export const SUGGESTION_LABEL = 'Suggestion';
 
+/**
+ * A `needs_review` card whose own stage judged the work failing — a criterion
+ * Testing marked `fail`, say — rather than merely asking a question: red, in
+ * the error palette already used for a run that broke, with the same X. A
+ * card fact like `isMerged`, worked out by the server as `reviewFailed`
+ * rather than a sixth `CardActivity`: the gate still offers Approve and
+ * Reject exactly as it does for a clean pass, just coloured by the verdict.
+ */
+export const REVIEW_FAILED_STYLE = 'card-glow card-glow-error';
+
+export const REVIEW_FAILED_MARK = ACTIVITY_MARKS.error;
+
+export const REVIEW_FAILED_LABEL = 'Needs a fix';
+
 export function Mark({ children }: { children: React.ReactNode }) {
   return (
     <svg className="card-mark" viewBox="0 0 24 24" aria-hidden="true">

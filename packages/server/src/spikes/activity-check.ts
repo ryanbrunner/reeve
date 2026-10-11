@@ -73,11 +73,73 @@ const cases: Array<[string, string, string]> = [
   ['suggest running, no plan yet', activityOf({ suggest: 'running' }), 'idle'],
 ];
 
+/** A minimal, otherwise-green test report the contract accepts. */
+const report = { summary: 's', failures: [], fixes_applied: [], differences: [], suggested_tasks: [] };
+
+/**
+ * Testing's own cases, read off `reviewFailed` as well as `activity`: a
+ * submission can be green (a clean pass), red (`failed`, a criterion gone
+ * wrong), or — unsubmitted — yellow (`needs_input`, unchanged from before
+ * this card's fix to the lead's habit of asking permission to submit).
+ */
+function testingCardOf(opts: { status?: RunStatus; passed?: boolean; verdicts?: Array<'pass' | 'fail'> }) {
+  const c = createCard(db, { title: 'probe', repoId: repo.id, stage: 'testing' });
+  if (opts.status) {
+    const r = insertRun(db, {
+      id: crypto.randomUUID(), cardId: c.id, kind: 'claude',
+      stage: 'testing', status: 'running', cwd: '/tmp/x',
+    });
+    setRunStatus(db, r.id, {
+      status: opts.status,
+      structuredOutput: {
+        ...report,
+        passed: opts.passed ?? true,
+        criteria: (opts.verdicts ?? []).map((verdict, i) => ({ index: i + 1, verdict, evidence: 'e' })),
+      },
+    });
+  }
+  return toBoardCard(db, getCard(db, c.id)!, null, null);
+}
+
+type Reading = { activity: string; reviewFailed: boolean };
+const reading = (card: { activity: string; reviewFailed: boolean }): Reading =>
+  ({ activity: card.activity, reviewFailed: card.reviewFailed });
+
+const testingCases: Array<[string, Reading, Reading]> = [
+  [
+    'all criteria pass, suite green',
+    reading(testingCardOf({ status: 'succeeded', passed: true, verdicts: ['pass', 'pass'] })),
+    { activity: 'needs_review', reviewFailed: false },
+  ],
+  [
+    'a criterion fails',
+    reading(testingCardOf({ status: 'succeeded', passed: true, verdicts: ['pass', 'fail'] })),
+    { activity: 'needs_review', reviewFailed: true },
+  ],
+  [
+    'suite not green, criteria pass',
+    reading(testingCardOf({ status: 'succeeded', passed: false, verdicts: ['pass'] })),
+    { activity: 'needs_review', reviewFailed: true },
+  ],
+  [
+    'ended without submitting',
+    reading(testingCardOf({ status: 'awaiting_reply' })),
+    { activity: 'needs_input', reviewFailed: false },
+  ],
+];
+
 let failed = 0;
 for (const [name, got, want] of cases) {
   const ok = got === want;
   if (!ok) failed++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${got}${ok ? '' : ` (wanted ${want})`}`);
+}
+for (const [name, got, want] of testingCases) {
+  const ok = got.activity === want.activity && got.reviewFailed === want.reviewFailed;
+  if (!ok) failed++;
+  console.log(
+    `${ok ? 'ok  ' : 'FAIL'} ${name}: ${JSON.stringify(got)}${ok ? '' : ` (wanted ${JSON.stringify(want)})`}`,
+  );
 }
 console.log(failed === 0 ? '\nall activity cases pass' : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
