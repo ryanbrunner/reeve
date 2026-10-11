@@ -58,6 +58,7 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     suggestedBy: null,
     suggestions: [],
     pendingSuggestion: false,
+    reviewFailed: false,
     waitingOn: null,
     model: null,
     effort: null,
