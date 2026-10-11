@@ -6,8 +6,9 @@ import { api } from '../lib/api.js';
 import { familyOf, MODEL_TINT } from '../lib/modelTint.js';
 import { useNow } from '../lib/useNow.js';
 import {
-  ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
-  SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
+  ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, REVIEW_FAILED_LABEL,
+  REVIEW_FAILED_MARK, REVIEW_FAILED_STYLE, shownActivity, STARTING_LABEL, SUGGESTION_LABEL, SUGGESTION_MARK,
+  SUGGESTION_STYLE,
 } from './activity.js';
 import { NeededByGlyph, SuggestedGlyph, WaitsGlyph } from './Glyph.js';
 import { useLinks, type LinkRole } from './links.js';
@@ -57,13 +58,27 @@ export function CardFace({
   // A suggestion waiting on a person, which VIBES MODE does not wait for: its
   // sweep takes the card on as it would any other in Backlog.
   const suggested = !vibes && !merged && card.pendingSuggestion;
-  const label = suggested ? SUGGESTION_LABEL : card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity];
+  // A submitted result the stage itself judged failing — Testing's `fail` —
+  // reads red rather than the green `needs_review` otherwise wears. VIBES
+  // MODE's one-line card has no room for a sixth state and waives the gate
+  // regardless, so it keeps its own skin.
+  const reviewFailed = !vibes && !merged && !suggested && card.reviewFailed;
+  const label =
+    reviewFailed ? REVIEW_FAILED_LABEL
+    : suggested ? SUGGESTION_LABEL
+    : card.startingStage ? STARTING_LABEL
+    : ACTIVITY_LABELS[activity];
   const skin =
     vibes && card.mergedAt != null ? 'sk-merged'
     : merged ? MERGED_STYLE
     : suggested ? SUGGESTION_STYLE
+    : reviewFailed ? REVIEW_FAILED_STYLE
     : ACTIVITY_STYLE[activity];
-  const mark = merged ? (vibes ? null : MERGED_MARK) : suggested ? SUGGESTION_MARK : ACTIVITY_MARKS[activity];
+  const mark =
+    merged ? (vibes ? null : MERGED_MARK)
+    : suggested ? SUGGESTION_MARK
+    : reviewFailed ? REVIEW_FAILED_MARK
+    : ACTIVITY_MARKS[activity];
   const links = useLinks();
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.

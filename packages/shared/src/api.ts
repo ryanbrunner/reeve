@@ -235,6 +235,15 @@ export interface ApiCard {
    */
   pendingSuggestion: boolean;
   /**
+   * A submitted `needs_review` card whose own stage judged the work failing —
+   * a criterion Testing marked `fail`, or a `passed: false` report — rather
+   * than merely asking a question, which is `needs_input` instead. A card
+   * fact like `isMerged`, for the same reason: it is read from the stage's
+   * `failed` hook, not stored, and always false outside `needs_review` so a
+   * running or freshly-started card never shows it.
+   */
+  reviewFailed: boolean;
+  /**
    * What Claude is waiting on the person for, in a line, when the card is
    * `needs_input`: the question it ended its turn on, or the command it asked
    * to run. The board card shows it, so a waiting card says why without being

@@ -75,6 +75,7 @@ export function toBoardCard(
     pendingSuggestion: isPendingSuggestion(card),
     waitingOn: activity === 'needs_input' && run ? waitingOn(card, run) : null,
     stackedOn: stackedOnLink(db, card, cardLinks),
+    reviewFailed: activity === 'needs_review' && run !== null && isFailed(card.stage as RunnableStage, run),
   }, cardLinks);
 }
 
@@ -142,4 +143,18 @@ function awaitsInput(stage: RunnableStage, run: Run): boolean {
   if (!definition?.awaitsInput) return false;
   const parsed = definition.schema.safeParse(run.structuredOutput);
   return parsed.success ? definition.awaitsInput(parsed.data) : false;
+}
+
+/**
+ * The sibling of `awaitsInput`: whether a succeeded run's own output judged
+ * the work failing — Testing's `failed`, a criterion gone wrong rather than a
+ * question about how to check one. Only ever asked of a run already read as
+ * `needs_review`, so a running or freshly-started card never shows it.
+ */
+function isFailed(stage: RunnableStage, run: Run): boolean {
+  if (run.status !== 'succeeded') return false;
+  const definition = stageDefinition(stage);
+  if (!definition?.failed) return false;
+  const parsed = definition.schema.safeParse(run.structuredOutput);
+  return parsed.success ? definition.failed(parsed.data) : false;
 }

@@ -174,6 +174,13 @@ export const testingStage: StageDefinition<TestingOutput> = {
     recordSuggestions(db, ctx, output.suggested_tasks);
   },
 
+  // A submitted report that found something broken, rather than merely a
+  // question about how to test it (that case never submits — see testing.md
+  // and lead.md — and so never reaches here). Drives the red gate.
+  failed(output) {
+    return !output.passed || output.criteria.some((c) => c.verdict === 'fail');
+  },
+
   summarise(output) {
     const failed = output.criteria.filter((c) => c.verdict === 'fail').length;
     const total = output.criteria.length;

@@ -223,6 +223,8 @@ function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
   } else if (card.activity === 'needs_review' && card.stage === 'release') {
     main = <span className="text-(--color-activity-review-mark)">◆ Pull request written · merge when you are satisfied</span>;
     side = <span>Claude never merges</span>;
+  } else if (card.activity === 'needs_review' && card.reviewFailed) {
+    main = <span className="text-(--color-activity-error-mark)">◆ Submitted · needs a fix</span>;
   } else if (card.activity === 'needs_review') {
     main = <span className="text-(--color-activity-review-mark)">◆ Submitted · ready for review</span>;
   } else if (card.activity === 'error') {

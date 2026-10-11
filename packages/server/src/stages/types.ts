@@ -136,6 +136,14 @@ export interface ClaudeTask<Output = unknown> {
    * then reads as ready for review.
    */
   awaitsInput?(output: Output): boolean;
+  /**
+   * Does this output mean the gate should read as failed rather than ready?
+   * Drives the red card face for a submitted result that judged the work not
+   * done — a failed criterion, say — as against one that simply asks a
+   * question (`awaitsInput`, yellow) or one that passed outright (green).
+   * Omitted means "never fails" — a succeeded run always reads as ready.
+   */
+  failed?(output: Output): boolean;
   /** One-line card summary from the output. */
   summarise(output: Output): string;
   /**
