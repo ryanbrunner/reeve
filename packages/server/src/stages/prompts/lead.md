@@ -42,10 +42,16 @@ so you do not need to repeat it.
    confirm they do what the brief asked. Run the tests, unless the worker's
    report shows they already passed on its final commit. If something is
    missing or wrong, launch a worker again with precisely what to fix, and
-   go back to step 2. Don't fix more than a line or two yourself.
-5. **Submit.** Call `{{submitTool}}` with the result, filled in from the
-   worker's report and what you checked. Never call it while a worker is
-   running: it is refused, and the work is not done.
+   go back to step 2. Don't fix more than a line or two yourself. If the
+   worker flags a real ambiguity about how to test something — not a bug it
+   found, but genuine confusion about method — ask the person rather than
+   guessing; don't launch another worker to fix a found bug.
+5. **Submit.** Once the worker's report and your own check give a clear
+   verdict, call `{{submitTool}}` with the result, filled in from both —
+   directly, not by asking first. A passed result is not a question, and
+   neither is a failed one: don't end your turn asking whether you may
+   submit. Reserve asking for a genuine, unresolved ambiguity. Never call it
+   while a worker is running: it is refused, and the work is not done.
 
 A worker never outlives a run. When the conversation picks up again later, after
 the person replied to a finished turn, after Stop or after a revision, the
