@@ -269,6 +269,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     return c.json(body);
   });
 
+  // The stage modules' own model, budget and prompt, with nothing asked of
+  // the CLI — unlike `/models` below, this answers at once, so Settings can
+  // show a stage's shipped prompt the moment someone opens it to customize
+  // it, rather than racing the CLI's own model listing for it.
+  api.get('/stage-defaults', (c) => {
+    const body: StageRunDefaults = builtInStageDefaults();
+    return c.json(body);
+  });
+
   // Asked of the CLI once per process, so only the first call after boot can
   // be slow. An empty list is an answer: the pickers offer defaults only.
   api.get('/models', async (c) => {

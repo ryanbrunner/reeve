@@ -26,6 +26,7 @@ import type {
   MoveCardBody,
   ResolveConflictsResponse,
   Stage,
+  StageRunDefaults,
   SuggestionDecisionBody,
   UpdateRepoBody,
   UpdateSettingsBody,
@@ -58,6 +59,8 @@ export const api = {
   updateSettings: (body: UpdateSettingsBody) => patch('/api/settings', body).then(json<ApiSettings>),
   /** What the Claude CLI offers. Empty when it could not be asked; the pickers then offer defaults only. */
   models: () => fetch('/api/models').then(json<ModelsResponse>),
+  /** Each stage's own model, budget and prompt, without asking the CLI for anything — fast, unlike `models()`. */
+  stageDefaults: () => fetch('/api/stage-defaults').then(json<StageRunDefaults>),
 
   // --- repos ---
   createRepo: (body: CreateRepoBody) => post('/api/repos', body).then(json<ApiRepo>),
