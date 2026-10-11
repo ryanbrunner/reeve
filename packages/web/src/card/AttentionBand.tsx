@@ -90,13 +90,14 @@ export function AttentionBand({
     if (deliverable) {
       // Testing's own verdict can fail a submitted report, not just ask a
       // question about it — red rather than the green a clean pass wears.
-      const failed = card.reviewFailed;
-      const border = failed ? 'border-(--color-activity-error-border)' : 'border-(--color-activity-review-border)';
-      const fill = failed ? '--color-activity-error-fill' : '--color-activity-review-fill';
+      // Each colour is spelled out whole: Tailwind only generates a class it
+      // finds verbatim in the source, so one assembled from `${fill}` would
+      // never exist.
+      const tint = card.reviewFailed
+        ? 'border-(--color-activity-error-border) bg-[linear-gradient(var(--color-activity-error-fill),var(--color-activity-error-fill)),var(--color-card-core)]'
+        : 'border-(--color-activity-review-border) bg-[linear-gradient(var(--color-activity-review-fill),var(--color-activity-review-fill)),var(--color-card-core)]';
       return (
-        <div
-          className={`relative mb-2.5 rounded-lg border ${border} bg-[linear-gradient(var(${fill}),var(${fill})),var(--color-card-core)] px-3 py-2.5`}
-        >
+        <div className={`relative mb-2.5 rounded-lg border ${tint} px-3 py-2.5`}>
           <NeedsReview detail={detail} conversation />
         </div>
       );
