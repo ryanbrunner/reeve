@@ -6,11 +6,14 @@ import {
   type ApiCard,
   type ApiCardLink,
   type ApiSettings,
+  type RunnableStage,
+  type StageRunDefault,
   type StageRunDefaults,
   type UpdateSettingsBody,
 } from '@reeve/shared';
 import { ASSET_ROUTE } from '../assets/store.js';
 import { config } from '../config.js';
+import { defaultPromptText } from '../stages/template.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -917,9 +920,23 @@ export function getSettings(db: Db): ApiSettings {
         effort: stored[s]?.effort ?? null,
         maxBudgetUsd: stored[s]?.maxBudgetUsd ?? null,
         maxTurns: stored[s]?.maxTurns ?? null,
+        prompt: stored[s]?.prompt ?? null,
       }]),
     ) as StageRunDefaults,
   };
+}
+
+/**
+ * A blank override, or one that reads back the shipped file verbatim, is
+ * stored as null rather than as text — the first so a half-cleared textarea
+ * doesn't become a real override, the second so a board stops receiving
+ * future improvements to that file the moment someone saves without
+ * changing a word of it.
+ */
+function normalizeStageDefault(stage: RunnableStage, row: StageRunDefault): StageRunDefault {
+  const prompt = row.prompt?.trim();
+  if (!prompt) return { ...row, prompt: null };
+  return { ...row, prompt: prompt === defaultPromptText(stage).trim() ? null : row.prompt };
 }
 
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
@@ -936,7 +953,7 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...(stageDefaults
       ? {
           stageDefaults: Object.fromEntries(
-            RUNNABLE_STAGES.map((s) => [s, { ...current.stageDefaults[s], ...stageDefaults[s] }]),
+            RUNNABLE_STAGES.map((s) => [s, normalizeStageDefault(s, { ...current.stageDefaults[s], ...stageDefaults[s] })]),
           ) as StageRunDefaults,
         }
       : {}),
