@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
@@ -208,25 +209,123 @@ const VALUE = /^("[^"\\$`]*"|'[^']*'|(?!~[^/\s])[^\s"'\\$`;&|()<>]+)(?=$|[\s;&|(
 
 /** Why the command may not run, or null when it names no live database. */
 function scratchDbRefusal(command: string, worktreePath: string): string | null {
+  // One answer for the whole command, not one per `REEVE_DB=`: a `cd` after an
+  // `export`ed assignment moves where that assignment is actually read from
+  // just as much as one before it does, since the shell keeps the variable
+  // past the statement that set it. Computed once because it does not depend
+  // on which assignment is being checked.
+  const candidates = cwdCandidates(command, worktreePath);
   for (const m of command.matchAll(ASSIGNMENT)) {
     const value = VALUE.exec(command.slice(m.index + m[0].length))?.[1];
     if (!value) return unreadableDbDenial(command);
     const db = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
-    if (isLiveDatabase(db, worktreePath)) return liveDbDenial(command);
+    // An absolute value reads the same wherever the shell happens to be, so
+    // worktreePath — where every Bash call in a run actually starts — is the
+    // only cwd that matters, and a `cd` this cannot follow is no reason to
+    // refuse it. A relative one is only as good as the cwd it is read
+    // against, and that is what `candidates` is working out.
+    if (isAbsolute(db)) {
+      if (isLiveDatabase(db, worktreePath)) return liveDbDenial(command);
+      continue;
+    }
+    if (candidates === null) return cdUnreadableDenial(command);
+    if (candidates.some((cwd) => isLiveDatabase(db, cwd))) return liveDbDenial(command);
   }
   return null;
 }
 
 /**
- * The board this server is running on. Unset `REEVE_DB` is no risk of this:
- * a spike resolves its default from the worktree, not the main checkout.
+ * Every directory a relative `REEVE_DB` anywhere in the command could really
+ * be read against: `worktreePath` itself, always — a leading `cd` can fail,
+ * or sit behind a `||` that never runs it, and the command then runs exactly
+ * where it started — plus wherever a plain `cd <dir>` chain off the front,
+ * connected by `&&` or `;`, actually lands at each step along the way. Each
+ * step, not just the last: `cd a; cd /nonexistent; …` likely fails on the
+ * second `cd` and runs the rest from `a`, so `a` has to stay a candidate
+ * alongside wherever the chain would land if every `cd` in it succeeded.
+ *
+ * Null when this cannot vouch for that being the whole story: a `cd` whose
+ * own target cannot be read as plainly as `VALUE` requires, a `cd -` or
+ * `-`-prefixed target (the previous directory, which this has no way to
+ * know), a `cd`/`pushd`/`popd` anywhere else in the command once the leading
+ * chain is accounted for — before the assignment, as `env FOO=bar cd x`
+ * would read oddly but shells allow, or after it, as `export REEVE_DB=x; cd
+ * dir; …` actually runs — or a chain long enough that tracking every
+ * directory it might fail into would mean tracking an unbounded number of
+ * them. Any of those make the real cwd a guess, and a guess is not grounds
+ * to allow what a known cwd would deny.
  */
-function isLiveDatabase(db: string, worktreePath: string): boolean {
-  return samePath(resolve(worktreePath, db), resolve(config.dbFile));
+function cwdCandidates(command: string, worktreePath: string): string[] | null {
+  let cwds = [worktreePath];
+  let pos = 0;
+  for (;;) {
+    const cd = /^\s*(?:cd|chdir)\s+/.exec(command.slice(pos));
+    if (!cd) break;
+    const afterCd = pos + cd[0].length;
+    const value = VALUE.exec(command.slice(afterCd))?.[1];
+    if (!value || value.startsWith('-')) return null;
+    // A quoted target is literal, same as everywhere else `VALUE` is read.
+    // A bare one is glob-expanded by the shell before `cd` ever sees it, so
+    // `cd ../some-dir*` lands wherever that glob happens to match, not on
+    // the literal text — not this guard's to resolve.
+    if (!/^["']/.test(value) && /[*?[{]/.test(value)) return null;
+    const dir = /^["']/.test(value) ? value.slice(1, -1) : value.replace(/^~(?=\/|$)/, homedir());
+    const afterValue = afterCd + value.length;
+    // A bare `cd <dir>` ends the command, or runs into `&&`, `;`, `|` or
+    // `||` — anything else trailing the target, such as zsh's `cd old new`
+    // substituting inside `$PWD`, means the directory this computed is not
+    // what actually happens, and that is not this guard's shell to model.
+    if (!/^\s*(?:&&|\|\|?|;|$)/.test(command.slice(afterValue))) return null;
+    // Every candidate so far might be where this `cd` actually runs from — a
+    // prior one in the chain could have failed just as this one might — so
+    // each gains the directory this one would leave it in, rather than
+    // replacing them with just that.
+    cwds = [...new Set([...cwds, ...cwds.map((c) => resolve(c, dir))])];
+    // A chain this long is no script a stage would write; it is this guard
+    // being made to track more directories than it can hold, since a run of
+    // relative `cd`s doubles the set each time.
+    if (cwds.length > 32) return null;
+    const chain = /^\s*(?:&&|;)\s*/.exec(command.slice(afterValue));
+    if (!chain) {
+      pos = afterValue;
+      break;
+    }
+    pos = afterValue + chain[0].length;
+  }
+  // The chain above only ever walks forward from a plain `cd` at its own
+  // start; anything cd-like left outside it, before or after, is exactly the
+  // shape of thing it cannot follow — refuse rather than guess what it did.
+  if (/(?:^|[\s;&|(`"'])(?:cd|chdir|pushd|popd)\b/.test(command.slice(pos))) return null;
+  return cwds;
 }
 
+/**
+ * The board this server is running on. Unset `REEVE_DB` is no risk of this:
+ * a spike resolves its default from the worktree, not the main checkout.
+ *
+ * `cwd` is dereferenced first: a relative value's `..` walks up from where
+ * the shell physically is, not from a symlink's own apparent location, so
+ * `cd /tmp/link-to-elsewhere && REEVE_DB=../reeve.db` has to resolve the same
+ * way the shell would — off the real directory, not the lexical one.
+ */
+function isLiveDatabase(db: string, cwd: string): boolean {
+  return samePath(resolve(realOrSelf(cwd), db), resolve(config.dbFile));
+}
+
+/**
+ * Whether `a` and `b` name the same file, real symlinks and all — without
+ * requiring either to exist yet. `realOrSelf` on the whole path is the right
+ * answer once the database file itself is there to `realpath`: it also
+ * fixes a re-cased leaf and follows a symlink made of the file itself, which
+ * dereferencing only the parent would miss. But `realpathSync` throws on a
+ * missing leaf no matter how real everything above it is, and the database
+ * genuinely may not exist yet — before a server's first boot, or in a
+ * spike's scratch path — so a path that does not exist falls back to
+ * dereferencing just its parent, literal basename and all.
+ */
 function samePath(a: string, b: string): boolean {
-  return realOrSelf(a) === realOrSelf(b);
+  const real = (p: string) => (existsSync(p) ? realOrSelf(p) : join(realOrSelf(dirname(p)), basename(p)));
+  return real(a) === real(b);
 }
 
 const NOBODY = {
@@ -269,6 +368,16 @@ function unreadableDbDenial(command: string): string {
     `Reeve refuses any \`REEVE_DB\` that names the database its server is using (${config.dbFile}),`,
     'and it can only tell when the path is written out plainly: no `$`, no backslash, no quote part-way through.',
     'Name a scratch file directly — `REEVE_DB=/tmp/scratch.db` — and run the command again.',
+  ].join(' ');
+}
+
+function cdUnreadableDenial(command: string): string {
+  return [
+    `Denied: \`${short(command)}\`.`,
+    `Reeve refuses any \`REEVE_DB\` that names the database its server is using (${config.dbFile}),`,
+    "and a relative path only means one thing once this can tell where every `cd` along the way actually lands,",
+    'which it cannot here.',
+    'Point it at an absolute scratch path instead — a fresh path under /tmp — and run the same command again.',
   ].join(' ');
 }
 

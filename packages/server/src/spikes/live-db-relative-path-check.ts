@@ -1,44 +1,45 @@
 /**
- * A gap in `liveDatabaseGuard` (runs/permissions.ts) that `permission-check.ts`
- * does not try: every bypass it tests gives the guard the live path written
- * out in full, absolute, the way the rest of this file's bypasses attack the
- * *parsing* of the value. This attacks what the value is resolved *against*
- * instead.
+ * Throwaway check for the disguises `permission-check.ts` does not try: a
+ * relative `REEVE_DB` whose real cwd is not `worktreePath`. It began as the
+ * security-review card's demonstration of the gap (finding 1 in
+ * `security-review-findings.md`), which printed FAIL for the `cd` cases until
+ * the guard learned to read them; it now checks the fix instead.
  *
- * `isLiveDatabase` compares `resolve(worktreePath, db)` to `config.dbFile` —
- * always relative to the worktree the stage started in, never to wherever the
- * command the guard is reading actually leaves the shell's cwd. A command
- * that `cd`s elsewhere first and then sets `REEVE_DB` to a bare filename is
- * resolved by the real shell relative to that *other* directory, but by this
- * guard relative to the worktree regardless — so `cd`ing into the live
- * database's own directory and writing just its filename opens the live
- * board and is waved through, because resolved against the worktree it reads
- * as some unrelated path that merely happens to share a basename.
+ * `scratchDbRefusal` used to resolve every `REEVE_DB` value against the
+ * stage's `worktreePath`, full stop, no matter what came before it in the
+ * command. `cd <live-db-dir> && REEVE_DB=<basename> npx tsx …` is read by the
+ * real shell, after the `cd`, relative to that other directory — landing
+ * exactly on the live database — but the guard was resolving `<basename>`
+ * against `worktreePath` instead, computing an unrelated path and letting it
+ * through. Before the fix to `cwdCandidates` in runs/permissions.ts, every
+ * "denied" case below but the absolute one was ALLOWED, and the unparseable
+ * `cd` in the "allowed" case was denied even though its value is absolute and
+ * so does not depend on it.
  *
- * Nothing here needs the running server's own database: `config.dbFile` is
- * read like any other setting, so a scratch `REEVE_DB` plays the live board's
- * part the same way `permission-check.ts` does, and the checks never touch
- * it.
+ *   REEVE_DB=/tmp/live-db-relative-check.db npx tsx packages/server/src/spikes/live-db-relative-path-check.ts
  *
- *   REEVE_DB=/tmp/relpath-scratch.db npx tsx packages/server/src/spikes/live-db-relative-path-check.ts
+ * With that `REEVE_DB`, `config.dbFile` IS the scratch path, so it plays the
+ * live board here; the paths derived from it below are what a command would
+ * have to write to land on it for real.
  */
-import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { liveDatabaseGuard } from '../runs/permissions.js';
 
-const note = (l: string, v: unknown) => console.log(`${l.padEnd(46)}: ${v}`);
 let failures = 0;
 function check(name: string, ok: boolean) {
   if (!ok) failures++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}`);
 }
 
-const wt = mkdtempSync(join(tmpdir(), 'reeve-relpath-'));
-const guard = liveDatabaseGuard(wt, () => {});
-async function hook(command: string): Promise<'denied' | 'allowed'> {
+const wt = mkdtempSync(join(tmpdir(), 'reeve-live-db-relative-'));
+const refused: string[] = [];
+const guard = liveDatabaseGuard(wt, (_tool, input) => refused.push(String(input['command'])));
+
+async function denied(command: string): Promise<boolean> {
   const input = {
     hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, tool_use_id: 'toolu_x',
     session_id: '', transcript_path: '', cwd: wt,
@@ -46,47 +47,98 @@ async function hook(command: string): Promise<'denied' | 'allowed'> {
   const out = (await guard(input, 'toolu_x', { signal: new AbortController().signal })) as {
     hookSpecificOutput?: { permissionDecision?: string };
   };
-  return out.hookSpecificOutput?.permissionDecision === 'deny' ? 'denied' : 'allowed';
+  return out.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-const live = config.dbFile; // a scratch path here, standing in for the live board — see the header.
-const liveDir = dirname(live);
-const liveFile = basename(live);
+const live = config.dbFile;
+const dir = dirname(live); // the live database's own directory
+const file = basename(live);
+const up = dirname(dir); // one directory further up
+const dirName = basename(dir);
 
-note('the live path the guard protects', live);
+check('the absolute form is denied, as always', await denied(`REEVE_DB=${live} npx tsx x.ts`));
 
 check(
-  'the absolute live path, from the worktree, is denied',
-  (await hook(`REEVE_DB=${live} npx tsx x.ts`)) === 'denied',
+  'a relative REEVE_DB after cd into the live db directory lands on it too, one directory removed',
+  await denied(`cd ${dir} && REEVE_DB=${file} npx tsx x.ts`),
 );
 
-// The actual bypass: `cd` into the live database's directory, then name it
-// bare. A real shell started with `cwd: worktreePath` (as every Bash call in
-// a run is) ends up, after the `cd`, sitting in `liveDir` — so `REEVE_DB`
-// resolves there to `live`, byte for byte. The guard still resolves it
-// against `worktreePath`, sees an unrelated path, and says nothing.
-const bypass = `cd ${liveDir} && REEVE_DB=${liveFile} npx tsx x.ts`;
-const result = await hook(bypass);
-note('after `cd` into the live db\'s own dir, a bare filename', result);
-// "ok" here means the vulnerability was NOT found: a passing run should
-// print FAIL for this one, and does, until the guard learns to read `cd`.
 check(
-  'FINDING: a `cd` into the live db\'s own dir should still be caught',
-  result === 'denied',
+  'a relative REEVE_DB after cd one directory further up lands on it too, two directories removed',
+  await denied(`cd ${up} && REEVE_DB=${dirName}/${file} npx tsx x.ts`),
 );
 
-// The same shape, one level up: `cd` into the live directory's *parent*,
-// then a relative path of `basename(liveDir)/liveFile` — the guard is no
-// more able to follow a `cd` two components removed than one.
-const parent = dirname(liveDir);
-const twoUp = `cd ${parent} && REEVE_DB=${basename(liveDir)}/${liveFile} npx tsx x.ts`;
-check('the same bypass, one directory further out, should also be caught', (await hook(twoUp)) === 'denied');
+console.log('\n--- disguises that move or hide the cwd without naming the live db in plain cd ---');
 
+check(
+  'a cd not leading the command — behind an unrelated command first — still counts',
+  await denied(`true && cd ${dir} && REEVE_DB=${file} npx tsx x.ts`),
+);
+check('a cd inside a subshell still counts', await denied(`(cd ${dir} && REEVE_DB=${file} npx tsx x.ts)`));
+check('pushd moves the cwd the same way cd does', await denied(`pushd ${dir} && REEVE_DB=${file} npx tsx x.ts`));
+check(
+  "a flag on cd's target (`cd -P dir`) is a target this cannot read, not the previous directory",
+  await denied(`cd -P ${dir} && REEVE_DB=${file} npx tsx x.ts`),
+);
+check(
+  'REEVE_DB set before a cd that moves where it is actually read from still counts',
+  await denied(`export REEVE_DB=${file}; cd ${dir}; npx tsx x.ts`),
+);
+
+console.log('\n--- shell behaviour the cd parser cannot model, refused rather than guessed ---');
+
+check(
+  'a glob in the cd target is denied rather than resolved literally',
+  await denied(`cd ${dir.slice(0, -1)}* && REEVE_DB=${file} npx tsx x.ts`),
+);
+check(
+  "trailing text after a cd target, the shape zsh's \`cd old new\` substitution leaves, is denied",
+  await denied(`cd ${dir} extra && REEVE_DB=${file} npx tsx x.ts`),
+);
+
+console.log('\n--- a symlinked cwd ---');
+
+const link = join(tmpdir(), `reeve-live-db-link-${process.pid}`);
+symlinkSync(dir, link);
+try {
+  check(
+    'cd through a symlink to the live db directory still lands on it',
+    await denied(`cd ${link} && REEVE_DB=${file} npx tsx x.ts`),
+  );
+} finally {
+  rmSync(link);
+}
+
+console.log('\n--- a symlink to the live db file itself ---');
+
+// samePath has to dereference the whole path, not just its parent, once the
+// file is actually there — otherwise a symlink made of the live database
+// itself, pointed at from an unrelated absolute path, reads as a different
+// file than the one it names.
+if (!existsSync(live)) writeFileSync(live, '');
+const alias = join(tmpdir(), `reeve-live-db-alias-${process.pid}.db`);
+symlinkSync(live, alias);
+try {
+  check('an absolute REEVE_DB that is a symlink to the live db file is denied', await denied(`REEVE_DB=${alias} npx tsx x.ts`));
+} finally {
+  rmSync(alias);
+}
+
+console.log('\n--- what a leading cd must not cost ---');
+
+check(
+  "an absolute value doesn't depend on cwd, so a cd whose own target can't be read plainly doesn't deny it",
+  !(await denied(`cd "$(pwd)" && REEVE_DB=/tmp/live-db-relative-scratch.db npx tsx x.ts`)),
+);
 // Contrast: the same relative value, with no `cd`, is read against the
 // worktree as intended and (almost certainly) names nothing special there.
 check(
-  'without the `cd`, the bare filename alone reads as an unrelated path',
-  (await hook(`REEVE_DB=${liveFile} npx tsx x.ts`)) === 'allowed',
+  'without a cd, the bare filename alone reads as an unrelated path and is allowed',
+  !(await denied(`REEVE_DB=${file} npx tsx x.ts`)),
+);
+check(
+  'a relative REEVE_DB after cd somewhere unrelated to the live db is allowed',
+  !(await denied(`cd packages && REEVE_DB=scratch.db npx tsx x.ts`)),
 );
 
 console.log(`\n--- ${failures === 0 ? 'all good' : `${failures} FAILED`} ---`);
