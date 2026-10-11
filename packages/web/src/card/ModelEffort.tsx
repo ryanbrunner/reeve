@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardDetail, EffortLevel } from '@reeve/shared';
+import { isRunnable, type CardDetail, type EffortLevel, type RunnableStage } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { modelFamilyColor } from '../lib/modelTint.js';
 import {
-  effortLevelsFor, keepEffort, modelFamilies, overflowModelOptions, OVERFLOW_DEFAULT, type ModelFamily,
+  effortLevelsFor, findModel, keepEffort, modelFamilies, overflowModelOptions, OVERFLOW_DEFAULT, type ModelFamily,
 } from '../lib/models.js';
 
 /** Short enough to sit in a 40-ish px segment beside three others. */
@@ -17,6 +17,15 @@ const FAMILY_LABEL: Record<ModelFamily, string> = { haiku: 'Haiku', sonnet: 'Son
  * while running, since the family toggle wears the same tint the running
  * glow then picks up.
  *
+ * Neither picker marks "nothing pinned here" on its own: a card with no
+ * explicit model or effort runs with whatever Settings' stage default
+ * resolves to (`card.model ?? stageDefaults[stage].model ?? stage.model`, the
+ * same order `fitToModel` uses on the server), so that resolved value is what
+ * shows selected. Settings sets no model for any stage, so a card's model
+ * usually has no known default and the toggle shows nothing active, same as
+ * before; effort defaults to 'high' for every stage unless Settings says
+ * otherwise, so the slider almost always has something to show.
+ *
  * Only for a task, outside VIBES MODE: see the `modelEffort` prop on
  * `CardHeader`. The budget field this replaced in the rail stays there, as
  * `Budget` in `Rail.tsx`; this is model and effort alone.
@@ -24,6 +33,7 @@ const FAMILY_LABEL: Record<ModelFamily, string> = { haiku: 'Haiku', sonnet: 'Son
 export function ModelEffort({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const models = data?.models ?? [];
   const { model, effort } = detail.card;
   const set = useMutation({
@@ -34,11 +44,20 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
     },
   });
 
+  // Backlog has no stage defaults of its own — Planning is what starting it runs next.
+  const runStage: RunnableStage = isRunnable(detail.card.stage) ? detail.card.stage : 'planning';
+  const defaultModel = settings?.stageDefaults[runStage]?.model ?? data?.builtIn[runStage]?.model ?? null;
+  const defaultEffort = settings?.stageDefaults[runStage]?.effort ?? data?.builtIn[runStage]?.effort ?? null;
+  const effectiveModel = model ?? defaultModel;
+
   const families = modelFamilies(models);
   const overflow = overflowModelOptions(models, model);
-  const levels = effortLevelsFor(models, model);
+  const levels = effortLevelsFor(models, effectiveModel);
+  const matchedDefault = findModel(models, effectiveModel);
+  const canonicalModel = matchedDefault?.value ?? effectiveModel;
 
-  const pickModel = (value: string | null) => set.mutate({ model: value, effort: keepEffort(models, value, effort) });
+  const pickModel = (value: string | null) =>
+    set.mutate({ model: value, effort: keepEffort(models, value ?? defaultModel, effort) });
 
   return (
     <div className="flex w-[260px] shrink-0 flex-col gap-2.5">
@@ -50,7 +69,7 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
           <div role="group" aria-label="Model family for this card's runs" className="flex overflow-hidden rounded-sm border border-(--color-edge)">
             {(Object.keys(FAMILY_LABEL) as ModelFamily[]).map((family) => {
               const m = families[family];
-              const active = Boolean(m && m.value === model);
+              const active = Boolean(m && matchedDefault && m.value === matchedDefault.value);
               const tone = modelFamilyColor(family);
               return (
                 <button
@@ -73,11 +92,16 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
           <Dropdown
             variant="chip"
             label="Other model for this card's runs"
-            // '' never matches `OVERFLOW_DEFAULT`, so whenever nothing from
-            // this list is in effect — nothing pinned at all, or a family the
-            // toggle already shows — the trigger falls through to the plain
-            // "…" placeholder rather than restating "Settings default".
-            value={model && !Object.values(families).some((m) => m?.value === model) ? model : ''}
+            // The resolved model — the card's own pin, or the stage default
+            // standing in for it — normalised to the CLI's own value when it
+            // is one of those, so this falls through to the plain "…"
+            // placeholder only when nothing is in effect at all, or a family
+            // the toggle already shows is.
+            value={
+              canonicalModel && !Object.values(families).some((m) => m?.value === canonicalModel)
+                ? canonicalModel
+                : ''
+            }
             disabled={set.isPending}
             placeholder="…"
             options={overflow}
@@ -87,7 +111,13 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
           />
         </div>
       </div>
-      <EffortSlider levels={levels} effort={effort} onChange={(v) => set.mutate({ effort: v })} disabled={set.isPending} />
+      <EffortSlider
+        levels={levels}
+        effort={effort}
+        defaultEffort={defaultEffort}
+        onChange={(v) => set.mutate({ effort: v })}
+        disabled={set.isPending}
+      />
     </div>
   );
 }
@@ -104,24 +134,35 @@ const STOP_TONE: Record<EffortLevel, string> = {
  * Hand-built rather than a native `<input type="range">`: a range has no way
  * to show its own disabled reason, cannot colour-code its steps, and a drag
  * started on it cannot be told apart from one meant for the card underneath.
- * Stops rather than a continuum, since effort is a small fixed set of levels
- * and the position is the whole UI — "Settings default" plus whatever the
- * current model supports, keyed the same way the old dropdown's options were.
+ * Stops rather than a continuum, since effort is a small fixed set of levels,
+ * keyed the same way the old dropdown's options were.
+ *
+ * No stop of its own for "nothing pinned": the handle sits on `defaultEffort`
+ * — the stage default this card falls back to — so an untouched card reads
+ * exactly like one explicitly set to that level. Picking that same stop is
+ * `onChange(null)`, so the card reverts to following Settings rather than
+ * pinning the level it happened to already show.
  */
-function EffortSlider({ levels, effort, onChange, disabled }: {
+function EffortSlider({ levels, effort, defaultEffort, onChange, disabled }: {
   levels: readonly EffortLevel[];
   effort: EffortLevel | null;
+  defaultEffort: EffortLevel | null;
   onChange: (v: EffortLevel | null) => void;
   disabled: boolean;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  const stops: Array<EffortLevel | null> = [null, ...levels];
-  const index = Math.max(0, stops.indexOf(effort));
+  const stops = levels;
   const last = stops.length - 1;
+  const effective = effort ?? defaultEffort;
+  // Falls back to the lowest stop if the default itself isn't one this
+  // model supports — a model switch can leave the two disagreeing.
+  const rawIndex = effective ? stops.indexOf(effective) : -1;
+  const index = rawIndex === -1 ? 0 : rawIndex;
+  const current = stops[index];
   const pct = last === 0 ? 0 : (index / last) * 100;
-  const label = effort ?? 'Default';
-  const tone = effort ? STOP_TONE[effort] : 'var(--color-muted)';
+  const label = current ?? 'Default';
+  const tone = current ? STOP_TONE[current] : 'var(--color-muted)';
 
   if (levels.length === 0) {
     return (
@@ -145,7 +186,9 @@ function EffortSlider({ levels, effort, onChange, disabled }: {
 
   const pick = (at: number) => {
     const clamped = Math.max(0, Math.min(last, at));
-    if (clamped !== index) onChange(stops[clamped] ?? null);
+    if (clamped === index) return;
+    const picked = stops[clamped] ?? null;
+    onChange(picked === defaultEffort ? null : picked);
   };
 
   // Dragging reads from pointermove on the document rather than the handle,
@@ -206,7 +249,7 @@ function EffortSlider({ levels, effort, onChange, disabled }: {
           />
           {stops.map((s, i) => (
             <span
-              key={s ?? 'default'}
+              key={s}
               aria-hidden="true"
               className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full"
               style={{ left: `${last === 0 ? 0 : (i / last) * 100}%`, transform: 'translate(-50%, -50%)', background: i <= index ? 'transparent' : 'rgba(255,255,255,0.18)' }}
@@ -216,15 +259,12 @@ function EffortSlider({ levels, effort, onChange, disabled }: {
             aria-hidden="true"
             className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 -translate-x-1/2 rounded-full border border-black/30 transition-[left] ${
               dragging ? '' : 'duration-150'
-            } ${effort === 'max' ? 'effort-overdrive' : ''}`}
+            } ${current === 'max' ? 'effort-overdrive' : ''}`}
             style={{ left: `${pct}%`, background: tone }}
           />
         </div>
-        <span
-          className="w-12 shrink-0 text-right font-mono text-[10px]/4"
-          style={{ color: effort ? tone : 'var(--color-muted)' }}
-        >
-          {effort === 'max' ? 'Max 🔥' : label}
+        <span className="w-12 shrink-0 text-right font-mono text-[10px]/4" style={{ color: tone }}>
+          {current === 'max' ? 'Max 🔥' : label}
         </span>
       </div>
     </div>
