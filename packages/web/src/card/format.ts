@@ -97,4 +97,31 @@ export function sumTokens(runs: ApiRunSummary[]): { total: number; breakdown: Ap
   return { total, breakdown };
 }
 
+/**
+ * Several runs' spend as one figure: each ended run's own cost, and a live
+ * run's pulse, so the total moves while a run is under way rather than
+ * jumping at its end. Not exact while any live run's share is an estimate.
+ * Null while none of them has a cost to add.
+ */
+export function sumCost(runs: ApiRunSummary[]): { usd: number; exact: boolean } | null {
+  let usd = 0;
+  let exact = true;
+  let counted = false;
+  for (const r of runs) {
+    if (r.costUsd != null) {
+      usd += r.costUsd;
+      counted = true;
+    } else if (r.pulse?.costUsd != null) {
+      usd += r.pulse.costUsd;
+      exact &&= r.pulse.costExact;
+      counted = true;
+    }
+  }
+  return counted ? { usd, exact } : null;
+}
+
+/** `$3.10`, or `≈ $3.10` while part of it is an estimate. */
+export const usd = (cost: { usd: number; exact: boolean }): string =>
+  `${cost.exact ? '' : '≈ '}$${cost.usd.toFixed(2)}`;
+
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;

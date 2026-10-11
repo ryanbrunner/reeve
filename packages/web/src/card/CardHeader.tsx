@@ -5,7 +5,7 @@ import { ProjectProgress } from '../board/ProjectProgress.js';
 import { api } from '../lib/api.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { AttentionBand } from './AttentionBand.js';
-import { plural, sumTokens, tok, tokenTitle, when } from './format.js';
+import { plural, sumCost, sumTokens, tok, tokenTitle, usd, when } from './format.js';
 import { SmallButton } from './ui.js';
 import type { LiveRun } from './useCardDetail.js';
 
@@ -33,6 +33,7 @@ export function CardHeader({
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   const spent = sumTokens(runs);
+  const cost = sumCost(runs);
   const running = card.activity === 'running';
   const createdBy = detail.events.find((e) => e.kind === 'created')?.actor;
 
@@ -257,6 +258,14 @@ export function CardHeader({
           <>
             {' · '}
             <span title={tokenTitle(spent.breakdown)}>{tok(spent.total)}</span>
+          </>
+        )}
+        {cost && (
+          <>
+            {' · '}
+            <span title={cost.exact ? 'Spent across every run' : 'Spent across every run, a live run\'s share estimated'}>
+              {usd(cost)}
+            </span>
           </>
         )}
         {running && runs.length > 0 && ' so far'}
