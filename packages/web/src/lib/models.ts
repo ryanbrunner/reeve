@@ -46,6 +46,52 @@ export function modelOptions(models: ApiModel[], current: string | null): Dropdo
   return options;
 }
 
+/** The four families the header's toggle gives their own segment, in the order it shows them. */
+export const MODEL_FAMILIES = ['haiku', 'sonnet', 'opus', 'fable'] as const;
+export type ModelFamily = (typeof MODEL_FAMILIES)[number];
+
+const FAMILY_NAME: Record<ModelFamily, string> = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
+
+/**
+ * The latest model in each family, for the header's four-segment toggle: the
+ * CLI lists its aliases — the ones a card would actually run with — ahead of
+ * the pinned ids they resolve to, so the first `displayName` to start with a
+ * family's name is that family's current one.
+ */
+export function modelFamilies(models: ApiModel[]): Partial<Record<ModelFamily, ApiModel>> {
+  const picked: Partial<Record<ModelFamily, ApiModel>> = {};
+  for (const family of MODEL_FAMILIES) {
+    picked[family] = models.find((m) => m.displayName.toLowerCase().startsWith(FAMILY_NAME[family].toLowerCase()));
+  }
+  return picked;
+}
+
+/**
+ * The overflow dropdown's own value for "Settings default", standing in for
+ * `null`. Never `''`, so its trigger can tell "nothing picked here, the
+ * toggle has it" apart from "this card was put back to Settings' own choice
+ * from this very control" — both end up with the card's `model` at `null`,
+ * but only the second should leave "Settings default" sitting in the chip.
+ */
+export const OVERFLOW_DEFAULT = '\u0000default';
+
+/**
+ * Everything the toggle's four segments did not pick, for the overflow chip
+ * beside them: every other model the CLI lists, a stored model it no longer
+ * does, and "Settings default" — the toggle has no segment for leaving the
+ * choice to Settings, so that lives here instead.
+ */
+export function overflowModelOptions(models: ApiModel[], current: string | null): DropdownOption[] {
+  const picked = new Set(Object.values(modelFamilies(models)).map((m) => m?.value));
+  const rest = models.filter((m) => !picked.has(m.value));
+  const options: DropdownOption[] = [
+    { value: OVERFLOW_DEFAULT, label: 'Settings default' },
+    ...rest.map((m) => ({ value: m.value, label: m.displayName, warn: m.supportsAutoMode === true ? undefined : "can't edit" })),
+  ];
+  if (current && !findModel(models, current) && !picked.has(current)) options.push({ value: current, label: current });
+  return options;
+}
+
 /**
  * What to keep of an effort when the model beside it changes: itself, if the
  * new model takes it, or nothing — so the form never holds a pair the run
