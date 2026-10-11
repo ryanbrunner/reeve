@@ -12,14 +12,25 @@ export function findModel(models: ApiModel[], model: string | null): ApiModel | 
 /**
  * The effort levels worth offering beside `model`. Reads the CLI's answer the
  * way the server does: a model it did not list, or a capability it did not
- * report, is assumed to take every level. No model at all is the CLI's
- * default, which is not known here, so it is offered everything too.
+ * report, is assumed to take every level. No model at all offers everything
+ * too, though a caller that knows what an unpinned run would actually use —
+ * see `unpinnedModel` — should resolve that first and pass it in instead.
  */
 export function effortLevelsFor(models: ApiModel[], model: string | null): readonly EffortLevel[] {
   const m = findModel(models, model);
   if (!m) return EFFORT_LEVELS;
   if (m.supportsEffort === false) return [];
   return m.supportedEffortLevels ?? EFFORT_LEVELS;
+}
+
+/**
+ * What a run with no model pinned anywhere actually gets: the CLI lists it
+ * among `supportedModels()` as the row whose `value` is literally `'default'`
+ * ("Default (recommended)"), resolving the same way `model: null` would. Null
+ * only if the CLI could not be asked at all.
+ */
+export function unpinnedModel(models: ApiModel[]): string | null {
+  return models.find((m) => m.value === 'default')?.resolvedModel ?? null;
 }
 
 /**
@@ -67,11 +78,12 @@ export function modelFamilies(models: ApiModel[]): Partial<Record<ModelFamily, A
 }
 
 /**
- * The overflow dropdown's own value for "Settings default", standing in for
- * `null`. Never `''`, so its trigger can tell "nothing picked here, the
- * toggle has it" apart from "this card was put back to Settings' own choice
- * from this very control" — both end up with the card's `model` at `null`,
- * but only the second should leave "Settings default" sitting in the chip.
+ * The overflow dropdown's own value for "Back to Settings' own choice" —
+ * `onChange` reads it back to `null`. Never `''`, which the dropdown already
+ * gives its placeholder, so picking this row is never confused with picking
+ * nothing. What shows selected afterward is whatever that resolves to, same
+ * as before picking it — see `ModelEffort`, which never feeds this value
+ * itself back into the trigger.
  */
 export const OVERFLOW_DEFAULT = '\u0000default';
 

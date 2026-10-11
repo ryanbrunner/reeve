@@ -5,7 +5,8 @@ import { api } from '../lib/api.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { modelFamilyColor } from '../lib/modelTint.js';
 import {
-  effortLevelsFor, findModel, keepEffort, modelFamilies, overflowModelOptions, OVERFLOW_DEFAULT, type ModelFamily,
+  effortLevelsFor, findModel, keepEffort, modelFamilies, overflowModelOptions, OVERFLOW_DEFAULT, unpinnedModel,
+  type ModelFamily,
 } from '../lib/models.js';
 
 /** Short enough to sit in a 40-ish px segment beside three others. */
@@ -18,13 +19,14 @@ const FAMILY_LABEL: Record<ModelFamily, string> = { haiku: 'Haiku', sonnet: 'Son
  * glow then picks up.
  *
  * Neither picker marks "nothing pinned here" on its own: a card with no
- * explicit model or effort runs with whatever Settings' stage default
- * resolves to (`card.model ?? stageDefaults[stage].model ?? stage.model`, the
- * same order `fitToModel` uses on the server), so that resolved value is what
- * shows selected. Settings sets no model for any stage, so a card's model
- * usually has no known default and the toggle shows nothing active, same as
- * before; effort defaults to 'high' for every stage unless Settings says
- * otherwise, so the slider almost always has something to show.
+ * explicit model or effort runs with whatever it resolves to —
+ * `card.model ?? stageDefaults[stage].model ?? stage.model ?? the CLI's own
+ * default`, the same order `modelAndEffortFor` builds on the server — and that
+ * resolved value is what shows selected instead. No stage module sets its
+ * own model, so a card not pinned by Settings either falls to the CLI's own
+ * default (`unpinnedModel` in `models.ts`); every stage module does set an
+ * effort, so the slider almost always has a non-default fallback beneath
+ * Settings too.
  *
  * Only for a task, outside VIBES MODE: see the `modelEffort` prop on
  * `CardHeader`. The budget field this replaced in the rail stays there, as
@@ -46,15 +48,20 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
 
   // Backlog has no stage defaults of its own — Planning is what starting it runs next.
   const runStage: RunnableStage = isRunnable(detail.card.stage) ? detail.card.stage : 'planning';
-  const defaultModel = settings?.stageDefaults[runStage]?.model ?? data?.builtIn[runStage]?.model ?? null;
+  const defaultModel =
+    settings?.stageDefaults[runStage]?.model ?? data?.builtIn[runStage]?.model ?? unpinnedModel(models);
   const defaultEffort = settings?.stageDefaults[runStage]?.effort ?? data?.builtIn[runStage]?.effort ?? null;
   const effectiveModel = model ?? defaultModel;
 
   const families = modelFamilies(models);
-  const overflow = overflowModelOptions(models, model);
+  const overflow = overflowModelOptions(models, effectiveModel);
   const levels = effortLevelsFor(models, effectiveModel);
-  const matchedDefault = findModel(models, effectiveModel);
-  const canonicalModel = matchedDefault?.value ?? effectiveModel;
+  // Matched by alias or resolved id, so a default stored as either still
+  // lights up the family it belongs to rather than the plain "default" row.
+  const matchedFamily = Object.values(families).find(
+    (m) => m && effectiveModel != null && (m.value === effectiveModel || m.resolvedModel === effectiveModel),
+  );
+  const overflowModel = matchedFamily ? null : (findModel(models, effectiveModel)?.value ?? effectiveModel);
 
   const pickModel = (value: string | null) =>
     set.mutate({ model: value, effort: keepEffort(models, value ?? defaultModel, effort) });
@@ -69,7 +76,7 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
           <div role="group" aria-label="Model family for this card's runs" className="flex overflow-hidden rounded-sm border border-(--color-edge)">
             {(Object.keys(FAMILY_LABEL) as ModelFamily[]).map((family) => {
               const m = families[family];
-              const active = Boolean(m && matchedDefault && m.value === matchedDefault.value);
+              const active = Boolean(m && matchedFamily && m.value === matchedFamily.value);
               const tone = modelFamilyColor(family);
               return (
                 <button
@@ -92,16 +99,11 @@ export function ModelEffort({ detail }: { detail: CardDetail }) {
           <Dropdown
             variant="chip"
             label="Other model for this card's runs"
-            // The resolved model — the card's own pin, or the stage default
-            // standing in for it — normalised to the CLI's own value when it
-            // is one of those, so this falls through to the plain "…"
-            // placeholder only when nothing is in effect at all, or a family
-            // the toggle already shows is.
-            value={
-              canonicalModel && !Object.values(families).some((m) => m?.value === canonicalModel)
-                ? canonicalModel
-                : ''
-            }
+            // The resolved model — the card's own pin, or whatever stands in
+            // for it — unless the toggle already shows it: `null` when a
+            // family matched, so this falls through to the plain "…"
+            // placeholder rather than restating what the toggle already said.
+            value={overflowModel ?? ''}
             disabled={set.isPending}
             placeholder="…"
             options={overflow}
@@ -155,13 +157,15 @@ function EffortSlider({ levels, effort, defaultEffort, onChange, disabled }: {
   const stops = levels;
   const last = stops.length - 1;
   const effective = effort ?? defaultEffort;
-  // Falls back to the lowest stop if the default itself isn't one this
-  // model supports — a model switch can leave the two disagreeing.
+  // -1 while settings are still loading, or if a model switch left the
+  // default on a level this one doesn't support — nothing claims a stop
+  // rather than guessing the lowest one.
   const rawIndex = effective ? stops.indexOf(effective) : -1;
-  const index = rawIndex === -1 ? 0 : rawIndex;
-  const current = stops[index];
-  const pct = last === 0 ? 0 : (index / last) * 100;
-  const label = current ?? 'Default';
+  const known = rawIndex !== -1;
+  const index = known ? rawIndex : 0;
+  const current = known ? stops[index] : undefined;
+  const pct = known && last > 0 ? (index / last) * 100 : 0;
+  const label = current ?? '…';
   const tone = current ? STOP_TONE[current] : 'var(--color-muted)';
 
   if (levels.length === 0) {
@@ -252,14 +256,14 @@ function EffortSlider({ levels, effort, defaultEffort, onChange, disabled }: {
               key={s}
               aria-hidden="true"
               className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full"
-              style={{ left: `${last === 0 ? 0 : (i / last) * 100}%`, transform: 'translate(-50%, -50%)', background: i <= index ? 'transparent' : 'rgba(255,255,255,0.18)' }}
+              style={{ left: `${last === 0 ? 0 : (i / last) * 100}%`, transform: 'translate(-50%, -50%)', background: known && i <= index ? 'transparent' : 'rgba(255,255,255,0.18)' }}
             />
           ))}
           <span
             aria-hidden="true"
             className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 -translate-x-1/2 rounded-full border border-black/30 transition-[left] ${
               dragging ? '' : 'duration-150'
-            } ${current === 'max' ? 'effort-overdrive' : ''}`}
+            } ${current === 'max' ? 'effort-overdrive' : ''} ${known ? '' : 'opacity-0'}`}
             style={{ left: `${pct}%`, background: tone }}
           />
         </div>
