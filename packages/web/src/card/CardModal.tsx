@@ -7,6 +7,7 @@ import {
   SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
 } from '../board/activity.js';
 import { api } from '../lib/api.js';
+import { familyOf, MODEL_TINT } from '../lib/modelTint.js';
 import { CardHeader } from './CardHeader.js';
 import { Rail } from './Rail.js';
 import { Tabs, defaultTab, type TabId } from './Tabs.js';
@@ -99,6 +100,14 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
   const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
   const lane = board?.projects.find((p) => p.id === data?.card.projectId)?.vibes === true;
   const solo = !vibes && (data?.card.vibes === true || lane) && data?.card.mergedAt == null;
+  // The model actually executing — the run that is live, falling back to the
+  // card's own pinned override — tints the running glow toward its family.
+  // Absent a known family the glow stays the plain default blue: `style` is
+  // left unset rather than given an empty object, so nothing here can ever
+  // override a state that isn't running.
+  const { data: modelsResp } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const family = activity === 'running' ? familyOf(data?.card.latestRun?.model ?? data?.card.model, modelsResp?.models ?? []) : undefined;
+  const runningTint = family ? (MODEL_TINT[family] as React.CSSProperties) : undefined;
   // Finished, in the same green and circled check the board card wears. Not in
   // VIBES MODE, whose card wears its own pink for this and no mark.
   const merged = !vibes && data != null && isMerged(data.card);
@@ -116,6 +125,7 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
         aria-labelledby="card-title"
         tabIndex={-1}
         className={`relative flex h-[min(900px,100%)] w-[min(1320px,100%)] flex-col overflow-hidden rounded-lg border outline-none ${merged ? MERGED_GLOW : suggested ? SUGGESTION_GLOW : GLOW[activity]} ${solo ? 'sk-solo-ring' : ''}`}
+        style={runningTint}
       >
         {isLoading && <Middle>Loading card…</Middle>}
         {error && <Middle>Could not load this card. {error.message}</Middle>}
@@ -129,7 +139,13 @@ export function CardModal({ cardId, onClose, onOpen, editTitle = false, vibes = 
               <Conversation detail={data} live={live} onClose={onClose} onOpen={onOpen} editTitle={editTitle} />
             ) : (
               <>
-                <CardHeader detail={data} live={live} onClose={onClose} editTitle={editTitle} />
+                <CardHeader
+                  detail={data}
+                  live={live}
+                  onClose={onClose}
+                  editTitle={editTitle}
+                  modelEffort={data.card.kind === 'task' && !vibes}
+                />
                 <div className="flex min-h-0 grow">
                   <Tabs detail={data} onOpen={onOpen} vibes={vibes} />
                   {/* The rail is the card's way through the stages, and a project
@@ -192,7 +208,7 @@ function Conversation({ detail, live, onClose, onOpen, editTitle }: {
 
   return (
     <>
-      <CardHeader detail={detail} live={live} onClose={onClose} editTitle={editTitle} band={false} />
+      <CardHeader detail={detail} live={live} onClose={onClose} editTitle={editTitle} band={false} modelEffort />
       <div className="flex min-h-0 grow">
         <section aria-label="Conversation" className="flex min-w-0 grow flex-col bg-(--color-ink)/90">
           <StageTabs detail={detail} conversation={conversation} tab={tab} onTab={setTab} />
