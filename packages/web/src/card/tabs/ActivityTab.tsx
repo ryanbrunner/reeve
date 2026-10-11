@@ -265,7 +265,8 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       return `handed off to Claude Code in ${stage(e.stage)}`;
     case 'crit_reviewed': {
       const outcome = e.meta?.['outcome'];
-      return outcome === 'cancelled' ? 'stopped a review in Crit'
+      return outcome === 'sent' ? 'sent comments from a review in Crit'
+        : outcome === 'cancelled' ? 'stopped a review in Crit'
         : outcome === 'not_applied' ? 'finished a review in Crit that was not applied'
         : 'could not finish a review in Crit';
     }
@@ -273,7 +274,8 @@ function sentence(e: ApiCardEvent, detail: CardDetail): string {
       // `ended` is a loop that stopped after a round was applied: the revision
       // came back with questions, or not at all, rather than ready for review.
       const outcome = e.meta?.['outcome'];
-      return outcome === 'cancelled' ? 'stopped a review in Gloss'
+      return outcome === 'mockup_approved' ? 'approved the mockup in Gloss'
+        : outcome === 'cancelled' ? 'stopped a review in Gloss'
         : outcome === 'not_applied' ? 'finished a round in Gloss that was not applied'
         : outcome === 'ended' ? 'ended a review in Gloss after a revision'
         : 'could not finish a round in Gloss';

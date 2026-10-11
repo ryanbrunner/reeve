@@ -11,7 +11,8 @@
  *   REEVE_DB=/tmp/gloss-check.db npx tsx packages/server/src/spikes/gloss-check.ts
  *
  * Not covered: the rounds after a revision (`gloss working`, `ready`, the next
- * wait), which need a real revision run to finish.
+ * wait), which need a real revision run to finish — see
+ * gloss-round-trip-check.ts, which pays for one to cover them.
  */
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
