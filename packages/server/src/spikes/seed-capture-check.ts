@@ -89,7 +89,7 @@ const repo = createRepo(db, {
   repoPath,
   worktreeRoot: join(root, 'worktrees'),
   defaultBranch: 'main',
-  setupCommand: null, testCommand: null, seedCommand: SEED,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, seedCommand: SEED,
   serverCommand: 'node serve.mjs {{port}}', serverUrl: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });

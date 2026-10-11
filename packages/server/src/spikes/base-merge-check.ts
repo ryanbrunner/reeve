@@ -71,7 +71,7 @@ const db = openDatabase(join(root, 'reeve.db'));
 runMigrations(db);
 const repo = createRepo(db, {
   name: 'base-merge-check', repoPath, worktreeRoot, defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const writer = {} as never; // only reached for a setup command, and there is none
@@ -166,7 +166,7 @@ g('remote', 'set-url', 'origin', origin);
 const setupLog = join(root, 'setup.log');
 const withSetup = createRepo(db, {
   name: 'base-merge-setup', repoPath, worktreeRoot, defaultBranch: 'main',
-  setupCommand: `echo ran >> ${setupLog}`, testCommand: null, serverCommand: null,
+  setupCommand: `echo ran >> ${setupLog}`, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const realWriter = new EventWriter(db);

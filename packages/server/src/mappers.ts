@@ -24,6 +24,7 @@ import type {
   StopReason,
 } from '@reeve/shared';
 import { assetSrc } from './assets/store.js';
+import { runRegistry } from './runs/registry.js';
 import type {
   AcceptanceCriterion,
   Asset,
@@ -47,6 +48,7 @@ export function toApiRepo(p: Repo): ApiRepo {
     defaultBranch: p.defaultBranch,
     setupCommand: p.setupCommand,
     testCommand: p.testCommand,
+    focusedTestCommand: p.focusedTestCommand,
     seedCommand: p.seedCommand,
     serverCommand: p.serverCommand,
     serverUrl: p.serverUrl,
@@ -68,11 +70,15 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     effort: (r.effort ?? null) as EffortLevel | null,
     stopReason: (r.stopReason ?? null) as StopReason | null,
     totalCostUsd: r.totalCostUsd,
+    budgetUsd: r.maxBudgetUsd ?? null,
     port: r.port,
     startedAt: ms(r.startedAt),
     finishedAt: ms(r.finishedAt),
     errorMessage: r.errorMessage,
     deniedToolUses: toApiToolDenials(r.permissionDenials),
+    // Kept by the process running it, in memory like the run itself: no row
+    // to read once it ends, and none to write on every message.
+    pulse: runRegistry.get(r.id)?.pulse?.() ?? null,
   };
 }
 
@@ -111,7 +117,7 @@ export function toApiCard(
   derived: Pick<
     ApiCard,
     | 'openingPr' | 'prConflicting' | 'prMergeable' | 'resolvingConflicts' | 'mergingPr' | 'startingStage'
-    | 'implemented' | 'pendingSuggestion' | 'waitingOn'
+    | 'implemented' | 'pendingSuggestion' | 'waitingOn' | 'stackedOn'
   >,
   links: Pick<ApiCard, 'dependsOn' | 'dependents' | 'suggestedBy' | 'suggestions'>,
 ): ApiCard {
@@ -138,6 +144,7 @@ export function toApiCard(
     model: c.model,
     effort: c.effort,
     maxBudgetUsd: c.maxBudgetUsd,
+    maxTurns: c.maxTurns,
     generateMockups: c.generateMockups,
     vibes: c.vibes,
     ...links,

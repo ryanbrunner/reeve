@@ -466,7 +466,7 @@ async function questions(args: string[]): Promise<void> {
     if (ask?.request.kind === 'permission') {
       const input = ask.request.input;
       const what = typeof input['command'] === 'string' ? input['command'] : JSON.stringify(input);
-      print(`Claude asks to use ${ask.request.toolName}:`);
+      print(`${ask.agent === 'worker' ? 'The worker' : 'Claude'} asks to use ${ask.request.toolName}:`);
       print(`   ${what}`);
       return note(`answer with \`reeve card permit ${card.number} allow|deny [--reason …]\``);
     }
@@ -576,22 +576,26 @@ async function permit(args: string[]): Promise<void> {
   const [ref, decision] = positionals;
   if (!ref || (decision !== 'allow' && decision !== 'deny')) throw usageError('reeve card permit takes a card and allow or deny');
   const card = await oneCardOnBoard(ref);
-  const ask = pendingAsk(await api.conversation(card.id));
+  // A permission in particular: the lead can be parked on a question while
+  // its worker waits on a call.
+  const ask = pendingAsk(await api.conversation(card.id), 'permission');
   if (!ask || ask.request.kind !== 'permission' || !ask.askId) throw new CliError(`${cardRef(card)} is not waiting on a permission`);
   const result = await api.answerAsk(card.id, ask.askId, { decision, ...(values.reason ? { reason: values.reason } : {}) });
   if (values.json) return printJson(result);
   note(`${decision === 'allow' ? 'allowed' : 'denied'} ${ask.request.toolName} on ${cardRef(card)}`);
 }
 
-/** What a live run of the card is parked on, if anything. */
-function pendingAsk(conversation: ApiConversation) {
+/**
+ * What a live run of the card is parked on, if anything: the lead's ask
+ * before its worker's, since a run with a worker can be waiting on both.
+ */
+function pendingAsk(conversation: ApiConversation, kind?: 'permission' | 'question') {
   for (const stage of conversation.stages) {
     for (const run of stage.runs) {
       if (isTerminal(run.status)) continue;
-      for (let i = run.items.length - 1; i >= 0; i--) {
-        const item = run.items[i]!;
-        if (item.kind === 'ask') return item.outcome === null ? item : null;
-      }
+      const open = run.items.filter((i) => i.kind === 'ask' && i.outcome === null && i.askId !== null && (!kind || i.request.kind === kind));
+      const ask = open.findLast((i) => i.kind === 'ask' && !i.agent) ?? open.at(-1);
+      if (ask?.kind === 'ask') return ask;
     }
   }
   return null;

@@ -214,13 +214,6 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   const qc = useQueryClient();
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
-  // The budget's text, kept apart from `stageDefaults` so a half-typed "1."
-  // does not have to parse to a number to be shown back. Folded in at save.
-  const [budgetDrafts, setBudgetDrafts] = useState<Record<RunnableStage, string>>(
-    () => Object.fromEntries(
-      RUNNABLE_STAGES.map((s) => [s, settings.stageDefaults[s].maxBudgetUsd?.toString() ?? '']),
-    ) as Record<RunnableStage, string>,
-  );
   const [suggestTasks, setSuggestTasks] = useState(settings.suggestTasks);
   const [saved, setSaved] = useState(false);
   // Asked of the CLI once per server process, so there is nothing to refetch.
@@ -232,19 +225,35 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
     setStageDefaults((d) => ({ ...d, [stage]: { ...d[stage], ...next } }));
   };
 
-  const budgetValid = (text: string) => text.trim() === '' || (Number.isFinite(Number(text)) && Number(text) > 0);
-  const budgetsValid = RUNNABLE_STAGES.every((s) => budgetValid(budgetDrafts[s] ?? ''));
+  // Typed as text and read on save, so a half-typed "1." is not refused mid-keystroke.
+  const [limits, setLimits] = useState(() =>
+    Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
+      budget: settings.stageDefaults[s].maxBudgetUsd?.toString() ?? '',
+      turns: settings.stageDefaults[s].maxTurns?.toString() ?? '',
+    }])) as Record<RunnableStage, { budget: string; turns: string }>,
+  );
+  const setLimit = (stage: RunnableStage, next: Partial<{ budget: string; turns: string }>) => {
+    setSaved(false);
+    setLimits((l) => ({ ...l, [stage]: { ...l[stage], ...next } }));
+  };
+  const limitErrors = RUNNABLE_STAGES.flatMap((stage) => {
+    const { budget, turns } = limits[stage];
+    const b = Number(budget);
+    const t = Number(turns);
+    return [
+      ...(budget.trim() && !(b >= 0.5 && b <= 1000) ? [`${STAGE_LABELS[stage]}'s budget must be between $0.50 and $1,000.`] : []),
+      ...(turns.trim() && !(Number.isInteger(t) && t >= 10 && t <= 10_000) ? [`${STAGE_LABELS[stage]}'s turns must be a whole number from 10 to 10,000.`] : []),
+    ];
+  });
+  const withLimits = (): StageRunDefaults =>
+    Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
+      ...stageDefaults[s],
+      maxBudgetUsd: limits[s].budget.trim() ? Number(limits[s].budget) : null,
+      maxTurns: limits[s].turns.trim() ? Number(limits[s].turns) : null,
+    }])) as StageRunDefaults;
 
   const save = useMutation({
-    mutationFn: () => {
-      const withBudgets = Object.fromEntries(
-        RUNNABLE_STAGES.map((s) => [
-          s,
-          { ...stageDefaults[s], maxBudgetUsd: budgetDrafts[s]?.trim() ? Number(budgetDrafts[s]) : null },
-        ]),
-      ) as StageRunDefaults;
-      return api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withBudgets, suggestTasks });
-    },
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withLimits(), suggestTasks }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -252,7 +261,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   });
 
   const limit = Number(maxConcurrentRuns);
-  const valid = Number.isInteger(limit) && limit >= 1 && budgetsValid;
+  const valid = Number.isInteger(limit) && limit >= 1 && limitErrors.length === 0;
 
   return (
     <form
@@ -303,7 +312,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
         <SectionHead>Models</SectionHead>
         <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
-          What each stage runs with and spends, unless a card picks its own. Suggest always runs on its own settings.
+          What each stage runs with, unless a card picks its own. Suggest always runs on its own settings.
         </p>
         {RUNNABLE_STAGES.map((stage) => {
           const row = stageDefaults[stage];
@@ -311,9 +320,8 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
           const builtInModel = builtIn?.model ?? null;
           const builtInName = builtInModel && (findModel(models, builtInModel)?.displayName ?? builtInModel);
           const levels = effortLevelsFor(models, row.model ?? builtInModel);
-          const budgetText = budgetDrafts[stage] ?? '';
           return (
-            <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,160px)_minmax(0,120px)] items-center gap-2">
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,160px)] items-center gap-2">
               <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
               <Select
                 label={`${STAGE_LABELS[stage]} model`}
@@ -336,21 +344,44 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 disabled={levels.length === 0}
                 onChange={(effort) => setStage(stage, { effort: effort as EffortLevel | null })}
               />
-              <Text
-                value={budgetText}
-                onChange={(v) => {
-                  setSaved(false);
-                  setBudgetDrafts((d) => ({ ...d, [stage]: v }));
-                }}
-                placeholder={builtIn?.maxBudgetUsd ? `$${builtIn.maxBudgetUsd} (default)` : 'Stage default'}
-                mono
-              />
             </div>
           );
         })}
-        {!budgetsValid && (
-          <span className="font-mono text-[11px]/4 text-red-300">A budget must be blank or a positive number.</span>
-        )}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Limits</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What one run may spend, and how many calls one loop may make, before it is stopped: the lead's turn, or a
+          worker's whole build. A run stopped at its limit waits for you to carry it on, with a fresh budget. A card can
+          set its own.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const builtIn = catalogue?.builtIn[stage];
+          return (
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-(--color-muted)">
+                $
+                <Text
+                  value={limits[stage].budget}
+                  onChange={(budget) => setLimit(stage, { budget })}
+                  placeholder={builtIn?.maxBudgetUsd ? `${builtIn.maxBudgetUsd} (stage default)` : 'stage default'}
+                  mono
+                />
+              </label>
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-(--color-muted)">
+                <Text
+                  value={limits[stage].turns}
+                  onChange={(turns) => setLimit(stage, { turns })}
+                  placeholder={builtIn?.maxTurns ? `${builtIn.maxTurns} (stage default)` : 'no turn limit'}
+                  mono
+                />
+                turns
+              </label>
+            </div>
+          );
+        })}
       </section>
 
       <div className="flex items-center gap-3 border-t border-(--color-edge) pt-4">
@@ -360,8 +391,10 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
         {saved && !save.isPending && (
           <span className="font-mono text-[11px]/4 text-(--color-muted)">Saved</span>
         )}
-        {!(Number.isInteger(limit) && limit >= 1) && (
-          <span className="font-mono text-[11px]/4 text-red-300">Concurrent runs must be a whole number, 1 or more.</span>
+        {!valid && (
+          <span className="font-mono text-[11px]/4 text-red-300">
+            {limitErrors[0] ?? 'Concurrent runs must be a whole number, 1 or more.'}
+          </span>
         )}
       </div>
       {save.error && (
@@ -387,6 +420,7 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     defaultBranch: repo?.defaultBranch ?? '',
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
+    focusedTestCommand: repo?.focusedTestCommand ?? '',
     seedCommand: repo?.seedCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
     serverUrl: repo?.serverUrl ?? '',
@@ -424,6 +458,7 @@ function RepoForm({
         repoPath: form.repoPath.trim(),
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
+        focusedTestCommand: blankIsNull(form.focusedTestCommand),
         seedCommand: blankIsNull(form.seedCommand),
         serverCommand: blankIsNull(form.serverCommand),
         serverUrl: blankIsNull(form.serverUrl),
@@ -515,6 +550,12 @@ function RepoForm({
         </Field>
         <Field label="Test" hint="What Testing runs to check the work.">
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
+        </Field>
+        <Field
+          label="Focused tests"
+          hint="Runs only the tests near a change, so a run can check its work as it goes and leave the whole suite to the end. Put {{paths}} where the test files or directories go. Reeve never runs it; it tells Claude how."
+        >
+          <Text value={form.focusedTestCommand} onChange={set('focusedTestCommand')} placeholder="npx vitest run {{paths}}" mono />
         </Field>
         <Field
           label="Seed"

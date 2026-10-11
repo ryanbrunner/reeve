@@ -2,7 +2,7 @@ import { implementationOutput, type ImplementationOutput } from '@reeve/shared';
 import { absoluteAssetPath } from '../assets/store.js';
 import { assetsFor } from '../db/queries.js';
 import { recordSuggestions } from '../suggestions.js';
-import { renderNotes, renderPrompt, renderSuggesting } from './template.js';
+import { renderNotes, renderPrompt, renderSuggesting, renderTests } from './template.js';
 import type { StageDefinition } from './types.js';
 
 /**
@@ -25,6 +25,11 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
     description:
       'Submit the finished implementation: what you built, committed and tested. Call it once the work is ' +
       'committed and ready for the person to review, and again after any revision. It ends your turn.',
+  },
+  // The build runs in the background, so the person can talk to the stage
+  // the whole time it takes: see `worker` in ./types.ts.
+  worker: {
+    description: 'Builds the card: writes the code, commits it and gets the tests green, following the brief it was started with.',
   },
   maxBudgetUsd: 10,
   maxTurns: 200,
@@ -53,11 +58,13 @@ export const inProgressStage: StageDefinition<ImplementationOutput> = {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       body: ctx.brief,
+      project: ctx.project ?? '',
       plan: plan ?? '_No plan was recorded for this card. Work from the card itself._',
       mockups: prepared?.['mockups'] ?? '',
-      testCommand: ctx.repo.testCommand
-        ? `Run \`${ctx.repo.testCommand}\` before you finish, and get it green.`
-        : 'This repo defines no test command, so there is nothing to run.',
+      testCommand: renderTests(
+        ctx.repo,
+        'Before you finish, run {{command}} once on your final commit, and get it green.',
+      ),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
       notes: renderNotes(ctx.notes),
     });

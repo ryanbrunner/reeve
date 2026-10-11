@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { isTerminal, type RunStatus } from '@reeve/shared';
 import type { Db } from '../db/client.js';
-import { eventAt, eventsSince, getRun, latestSeq, runsForCard } from '../db/queries.js';
+import { eventAt, eventsSince, getRun, latestSeq, runStatus, runsForCard } from '../db/queries.js';
 import { toApiRunSummary } from '../mappers.js';
 import { runBus, type EmittedEvent } from '../runs/bus.js';
 import { runRegistry } from '../runs/registry.js';
@@ -10,6 +10,8 @@ import { runRegistry } from '../runs/registry.js';
 const PING_MS = 15_000;
 /** How often an open stream checks whether its run has finished. One indexed row read. */
 const STATUS_MS = 1_000;
+/** Events read from the database at a time when replaying a run's history. */
+const REPLAY_PAGE = 500;
 
 export function runRoutes(db: Db) {
   const routes = new Hono();
@@ -65,9 +67,15 @@ export function runRoutes(db: Db) {
         if (liveOnly) {
           lastSeq = latestSeq(db, runId);
         } else {
-          for (const row of eventsSince(db, runId, since)) {
-            await write({ seq: row.seq, kind: row.kind, payload: row.payload });
-            lastSeq = row.seq;
+          // A page at a time: `reeve run follow` replays from the start, and
+          // a long In Progress run is tens of thousands of rows, each a raw
+          // SDK message, that would all sit in memory before the first write.
+          for (let page = eventsSince(db, runId, since, REPLAY_PAGE); page.length > 0; page = eventsSince(db, runId, lastSeq, REPLAY_PAGE)) {
+            for (const row of page) {
+              await write({ seq: row.seq, kind: row.kind, payload: row.payload });
+              lastSeq = row.seq;
+            }
+            if (page.length < REPLAY_PAGE || stream.aborted) break;
           }
         }
 
@@ -89,7 +97,7 @@ export function runRoutes(db: Db) {
         //    status is read far more often than the ping is sent: `reeve run
         //    follow` exits on `end`, and a script waiting on it should not sit
         //    out most of a ping interval after the run has stopped.
-        let status = (getRun(db, runId)?.status ?? 'failed') as RunStatus;
+        let status = (runStatus(db, runId) ?? 'failed') as RunStatus;
         let sincePing = 0;
         while (!isTerminal(status) && !stream.aborted) {
           await stream.sleep(STATUS_MS);
@@ -99,7 +107,7 @@ export function runRoutes(db: Db) {
             await stream.writeSSE({ event: 'ping', data: '' });
             sincePing = 0;
           }
-          status = (getRun(db, runId)?.status ?? 'failed') as RunStatus;
+          status = (runStatus(db, runId) ?? 'failed') as RunStatus;
         }
         if (!stream.aborted) {
           await stream.writeSSE({ event: 'end', data: JSON.stringify({ status }) });

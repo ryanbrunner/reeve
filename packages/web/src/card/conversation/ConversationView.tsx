@@ -4,6 +4,7 @@ import {
   STAGE_LABELS,
   blockedMoveRefusal,
   isTerminal,
+  stoppedAtLimit,
   toolResultIn,
   type ApiConversation,
   type CardDetail,
@@ -13,6 +14,9 @@ import {
 } from '@reeve/shared';
 import { api, cardsIn } from '../../lib/api.js';
 import { Markdown } from '../Markdown.js';
+import { useNow } from '../../lib/useNow.js';
+import { duration } from '../format.js';
+import { LONG_CALL_MS } from '../pulse.js';
 import { Button, SmallButton } from '../ui.js';
 import { clock } from './format.js';
 
@@ -234,7 +238,7 @@ function StartPlanning({ detail }: { detail: CardDetail }) {
     },
   });
   // The server's own sentence, so the button never offers a move it refuses.
-  const refusal = blockedMoveRefusal(detail.card.stage, 'planning', detail.card.dependsOn);
+  const refusal = blockedMoveRefusal(detail.card.stage, 'planning', detail.card.dependsOn, detail.card.stackedOn);
   return (
     <div className="mt-3 flex flex-col items-center gap-1.5">
       <Button tone="sky" disabled={refusal !== null || move.isPending} title={refusal ?? undefined} onClick={() => move.mutate()}>
@@ -273,7 +277,9 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
   onOpenPanel: (panel: Panel) => void;
 }) {
   const groups = group(run.items);
-  const ending = ENDINGS[run.status];
+  // Out of room is not broken: said plainly, and not in red.
+  const atLimit = stoppedAtLimit(run);
+  const ending = atLimit ? `Stopped at its ${run.stopReason === 'max_turns' ? 'turn limit' : 'budget'}` : ENDINGS[run.status];
   const summary = detail.runs.find((r) => r.id === run.runId);
   return (
     <>
@@ -296,9 +302,9 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
         return <Item key={g.id} item={g} detail={detail} live={live} stage={stage} onOpenPanel={onOpenPanel} continued={continued} runId={run.runId} />;
       })}
       {ending && (
-        <Divider tone={run.status === 'failed' ? 'error' : 'muted'}>
+        <Divider tone={run.status === 'failed' && !atLimit ? 'error' : 'muted'}>
           {ending}
-          {summary?.errorMessage ? `: ${summary.errorMessage.slice(0, 160)}` : run.stopReason && run.stopReason !== 'completed' ? ` (${run.stopReason.replace(/_/g, ' ')})` : ''}
+          {atLimit ? '' : summary?.errorMessage ? `: ${summary.errorMessage.slice(0, 160)}` : run.stopReason && run.stopReason !== 'completed' ? ` (${run.stopReason.replace(/_/g, ' ')})` : ''}
         </Divider>
       )}
     </>
@@ -306,16 +312,37 @@ function RunBlock({ detail, run, first, stage, live, onOpenPanel }: {
 }
 
 type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
+type ToolStep = Omit<ToolItem, 'agent'>;
 
-/** Consecutive tool calls read as one block, the way they happen: in a burst. */
-function group(items: ConversationItem[]): Array<ConversationItem | ToolItem[]> {
-  const out: Array<ConversationItem | ToolItem[]> = [];
+/**
+ * Consecutive tool calls read as one block, the way they happen: in a burst.
+ * An Agent call stands on its own, since what it launched has a block of its
+ * own to show — the worker a stage leads among them.
+ */
+function group<T extends { kind: string }>(items: T[]): Array<T | Array<T & ToolStep>> {
+  const out: Array<T | Array<T & ToolStep>> = [];
   for (const item of items) {
     const last = out.at(-1);
-    if (item.kind === 'tool' && Array.isArray(last)) last.push(item);
-    else out.push(item.kind === 'tool' ? [item] : item);
+    const call = item.kind === 'tool' && !(item as Partial<ToolItem>).agent;
+    if (call && Array.isArray(last)) last.push(item as T & ToolStep);
+    else out.push(call ? [item as T & ToolStep] : item);
   }
   return out;
+}
+
+/**
+ * The stage's worker while it runs, if it is: what the composer and the
+ * status line speak of, since talking to the lead is what it frees up.
+ */
+export function runningWorker(run: ConversationRun | undefined): ToolItem | null {
+  if (!run || isTerminal(run.status)) return null;
+  for (let i = run.items.length - 1; i >= 0; i--) {
+    const item = run.items[i]!;
+    // The stage's own worker only: an agent the lead sends off to look
+    // something up is part of the lead's turn, not work going on behind it.
+    if (item.kind === 'tool' && item.agent?.type === 'worker' && item.agent.background && item.agent.status === 'running') return item;
+  }
+  return null;
 }
 
 function Item({ item, detail, live, stage, onOpenPanel, continued = false, runId }: {
@@ -353,8 +380,124 @@ function Item({ item, detail, live, stage, onOpenPanel, continued = false, runId
     case 'error':
       return <p className="ml-8 font-mono text-[11px]/4 text-red-300">{item.text}</p>;
     case 'tool':
-      return null;
+      return item.agent ? <AgentBlock item={item} live={live} runId={runId} /> : null;
   }
+}
+
+const AGENT_ENDED: Record<NonNullable<ToolItem['agent']>['status'], string> = {
+  running: 'working',
+  completed: 'done',
+  failed: 'failed',
+  stopped: 'stopped',
+};
+
+/**
+ * What an Agent call launched, and everything it has done: for a stage's
+ * worker, the actual work, going on behind the conversation with the lead.
+ * Open while it runs, so the work is there to watch; folded once it is done,
+ * when what the lead says about it is the part worth reading.
+ */
+function AgentBlock({ item, live, runId }: { item: ToolItem; live: boolean; runId: string }) {
+  const agent = item.agent!;
+  // A run that ended under a subagent still marked running — stopped, or
+  // killed by a restart — ended it too.
+  const running = agent.status === 'running' && live;
+  const [open, setOpen] = useState(running);
+  const was = useRef(running);
+  useEffect(() => {
+    if (was.current && !running) setOpen(false);
+    was.current = running;
+  }, [running]);
+  // Ticks while it runs, so its time moves between progress reports.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+
+  const who = agent.type === 'worker' ? 'Worker' : agent.type ? `Agent · ${agent.type}` : 'Agent';
+  const status = agent.status === 'running' && !live ? 'ended with the run' : AGENT_ENDED[agent.status];
+  const elapsed = (agent.endedAt ?? (running ? Date.now() : null)) !== null
+    ? (agent.endedAt ?? Date.now()) - item.at
+    : agent.usage?.durationMs ?? null;
+  const calls = agent.usage?.toolUses ?? agent.steps.filter((s) => s.kind === 'tool').length + agent.dropped;
+  const steps = group(agent.steps);
+  // Its body scrolls on its own rather than pushing the conversation apart,
+  // and follows the latest step while it works, unless scrolled back to read.
+  const body = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const count = agent.steps.length + agent.dropped;
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (el && open && following.current) el.scrollTop = el.scrollHeight;
+  }, [count, open]);
+  const tone = running
+    ? 'border-(--color-activity-running-mark)/40'
+    : agent.status === 'failed' ? 'border-(--color-activity-error-border)/60' : 'border-(--color-edge)';
+
+  return (
+    <details
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+      className={`group/agent ml-8 overflow-hidden rounded-md border bg-[#0b0e12] ${tone}`}
+    >
+      <summary className="flex cursor-pointer list-none flex-col gap-0.5 px-2.5 py-2 hover:bg-(--color-panel)">
+        <span className="flex items-center gap-2 font-mono text-[11.5px]/4">
+          <span className="text-(--color-muted)/50 transition-transform group-open/agent:rotate-90">›</span>
+          {running ? (
+            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-(--color-activity-running-mark)" />
+          ) : (
+            <span className={agent.status === 'completed' ? 'text-(--color-activity-review-mark)' : agent.status === 'failed' ? 'text-red-400' : 'text-(--color-muted)'}>
+              {agent.status === 'completed' ? '✓' : agent.status === 'failed' ? '✕' : '■'}
+            </span>
+          )}
+          <span className={running ? 'text-sky-300' : 'text-(--color-text)'}>{who}</span>
+          <span className="min-w-0 truncate text-[#c9d1d9]">{item.target}</span>
+          <span className="grow" />
+          <span className={`shrink-0 ${running ? 'text-sky-300' : 'text-(--color-muted)/70'}`}>{status}</span>
+          <span className="shrink-0 text-[10px] text-(--color-muted)/50">
+            {calls} call{calls === 1 ? '' : 's'}
+            {elapsed !== null ? ` · ${duration(elapsed)}` : ''}
+          </span>
+        </span>
+        {running && agent.progress && (
+          <span className="truncate pl-5 text-[12.5px]/[18px] text-(--color-muted) italic">{agent.progress}</span>
+        )}
+        {running && agent.background && (
+          <span className="pl-5 font-mono text-[10.5px]/4 text-(--color-muted)/60">
+            Works in the background · talk to Claude below meanwhile
+          </span>
+        )}
+      </summary>
+      <div
+        ref={body}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+        className="flex max-h-96 flex-col gap-2 overflow-y-auto border-t border-dashed border-(--color-edge) px-2.5 py-2"
+      >
+        {agent.dropped > 0 && (
+          <p className="font-mono text-[10.5px]/4 text-(--color-muted)/60">
+            {agent.dropped} earlier step{agent.dropped === 1 ? '' : 's'} not shown
+          </p>
+        )}
+        {steps.length === 0 && <p className="font-mono text-[11px]/4 text-(--color-muted)">{running ? 'Starting…' : 'Nothing to show.'}</p>}
+        {steps.map((g) =>
+          Array.isArray(g) ? (
+            <div key={g[0]!.id} className="-mx-px">
+              <ToolGroup tools={g} live={running} runId={runId} nested />
+            </div>
+          ) : g.kind === 'text' ? (
+            <div key={g.id} className="text-[13px]/[19px] text-(--color-muted)">
+              <Markdown>{g.text}</Markdown>
+            </div>
+          ) : null,
+        )}
+      </div>
+    </details>
+  );
 }
 
 function Avatar({ who }: { who: 'claude' | 'you' }) {
@@ -426,14 +569,14 @@ function Thinking({ text }: { text: string }) {
 /** Past this, a burst shows its first and last few calls and folds the middle away. */
 const GROUP_FOLD = 12;
 
-function ToolGroup({ tools, live, runId }: { tools: ToolItem[]; live: boolean; runId: string }) {
+function ToolGroup({ tools, live, runId, nested = false }: { tools: ToolStep[]; live: boolean; runId: string; nested?: boolean }) {
   const [unfolded, setUnfolded] = useState(false);
   const folded = !unfolded && tools.length > GROUP_FOLD;
   const shown = folded ? [...tools.slice(0, 4), ...tools.slice(-4)] : tools;
   return (
     // No header: each call is one line with its own time, so a count and a
     // span above them only said again what the rows already do.
-    <div className="ml-8 overflow-hidden rounded-md border border-(--color-edge) bg-[#0b0e12]">
+    <div className={`${nested ? '' : 'ml-8 '}overflow-hidden rounded-md border border-(--color-edge) bg-[#0b0e12]`}>
       {shown.map((t, i) => (
         <div key={t.id}>
           {folded && i === 4 && (
@@ -452,7 +595,7 @@ function ToolGroup({ tools, live, runId }: { tools: ToolItem[]; live: boolean; r
   );
 }
 
-function ToolRow({ tool, pending, runId }: { tool: ToolItem; pending: boolean; runId: string }) {
+function ToolRow({ tool, pending, runId }: { tool: ToolStep; pending: boolean; runId: string }) {
   const result = tool.result;
   const [open, setOpen] = useState(false);
   // The conversation carries the head of each output; the rest is fetched
@@ -465,14 +608,18 @@ function ToolRow({ tool, pending, runId }: { tool: ToolItem; pending: boolean; r
   });
   const text = full.data ?? result?.text ?? '';
   const lines = text ? text.split('\n').length : 0;
+  // A call still going counts up, so a test suite that takes ten minutes
+  // reads as ten minutes of work rather than as a hang.
+  const now = useNow(pending);
+  const age = now - tool.at;
   return (
     <details className="group border-t border-(--color-edge) first-of-type:border-t-0" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="grid cursor-pointer list-none grid-cols-[12px_64px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px]/4 hover:bg-(--color-panel)">
         <span className="text-(--color-muted)/50 transition-transform group-open:rotate-90">›</span>
         <span className="truncate text-(--color-muted)">{tool.verb}</span>
         <span className="truncate text-[#c9d1d9]">{tool.target || tool.name}</span>
-        <span className={pending ? 'text-sky-300' : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
-          {pending ? 'running…' : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
+        <span className={pending ? (age >= LONG_CALL_MS ? 'text-(--color-activity-input-mark)' : 'text-sky-300') : result?.isError ? 'text-red-400' : 'text-(--color-muted)/60'}>
+          {pending ? `running · ${duration(Math.max(0, age))}` : result?.isError ? 'error' : result ? (result.truncated && !full.data ? 'long' : lines > 1 ? `${lines} lines` : 'ok') : '—'}
         </span>
         <span className="text-[10px] text-(--color-muted)/50">{clock(tool.at)}</span>
       </summary>
@@ -545,7 +692,7 @@ function RefusedItem({ item, detail, stage, runId }: {
   return (
     <div className="ml-8 rounded-md border border-(--color-activity-error-border)/60 bg-(--color-card-core) px-3 py-2">
       <div className="flex items-center gap-2 font-mono text-[11px]/4 text-red-300">
-        ✕ Auto mode refused this {item.toolName} call
+        ✕ Auto mode refused {item.agent === 'worker' ? "the worker's" : 'this'} {item.toolName} call
         <span className="grow" />
         {item.allowed ? (
           <span className="text-(--color-activity-review-mark)">✓ allowed once by you</span>
@@ -606,7 +753,7 @@ function AskItem({ item, detail, live }: {
     return (
       <div className="ml-8 rounded-lg border border-(--color-activity-input-border) bg-[linear-gradient(var(--color-activity-input-fill),var(--color-activity-input-fill)),var(--color-card-core)] px-3.5 py-3 shadow-[inset_0_0_14px_0_#fe9a0026]">
         <div className="font-mono text-[11px]/4 tracking-[0.06em] text-(--color-activity-input-mark) uppercase">
-          ◆ Claude wants to use {item.request.toolName}, which auto mode would not allow on its own
+          ◆ {item.agent === 'worker' ? 'The worker' : 'Claude'} wants to use {item.request.toolName}, which auto mode would not allow on its own
         </div>
         <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-(--color-edge) bg-[#0b0e12] px-2.5 py-2 font-mono text-xs whitespace-pre-wrap text-(--color-text)">{shown}</pre>
         {description && <p className="mt-1.5 text-[13px]/[19px] text-(--color-muted)">“{description}”</p>}
@@ -614,7 +761,9 @@ function AskItem({ item, detail, live }: {
           <Button tone="input" disabled={answer.isPending} onClick={() => answer.mutate({ decision: 'allow' })}>Allow once</Button>
           <Button disabled={answer.isPending} onClick={() => answer.mutate({ decision: 'deny' })}>Deny</Button>
           <span className="ml-auto font-mono text-[10.5px] text-(--color-muted)/60">
-            or type below to deny with your reason · denied after 10 min unanswered
+            {item.agent === 'worker'
+              ? 'typing below talks to Claude, not the worker'
+              : 'or type below to deny with your reason'} · denied after 10 min unanswered
           </span>
         </div>
         {answer.error && <p className="mt-1.5 text-sm/5 text-red-300">{answer.error.message}</p>}

@@ -81,7 +81,7 @@ export function personDenial({ toolName, input }: ToolDecision, reason: string |
  * applies to every stage.
  */
 export function mergeGuard(
-  baseBranch: string,
+  baseBranch: string | readonly string[],
   onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void,
 ): HookCallback {
   return (hook, toolUseId) => {
@@ -106,7 +106,7 @@ export function mergeGuard(
 export function allowanceHook(
   cardId: string,
   worktreePath: string,
-  baseBranch: string,
+  baseBranch: string | readonly string[],
   take: (cardId: string, toolName: string, input: Record<string, unknown>) => boolean,
 ): HookCallback {
   return (hook) => {
@@ -129,7 +129,7 @@ const MERGE_OR_CLOSE = /\bgh\s+pr\s+(merge|close)\b/;
 const GIT_PUSH = /\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g;
 
 /** Exported for the spike that checks it. */
-export function mergeRefusal(command: string, baseBranch: string): string | null {
+export function mergeRefusal(command: string, baseBranch: string | readonly string[]): string | null {
   if (MERGE_OR_CLOSE.test(command)) {
     return [
       `Denied: \`${short(command)}\`.`,
@@ -137,13 +137,16 @@ export function mergeRefusal(command: string, baseBranch: string): string | null
       'Say in your reply that it is ready, and why, and leave it there.',
     ].join(' ');
   }
+  // The default branch, and for a stacked card the branch of the card it
+  // builds on: that one is another card's work, landed by its own pull request.
+  const bases = typeof baseBranch === 'string' ? [baseBranch] : baseBranch;
   for (const m of command.matchAll(GIT_PUSH)) {
     const args = (m[1] ?? '').trim().split(/\s+/);
-    const toBase = args.some((a) => a === baseBranch || a.endsWith(`:${baseBranch}`) || a.endsWith(`:refs/heads/${baseBranch}`));
-    if (toBase) {
+    const hit = bases.find((b) => args.some((a) => a === b || a.endsWith(`:${b}`) || a.endsWith(`:refs/heads/${b}`)));
+    if (hit) {
       return [
         `Denied: \`${short(command)}\`.`,
-        `Nothing in a card pushes to \`${baseBranch}\`: the work lands through its pull request, merged by the person.`,
+        `Nothing in a card pushes to \`${hit}\`: the work lands through its pull request, merged by the person.`,
         'Push the card\'s own branch instead if it needs pushing.',
       ].join(' ');
     }
@@ -177,6 +180,64 @@ export function liveDatabaseGuard(
     const reason = scratchDbRefusal(command, worktreePath);
     if (!reason) return Promise.resolve({});
     onDenied(hook.tool_name, input, hook.tool_use_id ?? toolUseId ?? '');
+    return Promise.resolve({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+    });
+  };
+}
+
+/**
+ * What a run may launch with the Agent tool. Two rules for every run, and two
+ * more for a stage with a worker (see `worker` in stages/types.ts):
+ *
+ * - No `isolation`. Reeve owns the card's worktree; an agent in a worktree of
+ *   its own commits on a branch the card never sees, and a remote one works
+ *   on nothing of the card's at all.
+ * - A worker runs in the background, since a worker the lead waits on is the
+ *   stage before workers with extra steps: nobody could talk to it.
+ * - One worker at a time. Two would edit the same tree at once.
+ * - No other agent in the background. Background work in such a stage is the
+ *   worker's, and an agent of another type would build beside it unseen by
+ *   the rules above. A look-up the lead waits on is still fine.
+ *
+ * A hook, like the guards above, so the call is refused whatever the
+ * classifier makes of it, and `onLaunch` hears of each worker it lets through
+ * before the call runs, which is when the next launch must already see it.
+ */
+export function agentGuard(opts: {
+  workerType: string | null;
+  workerRunning: () => boolean;
+  onLaunch: (toolUseId: string) => void;
+  onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void;
+}): HookCallback {
+  return (hook, toolUseId) => {
+    if (hook.hook_event_name !== 'PreToolUse' || (hook.tool_name !== 'Agent' && hook.tool_name !== 'Task')) return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const id = hook.tool_use_id ?? toolUseId ?? '';
+    const isWorker = opts.workerType !== null && input['subagent_type'] === opts.workerType;
+    let reason: string | null = null;
+    if (typeof input['isolation'] === 'string') {
+      reason =
+        `Agents in this run share the card's worktree, so \`isolation: "${input['isolation']}"\` is refused: ` +
+        'its commits would land somewhere the card never sees. Launch it again without `isolation`.';
+    } else if (isWorker && input['run_in_background'] === false) {
+      reason =
+        'The worker always runs in the background, so you stay free to talk to the person while it works. ' +
+        'Launch it again without `run_in_background: false`; you are told when it finishes.';
+    } else if (opts.workerType !== null && !isWorker && input['run_in_background'] !== false) {
+      reason =
+        `In this stage, work in the background is the ${opts.workerType}'s: launch it with \`subagent_type: "${opts.workerType}"\`. ` +
+        'For a quick look-up you wait on, launch this agent again with `run_in_background: false`.';
+    } else if (isWorker && opts.workerRunning()) {
+      reason =
+        'A worker is already running, and two would edit the same worktree at once. Send it what you wanted ' +
+        'done with SendMessage instead, or wait for it to finish and launch the next one then.';
+    }
+    if (!reason) {
+      if (isWorker) opts.onLaunch(id);
+      return Promise.resolve({});
+    }
+    opts.onDenied(hook.tool_name, input, id);
     return Promise.resolve({
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
     });
@@ -317,12 +378,12 @@ export interface DenialRecorder {
 }
 
 export function denialRecorder(): DenialRecorder {
-  // Only the latest turn's calls, for `observe`: the denial event names the tool
+  // Only the last few calls, for `observe`: the denial event names the tool
   // and the id but carries no input, and it lands while the message that asked
-  // is still executing, so it is always this map the id is in. Holding every
+  // is still executing, so the id is always among the latest. Holding every
   // call of a 200-turn run to caption a denial that may never come is not a
   // trade worth making.
-  let asked = new Map<string, ToolDenialRecord>();
+  const asked = new Map<string, ToolDenialRecord>();
   const denied: ToolDenialRecord[] = [];
   const seen = new Set<string>();
 
@@ -339,7 +400,11 @@ export function denialRecorder(): DenialRecorder {
     },
     observe(message) {
       if (message.type === 'assistant') {
-        asked = asksIn(message);
+        // Merged, not replaced: with a worker running, the lead's messages and
+        // the worker's interleave, and a denial of the worker's call can land
+        // after the lead has spoken. Still only the last few calls.
+        for (const [id, record] of asksIn(message)) asked.set(id, record);
+        while (asked.size > 32) asked.delete(asked.keys().next().value!);
         return null;
       }
       const m = message as { type?: string; subtype?: string; tool_name?: string; tool_use_id?: string };

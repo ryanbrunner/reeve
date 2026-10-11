@@ -31,7 +31,7 @@ const stamp = Date.now();
 const repo = (name: string) =>
   createRepo(db, {
     name, repoPath: `/tmp/${name}-missing`, worktreeRoot: `/tmp/${name}-worktrees`, defaultBranch: 'main',
-    setupCommand: null, testCommand: null, serverCommand: null,
+    setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
     teardownCommand: null, finishCommand: null, laneColor: null,
   });
 const web = repo(`cli-web-${stamp}`);

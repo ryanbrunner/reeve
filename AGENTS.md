@@ -179,7 +179,7 @@ same numbers for how its run ended.
 | 0    | the run finished and awaits review                                                | the run succeeded |
 | 1    | error: Reeve unreachable, no such card, the server refused                        | the same          |
 | 2    | the command line was wrong                                                        | the same          |
-| 3    | Claude is waiting on you: questions, a reply, or a permission                     | the run ended waiting on a reply |
+| 3    | Claude is waiting on you: questions, a reply, a permission, a limit               | the run ended waiting on a reply |
 | 4    | the stage's run failed or was interrupted                                         | the run did       |
 | 5    | idle: nothing running or waiting — Backlog, stopped, or a start was refused       | the run was stopped |
 | 6    | `--timeout` ran out with the card still running                                   | —                 |
@@ -291,6 +291,98 @@ switched on.
   hook lets it through — a hook's allow is honoured over the classifier. The
   hook never allows what the merge or live-database guards refuse, and nothing
   is offered under VIBES MODE or outside the stage's current conversation.
+- **In Progress and Testing lead a background worker.** A stage with
+  `worker` (`packages/server/src/stages/types.ts`) passes the Agent SDK an
+  `agents` entry built from its own brief (`prompts/worker.md` wrapped around
+  `buildPrompt`'s output, also kept in `.reeve/<stage>-brief.md` for a forked
+  follow-up). The session a person talks to opens with `prompts/lead.md`:
+  launch the worker, end the turn, answer the person and relay changes with
+  `SendMessage`, then check the work and submit.
+  - **What the SDK does** (`spikes/background-agent-check.ts`): each message
+    pushed while the worker runs is a short turn of its own that ends in a
+    `result` with no `idle`, and `idle` only comes once the worker is done.
+  - **Reeve's rules:**
+    - The 15s fallback never closes the input while a background agent
+      runs, and `idle` already waits for one.
+    - A background shell holds nothing open: the SDK says idle with one
+      still listed, and waiting on a dev server would keep the run open
+      forever.
+    - `submit_<stage>` is refused while any background agent runs.
+    - `agentGuard` refuses `isolation`, a foreground worker, a second worker,
+      and any agent other than the worker in the background.
+    - The worker has no `AskUserQuestion` and no reeve tools.
+  - **A worker's escalation** parks the run like the lead's, marked
+    `agent: 'worker'`. Only Allow or Deny settles it. Typed words still go to
+    the lead.
+    - The worker is known by the `agent_id` its calls carry, learnt in a
+      PreToolUse hook. Any other subagent's calls are treated as the lead's.
+  - **On the card,** the worker's messages (non-null `parent_tool_use_id`)
+    nest under its Agent call (`agent` on the tool item in `RunProjector`).
+    Its end is the `task_notification` naming that call, never the call's own
+    "launched" result.
+  - `spikes/worker-flow-check.ts` drives all of it with real runs.
+- **A run's limits are layered, and hitting one is not a failure.**
+  - **The layers**, highest first:
+    - the card's own `maxBudgetUsd` and `maxTurns` (the rail, or
+      `reeve card edit --budget --max-turns`)
+    - the Settings row for the stage (`stageDefaults`, or
+      `reeve settings set <stage>.max-budget-usd` and `<stage>.max-turns`)
+    - the stage module's `maxBudgetUsd` and `maxTurns`
+
+    `limitsFor` in `runs/claude.ts` reads them.
+  - **What `maxTurns` counts.** The SDK counts it per loop: the lead's
+    current turn, or a worker's whole run.
+  - **When a run reaches a limit.** It ends `failed` with `budget_exhausted`
+    or `max_turns`, and `stoppedAtLimit` (`packages/shared/src/activity.ts`)
+    reads that as `needs_input`, not `error`:
+    - The card offers Continue, which is a reply, so the fork gets a fresh
+      budget.
+    - `reeve card wait` exits 3.
+    - VIBES MODE leaves such a card for a person, since granting budget after
+      budget unattended has no ceiling.
+  - **Live spend** is on the run's `pulse`, kept in memory by the process
+    running it (`Pulse` in `runs/claude.ts`):
+    - It is exact as of each turn's end.
+    - Between turns it is estimated from `shared/src/pricing.ts`, calibrated
+      by the run's own exact figures.
+    - Prices there are list prices, and need updating when they change.
+- **A card can build on another's unmerged branch** (`packages/server/src/stacks.ts`).
+  - **When it can.** Its one unfinished dependency must be a task in the same
+    repo that has been built (an In Progress run succeeded) on a branch that
+    hasn't merged. That dependency, its stack parent, then holds nothing back
+    (`blockersOf`) except Release. Release waits for the parent's pull request
+    to be open in Release, and for the card to really be on its branch. A
+    start that can't take the parent's branch in is refused, since the card
+    would otherwise run without the work it waits for.
+  - **Its branch.** The card's worktree is cut from the parent's local
+    branch, which every worktree of the repo shares, and `card.stackedOnId`
+    records the parent.
+  - **Revisions.** `mergeLatestBase` merges the parent's revisions in, and
+    `baseSha` follows the parent's tip so the diff is the card's own work.
+  - **Its pull request** targets the parent's branch.
+  - **Merging is refused**, for every card, while any dependency hasn't
+    landed, or while GitHub says the pull request targets anything but the
+    default branch. Merging is where landing order is finally kept.
+  - **Restacking.** When the parent squash-merges, the merge sync's
+    `restackChildren`:
+    - merges `origin/<default>` into the card
+    - moves `baseSha` there
+    - pushes, and retargets the PR with `gh pr edit --base`
+    - clears the stack, only once the push and retarget have both succeeded
+
+    A conflict is left for Resolve conflicts against the default branch.
+    Removing the dependency link ends the stack the same way. Starts, pushes,
+    resolutions and merges wait while a card is being restacked
+    (`isRestacking`).
+  - **No stacking** for a card waiting on two unmerged cards, or on one in
+    another repo: it waits as before.
+  - Every place that once assumed the default branch asks `baseBranchFor`
+    instead: the PR base, the Release prompt, the rail, the diff label and the
+    handoff. `mergeGuard` also refuses pushes to the parent's branch.
+  - **Known gap:** a card already holding newer default-branch commits than
+    its parent's base, when it is stacked, counts those in its diff until it
+    moves onto the default branch, because `baseSha` is the parent's tip.
+  - `spikes/stack-check.ts` drives all of it with real git and no GitHub.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
   since auto mode may approve them. The Merge button, and VIBES MODE, land a

@@ -91,6 +91,7 @@ export const api = {
       model?: string | null;
       effort?: EffortLevel | null;
       maxBudgetUsd?: number | null;
+      maxTurns?: number | null;
       generateMockups?: boolean;
       vibes?: boolean;
     },

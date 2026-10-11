@@ -68,6 +68,7 @@ export const planningStage: StageDefinition<PlanningOutput> = {
       worktreePath: ctx.worktreePath,
       title: ctx.card.title,
       body: ctx.brief,
+      project: ctx.project ?? '',
       mockups: prepared?.['mockups'] ?? '',
       seed: seedGuidance(ctx.repo.seedCommand),
       suggesting: renderSuggesting(ctx.suggestTasks !== false),
@@ -192,6 +193,16 @@ function composePlan(output: PlanningOutput, mockups: PlanningOutput['mockups'])
       if (step.files.length) out.push(`   \`${step.files.join('` `')}\``);
     });
     out.push('');
+  }
+
+  if (output.orientation.length) {
+    out.push('## Where things are', '');
+    for (const o of output.orientation) out.push(`- \`${o.path}\` — ${o.what}`);
+    out.push('');
+  }
+
+  if (output.focused_tests.trim()) {
+    out.push('## Focused tests', '', `\`${output.focused_tests.trim()}\``, '');
   }
 
   if (output.captures.length) {

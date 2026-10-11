@@ -148,6 +148,8 @@ export interface UpdateCardBody {
   repoId?: string | null;
   model?: string | null;
   effort?: string | null;
+  maxBudgetUsd?: number | null;
+  maxTurns?: number | null;
   generateMockups?: boolean;
 }
 

@@ -37,6 +37,16 @@ export interface StageContext {
    */
   notes?: string[];
   /**
+   * Where the rest of the card's project stands, for a task in one: see
+   * projectContext.ts. Empty for a card in no project, or alone in one.
+   */
+  project?: string;
+  /**
+   * The branch the card's work is based on: the repo's default, or for a
+   * stacked card the branch of the card it builds on (stacks.ts).
+   */
+  baseBranch?: string;
+  /**
    * Whether Settings allows this run to suggest cards of its own. Undefined
    * means on, the same reading `getSettings` gives a board with no row yet, so
    * a hand-built context (a spike) that never sets it behaves as it always did.
@@ -131,6 +141,19 @@ export interface ClaudeTask<Output = unknown> {
    */
   submit?: {
     /** What the tool is for, in the words Claude reads beside its name. */
+    description: string;
+  };
+  /**
+   * Present on a stage whose long work is done by a background subagent, so
+   * the session the person talks to stays free to answer them while it runs.
+   * That session leads: it launches the worker, passes on what the person
+   * says, checks what comes back and submits. The worker's brief is the
+   * stage's own prompt, `buildPrompt`'s output, and the lead's is
+   * prompts/lead.md wrapped round the same text. Only meaningful with
+   * `submit`; see runs/claude.ts.
+   */
+  worker?: {
+    /** What the worker is for, as the lead's Agent tool lists it. */
     description: string;
   };
 }

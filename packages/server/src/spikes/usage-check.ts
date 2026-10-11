@@ -26,7 +26,7 @@ const db = openDatabase(join(root, 'reeve.db'));
 runMigrations(db);
 const repo = createRepo(db, {
   name: 'usage-check', repoPath: join(root, 'repo'), worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const card = createCard(db, { title: 'Uses the limits', repoId: repo.id, stage: 'planning' });

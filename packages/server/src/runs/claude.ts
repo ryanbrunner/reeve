@@ -2,15 +2,17 @@ import {
   createSdkMcpServer,
   query,
   tool,
+  type AgentDefinition,
+  type HookInput,
   type Options,
   type PermissionResult,
   type SDKMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { z } from 'zod';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { EffortLevel, MessageSource, StopReason, Thought, TranscriptMessage } from '@reeve/shared';
-import { describeParsed, isRunnable, jsonSchemaFor, nextThought } from '@reeve/shared';
+import { costOf, describeParsed, isRunnable, jsonSchemaFor, nextThought, toolLabel, type ApiRunPulse, type TokenUsage } from '@reeve/shared';
 import { PASTED_IMAGE, absoluteAssetPath, assetSrc } from '../assets/store.js';
 import type { Db } from '../db/client.js';
 import {
@@ -35,8 +37,10 @@ import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
 import { allowances, askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
 import { Inbox } from './inbox.js';
-import { allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
+import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
 import { runRegistry } from './registry.js';
+import { projectContextFor } from '../projectContext.js';
+import { baseBranchFor, protectedBranches } from '../stacks.js';
 
 /** Thrown into the for-await loop by abortController.abort(). Verified by spike. */
 const ABORT_MARKER = 'aborted by user';
@@ -148,6 +152,8 @@ export function stageContextFor(
       .filter((a) => a.stage !== excludeStage && a.supersededBy === null)
       .map((a) => ({ kind: a.kind, content: a.content })),
     criteria: criteriaFor(db, base.card.id).map((c) => c.text),
+    project: projectContextFor(db, base.card),
+    baseBranch: baseBranchFor(db, base.card, base.repo),
     notes: unreadNotesFor(db, base.card.id),
     suggestTasks: getSettings(db).suggestTasks,
   };
@@ -178,6 +184,26 @@ function briefFor(db: Db, card: Card): string {
 }
 
 /**
+ * The budget and turn limit a run is sent: the card's own, then the Settings
+ * row for its stage, then what the stage module asks for. The same layers as
+ * the model and effort below, and a one-off task keeps its own for the same
+ * reason they do.
+ */
+export function limitsFor(
+  db: Db,
+  card: Card,
+  stage: Pick<ClaudeTask, 'maxBudgetUsd' | 'maxTurns' | 'outOfBand'>,
+  runStage: CardStage,
+): { budgetUsd: number; maxTurns: number | null } {
+  if (stage.outOfBand) return { budgetUsd: stage.maxBudgetUsd, maxTurns: stage.maxTurns ?? null };
+  const defaults = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage] : undefined;
+  return {
+    budgetUsd: card.maxBudgetUsd ?? defaults?.maxBudgetUsd ?? stage.maxBudgetUsd,
+    maxTurns: card.maxTurns ?? defaults?.maxTurns ?? stage.maxTurns ?? null,
+  };
+}
+
+/**
  * The model and effort a run asks for: the card's override, then the Settings
  * default for the stage, then the stage module's own. Each is resolved on its
  * own, so a card that pins only a model still takes its effort from below.
@@ -200,24 +226,6 @@ export function modelAndEffortFor(
 }
 
 /**
- * The dollar budget a run asks for: the card's override, then the Settings
- * default for the stage, then the stage module's own fixed figure. The same
- * three layers as `modelAndEffortFor`, and out-of-band work keeps its own
- * budget untouched for the same reason: Suggest should not get expensive
- * just because a card is pinned to a generous one.
- */
-export function maxBudgetFor(
-  db: Db,
-  card: Card,
-  stage: Pick<ClaudeTask, 'maxBudgetUsd' | 'outOfBand'>,
-  runStage: CardStage,
-): number {
-  if (stage.outOfBand) return stage.maxBudgetUsd;
-  const defaults = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage] : undefined;
-  return card.maxBudgetUsd ?? defaults?.maxBudgetUsd ?? stage.maxBudgetUsd;
-}
-
-/**
  * The permission mode every run asks for. The classifier decides what a run
  * may do, as it does in Claude Code's auto mode, and each stage's prompt says
  * what it should do; see runs/permissions.ts for what is left for us to
@@ -225,6 +233,212 @@ export function maxBudgetFor(
  * one that is left to run without it instead.
  */
 const PERMISSION_MODE = 'auto' satisfies PermissionMode;
+
+/**
+ * The name a stage's worker is launched by: `subagent_type` on the lead's
+ * Agent call, and the label its asks and progress carry on the card.
+ */
+const WORKER_TYPE = 'worker';
+
+/**
+ * The worker a stage with one hands the lead: the stage's own brief as its
+ * system prompt, inside prompts/worker.md, and nothing that is the lead's to
+ * do. The reeve server goes — submitting is the lead's, after it has checked
+ * the work — and so do Agent, since a worker launching workers is a tree
+ * nobody is reading, and AskUserQuestion, since only the lead talks to the
+ * person.
+ *
+ * The brief is kept in the worktree beside the stage's documents, because a
+ * follow-up forks the session without building the prompt again — Testing's
+ * screenshots are taken once, for the run that started the conversation —
+ * and its worker still needs the brief it was started with. In `.reeve/`, so
+ * it is never committed.
+ */
+function workerDefinition(
+  stage: ClaudeTask<never>,
+  worktreePath: string,
+  brief: string | null,
+  submitName: string,
+  effort: EffortLevel | null,
+  maxTurns: number | null,
+): AgentDefinition {
+  const path = join(worktreePath, '.reeve', `${stage.id}-brief.md`);
+  if (brief !== null) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, brief);
+  }
+  const kept = brief ?? (existsSync(path) ? readFileSync(path, 'utf8') : null);
+  return {
+    description: stage.worker!.description,
+    prompt: renderPrompt('worker', {
+      worktreePath,
+      submitTool: submitName,
+      brief: kept ?? '_The brief this stage started with is gone. The lead\'s message is your whole brief._',
+    }),
+    disallowedTools: ['mcp__reeve', 'Agent', 'Task', 'AskUserQuestion'],
+    model: 'inherit',
+    background: true,
+    ...(maxTurns ? { maxTurns } : {}),
+    ...(effort ? { effort } : {}),
+  };
+}
+
+/**
+ * Keeps the run's picture of its worker in step with the stream: launched
+ * (by `agentGuard`, before the call runs), given a task id, and ended — by
+ * its notification, by dropping out of the background list, or by an Agent
+ * call that failed and so never started one. `setAgents` hears the agents
+ * in each new background list, and nothing else in it: shells are left out.
+ */
+function trackWorkers(message: SDKMessage, workers: Map<string, string | null>, setAgents: (tasks: Set<string>) => void): void {
+  const m = message as {
+    type?: string; subtype?: string; tool_use_id?: string; task_id?: string;
+    tasks?: Array<{ task_id?: string; task_type?: string }>;
+  };
+  if (m.type === 'system' && m.subtype === 'task_started' && m.tool_use_id && workers.has(m.tool_use_id)) {
+    workers.set(m.tool_use_id, m.task_id ?? null);
+  } else if (m.type === 'system' && m.subtype === 'task_notification' && m.tool_use_id) {
+    workers.delete(m.tool_use_id);
+  } else if (m.type === 'system' && m.subtype === 'background_tasks_changed') {
+    const listed = new Set((m.tasks ?? []).map((t) => t.task_id).filter((id): id is string => Boolean(id)));
+    for (const [toolUseId, taskId] of workers) if (taskId && !listed.has(taskId)) workers.delete(toolUseId);
+    // `local_agent` today; matched loosely so a remote one counts too.
+    setAgents(new Set((m.tasks ?? []).filter((t) => t.task_id && /agent/i.test(t.task_type ?? '')).map((t) => t.task_id!)));
+  } else if (m.type === 'user' && !(message as { parent_tool_use_id?: string | null }).parent_tool_use_id) {
+    const content = (message as { message?: { content?: unknown } }).message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content as Array<{ type?: string; tool_use_id?: string; is_error?: boolean }>) {
+      if (block.type === 'tool_result' && block.is_error && block.tool_use_id) workers.delete(block.tool_use_id);
+    }
+  }
+}
+
+/**
+ * A live run's signs of life, folded from its stream: see ApiRunPulse.
+ *
+ * Cost is the SDK's own figure as of the last turn's end, less what a forked
+ * session inherited, plus the tokens priced since (shared/pricing.ts). An
+ * assistant message arrives once per content block, each repeating the
+ * message's usage, so usage is kept per message id rather than summed.
+ *
+ * Priced tokens alone come in well under the real figure: auto mode's
+ * classifier and the SDK's own small calls cost money and never appear as
+ * assistant messages (an Opus classifier was a fifth of one Testing run's
+ * spend; spikes/pulse-replay-check.ts). So each exact figure calibrates the
+ * next estimate: real spend over priced tokens so far, applied to what has
+ * been priced since. Until a run's first turn ends, CALIBRATION is assumed.
+ */
+/** Real spend over priced tokens, assumed before a run has an exact figure of its own. */
+const CALIBRATION = 1.4;
+
+export class Pulse {
+  private lastEventAt = Date.now();
+  // By tool_use id, with the loop each call belongs to (the Agent call that
+  // launched it, or null for the lead's), so a loop's calls can be dropped
+  // when it ends: a stopped worker's never get their results.
+  private readonly inFlight = new Map<string, ApiRunPulse['inFlight'][number] & { loop: string | null }>();
+  // Shells left running in the background — a test suite, a dev server —
+  // by task id. Their Bash call returned at once, so without these a run
+  // waiting on its tests would read as silent.
+  private readonly shells = new Map<string, ApiRunPulse['inFlight'][number]>();
+  private exact: number | null = null;
+  /** Each message's priced cost, by id; their sum; and the sum when the last exact figure came. */
+  private readonly priced = new Map<string, number>();
+  private pricedTotal = 0;
+  private pricedAtExact = 0;
+  private factor = CALIBRATION;
+  private unpriced = false;
+  // API calls per loop toward maxTurns, which the SDK counts per loop: the
+  // lead's current turn (null), and each subagent's whole run, by the Agent
+  // call that launched it.
+  private readonly calls = new Map<string | null, Set<string>>();
+
+  constructor(
+    private readonly maxTurns: number | null,
+    private readonly inherited: number,
+    private readonly workerCalls: ReadonlySet<string>,
+  ) {}
+
+  observe(message: SDKMessage): void {
+    this.lastEventAt = Date.now();
+    const parent = (message as { parent_tool_use_id?: string | null }).parent_tool_use_id ?? null;
+    if (message.type === 'assistant') {
+      const m = (message as { message?: { id?: string; model?: string; usage?: TokenUsage; content?: unknown } }).message;
+      if (m?.id && m.usage) {
+        const cost = costOf(m.model, m.usage);
+        if (cost === null) this.unpriced = true;
+        this.pricedTotal += (cost ?? 0) - (this.priced.get(m.id) ?? 0);
+        this.priced.set(m.id, cost ?? 0);
+      }
+      if (m?.id) {
+        const loop = this.calls.get(parent) ?? new Set<string>();
+        loop.add(m.id);
+        this.calls.set(parent, loop);
+      }
+      for (const block of (Array.isArray(m?.content) ? m.content : []) as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }>) {
+        if (block.type !== 'tool_use' || !block.id || !block.name) continue;
+        const { verb, target } = toolLabel(block.name, block.input ?? {});
+        this.inFlight.set(block.id, {
+          verb, target: target.slice(0, 160), since: Date.now(),
+          worker: parent !== null && this.workerCalls.has(parent), background: false, loop: parent,
+        });
+      }
+    } else if (message.type === 'user') {
+      const content = (message as { message?: { content?: unknown } }).message?.content;
+      for (const block of (Array.isArray(content) ? content : []) as Array<{ type?: string; tool_use_id?: string }>) {
+        if (block.type === 'tool_result' && block.tool_use_id) this.inFlight.delete(block.tool_use_id);
+      }
+    } else if (message.type === 'result') {
+      const r = message as { total_cost_usd?: number };
+      if (typeof r.total_cost_usd === 'number') {
+        this.exact = Math.max(0, r.total_cost_usd - this.inherited);
+        // Only from a figure big enough to say something.
+        if (this.pricedTotal > 0.02 && this.exact > 0) this.factor = Math.min(4, Math.max(1, this.exact / this.pricedTotal));
+        this.pricedAtExact = this.pricedTotal;
+      }
+      this.calls.delete(null);
+      // The lead's turn is over, and with it any call of its own.
+      for (const [id, call] of this.inFlight) if (call.loop === null) this.inFlight.delete(id);
+    } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
+      const id = (message as { tool_use_id?: string }).tool_use_id;
+      if (id) {
+        this.calls.delete(id);
+        for (const [call, entry] of this.inFlight) if (entry.loop === id) this.inFlight.delete(call);
+      }
+    } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'background_tasks_changed') {
+      const tasks = (message as { tasks?: Array<{ task_id?: string; task_type?: string; description?: string }> }).tasks ?? [];
+      const listed = new Set<string>();
+      for (const t of tasks) {
+        if (!t.task_id || /agent/i.test(t.task_type ?? '')) continue;
+        listed.add(t.task_id);
+        if (!this.shells.has(t.task_id)) {
+          this.shells.set(t.task_id, { verb: 'Background', target: (t.description ?? 'a command').slice(0, 160), since: Date.now(), worker: false, background: true });
+        }
+      }
+      for (const id of this.shells.keys()) if (!listed.has(id)) this.shells.delete(id);
+    } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_started') {
+      // Arrives just after the list that first names the shell, and says whose it is.
+      const t = message as { task_id?: string; owned_by_subagent?: boolean };
+      const shell = t.task_id ? this.shells.get(t.task_id) : undefined;
+      if (shell && t.owned_by_subagent) shell.worker = true;
+    }
+  }
+
+  read(budgetUsd: number | null): ApiRunPulse {
+    const since = (this.pricedTotal - this.pricedAtExact) * this.factor;
+    const estimated = this.pricedTotal > this.pricedAtExact;
+    return {
+      lastEventAt: this.lastEventAt,
+      inFlight: [...[...this.inFlight.values()].map(({ loop: _loop, ...call }) => call), ...this.shells.values()].sort((a, b) => a.since - b.since),
+      // Nothing to say for a model with no price until its first turn ends.
+      costUsd: this.exact === null && (this.unpriced || !estimated) ? null : (this.exact ?? 0) + since,
+      costExact: !estimated,
+      budgetUsd,
+      turns: Math.max(0, ...[...this.calls.values()].map((c) => c.size)),
+      maxTurns: this.maxTurns,
+    };
+  }
+}
 
 /**
  * Thrown when a session's own init message reports a mode other than the one
@@ -282,7 +496,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   const { db, writer, card, repo, stage, worktreePath, resumeSessionId, parentRunId } = params;
   const runStage = params.runStage ?? (stage.id as CardStage);
   const { model, effort } = modelAndEffortFor(db, card, stage, runStage);
-  const maxBudgetUsd = maxBudgetFor(db, card, stage, runStage);
+  const limits = limitsFor(db, card, stage, runStage);
   const followUp = params.followUp?.trim() ? params.followUp : null;
 
   // Read before `run_started` is written: that event is where unread notes end,
@@ -311,7 +525,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // so the row always says what was actually sent. permissionMode is filled in
     // the same way, once fitToModel says whether this model takes auto mode.
     effort,
-    maxBudgetUsd,
+    maxBudgetUsd: limits.budgetUsd,
     // Filled in once the prompt exists. A stage that has to prepare something
     // first — Testing takes its screenshots — writes the prompt after that, so
     // the row is briefly a run with no prompt, exactly as it is briefly a run
@@ -353,13 +567,43 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   // own default mode would ask about every edit.
   let autoMode = false;
 
+  // The stage's background worker, when it has one: see `worker` in
+  // stages/types.ts. Each worker is keyed by the Agent call that launched it,
+  // which is what its end — a task_notification — names; its task id comes
+  // later, with task_started, and is what background_tasks_changed lists.
+  // `agents` is the agents in that list, whole each time it changes, and
+  // starts empty with the process, as the SDK says it must.
+  const workerType = stage.submit && stage.worker ? WORKER_TYPE : null;
+  const workers = new Map<string, string | null>();
+  let agents = new Set<string>();
+  // An agent still working behind the lead's back. While one is, a turn that
+  // ends is not the run ending: the input stays open for the person, and
+  // closing it would leave the worker finishing with nobody able to talk.
+  // Agents only: a background shell — a dev server, a long `sleep` — is still
+  // listed when the SDK says idle, and holding the run open for one would
+  // hold it for ever (spikes/background-agent-check.ts, E).
+  const busy = () => workers.size > 0 || agents.size > 0;
+  // Which calls are the worker's, so an ask or a refusal is put down to it
+  // and to nothing else: a subagent the lead sends off in Planning is part of
+  // the lead's own turn, and is treated as the lead was before workers. The
+  // Agent calls that launched a worker, ever, for its messages; the agent ids
+  // its own calls carry, for canUseTool, learnt from the hook that sees each
+  // call first.
+  const workerCalls = new Set<string>();
+  const workerAgents = new Set<string>();
+  const fromWorker = (agentID: string | undefined) => agentID !== undefined && workerAgents.has(agentID);
+
+  // The run's pulse (ApiRunPulse): what tells a long run from a stuck one.
+  // Kept here, in memory, and read through the registry on every poll.
+  const pulse = new Pulse(limits.maxTurns, inheritedCostUsd(db, parentRunId ?? null), workerCalls);
+
   /**
    * Hold the turn on a person: the run reads `asking` until they answer, the
    * request times out, or the run is stopped. The request and its answer go
    * into the run's events, which is where the conversation shows them.
    */
-  const askPerson = async (request: AskRequest, toolUseId: string, signal?: AbortSignal): Promise<AskAnswer> => {
-    const { ask, answer } = askRegistry.wait(runId, card.id, request, config.askTimeoutMs);
+  const askPerson = async (request: AskRequest, toolUseId: string, signal?: AbortSignal, agent?: 'worker'): Promise<AskAnswer> => {
+    const { ask, answer } = askRegistry.wait(runId, card.id, request, config.askTimeoutMs, agent);
     // The SDK gives a local prompt no deadline of its own, but it can abandon
     // the call — an interrupt, the session ending — and then nothing is
     // waiting on the answer, so the buttons must not stay up as if it were.
@@ -369,7 +613,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     setRunStatus(db, runId, { status: 'asking' });
     const settled = await answer;
     writer.append(runId, 'ask_answered', { askId: ask.id, ...settled, at: Date.now() });
-    if (!cancelled) setRunStatus(db, runId, { status: 'running' });
+    // Still asking while the other of lead and worker waits on its own.
+    if (!cancelled && !askRegistry.forRun(runId)) setRunStatus(db, runId, { status: 'running' });
     return settled;
   };
 
@@ -384,6 +629,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     input: Record<string, unknown>,
     toolUseID: string,
     signal?: AbortSignal,
+    agentID?: string,
   ): Promise<PermissionResult> => {
     // A one-off task — Suggest, a split, resolving conflicts — has no
     // conversation anyone is reading, so nothing in it can be asked: refused
@@ -397,6 +643,17 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         };
       }
       return decideToolUse({ toolName, input });
+    }
+    // A subagent cannot put a question to the person: its chips would sit
+    // under the lead's conversation with nothing to say whose they were, and
+    // the worker is told to decide and report instead. Refused, not parked.
+    if (toolName === 'AskUserQuestion' && fromWorker(agentID)) {
+      return {
+        behavior: 'deny',
+        message:
+          'Only the lead talks to the person. Make the call yourself, carry on, and say in your report what you ' +
+          'chose and why; the lead will pass on anything the person wants changed.',
+      };
     }
     // A question, not a permission: answered, by a person or for them, and
     // never refused just for being asked.
@@ -422,7 +679,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       refuse(toolName, input, toolUseID);
       return decideToolUse({ toolName, input });
     }
-    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal);
+    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal, fromWorker(agentID) ? 'worker' : undefined);
     if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
     refuse(toolName, input, toolUseID);
     if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
@@ -456,18 +713,40 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       PreToolUse: [
         {
           matcher: 'Bash',
-          hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(repo.defaultBranch, refuse)],
+          hooks: [liveDatabaseGuard(worktreePath, refuse), mergeGuard(protectedBranches(db, card, repo), refuse)],
+        },
+        // No matcher: agentGuard checks the tool's name itself, rather than
+        // trusting an alternation to match the way a Claude Code setting does.
+        {
+          hooks: [agentGuard({
+            workerType,
+            workerRunning: () => workers.size > 0,
+            onLaunch: (toolUseId) => {
+              workers.set(toolUseId, null);
+              workerCalls.add(toolUseId);
+            },
+            onDenied: refuse,
+          })],
         },
         // Every tool: what a person allowed once after auto mode refused it.
         // Only a conversation's run has anyone to allow anything.
-        ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, repo.defaultBranch, (c, t, i) => allowances.take(c, t, i))] }] : []),
+        ...(stage.submit ? [{ hooks: [allowanceHook(card.id, worktreePath, protectedBranches(db, card, repo), (c, t, i) => allowances.take(c, t, i))] }] : []),
+        // Every tool: learns the worker's agent id from its first call, which
+        // reaches this hook before it can reach canUseTool. Decides nothing.
+        ...(workerType ? [{
+          hooks: [(hook: HookInput) => {
+            const h = hook as { agent_id?: string; agent_type?: string };
+            if (h.agent_id && h.agent_type === workerType) workerAgents.add(h.agent_id);
+            return Promise.resolve({});
+          }],
+        }] : []),
       ],
     },
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
-    canUseTool: (toolName, input, { toolUseID, signal }) => canUseTool(toolName, input, toolUseID, signal),
-    maxBudgetUsd,
-    ...(stage.maxTurns ? { maxTurns: stage.maxTurns } : {}),
+    canUseTool: (toolName, input, { toolUseID, signal, agentID }) => canUseTool(toolName, input, toolUseID, signal, agentID),
+    maxBudgetUsd: limits.budgetUsd,
+    ...(limits.maxTurns ? { maxTurns: limits.maxTurns } : {}),
     ...(model ? { model } : {}),
   };
 
@@ -478,6 +757,20 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       stage.submit.description,
       shape,
       async (args) => {
+        // The lead submits what its worker built, so not before the worker
+        // is done: the run would end, and the worker with it, mid-edit.
+        // Any agent still in the background counts, worker or not: work the
+        // lead started some other way is unfinished all the same.
+        if (workerType && busy()) {
+          return {
+            isError: true,
+            content: [{
+              type: 'text',
+              text: `Not recorded — your worker, or another agent you launched, is still running in the background. ` +
+                `Wait for it to report, check what it did, then call ${submitName}. If it should stop early, tell it to wrap up with SendMessage.`,
+            }],
+          };
+        }
         const parsed = stage.schema.safeParse(args);
         if (!parsed.success) {
           return {
@@ -533,12 +826,24 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       // follow-up skips it: Testing's pictures were taken for the run that
       // started the conversation, not for every reply in it.
       const prepared = followUp ? {} : ((await stage.prepare?.(db, writer, ctx, runId)) ?? {});
+      const brief = followUp ? null : stage.buildPrompt(ctx, prepared);
       // A stage's opening prompt closes with how to talk to the person and how
-      // to deliver: see prompts/conversation.md.
+      // to deliver: see prompts/conversation.md. With a worker, the brief is
+      // the worker's, and the lead reads it inside its own: prompts/lead.md.
       const promptText = followUp ?? (stage.submit
-        ? stage.buildPrompt(ctx, prepared) + renderPrompt('conversation', { submitTool: submitName })
-        : stage.buildPrompt(ctx, prepared));
+        ? (workerType ? renderPrompt('lead', { brief: brief!, workerType, submitTool: submitName }) : brief!) +
+          renderPrompt('conversation', { submitTool: submitName })
+        : brief!);
       setRunStatus(db, runId, { prompt: promptText });
+      if (workerType && stage.worker) {
+        options.agents = { [workerType]: workerDefinition(stage, worktreePath, brief, submitName, fitted.effort, limits.maxTurns) };
+        // The worker's progress, as a line the card can show without opening
+        // its calls: a summary every half minute or so.
+        options.agentProgressSummaries = true;
+        // Its own words as well as its calls, which the card nests under the
+        // Agent call that launched it.
+        options.forwardSubagentText = true;
+      }
 
       // Held open for the person: see runs/inbox.ts. A one-off task has no
       // conversation and gets nothing more than its prompt.
@@ -552,6 +857,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         kind: 'claude',
         outOfBand: stage.outOfBand ?? false,
         send: stage.submit ? (text) => input.push(text) : undefined,
+        pulse: () => pulse.read(options.maxBudgetUsd ?? null),
         stop: async () => {
           cancelled = true;
           setRunStatus(db, runId, { status: 'stopping' });
@@ -568,16 +874,20 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
 
       let thought: Thought = { activity: null, thinking: null };
       // This run's tool calls, in full, by id: what a refusal names but does not carry.
-      const calls = new Map<string, { toolName: string; input: Record<string, unknown> }>();
+      const calls = new Map<string, { toolName: string; input: Record<string, unknown>; agent?: 'worker' }>();
       for await (const message of q) {
         writer.append(runId, classify(message), message, (message as { uuid?: string }).uuid ?? null);
+        trackWorkers(message, workers, (next) => { agents = next; });
+        pulse.observe(message);
         if (message.type === 'result') {
           result = message;
-          // Only a fallback; see idleFallback above.
+          // Only a fallback; see idleFallback above. Never while a worker
+          // runs: each turn the lead takes meanwhile ends in a result with no
+          // idle after it, and closing then would cut the person off.
           clearTimeout(idleFallback);
           if (!(message as { queued_turn_count?: number }).queued_turn_count) {
             idleFallback = setTimeout(() => {
-              if (input.pending === 0) input.close();
+              if (input.pending === 0 && !busy()) input.close();
             }, 15_000);
           }
         }
@@ -589,6 +899,11 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         if (
           message.type === 'system' &&
           (message as { subtype?: string }).subtype === 'session_state_changed' &&
+          // Not gated on `busy()`: the SDK already holds idle back until its
+          // background agents are done (spikes/background-agent-check.ts),
+          // and a worker this run lost track of must never hold it open for
+          // ever. Closed early, the input would only cut the person off; the
+          // worker still finishes.
           (message as { state?: string }).state === 'idle' &&
           input.pending === 0
         ) {
@@ -618,8 +933,10 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         // The refusals nobody asked us about: auto mode's classifier turning a
         // call down on its own.
         if (message.type === 'assistant') {
+          const parent = (message as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+          const agent = parent && workerCalls.has(parent) ? 'worker' as const : undefined;
           for (const block of ((message as { message?: { content?: unknown } }).message?.content as Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }> | undefined) ?? []) {
-            if (block.type === 'tool_use' && block.id && block.name) calls.set(block.id, { toolName: block.name, input: block.input ?? {} });
+            if (block.type === 'tool_use' && block.id && block.name) calls.set(block.id, { toolName: block.name, input: block.input ?? {}, ...(agent ? { agent } : {}) });
           }
           // A refusal names a call from the turn it lands in; a long run's
           // older ones, a Write's whole content among them, are not kept.
@@ -831,7 +1148,7 @@ function finish(
     result?: string; structured_output?: unknown; permission_denials?: unknown;
     stop_reason?: string | null; terminal_reason?: string;
   };
-  const finished = setRunStatus(db, runId, {
+  setRunStatus(db, runId, {
     status,
     stopReason,
     errorMessage,
@@ -852,6 +1169,7 @@ function finish(
     sdkStopReason: r?.stop_reason ?? null,
     sdkTerminalReason: r?.terminal_reason ?? null,
   });
+  const finished = getRun(db, runId);
   // Every exit path lands here, so the timeline gets its closing entry from one
   // place and cannot end up with a start that never finished.
   if (finished) {

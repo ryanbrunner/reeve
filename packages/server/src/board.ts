@@ -1,11 +1,15 @@
 import {
   deriveActivity,
   isRunnable,
+  stoppedAtLimit,
   stageEntryRefusal,
   type ApiCard,
+  type ApiCardLink,
   type CardActivity,
   type RunnableStage,
   type Stage,
+  type RunStatus,
+  type StopReason,
 } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import {
@@ -19,6 +23,7 @@ import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { canMergePr, isMergingPr, isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
 import { askRegistry } from './runs/asks.js';
+import { stackParent, stackedOn } from './stacks.js';
 import { stageDefinition } from './stages/index.js';
 // A cycle, as startStage reads cardActivity from here. Harmless: neither side
 // calls the other while the modules are still loading.
@@ -37,7 +42,10 @@ export function cardActivity(db: Db, card: Card): { activity: CardActivity; run:
 
   const run = latestClaudeRunForStage(db, card.id, stage) ?? null;
   if (!run) return { activity: 'idle', run: null };
-  return { activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run) }), run };
+  return {
+    activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run), stopReason: run.stopReason as StopReason | null }),
+    run,
+  };
 }
 
 /**
@@ -52,20 +60,33 @@ export function toBoardCard(
   links: (id: string) => CardLinks = cardLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
+  const cardLinks = links(card.id);
   // Only Release offers a resolution. A card dragged back for another round keeps
   // its pull request, and its conflicts wait until it returns.
   const openInDone = card.stage === 'release' && card.prUrl !== null && card.mergedAt === null;
   return toApiCard(card, repoName, laneColor, run, activity, {
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
-    prMergeable: canMergePr(card),
+    prMergeable: canMergePr(db, card),
     resolvingConflicts: isResolvingConflicts(card.id),
     mergingPr: isMergingPr(card.id),
     startingStage: isStartingStage(card.id),
     implemented: hasImplementationRun(db, card.id),
     pendingSuggestion: isPendingSuggestion(card),
     waitingOn: activity === 'needs_input' && run ? waitingOn(card, run) : null,
-  }, links(card.id));
+    stackedOn: stackedOnLink(db, card, cardLinks),
+  }, cardLinks);
+}
+
+/**
+ * The dependency this card builds on, or may build on now (stacks.ts), as the
+ * board names it. Asked only of a card with something unfinished to wait on,
+ * which is rare: most cards' dependencies are done or absent.
+ */
+function stackedOnLink(db: Db, card: Card, links: CardLinks): ApiCardLink | null {
+  if (!links.dependsOn.some((d) => !d.done)) return null;
+  const parent = stackedOn(db, card) ?? stackParent(db, card);
+  return parent ? links.dependsOn.find((d) => d.id === parent.id) ?? null : null;
 }
 
 /**
@@ -79,7 +100,13 @@ function waitingOn(card: Card, run: Run): string | null {
     if (!ask) return 'Waiting on you';
     if (ask.kind === 'question') return ask.questions[0]?.question ?? 'Asking you a question';
     const command = typeof ask.input['command'] === 'string' ? ask.input['command'] : null;
-    return command ? `Asks to run ${oneLine(command, 80)}` : `Asks to use ${ask.toolName}`;
+    const who = ask.agent === 'worker' ? 'The worker asks' : 'Asks';
+    return command ? `${who} to run ${oneLine(command, 80)}` : `${who} to use ${ask.toolName}`;
+  }
+  if (stoppedAtLimit({ status: run.status as RunStatus, stopReason: run.stopReason as StopReason | null })) {
+    return run.stopReason === 'max_turns'
+      ? 'Stopped at its turn limit: reply to carry on'
+      : `Stopped at its $${(run.maxBudgetUsd ?? 0).toFixed(2)} budget: reply to carry on`;
   }
   if (run.status !== 'awaiting_reply' || !run.resultText) return null;
   const lines = run.resultText.split('\n').map((l) => l.replace(/[*_`#>]/g, '').trim()).filter(Boolean);

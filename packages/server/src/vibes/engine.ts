@@ -7,7 +7,7 @@ import type { Db } from '../db/client.js';
 import {
   boardCards,
   cardsInStage,
-  eventsSince,
+  firstEventOfKind,
   getCard,
   getRun,
   getSettings,
@@ -248,6 +248,10 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // as the run answers it for nobody itself.
     case 'needs_input':
       if (!run) return;
+      // Stopped at its budget or turn limit. Carrying on spends another
+      // budget, which is a person's call even in VIBES MODE: an unattended
+      // sweep that kept granting one would have no ceiling at all.
+      if (run.status === 'failed') return;
       if (run.status === 'asking') {
         settleForNobody(card);
         return;
@@ -348,7 +352,10 @@ async function replyForNobody(db: Db, writer: EventWriter, card: Card, run: Run)
 function nobodyRepliesBehind(db: Db, run: Run): number {
   let count = 0;
   for (let r: Run | undefined = run; r; r = r.parentRunId ? getRun(db, r.parentRunId) : undefined) {
-    const opening = eventsSince(db, r.id, 0).find((e) => e.kind === 'user_message');
+    // The opening message alone: this runs every sweep for every card left
+    // waiting, and a run's whole transcript is the wrong thing to read twice
+    // a second to find its first row.
+    const opening = firstEventOfKind(db, r.id, 'user_message');
     const source = opening ? (JSON.parse(opening.payload) as { source?: string }).source : undefined;
     if (source !== 'vibes') break;
     count++;
@@ -358,11 +365,12 @@ function nobodyRepliesBehind(db: Db, run: Run): number {
 
 /** An ask a live run parked on before VIBES MODE came on: its own first option, or no. */
 function settleForNobody(card: Card): void {
-  const ask = askRegistry.forCard(card.id);
-  if (!ask) return;
-  askRegistry.settle(ask.id, ask.kind === 'question'
-    ? { kind: 'question', answers: Object.fromEntries(ask.questions.map((q) => [q.question, q.options[0]?.label ?? 'Your call.'])), actor: 'claude' }
-    : { kind: 'permission', allow: false, reason: 'VIBES MODE is on, and nobody is here to approve it.', actor: 'claude' });
+  // Every one: a run with a worker can be waiting on two.
+  for (const ask of askRegistry.allForCard(card.id)) {
+    askRegistry.settle(ask.id, ask.kind === 'question'
+      ? { kind: 'question', answers: Object.fromEntries(ask.questions.map((q) => [q.question, q.options[0]?.label ?? 'Your call.'])), actor: 'claude' }
+      : { kind: 'permission', allow: false, reason: 'VIBES MODE is on, and nobody is here to approve it.', actor: 'claude' });
+  }
 }
 
 function answerTo(q: Question): string {

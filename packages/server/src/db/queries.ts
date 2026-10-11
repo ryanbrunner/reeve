@@ -312,13 +312,29 @@ export function eventAt(db: Db, runId: string, seq: number) {
   return db.select().from(runEvent).where(and(eq(runEvent.runId, runId), eq(runEvent.seq, seq))).get();
 }
 
-export function eventsSince(db: Db, runId: string, since: number) {
-  return db
+export function eventsSince(db: Db, runId: string, since: number, limit?: number) {
+  const q = db
     .select()
     .from(runEvent)
     .where(and(eq(runEvent.runId, runId), gt(runEvent.seq, since)))
+    .orderBy(asc(runEvent.seq));
+  return (limit ? q.limit(limit) : q).all();
+}
+
+/**
+ * A run's first event of a kind, without reading the rest. Walks the primary
+ * key in seq order and stops at the first match, so for something near the
+ * start — the person's opening message — it reads a row or two of a run that
+ * may have tens of thousands.
+ */
+export function firstEventOfKind(db: Db, runId: string, kind: string) {
+  return db
+    .select()
+    .from(runEvent)
+    .where(and(eq(runEvent.runId, runId), eq(runEvent.kind, kind)))
     .orderBy(asc(runEvent.seq))
-    .all();
+    .limit(1)
+    .get();
 }
 
 /**
@@ -698,7 +714,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'maxBudgetUsd' | 'generateMockups' | 'vibes'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'generateMockups' | 'vibes'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -896,10 +912,12 @@ export function getSettings(db: Db): ApiSettings {
     vibesSince: row?.vibesSince?.getTime() ?? null,
     suggestTasks: row?.suggestTasks ?? true,
     stageDefaults: Object.fromEntries(
-      RUNNABLE_STAGES.map((s) => [
-        s,
-        { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null, maxBudgetUsd: stored[s]?.maxBudgetUsd ?? null },
-      ]),
+      RUNNABLE_STAGES.map((s) => [s, {
+        model: stored[s]?.model ?? null,
+        effort: stored[s]?.effort ?? null,
+        maxBudgetUsd: stored[s]?.maxBudgetUsd ?? null,
+        maxTurns: stored[s]?.maxTurns ?? null,
+      }]),
     ) as StageRunDefaults,
   };
 }
@@ -913,7 +931,15 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...rest,
     // Merged into what is stored rather than written over it, so saving one
     // stage's row leaves the other stages as they were.
-    ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
+    // Field by field within a stage too, so a client that sends only a
+    // model and effort leaves the stage's limits alone.
+    ...(stageDefaults
+      ? {
+          stageDefaults: Object.fromEntries(
+            RUNNABLE_STAGES.map((s) => [s, { ...current.stageDefaults[s], ...stageDefaults[s] }]),
+          ) as StageRunDefaults,
+        }
+      : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
     ...(vibes === undefined ? {}
@@ -936,8 +962,18 @@ export function getRun(db: Db, id: string) {
   return db.select().from(run).where(eq(run.id, id)).get();
 }
 
-export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>) {
-  return db.update(run).set(patch).where(eq(run.id, id)).returning().get();
+/**
+ * Returns nothing: it is called on a live run's message path, whenever its
+ * activity line changes, and reading the whole row back — prompt, result and
+ * usage JSON included — on every call cost more than the write.
+ */
+export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>): void {
+  db.update(run).set(patch).where(eq(run.id, id)).run();
+}
+
+/** Just a run's status, for the SSE stream that asks every second whether it has ended. */
+export function runStatus(db: Db, id: string): string | undefined {
+  return db.select({ status: run.status }).from(run).where(eq(run.id, id)).get()?.status;
 }
 
 // ---------------------------------------------------------------------------
@@ -1193,7 +1229,9 @@ export function deleteRef(db: Db, id: string) {
  * Release is not enough while the pull request is open, or not even opened yet.
  * What waits on a card builds on its code, and a worktree is cut from main:
  * start the dependent before the merge and it is built without the very thing
- * it waited for. `prUrl` covers one already open; `branchName` is set once,
+ * it waited for. The exception is a card that can be stacked on its one
+ * unfinished dependency's branch instead (stacks.ts): `blockersOf` leaves
+ * that dependency out, and the dependency is still "not done" here. `prUrl` covers one already open; `branchName` is set once,
  * the moment a card's first worktree is made, and never cleared again —
  * including by a failed or still-retrying attempt to open the pull request —
  * so a card with either still has work that has not landed until `mergedAt`

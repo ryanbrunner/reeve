@@ -376,6 +376,24 @@ export async function behindBase(worktreePath: string, baseBranch: string): Prom
   }
 }
 
+/**
+ * How many commits `ref` has that HEAD lacks: `behindBase` for any ref, as a
+ * stacked card counts against the local branch of the card it builds on.
+ */
+export async function commitsBehind(worktreePath: string, ref: string): Promise<number | null> {
+  try {
+    const n = Number.parseInt((await git(worktreePath, ['rev-list', '--count', `HEAD..${ref}`])).trim(), 10);
+    return Number.isNaN(n) ? null : n;
+  } catch {
+    return null;
+  }
+}
+
+/** The commit a ref names in the repo — a local branch, as a stacked card is cut from. */
+export async function refSha(repoPath: string, ref: string): Promise<string> {
+  return (await git(repoPath, ['rev-parse', '--verify', `${ref}^{commit}`])).trim();
+}
+
 /** `ignore` is for paths that are nobody's work. */
 export async function isDirty(worktreePath: string, opts: { ignore?: string[] } = {}): Promise<boolean> {
   const args = ['status', '--porcelain'];

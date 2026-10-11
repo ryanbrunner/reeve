@@ -59,6 +59,9 @@ const stageSchema = z.preprocess((v) => (typeof v === 'string' ? normaliseStage(
  */
 const modelSchema = z.string().min(1).nullable();
 const effortSchema = z.enum(EFFORT_LEVELS).nullable();
+/** A run's limits. Bounded so a typo cannot hand one run a fortune or no room at all. */
+const budgetSchema = z.number().min(0.5).max(1000).nullable();
+const maxTurnsSchema = z.number().int().min(10).max(10_000).nullable();
 
 const createCardSchema = z.object({
   title: z.string().min(1, 'title is required'),
@@ -76,7 +79,8 @@ const updateCardSchema = z.object({
   repoId: z.string().nullable().optional(),
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
-  maxBudgetUsd: z.number().positive().nullable().optional(),
+  maxBudgetUsd: budgetSchema.optional(),
+  maxTurns: maxTurnsSchema.optional(),
   generateMockups: z.boolean().optional(),
   vibes: z.boolean().optional(),
 });
@@ -110,6 +114,7 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
+  focusedTestCommand: z.string().nullable().optional(),
   // Filled like the server's, but it runs before the server has been given a
   // port, so a `{{port}}` here would reach the shell as written.
   seedCommand: z
@@ -163,10 +168,13 @@ const settingsSchema = z.object({
   suggestTasks: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
-    .partialRecord(
-      z.enum(RUNNABLE_STAGES),
-      z.object({ model: modelSchema, effort: effortSchema, maxBudgetUsd: z.number().positive().nullable() }),
-    )
+    .partialRecord(z.enum(RUNNABLE_STAGES), z.object({
+      model: modelSchema,
+      effort: effortSchema,
+      // Optional, so a client that only knows model and effort clears nothing.
+      maxBudgetUsd: budgetSchema.optional(),
+      maxTurns: maxTurnsSchema.optional(),
+    }))
     .optional(),
 });
 
@@ -179,6 +187,7 @@ function builtInStageDefaults(): StageRunDefaults {
         model: STAGE_DEFINITIONS[s]?.model ?? null,
         effort: STAGE_DEFINITIONS[s]?.effort ?? null,
         maxBudgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
+        maxTurns: STAGE_DEFINITIONS[s]?.maxTurns ?? null,
       },
     ]),
   ) as StageRunDefaults;

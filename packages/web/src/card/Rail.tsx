@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGES,
@@ -43,8 +43,9 @@ export function Rail({ detail, onOpen, embedded = false }: {
       <Repo detail={detail} />
       <Dependencies detail={detail} onOpen={onOpen} />
       <Suggestions detail={detail} onOpen={onOpen} />
+      <Model detail={detail} />
       {/* Keyed so a budget half-typed for one card is not left sitting in another's field. */}
-      <Model key={detail.card.id} detail={detail} />
+      <Limits key={detail.card.id} detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -342,23 +343,15 @@ function Model({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
   const models = data?.models ?? [];
-  const { model, effort, maxBudgetUsd } = detail.card;
-  const [budgetText, setBudgetText] = useState(maxBudgetUsd == null ? '' : String(maxBudgetUsd));
+  const { model, effort } = detail.card;
   const set = useMutation({
-    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null; maxBudgetUsd?: number | null }) =>
-      api.updateCard(detail.card.id, body),
+    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null }) => api.updateCard(detail.card.id, body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
       void qc.invalidateQueries({ queryKey: ['board'] });
     },
   });
   const levels = effortLevelsFor(models, model);
-  const budgetValid = budgetText.trim() === '' || (Number.isFinite(Number(budgetText)) && Number(budgetText) > 0);
-  const commitBudget = () => {
-    if (!budgetValid) return;
-    const next = budgetText.trim() === '' ? null : Number(budgetText);
-    if (next !== maxBudgetUsd) set.mutate({ maxBudgetUsd: next });
-  };
 
   return (
     <section className="flex flex-col gap-2">
@@ -386,22 +379,89 @@ function Model({ detail }: { detail: CardDetail }) {
           onChange={(v) => set.mutate({ effort: (v || null) as EffortLevel | null })}
           className={FIELD}
         />
-        <input
-          aria-label="Budget for this card's runs, in dollars"
-          value={budgetText}
-          disabled={set.isPending}
-          onChange={(e) => setBudgetText(e.target.value)}
-          onBlur={commitBudget}
-          placeholder="Budget $ · Settings default"
-          className={`${FIELD} placeholder:text-(--color-muted)/50`}
-        />
       </div>
       <p className="font-mono text-[10px]/4 text-(--color-muted)">
         For Planning, In Progress and Testing. Suggest keeps its own.
       </p>
-      {!budgetValid && <p className="font-mono text-[10px]/4 text-red-300">Budget must be blank or a positive number.</p>}
       {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
     </section>
+  );
+}
+
+/**
+ * What this card's runs may spend, and how many calls a loop may make, above
+ * the Settings limits for each stage: a big card gets room without raising it
+ * for every card. Typed, and saved when the field is left or Enter pressed.
+ */
+function Limits({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const set = useMutation({
+    mutationFn: (body: { maxBudgetUsd?: number | null; maxTurns?: number | null }) => api.updateCard(detail.card.id, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead>Limits</SectionHead>
+      <div className="grid grid-cols-2 gap-1.5">
+        <LimitInput
+          label="Budget per run"
+          prefix="$"
+          value={detail.card.maxBudgetUsd}
+          valid={(n) => n >= 0.5 && n <= 1000}
+          disabled={set.isPending}
+          onSave={(maxBudgetUsd) => set.mutate({ maxBudgetUsd })}
+        />
+        <LimitInput
+          label="Turns per loop"
+          suffix="turns"
+          value={detail.card.maxTurns}
+          valid={(n) => Number.isInteger(n) && n >= 10 && n <= 10_000}
+          disabled={set.isPending}
+          onSave={(maxTurns) => set.mutate({ maxTurns })}
+        />
+      </div>
+      <p className="font-mono text-[10px]/4 text-(--color-muted)">Blank uses the Settings limit for the stage.</p>
+      {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
+    </section>
+  );
+}
+
+function LimitInput({ label, prefix, suffix, value, valid, disabled, onSave }: {
+  label: string;
+  prefix?: string;
+  suffix?: string;
+  value: number | null;
+  valid: (n: number) => boolean;
+  disabled: boolean;
+  onSave: (next: number | null) => void;
+}) {
+  const [text, setText] = useState(value?.toString() ?? '');
+  // A save, or a change made elsewhere — the CLI — puts the stored value back.
+  useEffect(() => setText(value?.toString() ?? ''), [value]);
+  const parsed = text.trim() ? Number(text.trim().replace(/^\$/, '')) : null;
+  const bad = parsed !== null && !(Number.isFinite(parsed) && valid(parsed));
+  const commit = () => {
+    if (bad || parsed === value) return;
+    onSave(parsed);
+  };
+  return (
+    <label className={`flex items-center gap-1 rounded-md border bg-(--color-panel) px-2 font-mono text-[11px] text-(--color-muted) ${bad ? 'border-red-400/70' : 'border-(--color-edge)'}`} title={label}>
+      {prefix}
+      <input
+        aria-label={label}
+        value={text}
+        disabled={disabled}
+        placeholder="default"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
+        className="h-7 w-full min-w-0 bg-transparent text-(--color-text) outline-none placeholder:text-(--color-muted)/60"
+      />
+      {suffix}
+    </label>
   );
 }
 
@@ -728,7 +788,7 @@ function StageList({ detail }: { detail: CardDetail }) {
           // `detail.dependencies`: only the links carry the server's `done`.
           const refusal =
             stageEntryRefusal(detail.card.stage, stage, detail.card.implemented) ??
-            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn);
+            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn, detail.card.stackedOn);
           const button = (
             <button
               key={stage}

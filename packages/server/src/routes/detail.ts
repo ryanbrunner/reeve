@@ -32,6 +32,7 @@ import { linkDependency } from '../dependencies.js';
 import { checkWorktree, commitAt, commitsSince, diffOfCommit, diffSince } from '../git/worktree.js';
 import { parseDiff } from '../git/parseDiff.js';
 import { cardDetail } from '../detail.js';
+import { baseBranchFor } from '../stacks.js';
 import { toApiAsset, toApiCardEvent, toApiCardRef, toApiCriterion, toApiQuestion } from '../mappers.js';
 import {
   CONTENT_TYPES,
@@ -381,7 +382,7 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const files = raw === null ? [] : parseDiff(raw);
     const body: ApiDiff = {
       base: baseSha,
-      baseBranch: repo.defaultBranch,
+      baseBranch: baseBranchFor(db, card, repo),
       files,
       additions: files.reduce((n, f) => n + f.additions, 0),
       deletions: files.reduce((n, f) => n + f.deletions, 0),

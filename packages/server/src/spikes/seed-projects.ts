@@ -32,7 +32,7 @@ function repo(name: string, laneColor: string) {
     listRepos(db).find((r) => r.name === name) ??
     createRepo(db, {
       name, repoPath: `/tmp/${name}`, worktreeRoot: `/tmp/${name}-worktrees`, defaultBranch: 'main',
-      setupCommand: null, testCommand: null, serverCommand: null,
+      setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
       teardownCommand: null, finishCommand: null, laneColor,
     })
   );

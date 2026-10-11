@@ -19,6 +19,8 @@ export interface ApiRepo {
   defaultBranch: string;
   setupCommand: string | null;
   testCommand: string | null;
+  /** The tests near a change, `{{paths}}` standing for them. Named in prompts; Reeve never runs it. */
+  focusedTestCommand: string | null;
   /** Run by Testing, with the card's server stopped, before it takes screenshots. */
   seedCommand: string | null;
   serverCommand: string | null;
@@ -59,14 +61,51 @@ export interface ApiRunSummary {
   model: string | null;
   effort: EffortLevel | null;
   stopReason: StopReason | null;
-  /** What the SDK reported the run cost, at list price. Null until the run has finished. */
+  /** What the run cost, at list price: its own share of a forked session. Null until it has ended; live spend is on `pulse`. */
   totalCostUsd: number | null;
+  /** What it was allowed to spend. */
+  budgetUsd: number | null;
   port: number | null;
   startedAt: number | null;
   finishedAt: number | null;
   errorMessage: string | null;
   /** Empty for almost every run. Not empty is a thing the human should see. */
   deniedToolUses: ApiToolDenial[];
+  /**
+   * How a live run is doing right now, read from the process running it: null
+   * once it has ended, and for a run this server is not the one running.
+   */
+  pulse: ApiRunPulse | null;
+}
+
+/**
+ * The signs of life of a run under way, for telling a long run from a stuck
+ * one: when it last produced anything, which calls it is waiting on and for
+ * how long, and what it has spent against its budget.
+ */
+export interface ApiRunPulse {
+  /** When the session last sent anything at all. */
+  lastEventAt: number;
+  /**
+   * Tool calls started and not yet answered, and shells left running in the
+   * background (verb `Background`), oldest first: the lead's and its worker's.
+   */
+  inFlight: Array<{ verb: string; target: string; since: number; worker: boolean; background: boolean }>;
+  /**
+   * Spent so far: exact as of the last turn's end, plus an estimate for the
+   * tokens since. Null for a model with no known price before its first turn ends.
+   */
+  costUsd: number | null;
+  /** False while any of `costUsd` is an estimate. */
+  costExact: boolean;
+  /** What the run may spend before the SDK stops it. */
+  budgetUsd: number | null;
+  /**
+   * How far the furthest loop has got toward `maxTurns`, which the SDK counts
+   * per loop: the lead's current turn, or a worker's whole run.
+   */
+  turns: number;
+  maxTurns: number | null;
 }
 
 export interface ApiCard {
@@ -139,8 +178,9 @@ export interface ApiCard {
    */
   model: string | null;
   effort: EffortLevel | null;
-  /** Same layering as `model`/`effort`, for the dollar cap a run is given. */
+  /** This card's limits for every stage run, the same way. Null falls through. */
   maxBudgetUsd: number | null;
+  maxTurns: number | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
   /**
@@ -161,6 +201,13 @@ export interface ApiCard {
    * part.
    */
   dependsOn: ApiCardLink[];
+  /**
+   * The one of `dependsOn` this card builds on while it has not merged, or may
+   * build on now: its branch is this card's base, so it does not hold the card
+   * back, and only Release waits for its pull request (see stacks.ts on the
+   * server). Null for a card with nothing to stack on.
+   */
+  stackedOn: ApiCardLink | null;
   /**
    * Live cards waiting on this one, by id. Ids rather than a count because the
    * board lights them up when this card is hovered; the face only shows how
@@ -386,6 +433,7 @@ export interface CreateRepoBody {
   defaultBranch?: string;
   setupCommand?: string | null;
   testCommand?: string | null;
+  focusedTestCommand?: string | null;
   seedCommand?: string | null;
   serverCommand?: string | null;
   serverUrl?: string | null;
@@ -412,11 +460,14 @@ export function freeLaneColor(taken: readonly (string | null)[]): string {
   return LANE_COLORS.find((c) => !taken.includes(c)) ?? LANE_COLORS[0];
 }
 
-/** A model, effort and budget for one stage's runs. Null means "not set here": the next layer down decides. */
+/** A model, effort and limits for one stage's runs. Null means "not set here": the next layer down decides. */
 export interface StageRunDefault {
   model: string | null;
   effort: EffortLevel | null;
+  /** Dollars a run may spend before the SDK stops it. */
   maxBudgetUsd: number | null;
+  /** API calls one loop may make, the lead's turn or a worker's run, before the SDK stops it. */
+  maxTurns: number | null;
 }
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
@@ -442,7 +493,7 @@ export interface ApiSettings {
 /** A stage left out of `stageDefaults` is left as it was, so saving one row cannot wipe the others. */
 export interface UpdateSettingsBody {
   maxConcurrentRuns?: number;
-  stageDefaults?: Partial<StageRunDefaults>;
+  stageDefaults?: Partial<Record<RunnableStage, Partial<StageRunDefault>>>;
   /**
    * The VIBES MODE switch. A boolean rather than the timestamp it sets, because
    * "on" must not silently restart the clock — flipping it while it is already
