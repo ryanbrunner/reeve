@@ -6,6 +6,7 @@ import { api } from '../lib/api.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { AttentionBand } from './AttentionBand.js';
 import { cost, plural, sumCost, when } from './format.js';
+import { ModelEffort } from './ModelEffort.js';
 import { SmallButton } from './ui.js';
 import type { LiveRun } from './useCardDetail.js';
 
@@ -21,6 +22,7 @@ export function CardHeader({
   onClose,
   editTitle = false,
   band = true,
+  modelEffort = false,
 }: {
   detail: CardDetail;
   live: LiveRun | null;
@@ -29,6 +31,8 @@ export function CardHeader({
   editTitle?: boolean;
   /** The attention band, which the conversation layout moves above its composer. */
   band?: boolean;
+  /** The model/effort control, top-right beside the title: a task outside VIBES MODE alone. */
+  modelEffort?: boolean;
 }) {
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
@@ -227,37 +231,44 @@ export function CardHeader({
         </button>
       </div>
 
-      {/* Keyed on the title so a saved rename remounts it with React's text,
-          not the text the browser was left holding. */}
-      <h2
-        key={card.title}
-        ref={heading}
-        id="card-title"
-        contentEditable="plaintext-only"
-        suppressContentEditableWarning
-        title="Click to edit"
-        onBlur={(e) => commit(e.currentTarget)}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          e.currentTarget.blur();
-        }}
-        className="relative -mx-1.5 mt-2.5 max-w-[33rem] cursor-text rounded-sm border border-transparent px-1.5 text-[18px]/[26px] font-medium tracking-[-0.01em] text-(--color-text) outline-none hover:border-(--color-edge) focus:border-sky-600"
-      >
-        {card.title}
-      </h2>
+      {/* The title and byline stay left; the model/effort control, when there
+          is one, anchors top-right, level with the title. */}
+      <div className="relative mt-2.5 flex items-start justify-between gap-4">
+        <div className="min-w-0 grow">
+          {/* Keyed on the title so a saved rename remounts it with React's text,
+              not the text the browser was left holding. */}
+          <h2
+            key={card.title}
+            ref={heading}
+            id="card-title"
+            contentEditable="plaintext-only"
+            suppressContentEditableWarning
+            title="Click to edit"
+            onBlur={(e) => commit(e.currentTarget)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              e.currentTarget.blur();
+            }}
+            className="-mx-1.5 max-w-[33rem] cursor-text rounded-sm border border-transparent px-1.5 text-[18px]/[26px] font-medium tracking-[-0.01em] text-(--color-text) outline-none hover:border-(--color-edge) focus:border-sky-600"
+          >
+            {card.title}
+          </h2>
 
-      <div className="relative mt-1 font-mono text-[11px]/4 text-(--color-muted)">
-        {/* "by you" is rendered, never stored: there is one person, and the day
-            there are two this is the line that changes. Claude is the other
-            author, of the tasks a project was split into. */}
-        Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
-        {runs.length === 0
-          ? 'No runs yet'
-          : `${plural(runs.length, 'run')} · ${spent && !spent.exact ? '≈ ' : ''}${cost(spent?.usd ?? 0)}`}
-        {running && runs.length > 0 && ' so far'}
+          <div className="mt-1 font-mono text-[11px]/4 text-(--color-muted)">
+            {/* "by you" is rendered, never stored: there is one person, and the day
+                there are two this is the line that changes. Claude is the other
+                author, of the tasks a project was split into. */}
+            Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
+            {runs.length === 0
+              ? 'No runs yet'
+              : `${plural(runs.length, 'run')} · ${spent && !spent.exact ? '≈ ' : ''}${cost(spent?.usd ?? 0)}`}
+            {running && runs.length > 0 && ' so far'}
+          </div>
+          {failed && <p className="mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}
+        </div>
+        {modelEffort && <ModelEffort detail={detail} />}
       </div>
-      {failed && <p className="relative mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}
 
       {/* Gone by itself if the last open card finishes while it is up: the
           button then archives straight away, as for any project. */}

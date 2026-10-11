@@ -10,13 +10,12 @@ import {
   type ApiCard,
   type ApiRunSummary,
   type CardDetail,
-  type EffortLevel,
   type Stage,
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
 import { copyText } from '../lib/clipboard.js';
 import { Dropdown } from '../lib/Dropdown.js';
-import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
+import { findModel } from '../lib/models.js';
 import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
@@ -43,7 +42,6 @@ export function Rail({ detail, onOpen, embedded = false }: {
       <Repo detail={detail} />
       <Dependencies detail={detail} onOpen={onOpen} />
       <Suggestions detail={detail} onOpen={onOpen} />
-      <Model detail={detail} />
       {/* Keyed so a budget half-typed for one card is not left sitting in another's field. */}
       <Limits key={detail.card.id} detail={detail} />
       <Worktree detail={detail} />
@@ -329,63 +327,6 @@ function byRepo(cards: ApiCard[]): Array<[string, ApiCard[]]> {
     groups.set(repo, [...(groups.get(repo) ?? []), c]);
   }
   return [...groups];
-}
-
-/**
- * Which model this card's runs use, and how hard they think.
- *
- * One override for every stage, above the Settings default for each: a card
- * that needs Opus needs it for the plan and the build alike. Suggest is left
- * out — it is a cheap aside, not the card's work — and says so, since a person
- * who has just picked Opus here would otherwise expect it everywhere.
- */
-function Model({ detail }: { detail: CardDetail }) {
-  const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
-  const models = data?.models ?? [];
-  const { model, effort } = detail.card;
-  const set = useMutation({
-    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null }) => api.updateCard(detail.card.id, body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
-      void qc.invalidateQueries({ queryKey: ['board'] });
-    },
-  });
-  const levels = effortLevelsFor(models, model);
-
-  return (
-    <section className="flex flex-col gap-2">
-      <SectionHead>Model</SectionHead>
-      <div className="flex flex-col gap-1.5">
-        <Dropdown
-          label="Model for this card's runs"
-          value={model ?? ''}
-          disabled={set.isPending}
-          options={[{ value: '', label: 'Settings default' }, ...modelOptions(models, model)]}
-          onChange={(v) => {
-            const next = v || null;
-            set.mutate({ model: next, effort: keepEffort(models, next, effort) });
-          }}
-          className={FIELD}
-        />
-        <Dropdown
-          label="Effort for this card's runs"
-          value={effort ?? ''}
-          disabled={set.isPending || levels.length === 0}
-          options={[
-            { value: '', label: levels.length === 0 ? 'No effort on this model' : 'Settings default' },
-            ...levels.map((l) => ({ value: l, label: l })),
-          ]}
-          onChange={(v) => set.mutate({ effort: (v || null) as EffortLevel | null })}
-          className={FIELD}
-        />
-      </div>
-      <p className="font-mono text-[10px]/4 text-(--color-muted)">
-        For Planning, In Progress and Testing. Suggest keeps its own.
-      </p>
-      {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
-    </section>
-  );
 }
 
 /**

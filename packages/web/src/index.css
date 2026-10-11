@@ -39,6 +39,26 @@
   --color-activity-error-fill: #fb2c361f;
   --color-activity-error-mark: #f87171;
 
+  /* One hue step each off the running blue above, nothing else changed, so a
+     card's border still unmistakably reads as "running" and not some fifth
+     activity — only which family is working on it. Sonnet's is the running
+     blue itself: the common default, so nothing already running shifts
+     because of this. See `packages/web/src/lib/modelTint.ts`, which builds
+     the running glow's own border/fill/shadow/bloom alphas off each of these. */
+  --color-model-haiku: #00e3f4;
+  --color-model-sonnet: #00a6f4;
+  --color-model-opus: #0069f4;
+  --color-model-fable: #0040f4;
+
+  /* The effort slider's heat ramp: cool at Low, hottest at Max, so dragging
+     toward overdrive reads in colour before the label says "max". */
+  --color-effort-low: #38bdf8;
+  --color-effort-medium: #2dd4bf;
+  --color-effort-high: #facc15;
+  --color-effort-xhigh: #fb923c;
+  --color-effort-max: #f87171;
+  --shadow-effort-overdrive: 0 0 14px 1px #f8717199, 0 0 28px 6px #f8717159;
+
   /* Not an activity but a card fact: its pull request has landed. Green, a
      shade off review's emerald, and with its own mark, so a finished card and
      one waiting on a person never read as the same thing. */
@@ -324,6 +344,19 @@ body { background: var(--color-ink); color: var(--color-text); }
       animation: none;
     }
   }
+
+  /* The effort slider's handle at Max: a slow red pulse, so picking the
+     hottest stop feels like it costs something rather than just looking red. */
+  .effort-overdrive {
+    animation: effort-overdrive 1.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .effort-overdrive {
+      animation: none;
+      box-shadow: var(--shadow-effort-overdrive);
+    }
+  }
 }
 
 @keyframes card-rail {
@@ -339,4 +372,9 @@ body { background: var(--color-ink); color: var(--color-text); }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes effort-overdrive {
+  0%, 100% { box-shadow: 0 0 6px 0 #f8717199, 0 0 14px 2px #f8717140; }
+  50% { box-shadow: var(--shadow-effort-overdrive); }
 }

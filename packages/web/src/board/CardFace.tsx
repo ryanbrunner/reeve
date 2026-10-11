@@ -1,6 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import { canStartRun, type ApiCard, type ApiCardLink, type ApiRunPulse } from '@reeve/shared';
 import { cost } from '../card/format.js';
 import { readPulse } from '../card/pulse.js';
+import { api } from '../lib/api.js';
+import { familyOf, MODEL_TINT } from '../lib/modelTint.js';
 import { useNow } from '../lib/useNow.js';
 import {
   ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
@@ -68,6 +71,14 @@ export function CardFace({
   // In VIBES MODE on its own, on the calm board. Not once merged: after that
   // there is nothing left for it to do.
   const solo = !vibes && card.vibes && card.mergedAt == null;
+  // The model actually executing tints the running glow toward its family —
+  // the run that is live, falling back to the card's own pinned override,
+  // since the server's effective choice (through Settings' stage defaults)
+  // isn't known here. Absent a known family the card keeps the plain default
+  // blue it always has.
+  const { data: modelsResp } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const family = activity === 'running' ? familyOf(run?.model ?? card.model, modelsResp?.models ?? []) : undefined;
+  const runningTint = family ? (MODEL_TINT[family] as React.CSSProperties) : undefined;
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.
@@ -79,6 +90,7 @@ export function CardFace({
       className={`relative cursor-grab rounded-md border p-2.5 transition-opacity duration-150 ${skin} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
       } ${vibes ? 'sk-card' : ''} ${solo ? 'sk-solo-ring' : ''} ${role ? LINK_STYLE[role] : ''}`}
+      style={runningTint}
     >
       {mark}
       {/* The title and footer are positioned so they read above the mark. */}
