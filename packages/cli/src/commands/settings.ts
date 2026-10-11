@@ -24,7 +24,7 @@ import { parseStage } from '../resolve.js';
 
 const KEYS =
   'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort, <stage>.max-budget-usd, ' +
-  '<stage>.max-turns or <stage>.prompt for planning, in-progress or testing';
+  '<stage>.max-turns or <stage>.prompt for planning, in-progress, testing or release';
 
 type Key =
   | { kind: 'maxConcurrentRuns' }

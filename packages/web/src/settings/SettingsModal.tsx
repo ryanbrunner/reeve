@@ -260,6 +260,10 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
+      // The server normalizes a blank or default-text prompt override to
+      // null; without this the form would keep showing it as Custom with an
+      // empty textarea, when a fresh run now uses the shipped file again.
+      setStageDefaults(s.stageDefaults);
     },
   });
 
