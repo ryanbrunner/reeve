@@ -191,14 +191,18 @@ function NavItem({ current, onClick, children }: { current: boolean; onClick: ()
  */
 function RunsPane() {
   const { data, error } = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  if (error) {
+  // Its own query, not `api.models`'s `builtIn` field: that one waits on the
+  // CLI's model listing, which can take seconds, and a stage's shipped
+  // prompt should be there the moment someone opens it to customize it.
+  const { data: builtIn, error: builtInError } = useQuery({ queryKey: ['stageDefaults'], queryFn: api.stageDefaults });
+  if (error || builtInError) {
     return (
       <div className="grow p-5">
-        <Empty>Could not load settings: {error.message}</Empty>
+        <Empty>Could not load settings: {(error ?? builtInError)?.message}</Empty>
       </div>
     );
   }
-  if (!data) {
+  if (!data || !builtIn) {
     return (
       <div className="grow p-5">
         <Empty>Loading…</Empty>
@@ -207,10 +211,10 @@ function RunsPane() {
   }
   // Mounted only once the settings are here, so the field starts from the
   // stored value rather than from blank and then jumping.
-  return <RunsForm settings={data} />;
+  return <RunsForm settings={data} builtIn={builtIn} />;
 }
 
-function RunsForm({ settings }: { settings: ApiSettings }) {
+function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: StageRunDefaults }) {
   const qc = useQueryClient();
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
@@ -323,8 +327,8 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
         </p>
         {RUNNABLE_STAGES.map((stage) => {
           const row = stageDefaults[stage];
-          const builtIn = catalogue?.builtIn[stage];
-          const builtInModel = builtIn?.model ?? null;
+          const stageBuiltIn = builtIn[stage];
+          const builtInModel = stageBuiltIn.model;
           const builtInName = builtInModel && (findModel(models, builtInModel)?.displayName ?? builtInModel);
           const levels = effortLevelsFor(models, row.model ?? builtInModel);
           return (
@@ -344,7 +348,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 value={row.effort}
                 empty={
                   levels.length === 0 ? 'No effort on this model'
-                  : builtIn?.effort ? `Stage default (${builtIn.effort})`
+                  : stageBuiltIn.effort ? `Stage default (${stageBuiltIn.effort})`
                   : 'Stage default'
                 }
                 options={levels.map((l) => ({ value: l, label: l }))}
@@ -364,7 +368,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
           set its own.
         </p>
         {RUNNABLE_STAGES.map((stage) => {
-          const builtIn = catalogue?.builtIn[stage];
+          const stageBuiltIn = builtIn[stage];
           return (
             <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
               <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
@@ -373,7 +377,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 <Text
                   value={limits[stage].budget}
                   onChange={(budget) => setLimit(stage, { budget })}
-                  placeholder={builtIn?.maxBudgetUsd ? `${builtIn.maxBudgetUsd} (stage default)` : 'stage default'}
+                  placeholder={stageBuiltIn.maxBudgetUsd ? `${stageBuiltIn.maxBudgetUsd} (stage default)` : 'stage default'}
                   mono
                 />
               </label>
@@ -381,7 +385,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 <Text
                   value={limits[stage].turns}
                   onChange={(turns) => setLimit(stage, { turns })}
-                  placeholder={builtIn?.maxTurns ? `${builtIn.maxTurns} (stage default)` : 'no turn limit'}
+                  placeholder={stageBuiltIn.maxTurns ? `${stageBuiltIn.maxTurns} (stage default)` : 'no turn limit'}
                   mono
                 />
                 turns
@@ -397,11 +401,11 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
           What each stage is told to do, beyond its model and budget. A blank one runs the file Reeve ships with.
         </p>
         {RUNNABLE_STAGES.map((stage) => {
-          const builtIn = catalogue?.builtIn[stage]?.prompt ?? '';
+          const defaultPrompt = builtIn[stage].prompt ?? '';
           const row = stageDefaults[stage];
           const custom = row.prompt !== null;
           const expanded = expandedPrompt === stage;
-          const vars = [...builtIn.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+          const vars = [...defaultPrompt.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
           if (!expanded) {
             return (
               <div key={stage} className="flex items-center justify-between gap-3">
@@ -426,7 +430,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 )}
               </div>
               <textarea
-                value={row.prompt ?? builtIn}
+                value={row.prompt ?? defaultPrompt}
                 spellCheck={false}
                 onChange={(e) => {
                   setSaved(false);
