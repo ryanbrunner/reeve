@@ -17,7 +17,7 @@ import { api, cardsIn } from '../lib/api.js';
 import { copyText } from '../lib/clipboard.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
-import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
+import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
 /**
@@ -44,7 +44,8 @@ export function Rail({ detail, onOpen, embedded = false }: {
       <Dependencies detail={detail} onOpen={onOpen} />
       <Suggestions detail={detail} onOpen={onOpen} />
       <Model detail={detail} />
-      <Limits detail={detail} />
+      {/* Keyed so a budget half-typed for one card is not left sitting in another's field. */}
+      <Limits key={detail.card.id} detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -395,7 +396,7 @@ function Model({ detail }: { detail: CardDetail }) {
 function Limits({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const set = useMutation({
-    mutationFn: (body: { budgetUsd?: number | null; maxTurns?: number | null }) => api.updateCard(detail.card.id, body),
+    mutationFn: (body: { maxBudgetUsd?: number | null; maxTurns?: number | null }) => api.updateCard(detail.card.id, body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
       void qc.invalidateQueries({ queryKey: ['board'] });
@@ -408,10 +409,10 @@ function Limits({ detail }: { detail: CardDetail }) {
         <LimitInput
           label="Budget per run"
           prefix="$"
-          value={detail.card.budgetUsd}
+          value={detail.card.maxBudgetUsd}
           valid={(n) => n >= 0.5 && n <= 1000}
           disabled={set.isPending}
-          onSave={(budgetUsd) => set.mutate({ budgetUsd })}
+          onSave={(maxBudgetUsd) => set.mutate({ maxBudgetUsd })}
         />
         <LimitInput
           label="Turns per loop"
@@ -708,17 +709,11 @@ function Runs({ detail }: { detail: CardDetail }) {
   const models = data?.models ?? [];
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   // The same sum the header shows, so the two totals can never disagree.
-  const spent = sumTokens(runs);
+  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
-        aside={
-          spent ? (
-            <span title={tokenTitle(spent.breakdown)} className="font-mono text-[11px]/4 text-(--color-muted)">
-              {tok(spent.total)}
-            </span>
-          ) : null
-        }
+        aside={runs.length ? <span className="font-mono text-[11px]/4 text-(--color-muted)">{cost(spent)}</span> : null}
       >
         Runs
       </SectionHead>
@@ -748,9 +743,7 @@ function Runs({ detail }: { detail: CardDetail }) {
               <span className="text-(--color-muted)">
                 {duration(r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null)}
               </span>
-              <span title={tokenTitle(r.tokenBreakdown)} className="min-w-[40px] text-right whitespace-nowrap text-(--color-muted)">
-                {tok(r.totalTokens)}
-              </span>
+              <span className="min-w-[40px] text-right text-(--color-muted)">{cost(r.totalCostUsd)}</span>
             </div>
           ))}
         </div>

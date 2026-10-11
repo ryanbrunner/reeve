@@ -61,7 +61,7 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     waitingOn: null,
     model: null,
     effort: null,
-    budgetUsd: null,
+    maxBudgetUsd: null,
     maxTurns: null,
     generateMockups: false,
     activity: 'idle',

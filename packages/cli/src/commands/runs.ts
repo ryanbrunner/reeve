@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { STAGE_LABELS, type ApiRunSummary } from '@reeve/shared';
 import { api } from '../client.js';
-import { formatTokens, formatTime, parseOrUsage, print, printJson, shortId, table, usageError } from '../output.js';
+import { formatCost, formatTime, parseOrUsage, print, printJson, shortId, table, usageError } from '../output.js';
 import { resolveCardRef } from '../resolve.js';
 
 /**
@@ -23,7 +23,7 @@ export function renderRuns(runs: ApiRunSummary[], indent = ''): string[] {
     r.kind,
     r.status,
     [r.model, r.effort].filter(Boolean).join(' ') || '-',
-    formatTokens(r.totalTokens),
+    formatCost(r.totalCostUsd),
   ]);
   const lines = table(rows, indent);
   return runs.flatMap((r, i) => [
@@ -33,7 +33,7 @@ export function renderRuns(runs: ApiRunSummary[], indent = ''): string[] {
   ]);
 }
 
-export const totalTokens = (runs: ApiRunSummary[]) => runs.reduce((sum, r) => sum + (r.totalTokens ?? 0), 0);
+export const totalCost = (runs: ApiRunSummary[]) => runs.reduce((sum, r) => sum + (r.totalCostUsd ?? 0), 0);
 
 /** Every run a card has had, of every kind. `--json` is the endpoint's array as it came. */
 export async function runs(args: string[]): Promise<void> {
@@ -47,5 +47,5 @@ export async function runs(args: string[]): Promise<void> {
 
   const heading = `${shortId(card.id)}  ${card.title}`;
   if (list.length === 0) return print(`${heading}\n\nNo runs yet.`);
-  print([heading, '', `Runs (${list.length} · ${formatTokens(totalTokens(list))})`, ...renderRuns(list, '  ')].join('\n'));
+  print([heading, '', `Runs (${list.length} · ${formatCost(totalCost(list))})`, ...renderRuns(list, '  ')].join('\n'));
 }

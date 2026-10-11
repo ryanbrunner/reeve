@@ -128,7 +128,7 @@ if (!listRepos(db).some((r) => r.name === 'stack')) {
 {
   const repo = listRepos(db).find((r) => r.name === 'playground')!;
   const c = createCard(db, { repoId: repo.id, stage: 'in_progress', title: 'Rewrite the math module', body: 'A big change that ran out of budget.' });
-  db.update(cardTable).set({ budgetUsd: 2 }).where(eq(cardTable.id, c.id)).run();
+  db.update(cardTable).set({ maxBudgetUsd: 2 }).where(eq(cardTable.id, c.id)).run();
   insertRun(db, {
     id: crypto.randomUUID(), cardId: c.id, kind: 'claude', stage: 'in_progress', status: 'failed', stopReason: 'budget_exhausted',
     errorMessage: 'run ended: error_max_budget_usd', sessionId: crypto.randomUUID(), prompt: 'Seeded.', cwd: repo.worktreeRoot,

@@ -228,7 +228,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   // Typed as text and read on save, so a half-typed "1." is not refused mid-keystroke.
   const [limits, setLimits] = useState(() =>
     Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
-      budget: settings.stageDefaults[s].budgetUsd?.toString() ?? '',
+      budget: settings.stageDefaults[s].maxBudgetUsd?.toString() ?? '',
       turns: settings.stageDefaults[s].maxTurns?.toString() ?? '',
     }])) as Record<RunnableStage, { budget: string; turns: string }>,
   );
@@ -248,7 +248,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
   const withLimits = (): StageRunDefaults =>
     Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
       ...stageDefaults[s],
-      budgetUsd: limits[s].budget.trim() ? Number(limits[s].budget) : null,
+      maxBudgetUsd: limits[s].budget.trim() ? Number(limits[s].budget) : null,
       maxTurns: limits[s].turns.trim() ? Number(limits[s].turns) : null,
     }])) as StageRunDefaults;
 
@@ -366,7 +366,7 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 <Text
                   value={limits[stage].budget}
                   onChange={(budget) => setLimit(stage, { budget })}
-                  placeholder={builtIn?.budgetUsd ? `${builtIn.budgetUsd} (stage default)` : 'stage default'}
+                  placeholder={builtIn?.maxBudgetUsd ? `${builtIn.maxBudgetUsd} (stage default)` : 'stage default'}
                   mono
                 />
               </label>

@@ -79,7 +79,7 @@ const updateCardSchema = z.object({
   repoId: z.string().nullable().optional(),
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
-  budgetUsd: budgetSchema.optional(),
+  maxBudgetUsd: budgetSchema.optional(),
   maxTurns: maxTurnsSchema.optional(),
   generateMockups: z.boolean().optional(),
   vibes: z.boolean().optional(),
@@ -172,13 +172,13 @@ const settingsSchema = z.object({
       model: modelSchema,
       effort: effortSchema,
       // Optional, so a client that only knows model and effort clears nothing.
-      budgetUsd: budgetSchema.optional(),
+      maxBudgetUsd: budgetSchema.optional(),
       maxTurns: maxTurnsSchema.optional(),
     }))
     .optional(),
 });
 
-/** Each stage's model and effort as its own module sets them, beneath Settings and the card. */
+/** Each stage's model, effort and budget as its own module sets them, beneath Settings and the card. */
 function builtInStageDefaults(): StageRunDefaults {
   return Object.fromEntries(
     RUNNABLE_STAGES.map((s) => [
@@ -186,7 +186,7 @@ function builtInStageDefaults(): StageRunDefaults {
       {
         model: STAGE_DEFINITIONS[s]?.model ?? null,
         effort: STAGE_DEFINITIONS[s]?.effort ?? null,
-        budgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
+        maxBudgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
         maxTurns: STAGE_DEFINITIONS[s]?.maxTurns ?? null,
       },
     ]),
@@ -452,7 +452,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     // entering it, and starts nothing.
     if (before.stage !== moved.stage) {
       const repo = listRepos(db).find((p) => p.id === moved.repoId);
-      if (moved.stage === 'release') enterRelease(db, writer, moved, repo);
+      if (moved.stage === 'release') enterRelease(db, moved, repo);
       else maybeStartStage(db, writer, moved, repo);
     }
     return c.json(toBoardCard(db, moved, null, null));

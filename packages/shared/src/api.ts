@@ -34,22 +34,6 @@ export interface ApiRepo {
 }
 
 /**
- * Where a run's tokens went, summed across every model it used.
- *
- * The run's count is `input + output + cacheWrite`. Cache reads are carried so
- * the tooltip can show them, but they are not in the count: an agentic run
- * re-reads its whole context every turn, and counting that would make every
- * figure on the board mostly the same prompt read again.
- */
-export interface ApiTokenBreakdown {
-  input: number;
-  /** Thinking included: the SDK already counts it here. */
-  output: number;
-  cacheWrite: number;
-  cacheRead: number;
-}
-
-/**
  * A tool call the run asked for and did not get.
  *
  * Worth a wire type of its own because a denial is the one run fact that
@@ -77,15 +61,8 @@ export interface ApiRunSummary {
   model: string | null;
   effort: EffortLevel | null;
   stopReason: StopReason | null;
-  /**
-   * Input, output and cache-write tokens across every model the run used,
-   * subagents included. Null until the run has finished, and for a run that
-   * ended without a result to read them from.
-   */
-  totalTokens: number | null;
-  tokenBreakdown: ApiTokenBreakdown | null;
-  /** What it cost, its own share of a forked session; null until it has ended. Live spend is on `pulse`. */
-  costUsd: number | null;
+  /** What the run cost, at list price: its own share of a forked session. Null until it has ended; live spend is on `pulse`. */
+  totalCostUsd: number | null;
   /** What it was allowed to spend. */
   budgetUsd: number | null;
   port: number | null;
@@ -202,7 +179,7 @@ export interface ApiCard {
   model: string | null;
   effort: EffortLevel | null;
   /** This card's limits for every stage run, the same way. Null falls through. */
-  budgetUsd: number | null;
+  maxBudgetUsd: number | null;
   maxTurns: number | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
@@ -368,8 +345,8 @@ export interface VibesState {
   reviewsSkipped: number;
   /** Questions Claude was handed back to itself. */
   questionsSelfAnswered: number;
-  /** The tokens every run since then has used, counted as a run's own figure is. */
-  spendTokens: number;
+  /** What every run since then has cost, at list price, summed the same way a run's own figure is. */
+  spendUsd: number;
   /** Cards Claude has moved a column on its own. */
   moves: number;
   /** Cards Claude thought of itself, once a repo had nothing left to do. */
@@ -488,7 +465,7 @@ export interface StageRunDefault {
   model: string | null;
   effort: EffortLevel | null;
   /** Dollars a run may spend before the SDK stops it. */
-  budgetUsd: number | null;
+  maxBudgetUsd: number | null;
   /** API calls one loop may make, the lead's turn or a worker's run, before the SDK stops it. */
   maxTurns: number | null;
 }

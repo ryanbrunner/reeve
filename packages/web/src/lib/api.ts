@@ -90,7 +90,7 @@ export const api = {
       repoId?: string | null;
       model?: string | null;
       effort?: EffortLevel | null;
-      budgetUsd?: number | null;
+      maxBudgetUsd?: number | null;
       maxTurns?: number | null;
       generateMockups?: boolean;
       vibes?: boolean;

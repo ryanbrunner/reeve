@@ -1,9 +1,10 @@
 /**
  * Throwaway end-to-end check on Release, through the real app and a real run:
- * approving Testing moves the card into Release, which pushes the branch,
- * tries for a pull request, and then starts the Release conversation; Claude
- * submits what the pull request should say; and when asked to merge, the merge
- * guard refuses it.
+ * approving Testing moves the card into Release, which pushes the branch and
+ * tries for a pull request, but starts no run on its own; running the card
+ * starts the Release conversation, which is asked to review, run the finish
+ * command and write what the pull request should say; Claude submits it; and
+ * when asked to merge, the merge guard refuses it.
  *
  * `origin` is a bare repo on disk, so the push works and `gh` — which has no
  * GitHub to talk to — fails, the way it does for a repo with no remote there:
@@ -95,15 +96,28 @@ async function until(cond: () => boolean, ms = 300_000) {
 console.log('--- approve Testing into Release ---');
 const approved = await api('POST', '/api/cards/c1/review', { decision: 'approved' });
 check('the card moved to Release', approved.json?.['toStage'] === 'release', JSON.stringify(approved.json));
-check('the Release run started', await until(() => status() !== 'none', 60_000), status());
+// The push and the `gh` attempt aren't awaited by the route that moved the
+// card, so wait for the `pr_failed` event they leave behind (there is no
+// GitHub here) rather than checking the branch the instant the response lands.
+await until(() => cardEventsFor(db, 'c1').some((e) => e.kind === 'pr_failed'), 30_000);
 const pushed = git(origin, 'branch', '--list', 'reeve/c1-greeting');
-check('the branch was pushed before it started', pushed.includes('reeve/c1-greeting'), pushed || '(none)');
+check('the branch was pushed on arrival', pushed.includes('reeve/c1-greeting'), pushed || '(none)');
 const prFailed = cardEventsFor(db, 'c1').some((e) => e.kind === 'pr_failed');
 check('with no GitHub, the pull request failed and said so', prFailed);
+check('no run started on arrival', status() === 'none', status());
+
+console.log('--- run the card ---');
+await api('POST', '/api/cards/c1/run', {});
+check('the Release run started', await until(() => status() !== 'none', 60_000), status());
 
 await until(() => ['succeeded', 'failed', 'awaiting_reply', 'cancelled'].includes(status()));
+// The point of the change: run with nothing asked, Release does nothing by
+// default and waits to be told, rather than reviewing and submitting.
+check('with nothing asked, the first turn ended waiting for a reply', status() === 'awaiting_reply', status());
 if (status() === 'awaiting_reply') {
-  await api('POST', '/api/cards/c1/messages', { text: 'Your call on anything open — submit it now.' });
+  await api('POST', '/api/cards/c1/messages', {
+    text: 'Review the branch, run the finish command, and write what the pull request should say — then submit it.',
+  });
   await until(() => latestClaudeRunForStage(db, 'c1', 'release')?.status === 'succeeded' || latestClaudeRunForStage(db, 'c1', 'release')?.status === 'failed');
 }
 check('Release submitted', status() === 'succeeded', status());

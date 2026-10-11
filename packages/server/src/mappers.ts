@@ -9,7 +9,6 @@ import type {
   ApiQuestion,
   ApiRepo,
   ApiRunSummary,
-  ApiTokenBreakdown,
   ApiToolDenial,
   CardActivity,
   CardKind,
@@ -61,7 +60,6 @@ export function toApiRepo(p: Repo): ApiRepo {
 }
 
 export function toApiRunSummary(r: Run): ApiRunSummary {
-  const tokens = runTokens(r.modelUsageJson);
   return {
     id: r.id,
     kind: r.kind as RunKind,
@@ -71,9 +69,7 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     model: r.model,
     effort: (r.effort ?? null) as EffortLevel | null,
     stopReason: (r.stopReason ?? null) as StopReason | null,
-    totalTokens: tokens?.total ?? null,
-    tokenBreakdown: tokens?.breakdown ?? null,
-    costUsd: r.totalCostUsd ?? null,
+    totalCostUsd: r.totalCostUsd,
     budgetUsd: r.maxBudgetUsd ?? null,
     port: r.port,
     startedAt: ms(r.startedAt),
@@ -84,35 +80,6 @@ export function toApiRunSummary(r: Run): ApiRunSummary {
     // to read once it ends, and none to write on every message.
     pulse: runRegistry.get(r.id)?.pulse?.() ?? null,
   };
-}
-
-/**
- * A run's token count, off the SDK's `modelUsage` as stored, or null when the
- * run has none.
- *
- * `modelUsage` rather than `usage` because the SDK documents it as the one to
- * account from: it takes in subagents and compaction, and `usage` is only the
- * main thread. Worked out here rather than stored, so every run recorded
- * before anyone counted tokens gets a figure too. Read defensively for the
- * same reason as the denials below: it is the SDK's shape, keyed by model.
- */
-export function runTokens(stored: unknown): { total: number; breakdown: ApiTokenBreakdown } | null {
-  if (typeof stored !== 'object' || stored === null) return null;
-  const models = Object.values(stored as Record<string, unknown>);
-  if (models.length === 0) return null;
-  const count = (m: unknown, key: string): number => {
-    const n = typeof m === 'object' && m !== null ? (m as Record<string, unknown>)[key] : undefined;
-    return typeof n === 'number' && Number.isFinite(n) ? n : 0;
-  };
-  const sum = (key: string) => models.reduce<number>((n, m) => n + count(m, key), 0);
-  const breakdown: ApiTokenBreakdown = {
-    input: sum('inputTokens'),
-    // `thinkingTokens` is not added: the SDK already counts it inside these.
-    output: sum('outputTokens'),
-    cacheWrite: sum('cacheCreationInputTokens'),
-    cacheRead: sum('cacheReadInputTokens'),
-  };
-  return { total: breakdown.input + breakdown.output + breakdown.cacheWrite, breakdown };
 }
 
 /**
@@ -176,8 +143,8 @@ export function toApiCard(
     ...derived,
     model: c.model,
     effort: c.effort,
-    budgetUsd: c.budgetUsd ?? null,
-    maxTurns: c.maxTurns ?? null,
+    maxBudgetUsd: c.maxBudgetUsd,
+    maxTurns: c.maxTurns,
     generateMockups: c.generateMockups,
     vibes: c.vibes,
     ...links,

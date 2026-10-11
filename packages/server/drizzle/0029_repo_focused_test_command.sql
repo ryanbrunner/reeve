@@ -1,1 +1,0 @@
-ALTER TABLE `repo` ADD `focused_test_command` text;

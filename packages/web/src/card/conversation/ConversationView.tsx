@@ -15,7 +15,7 @@ import {
 import { api, cardsIn } from '../../lib/api.js';
 import { Markdown } from '../Markdown.js';
 import { useNow } from '../../lib/useNow.js';
-import { duration, tok } from '../format.js';
+import { duration } from '../format.js';
 import { LONG_CALL_MS } from '../pulse.js';
 import { Button, SmallButton } from '../ui.js';
 import { clock } from './format.js';
@@ -458,7 +458,6 @@ function AgentBlock({ item, live, runId }: { item: ToolItem; live: boolean; runI
           <span className={`shrink-0 ${running ? 'text-sky-300' : 'text-(--color-muted)/70'}`}>{status}</span>
           <span className="shrink-0 text-[10px] text-(--color-muted)/50">
             {calls} call{calls === 1 ? '' : 's'}
-            {agent.usage ? ` · ${tok(agent.usage.tokens)}` : ''}
             {elapsed !== null ? ` · ${duration(elapsed)}` : ''}
           </span>
         </span>

@@ -11,7 +11,6 @@ import {
 } from '@reeve/shared';
 import { ASSET_ROUTE } from '../assets/store.js';
 import { config } from '../config.js';
-import { runTokens } from '../mappers.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -715,7 +714,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'budgetUsd' | 'maxTurns' | 'generateMockups' | 'vibes'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'generateMockups' | 'vibes'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -916,7 +915,7 @@ export function getSettings(db: Db): ApiSettings {
       RUNNABLE_STAGES.map((s) => [s, {
         model: stored[s]?.model ?? null,
         effort: stored[s]?.effort ?? null,
-        budgetUsd: stored[s]?.budgetUsd ?? null,
+        maxBudgetUsd: stored[s]?.maxBudgetUsd ?? null,
         maxTurns: stored[s]?.maxTurns ?? null,
       }]),
     ) as StageRunDefaults,
@@ -1090,17 +1089,18 @@ export function vibesLedger(db: Db, since: Date) {
 }
 
 /**
- * The tokens every run started since a moment has used. Runs still going have
- * no count yet. Summed here rather than in SQL because the count lives in the
- * SDK's JSON, and `runTokens` is the one place that knows how to read it.
+ * What every run started since a moment has cost, at list price. Runs still
+ * going have no figure yet, and `totalCostUsd` is a plain column, so this is
+ * a sum in SQL rather than something read out of the SDK's JSON.
  */
-export function tokensSince(db: Db, since: Date): number {
-  return db
-    .select({ modelUsageJson: run.modelUsageJson })
-    .from(run)
-    .where(gt(run.createdAt, since))
-    .all()
-    .reduce((n, r) => n + (runTokens(r.modelUsageJson)?.total ?? 0), 0);
+export function spendSince(db: Db, since: Date): number {
+  return (
+    db
+      .select({ total: sql<number>`coalesce(sum(${run.totalCostUsd}), 0)` })
+      .from(run)
+      .where(gt(run.createdAt, since))
+      .get()?.total ?? 0
+  );
 }
 
 /**

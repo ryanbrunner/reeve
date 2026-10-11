@@ -184,17 +184,9 @@ function briefFor(db: Db, card: Card): string {
 }
 
 /**
- * The model and effort a run asks for: the card's override, then the Settings
- * default for the stage, then the stage module's own. Each is resolved on its
- * own, so a card that pins only a model still takes its effort from below.
- *
- * Out-of-band work keeps the task's values untouched. Suggest is not the
- * card's work, and a card pinned to Opus at max should not make it expensive.
- */
-/**
  * The budget and turn limit a run is sent: the card's own, then the Settings
  * row for its stage, then what the stage module asks for. The same layers as
- * the model and effort above, and a one-off task keeps its own for the same
+ * the model and effort below, and a one-off task keeps its own for the same
  * reason they do.
  */
 export function limitsFor(
@@ -206,11 +198,19 @@ export function limitsFor(
   if (stage.outOfBand) return { budgetUsd: stage.maxBudgetUsd, maxTurns: stage.maxTurns ?? null };
   const defaults = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage] : undefined;
   return {
-    budgetUsd: card.budgetUsd ?? defaults?.budgetUsd ?? stage.maxBudgetUsd,
+    budgetUsd: card.maxBudgetUsd ?? defaults?.maxBudgetUsd ?? stage.maxBudgetUsd,
     maxTurns: card.maxTurns ?? defaults?.maxTurns ?? stage.maxTurns ?? null,
   };
 }
 
+/**
+ * The model and effort a run asks for: the card's override, then the Settings
+ * default for the stage, then the stage module's own. Each is resolved on its
+ * own, so a card that pins only a model still takes its effort from below.
+ *
+ * Out-of-band work keeps the task's values untouched. Suggest is not the
+ * card's work, and a card pinned to Opus at max should not make it expensive.
+ */
 export function modelAndEffortFor(
   db: Db,
   card: Card,

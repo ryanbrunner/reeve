@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "14e1b9d9-178f-4659-a334-7387665bd89e",
+  "id": "35f9cdcc-99f3-4acf-81cf-bd894ea27d83",
   "prevId": "84ba0c58-e34f-4892-8c5e-69a525e99e87",
   "tables": {
     "acceptance_criterion": {
@@ -532,16 +532,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "budget_usd": {
-          "name": "budget_usd",
+        "max_budget_usd": {
+          "name": "max_budget_usd",
           "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "max_turns": {
-          "name": "max_turns",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

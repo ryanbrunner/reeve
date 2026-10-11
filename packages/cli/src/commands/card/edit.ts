@@ -16,7 +16,7 @@ const FIELD_NAMES: Record<keyof UpdateCardBody, string> = {
   repoId: 'repo',
   model: 'model',
   effort: 'effort',
-  budgetUsd: 'budget',
+  maxBudgetUsd: 'budget',
   maxTurns: 'max-turns',
   generateMockups: 'mockups',
 };
@@ -77,7 +77,7 @@ export const edit: Command = {
       repoId: values['no-repo'] ? null : values.repo === undefined ? undefined : findRepo(board, values.repo).id,
       model: orDefault(values.model),
       effort: orDefault(values.effort),
-      budgetUsd: limit('budget', values.budget, false),
+      maxBudgetUsd: limit('budget', values.budget, false),
       maxTurns: limit('max-turns', values['max-turns'], true),
       generateMockups: values.mockups ? true : values['no-mockups'] ? false : undefined,
     };

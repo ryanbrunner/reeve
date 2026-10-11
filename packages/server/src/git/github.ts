@@ -45,28 +45,59 @@ async function gh(cwd: string, args: string[]): Promise<string> {
   }
 }
 
+export interface GhProbeResult extends ProbeResult {
+  /**
+   * The token's OAuth scopes, as `gh auth status` lists them, or null when
+   * it named none — a fine-grained personal access token, which carries no
+   * scope list at all, or a probe that never got as far as logging in.
+   */
+  scopes: string[] | null;
+}
+
 /**
  * Whether pull requests could be opened from here, for `reeve doctor`: `gh` is
  * installed, and logged in. Asked from the doctor's shell, whose PATH and login
  * may not be the server's.
  */
-export async function ghProbe(): Promise<ProbeResult> {
+export async function ghProbe(): Promise<GhProbeResult> {
   const run = (args: string[]) =>
     exec('gh', args, { env: unprompted(), timeout: GH_PROBE_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
   let version: string;
   try {
     version = (await run(['--version'])).stdout.split('\n')[0]?.trim() ?? 'gh';
   } catch (cause) {
-    return { ok: false, detail: isMissing(cause) ? `${GH_MISSING} this shell’s PATH` : firstLine(failureOutput(cause, GH_PROBE_TIMEOUT_MS)) };
+    return {
+      ok: false,
+      detail: isMissing(cause) ? `${GH_MISSING} this shell’s PATH` : firstLine(failureOutput(cause, GH_PROBE_TIMEOUT_MS)),
+      scopes: null,
+    };
   }
   try {
     // `auth status` writes to stderr in some versions and stdout in others.
     const { stdout, stderr } = await run(['auth', 'status']);
-    const account = /Logged in to (\S+) (?:account|as) (\S+)/.exec(`${stdout}\n${stderr}`);
-    return { ok: true, detail: account ? `${version}, logged in to ${account[1]} as ${account[2]}` : `${version}, logged in` };
+    const text = `${stdout}\n${stderr}`;
+    const account = /Logged in to (\S+) (?:account|as) (\S+)/.exec(text);
+    const scopes = parseScopes(text);
+    return {
+      ok: true,
+      detail: account ? `${version}, logged in to ${account[1]} as ${account[2]}` : `${version}, logged in`,
+      scopes,
+    };
   } catch (cause) {
-    return { ok: false, detail: `${version}, but not logged in: ${firstLine(failureOutput(cause, GH_PROBE_TIMEOUT_MS))}` };
+    return { ok: false, detail: `${version}, but not logged in: ${firstLine(failureOutput(cause, GH_PROBE_TIMEOUT_MS))}`, scopes: null };
   }
+}
+
+/**
+ * `gh auth status`'s "Token scopes: 'repo', 'workflow'" line, parsed into the
+ * list it names — or null, for a token that carries no OAuth scopes at all,
+ * which a fine-grained personal access token reports as a bare `none` rather
+ * than omitting the line.
+ */
+function parseScopes(authStatus: string): string[] | null {
+  const line = /Token scopes: (.+)/.exec(authStatus)?.[1];
+  if (!line || line.trim() === 'none') return null;
+  return line.split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
 }
 
 /** `gh auth status` answers in a paragraph; its first line says what is wrong. */

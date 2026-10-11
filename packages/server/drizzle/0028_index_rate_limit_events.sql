@@ -1,1 +1,0 @@
-CREATE INDEX `run_event_rate_limit` ON `run_event` (`at`) WHERE "run_event"."kind" = 'unknown:rate_limit_event';

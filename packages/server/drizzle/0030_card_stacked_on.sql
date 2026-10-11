@@ -1,1 +1,0 @@
-ALTER TABLE `card` ADD `stacked_on_id` text;

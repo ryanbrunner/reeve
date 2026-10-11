@@ -4,7 +4,7 @@ import { STAGE_LABELS, isRunnable, isTerminal, stoppedAtLimit, type ApiConversat
 import { api } from '../../lib/api.js';
 import { AttentionBand } from '../AttentionBand.js';
 import { useNow } from '../../lib/useNow.js';
-import { duration, tok } from '../format.js';
+import { cost, duration } from '../format.js';
 import { readPulse, readSpend, readTurns } from '../pulse.js';
 import type { LiveRun } from '../useCardDetail.js';
 import { runningWorker, type StageTab } from './ConversationView.js';
@@ -211,7 +211,7 @@ function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
         {duration(elapsed)}
         {spend ? <span className={spend.tone === 'warn' ? 'text-(--color-activity-input-mark)' : ''}> · {spend.text}</span> : null}
         {turns ? <span className="text-(--color-activity-input-mark)"> · {turns}</span> : null}
-        {!spend && run?.totalTokens != null ? ` · ${tok(run.totalTokens)}` : ''}
+        {!spend && run?.totalCostUsd != null ? ` · ${cost(run.totalCostUsd)}` : ''}
       </span>
     );
   } else if (stoppedAtLimit(run)) {

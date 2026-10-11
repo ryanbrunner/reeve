@@ -69,25 +69,8 @@ export const shortId = (id: string) => id.slice(0, SHORT_ID);
 /** `needs_review` as `needs review`. */
 export const activityLabel = (activity: CardActivity) => activity.replace(/_/g, ' ');
 
-const UNITS = ['k', 'M', 'B'];
-
-/**
- * A token count, as the card footer writes it: exact under a thousand, then one
- * decimal while it still says something and whole numbers once it does not. The
- * unit is chosen after rounding, so 999,950 is "1 M" rather than "1000 k".
- */
-export function formatTokens(n: number | null): string {
-  if (n === null) return '-';
-  if (n < 1000) return `${Math.round(n)} tok`;
-  let unit = 0;
-  let v = n / 1000;
-  const round = (x: number) => (x < 10 ? Math.round(x * 10) / 10 : Math.round(x));
-  while (round(v) >= 1000 && unit < UNITS.length - 1) {
-    v /= 1000;
-    unit++;
-  }
-  // `String` drops a trailing ".0" on its own: 2 M, not 2.0 M.
-  return `${round(v)} ${UNITS[unit]} tok`;
+export function formatCost(usd: number | null): string {
+  return usd === null ? '-' : `$${usd.toFixed(3)}`;
 }
 
 export function formatTime(ms: number | null): string {

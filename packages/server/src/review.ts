@@ -54,8 +54,9 @@ export function approveStage(
     // moveCard writes the `moved` event, so the timeline reads as a verdict
     // followed by a move rather than one conflated entry.
     const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, actor);
-    // The same automatic start, or pull request, that a drag there gets.
-    if (moved?.stage === 'release') enterRelease(db, writer, moved, repo);
+    // The same pull request a drag into Release gets, or the same automatic
+    // start any other stage gets — Release no longer starts itself.
+    if (moved?.stage === 'release') enterRelease(db, moved, repo);
     else if (moved) maybeStartStage(db, writer, moved, repo);
   }
   return { fromStage: card.stage, toStage: to, moved: to !== card.stage };

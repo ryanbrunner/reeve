@@ -207,7 +207,7 @@ export const card = sqliteTable(
     effort: text('effort').$type<EffortLevel>(),
     // Its limits too, the same way: a big card can be given room for its runs
     // without raising them for every card on the board.
-    budgetUsd: real('budget_usd'),
+    maxBudgetUsd: real('max_budget_usd'),
     maxTurns: integer('max_turns'),
     // Whether Planning draws its own mockups for the states this card changes.
     // The `true` default only filled in the cards that predate the column, and

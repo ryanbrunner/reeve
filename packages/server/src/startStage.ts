@@ -22,7 +22,7 @@ import {
   startMerge,
   type MergeStart,
 } from './git/worktree.js';
-import { isResolvingConflicts } from './pullRequest.js';
+import { isOpeningPr, isResolvingConflicts } from './pullRequest.js';
 import { startClaudeRun, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
@@ -454,6 +454,13 @@ export async function startStage(
   }
   if (isRestacking(card.id)) {
     return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: 'start it again in a moment' };
+  }
+  // A card arriving in Release pushes its branch and opens its pull request
+  // before anything else; a run started in the middle of that would read a
+  // half-finished push. Covers the Run button and `sendToCard`'s cold-start
+  // path, the two ways a person can trigger Release's first run.
+  if (isOpeningPr(card.id)) {
+    return { ok: false, status: 409, error: 'the pull request is still opening', detail: 'start it again once the pull request is open' };
   }
   // The move route and approval already keep a blocked card from moving on,
   // so this is for the one that got past Backlog first: a dependency added, or

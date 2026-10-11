@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2d6d1fa6-2d29-470a-892a-042881251919",
-  "prevId": "14e1b9d9-178f-4659-a334-7387665bd89e",
+  "id": "d3af61ec-1c93-4ea9-8de4-c611ff2b0741",
+  "prevId": "35f9cdcc-99f3-4acf-81cf-bd894ea27d83",
   "tables": {
     "acceptance_criterion": {
       "name": "acceptance_criterion",
@@ -476,6 +476,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "stacked_on_id": {
+          "name": "stacked_on_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "merged_sha": {
           "name": "merged_sha",
           "type": "text",
@@ -532,8 +539,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "budget_usd": {
-          "name": "budget_usd",
+        "max_budget_usd": {
+          "name": "max_budget_usd",
           "type": "real",
           "primaryKey": false,
           "notNull": false,
@@ -1265,6 +1272,13 @@
         },
         "test_command": {
           "name": "test_command",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "focused_test_command": {
+          "name": "focused_test_command",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

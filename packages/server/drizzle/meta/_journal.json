@@ -194,29 +194,15 @@
     {
       "idx": 27,
       "version": "6",
-      "when": 1791587580473,
-      "tag": "0027_card_limits",
+      "when": 1791565664851,
+      "tag": "0027_add_card_max_budget_usd",
       "breakpoints": true
     },
     {
       "idx": 28,
       "version": "6",
-      "when": 1791588512581,
-      "tag": "0028_index_rate_limit_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 29,
-      "version": "6",
-      "when": 1791588728968,
-      "tag": "0029_repo_focused_test_command",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "6",
-      "when": 1791600838777,
-      "tag": "0030_card_stacked_on",
+      "when": 1791722854511,
+      "tag": "0028_card_limits_and_stacks",
       "breakpoints": true
     }
   ]

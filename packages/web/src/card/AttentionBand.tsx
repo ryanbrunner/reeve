@@ -5,7 +5,7 @@ import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
 import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
-import { duration, plural, tok } from './format.js';
+import { cost, duration, plural } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
 
 /**
@@ -445,7 +445,7 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
       <div className="flex shrink-0 items-center gap-3">
         <span className="font-mono text-[11px]/4 text-(--color-muted)">
           {duration(elapsed)}
-          {run?.totalTokens != null && ` · ${tok(run.totalTokens)} so far`}
+          {run?.totalCostUsd != null && ` · ${cost(run.totalCostUsd)} so far`}
         </span>
         <SmallButton disabled={!run || stop.isPending} onClick={() => stop.mutate()}>
           {stop.isPending ? 'Stopping…' : 'Stop'}
@@ -601,7 +601,7 @@ function AtLimit({ detail }: { detail: CardDetail }) {
   });
   const what = run?.stopReason === 'max_turns'
     ? 'its turn limit'
-    : `its $${(run?.budgetUsd ?? 0).toFixed(2)} budget${run?.costUsd != null ? `, having spent $${run.costUsd.toFixed(2)}` : ''}`;
+    : `its $${(run?.budgetUsd ?? 0).toFixed(2)} budget${run?.totalCostUsd != null ? `, having spent $${run.totalCostUsd.toFixed(2)}` : ''}`;
   return (
     <div className="flex items-center gap-4">
       <div className="min-w-0 grow">
