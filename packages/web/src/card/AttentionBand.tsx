@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, isTerminal, nextStage, stoppedAtLimit, type CardDetail } from '@reeve/shared';
+import { STAGE_LABELS, isTerminal, nextStage, recoveryFor, stoppedAtLimit, type CardDetail } from '@reeve/shared';
 import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
+import { CONTINUE_FAILED, CONTINUE_INTERRUPTED } from '../lib/continue.js';
 import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
 import { cost, duration, plural } from './format.js';
@@ -573,24 +574,55 @@ function Failed({ detail }: { detail: CardDetail }) {
   // started and failed on its own.
   const last = useMutationState({ filters: { mutationKey: key }, select: (m) => m.state }).at(-1);
   const refused = last?.error && last.submittedAt > (run?.finishedAt ?? 0) ? last.error : null;
+  // Continue carries the same conversation on, as a reply does, so the next
+  // run still has what the person said in it; Retry keeps the worktree but
+  // starts a fresh session. First where nothing was wrong with the session —
+  // a restart took it — and beside Retry for the rest, since a session limit
+  // or a sleeping laptop is no reason to lose the conversation either.
+  const go = useMutation({
+    mutationFn: () => api.sendMessage(detail.card.id, run?.status === 'interrupted' ? CONTINUE_INTERRUPTED : CONTINUE_FAILED),
+    onSettled: () => {
+      refresh();
+      void qc.invalidateQueries({ queryKey: ['conversation', detail.card.id] });
+    },
+  });
+  const recovery = run ? recoveryFor(run.status, run.stopReason) : [];
+  const resumeFirst = recovery[0] === 'resume';
+  // Only where resuming makes sense: never where the session's own context is
+  // the problem (`recoveryFor` leaves resume out), and not for a failed run
+  // that never got as far as a turn — refused before Claude started, say —
+  // since there is no conversation to carry on.
+  const canContinue = recovery.includes('resume') && (run?.status === 'interrupted' || (run?.totalCostUsd ?? 0) > 0);
+  const busy = retry.isPending || go.isPending;
+  const continueButton = canContinue && (
+    <Button tone={resumeFirst ? 'error' : undefined} disabled={busy} onClick={() => go.mutate()}>
+      {go.isPending ? 'Continuing…' : 'Continue'}
+    </Button>
+  );
 
   return (
     <div className="flex items-center gap-4">
       <div className="min-w-0 grow">
-        <div className="text-sm/5 font-medium text-(--color-text)">Error</div>
+        <div className="text-sm/5 font-medium text-(--color-text)">{run?.status === 'interrupted' ? 'Interrupted' : 'Error'}</div>
         <p className="mt-0.5 text-sm/5 text-(--color-muted)">
-          {run?.errorMessage ?? `The run stopped: ${run?.stopReason ?? 'reason unrecorded'}.`}
+          {run?.status === 'interrupted'
+            ? 'Reeve restarted while this run was working. Continue picks the conversation up where it stopped; Retry starts a fresh one on the same worktree.'
+            : (run?.errorMessage ?? `The run stopped: ${run?.stopReason ?? 'reason unrecorded'}.`)}
         </p>
       </div>
       <div className="flex shrink-0 gap-2">
-        <Button tone="error" disabled={retry.isPending} onClick={() => retry.mutate()}>
+        {resumeFirst && continueButton}
+        <Button tone={resumeFirst ? undefined : 'error'} disabled={busy} onClick={() => retry.mutate()}>
           {retry.isPending ? 'Starting…' : 'Retry'}
         </Button>
+        {!resumeFirst && continueButton}
       </div>
       {refused && <p className="basis-full text-sm/5 text-red-300">{refused.message}</p>}
+      {go.error && <p className="basis-full text-sm/5 text-red-300">{go.error.message}</p>}
     </div>
   );
 }
+
 
 /** What Continue says, as the person's own words in the conversation. */
 const CONTINUE =
