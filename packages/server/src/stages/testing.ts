@@ -45,6 +45,10 @@ export const testingStage: StageDefinition<TestingOutput> = {
   worker: {
     description: 'Verifies the card: runs the tests, checks every criterion and screenshot, fixes and commits what it can, following the brief it was started with.',
   },
+  // No advisor by default: Testing re-checks work Planning and In Progress
+  // already had advice on, and each advisor call sends the whole session to
+  // it uncached. It was 23% of Testing's spend on the board's first 714 runs.
+  advisor: false,
   maxBudgetUsd: 8,
   maxTurns: 150,
   effort: 'high',

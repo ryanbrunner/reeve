@@ -229,6 +229,28 @@ export function modelAndEffortFor(
 }
 
 /**
+ * Whether a run may call the advisor: the Settings row for its stage, then the
+ * stage module's own (off for Testing and Release). The advisor is Claude
+ * Code's, switched on by `advisorModel` in the person's own settings, which
+ * every run loads; nothing here turns it on where they have not.
+ *
+ * It costs a stage more than it costs a Claude Code session. Each call sends
+ * the whole session to the advisor uncached, and a stage is just what its
+ * instructions say to consult it on: a large task, ended by declaring it done
+ * with `submit_<stage>`. On the board's first 714 runs it was a quarter of all
+ * spend, and a card going through three stages called it four times at the
+ * median, where one Claude Code session of the same length calls it about as
+ * often as one stage does.
+ *
+ * Out-of-band work keeps the task's own, as with the model and limits.
+ */
+export function advisorFor(db: Db, stage: Pick<ClaudeTask, 'advisor' | 'outOfBand'>, runStage: CardStage): boolean {
+  if (stage.outOfBand) return stage.advisor ?? true;
+  const own = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage].advisor : null;
+  return own ?? stage.advisor ?? true;
+}
+
+/**
  * Claude Code tools a stage run is never given. Each is for a person at a
  * terminal, or for a session that manages its own place to work, and Reeve is
  * both of those for the run already: it owns the worktree, the mode, the
@@ -784,6 +806,9 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     maxBudgetUsd: limits.budgetUsd,
     ...(limits.maxTurns ? { maxTurns: limits.maxTurns } : {}),
     ...(model ? { model } : {}),
+    // An empty advisorModel is how Claude Code itself switches the advisor off,
+    // and flag settings sit above the person's own, for this session only.
+    ...(advisorFor(db, stage, runStage) ? {} : { settings: { advisorModel: '' } }),
   };
 
   if (stage.submit) {

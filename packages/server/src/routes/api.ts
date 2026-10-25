@@ -179,6 +179,7 @@ const settingsSchema = z.object({
       // 4,000 characters) — the cap is there to refuse an accident, not to
       // pinch someone who grew a template.
       prompt: z.string().max(20_000).nullable().optional(),
+      advisor: z.boolean().nullable().optional(),
     }))
     .optional(),
 });
@@ -194,6 +195,7 @@ function builtInStageDefaults(): StageRunDefaults {
         maxBudgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
         maxTurns: STAGE_DEFINITIONS[s]?.maxTurns ?? null,
         prompt: defaultPromptText(s),
+        advisor: STAGE_DEFINITIONS[s]?.advisor ?? null,
       },
     ]),
   ) as StageRunDefaults;

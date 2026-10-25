@@ -30,6 +30,10 @@ export const releaseStage: StageDefinition<ReleaseOutput> = {
       'is ready and anything the person should know before merging. Reeve sets them on the pull request and pushes ' +
       'anything you committed. It ends your turn. Call it again after any revision.',
   },
+  // No advisor by default: Release packages work the earlier stages already
+  // had advice on, and each call sends the whole session to it uncached. It
+  // was 18.5% of Release's spend on the board's first 714 runs.
+  advisor: false,
   maxBudgetUsd: 4,
   maxTurns: 80,
   effort: 'high',

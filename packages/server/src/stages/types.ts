@@ -90,6 +90,12 @@ export interface ClaudeTask<Output = unknown> {
   model?: string;
   effort?: EffortLevel;
   /**
+   * False switches off the advisor for this task's runs, beneath the Settings
+   * row (`advisorFor` in runs/claude.ts). Absent leaves it as Claude Code's
+   * own settings have it, on wherever `advisorModel` is set.
+   */
+  advisor?: boolean;
+  /**
    * Work done beside the card's stage rather than as it. The run is tagged with
    * the task's id, so it stays in the card's history and cost but never becomes
    * the card's current run: it does not tint the board, answer the review gate,

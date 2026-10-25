@@ -921,6 +921,7 @@ export function getSettings(db: Db): ApiSettings {
         maxBudgetUsd: stored[s]?.maxBudgetUsd ?? null,
         maxTurns: stored[s]?.maxTurns ?? null,
         prompt: stored[s]?.prompt ?? null,
+        advisor: stored[s]?.advisor ?? null,
       }]),
     ) as StageRunDefaults,
   };

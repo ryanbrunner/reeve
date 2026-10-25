@@ -331,6 +331,17 @@ switched on.
     Its end is the `task_notification` naming that call, never the call's own
     "launched" result.
   - `spikes/worker-flow-check.ts` drives all of it with real runs.
+- **The advisor is the person's, and off where it adds least.** Every run
+  loads the person's own Claude Code settings, so `advisorModel` there turns
+  the advisor on in stage runs too, and each call sends the whole session to
+  it uncached: a quarter of the board's spend in its first 714 runs.
+  `advisorFor` in `runs/claude.ts` reads the Settings row for the stage
+  (`reeve settings set <stage>.advisor on|off`), then the stage module's
+  `advisor`, which is `false` for Testing and Release; off is sent as
+  `settings: { advisorModel: '' }`, for that session only. Nothing turns it
+  on where the person's settings have not. `prompts/lead.md` also tells the
+  lead not to consult it before submitting, since the worker's report and
+  the lead's own check are already that review.
 - **A run's limits are layered, and hitting one is not a failure.**
   - **The layers**, highest first:
     - the card's own `maxBudgetUsd` and `maxTurns` (the rail, or
