@@ -99,9 +99,13 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   binding that loads are missing, and only warns about `gh`, a `gh` token
   without the `workflow` scope (needed to merge or push a change under
   `.github/workflows/`; `ghProbe` parses it off `gh auth status`'s own
-  "Token scopes" line), Chromium and the web build. Its probes live beside
-  the server code they predict failures in (`accountProbe`, `ghProbe`, and
-  `checkSqlite` and `checkChromium` in `packages/server/src/doctor.ts`), and
+  "Token scopes" line), Chromium, the web build, and, in a checkout, an
+  installed Agent SDK other than the one `package-lock.json` pins (the SDK
+  decides what each model alias means: a stale one is how `haiku` stayed
+  Haiku 4.5, without auto mode, on a board whose lockfile had moved on). Its
+  probes live beside the server code they predict failures in
+  (`accountProbe`, `ghProbe`, and `checkSqlite`, `checkChromium` and
+  `checkSdkMatchesLock` in `packages/server/src/doctor.ts`), and
   it never opens the board's database;
   the SQLite check opens an in-memory one.
 

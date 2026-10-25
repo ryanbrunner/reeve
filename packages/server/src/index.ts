@@ -164,5 +164,5 @@ export function startServer({ port = config.port }: { port?: number } = {}): Pro
 export { config };
 // For `reeve doctor`: each predicts a failure from beside the code that would have it.
 export { accountProbe, type ProbeResult } from './runs/models.js';
-export { checkChromium, checkSqlite } from './doctor.js';
+export { checkChromium, checkSdkMatchesLock, checkSqlite } from './doctor.js';
 export { ghProbe, type GhProbeResult } from './git/github.js';
