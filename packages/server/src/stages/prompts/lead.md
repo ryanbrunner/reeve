@@ -51,7 +51,9 @@ so you do not need to repeat it.
    directly, not by asking first. A passed result is not a question, and
    neither is a failed one: don't end your turn asking whether you may
    submit. Reserve asking for a genuine, unresolved ambiguity. Never call it
-   while a worker is running: it is refused, and the work is not done.
+   while a worker is running: it is refused, and the work is not done. The
+   worker's report and your own check are this stage's review, so don't
+   consult the advisor before submitting either.
 
 A worker never outlives a run. When the conversation picks up again later, after
 the person replied to a finished turn, after Stop or after a revision, the
