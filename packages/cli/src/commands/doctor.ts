@@ -167,6 +167,17 @@ function webBuildCheck(server: Server): Check {
 }
 
 /**
+ * In a checkout, whether the Agent SDK installed is the one the lockfile
+ * pins: see `checkSdkMatchesLock`. An install has nothing to compare, and
+ * says so as info.
+ */
+function sdkCheck(server: Server): Check {
+  const r = server.checkSdkMatchesLock(server.config.root);
+  if (!r) return { name: 'agent sdk', level: 'optional', status: 'info', detail: 'no package-lock.json to compare with: an install', fix: null };
+  return verdict('agent sdk', 'optional', r.ok, r.detail, `run \`npm ci\` in ${server.config.root}, then restart Reeve`);
+}
+
+/**
  * Whether the token `gh` is using carries the `workflow` scope, from the same
  * `gh auth status` `ghProbe` already ran. Without it, GitHub refuses a push
  * or `gh pr merge` that touches a file under `.github/workflows/` — "refusing
@@ -275,6 +286,7 @@ export async function doctor(args: string[]): Promise<void> {
       server.checkChromium().then((r) => verdict('chromium', 'optional', r.ok, r.detail, CHROMIUM_FIX))
     : unloaded('chromium', 'optional'),
     server ? webBuildCheck(server) : unloaded('web build', 'optional'),
+    server ? sdkCheck(server) : unloaded('agent sdk', 'optional'),
     running.then((up) =>
       verdict(
         'server',

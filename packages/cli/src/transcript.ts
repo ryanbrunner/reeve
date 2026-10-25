@@ -133,10 +133,11 @@ export function renderEvent(kind: string, data: string): string[] {
       const input = (payload.input ?? {}) as Record<string, unknown>;
       const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : '';
       const who = payload.agent === 'worker' ? 'The worker' : 'Claude';
-      return [`? ${who} asks to use ${String(payload.toolName ?? 'a tool')}${what ? `: ${oneLine(what)}` : ''} — reeve card permit <card> allow|deny`];
+      const verbs = typeof payload.session === 'string' ? 'allow|deny [--session]' : 'allow|deny';
+      return [`? ${who} asks to use ${String(payload.toolName ?? 'a tool')}${what ? `: ${oneLine(what)}` : ''} — reeve card permit <card> ${verbs}`];
     }
     case 'ask_answered': {
-      if (payload.kind === 'permission') return [`· ${payload.allow ? 'allowed' : 'denied'}${payload.reason ? `: ${oneLine(String(payload.reason))}` : ''}`];
+      if (payload.kind === 'permission') return [`· ${payload.allow ? (payload.session ? 'allowed for this session' : 'allowed') : 'denied'}${payload.reason ? `: ${oneLine(String(payload.reason))}` : ''}`];
       if (payload.kind === 'question') return [`· answered: ${Object.values((payload.answers ?? {}) as Record<string, string>).join('; ')}`];
       return [`· not answered (${String(payload.why ?? '')})`];
     }

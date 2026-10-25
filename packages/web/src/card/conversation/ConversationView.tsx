@@ -737,7 +737,7 @@ function AskItem({ item, detail, live }: {
     if (!pending) {
       const o = item.outcome;
       const verdict = !o ? 'Not answered'
-        : o.kind === 'permission' ? (o.allow ? 'Allowed by you' : `Denied by you${o.reason ? `: “${o.reason}”` : ''}`)
+        : o.kind === 'permission' ? (o.allow ? (o.session ? 'Allowed by you for this session' : 'Allowed by you') : `Denied by you${o.reason ? `: “${o.reason}”` : ''}`)
         : o.kind === 'unanswered' ? (o.why === 'timeout' ? 'Nobody answered in time — denied' : 'Stopped while waiting')
         : '';
       return (
@@ -755,12 +755,25 @@ function AskItem({ item, detail, live }: {
     return (
       <div className="ml-8 rounded-lg border border-(--color-activity-input-border) bg-[linear-gradient(var(--color-activity-input-fill),var(--color-activity-input-fill)),var(--color-card-core)] px-3.5 py-3 shadow-[inset_0_0_14px_0_#fe9a0026]">
         <div className="font-mono text-[11px]/4 tracking-[0.06em] text-(--color-activity-input-mark) uppercase">
-          ◆ {item.agent === 'worker' ? 'The worker' : 'Claude'} wants to use {item.request.toolName}, which auto mode would not allow on its own
+          ◆ {item.agent === 'worker' ? 'The worker' : 'Claude'} wants to use {item.request.toolName}
+          {item.request.session === undefined ? ', which auto mode would not allow on its own' : ' — this model runs without auto mode, so it asks'}
         </div>
         <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-(--color-edge) bg-[#0b0e12] px-2.5 py-2 font-mono text-xs whitespace-pre-wrap text-(--color-text)">{shown}</pre>
         {description && <p className="mt-1.5 text-[13px]/[19px] text-(--color-muted)">“{description}”</p>}
+        {item.request.session !== undefined && (
+          <p className="mt-1.5 font-mono text-[11px]/4 text-(--color-muted)">For this session would also allow: {item.request.session}</p>
+        )}
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <Button tone="input" disabled={answer.isPending} onClick={() => answer.mutate({ decision: 'allow' })}>Allow once</Button>
+          {item.request.session !== undefined && (
+            <Button
+              disabled={answer.isPending}
+              title={`From now on in this run: ${item.request.session}`}
+              onClick={() => answer.mutate({ decision: 'allow', session: true })}
+            >
+              Allow for this session
+            </Button>
+          )}
           <Button disabled={answer.isPending} onClick={() => answer.mutate({ decision: 'deny' })}>Deny</Button>
           <span className="ml-auto font-mono text-[10.5px] text-(--color-muted)/60">
             {item.agent === 'worker'

@@ -396,6 +396,30 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
       </section>
 
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Advisor</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          Whether a stage may consult the advisor your Claude Code settings turn on. Each call sends the whole session to
+          it, uncached, so it is off by default where the work was already advised on: Testing and Release.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const value = stageDefaults[stage].advisor;
+          const builtInOn = builtIn[stage].advisor !== false;
+          return (
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,160px)] items-center gap-2">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              <Select
+                label={`${STAGE_LABELS[stage]} advisor`}
+                value={value === null ? null : value ? 'on' : 'off'}
+                empty={`Stage default (${builtInOn ? 'on' : 'off'})`}
+                options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]}
+                onChange={(next) => setStage(stage, { advisor: next === null ? null : next === 'on' })}
+              />
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
         <SectionHead>Prompts</SectionHead>
         <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
           What each stage is told to do, beyond its model and budget. A blank one runs the file Reeve ships with.

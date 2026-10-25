@@ -28,11 +28,12 @@ export interface AskQuestionView {
 }
 
 export type AskView =
-  | { kind: 'permission'; toolName: string; input: Record<string, unknown> }
+  /** `session`: what Allow for this session would cover, when it is offered. */
+  | { kind: 'permission'; toolName: string; input: Record<string, unknown>; session?: string }
   | { kind: 'question'; questions: AskQuestionView[] };
 
 export type AskOutcome =
-  | { kind: 'permission'; allow: boolean; reason?: string | null; actor: 'human' | 'claude' }
+  | { kind: 'permission'; allow: boolean; session?: boolean; reason?: string | null; actor: 'human' | 'claude' }
   | { kind: 'question'; answers: Record<string, string>; actor: 'human' | 'claude'; vibes?: boolean }
   | { kind: 'unanswered'; why: 'timeout' | 'stopped' };
 
@@ -313,7 +314,12 @@ export class RunProjector {
         const askId = typeof payload['id'] === 'string' ? payload['id'] : null;
         const request: AskView = payload['kind'] === 'question'
           ? { kind: 'question', questions: (payload['questions'] as AskQuestionView[] | undefined) ?? [] }
-          : { kind: 'permission', toolName: String(payload['toolName'] ?? 'a tool'), input: isRecord(payload['input']) ? payload['input'] : {} };
+          : {
+            kind: 'permission',
+            toolName: String(payload['toolName'] ?? 'a tool'),
+            input: isRecord(payload['input']) ? payload['input'] : {},
+            ...(typeof payload['session'] === 'string' ? { session: payload['session'] } : {}),
+          };
         if (askId) this.asks.set(askId, this.items.length);
         this.items.push({ kind: 'ask', id, askId, request, outcome: null, ...(payload['agent'] === 'worker' ? { agent: 'worker' as const } : {}), at });
         return;

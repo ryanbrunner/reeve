@@ -160,7 +160,8 @@ export async function sendToCard(db: Db, writer: EventWriter, card: Card, text: 
 
 /**
  * Answer what a live run is parked on, from the card's buttons: Allow once,
- * Deny, or a choice among a question's options. False when it is no longer
+ * Allow for this session (offered only without auto mode), Deny, or a choice
+ * among a question's options. False when it is no longer
  * waiting — answered elsewhere, timed out, or stopped.
  */
 export function answerAsk(card: Card, askId: string, answer: Exclude<AskAnswer, { kind: 'unanswered' }>): boolean {

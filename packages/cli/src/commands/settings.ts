@@ -24,12 +24,12 @@ import { parseStage } from '../resolve.js';
 
 const KEYS =
   'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort, <stage>.max-budget-usd, ' +
-  '<stage>.max-turns or <stage>.prompt for planning, in-progress, testing or release';
+  '<stage>.max-turns, <stage>.prompt or <stage>.advisor for planning, in-progress, testing or release';
 
 type Key =
   | { kind: 'maxConcurrentRuns' }
   | { kind: 'suggestTasks' }
-  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'prompt' };
+  | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'prompt' | 'advisor' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
 function parseKey(input: string): Key {
@@ -46,7 +46,7 @@ function parseKey(input: string): Key {
   if (
     stage &&
     isRunnable(stage) &&
-    (field === 'model' || field === 'effort' || field === 'maxBudgetUsd' || field === 'maxTurns' || field === 'prompt')
+    (field === 'model' || field === 'effort' || field === 'maxBudgetUsd' || field === 'maxTurns' || field === 'prompt' || field === 'advisor')
   ) {
     return { kind: 'stage', stage, field };
   }
@@ -118,6 +118,7 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
   else if (key.field === 'maxBudgetUsd') next.maxBudgetUsd = value === null ? null : requireBudget(value);
   else if (key.field === 'maxTurns') next.maxTurns = value === null ? null : requireTurns(value);
   else if (key.field === 'prompt') next.prompt = value === null ? null : requirePrompt(value);
+  else if (key.field === 'advisor') next.advisor = value === null ? null : requireBoolean(`${key.stage}.advisor`, value);
   else next.model = value;
   const stageDefaults: Partial<StageRunDefaults> = {};
   stageDefaults[key.stage] = next;
@@ -157,7 +158,10 @@ function render(settings: ApiSettings, models: ModelsResponse | null): string {
     // characters, which would blow the table apart. `--json` carries the
     // real value, through ApiSettings, for a script that wants it.
     const prompt = own.prompt !== null ? ' (prompt custom)' : '';
-    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget.padEnd(14)}  turns ${turns}${prompt}`;
+    // Null all the way down means Claude Code's own setting decides.
+    const onOff = (v: boolean | null | undefined) => (v === false ? 'off' : 'on');
+    const advisor = own.advisor !== null ? onOff(own.advisor) : `${onOff(builtIn?.advisor)} (default)`;
+    return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget.padEnd(14)}  turns ${turns.padEnd(14)}  advisor ${advisor}${prompt}`;
   });
   return [...rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`), '', 'Stage runs', ...stages].join('\n');
 }
@@ -203,6 +207,7 @@ async function set(args: string[], unset: boolean): Promise<void> {
     key.field === 'prompt' ? (stored === null ? 'back to the default' : 'custom')
     : stored === null ? 'back to the default'
     : key.field === 'maxBudgetUsd' ? `$${stored}`
+    : key.field === 'advisor' ? (stored ? 'on' : 'off')
     : stored;
   print(`${STAGE_LABELS[key.stage]} ${fieldName}: ${shown}`);
 }

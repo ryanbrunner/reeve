@@ -468,6 +468,10 @@ async function questions(args: string[]): Promise<void> {
       const what = typeof input['command'] === 'string' ? input['command'] : JSON.stringify(input);
       print(`${ask.agent === 'worker' ? 'The worker' : 'Claude'} asks to use ${ask.request.toolName}:`);
       print(`   ${what}`);
+      if (ask.request.session !== undefined) {
+        print(`   --session would also allow, for the rest of the run: ${ask.request.session}`);
+        return note(`answer with \`reeve card permit ${card.number} allow|deny [--session] [--reason …]\``);
+      }
       return note(`answer with \`reeve card permit ${card.number} allow|deny [--reason …]\``);
     }
     if (ask?.request.kind === 'question') {
@@ -571,18 +575,27 @@ async function reply(args: string[]): Promise<void> {
  */
 async function permit(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() =>
-    parseArgs({ args, allowPositionals: true, options: { reason: { type: 'string' }, json: { type: 'boolean' } } }),
+    parseArgs({ args, allowPositionals: true, options: { reason: { type: 'string' }, session: { type: 'boolean' }, json: { type: 'boolean' } } }),
   );
   const [ref, decision] = positionals;
   if (!ref || (decision !== 'allow' && decision !== 'deny')) throw usageError('reeve card permit takes a card and allow or deny');
+  if (values.session && decision !== 'allow') throw usageError('--session goes with allow');
   const card = await oneCardOnBoard(ref);
   // A permission in particular: the lead can be parked on a question while
   // its worker waits on a call.
   const ask = pendingAsk(await api.conversation(card.id), 'permission');
   if (!ask || ask.request.kind !== 'permission' || !ask.askId) throw new CliError(`${cardRef(card)} is not waiting on a permission`);
-  const result = await api.answerAsk(card.id, ask.askId, { decision, ...(values.reason ? { reason: values.reason } : {}) });
+  // Only where the ask offered it: a run in auto mode allows once, or not at all.
+  if (values.session && ask.request.session === undefined) {
+    throw new CliError(`${cardRef(card)}'s run can only allow that once: --session is for a model running without auto mode`);
+  }
+  const result = await api.answerAsk(card.id, ask.askId, {
+    decision,
+    ...(values.session ? { session: true } : {}),
+    ...(values.reason ? { reason: values.reason } : {}),
+  });
   if (values.json) return printJson(result);
-  note(`${decision === 'allow' ? 'allowed' : 'denied'} ${ask.request.toolName} on ${cardRef(card)}`);
+  note(`${decision === 'allow' ? (values.session ? 'allowed for this session' : 'allowed') : 'denied'} ${ask.request.toolName} on ${cardRef(card)}`);
 }
 
 /**
@@ -709,9 +722,11 @@ const REPLY_USAGE = `  reeve card reply <card> (<text…> | --file PATH|-) [--fo
       output is \`run follow\`'s own JSON events, not this command's result.
       --json alone prints the server's answer: how the message was delivered, and the run.`;
 
-const PERMIT_USAGE = `  reeve card permit <card> allow|deny [--reason TEXT] [--json]
+const PERMIT_USAGE = `  reeve card permit <card> allow|deny [--session] [--reason TEXT] [--json]
       Allow or deny, once, the call a live run is parked on: one auto mode would not approve on its
-      own. --reason goes to Claude with a denial.
+      own. --session allows it for the rest of the run instead, as Claude Code's "don't ask again"
+      does, and only where the run offers it: a model running without auto mode. --reason goes to
+      Claude with a denial.
       --json prints the server's answer.`;
 
 const WAIT_USAGE = `  reeve card wait <card> [--timeout SECONDS] [--json]

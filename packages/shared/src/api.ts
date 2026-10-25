@@ -479,6 +479,13 @@ export interface StageRunDefault {
   maxTurns: number | null;
   /** The stage's own prompt template, in place of the file Reeve ships. Null means "use the file on disk". */
   prompt: string | null;
+  /**
+   * Whether the stage's runs may call the advisor (the server-side tool
+   * `advisorModel` in Claude Code's own settings turns on): false switches it
+   * off for that stage, true leaves it as Claude Code has it. Null means the
+   * stage module's own default, which is off for Testing and Release.
+   */
+  advisor: boolean | null;
 }
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;

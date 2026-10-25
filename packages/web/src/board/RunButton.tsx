@@ -1,6 +1,7 @@
 import { useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 import type { ApiCard } from '@reeve/shared';
 import { api } from '../lib/api.js';
+import { CONTINUE_INTERRUPTED } from '../lib/continue.js';
 
 /**
  * Starts Claude on a card that did not start on its own when it entered the
@@ -13,6 +14,7 @@ import { api } from '../lib/api.js';
  */
 export function RunButton({ card }: { card: ApiCard }) {
   const qc = useQueryClient();
+  const interrupted = card.activity === 'error' && card.latestRun?.status === 'interrupted';
   const refresh = () => void qc.invalidateQueries({ queryKey: ['board'] });
   // The same key as the attention band's Retry: it is the same start, and a
   // refusal from either is the card's to say.
@@ -25,8 +27,10 @@ export function RunButton({ card }: { card: ApiCard }) {
     // request is sent, rather than the card sitting on a held button until
     // the next poll. Settled, not succeeded: a refused start ends the
     // starting too.
+    // An interrupted run is carried on instead, as the attention band's
+    // Continue does: a restart is no reason to start the stage from nothing.
     mutationFn: () => {
-      const started = api.startStage(card.id);
+      const started: Promise<{ runId: string }> = interrupted ? api.sendMessage(card.id, CONTINUE_INTERRUPTED) : api.startStage(card.id);
       refresh();
       return started;
     },
@@ -55,14 +59,14 @@ export function RunButton({ card }: { card: ApiCard }) {
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); start.mutate(); }}
         disabled={start.isPending}
-        title={retry ? 'Start a fresh run' : 'Run this stage'}
+        title={interrupted ? 'Carry the interrupted run on' : retry ? 'Start a fresh run' : 'Run this stage'}
         className={`ml-auto rounded border px-1.5 py-0.5 font-mono text-[10px]/4 disabled:opacity-40 ${
           retry
             ? 'border-(--color-btn-error-border) bg-(--color-btn-error-fill) text-red-200 shadow-(--shadow-btn-error-glow) hover:border-(--color-btn-error-hover-border) hover:bg-(--color-btn-error-hover-fill)'
             : 'border-sky-800 text-sky-300 hover:border-sky-600 hover:bg-sky-500/10'
         }`}
       >
-        {start.isPending ? 'Starting…' : retry ? 'Retry' : 'Run'}
+        {start.isPending ? 'Starting…' : interrupted ? 'Continue' : retry ? 'Retry' : 'Run'}
       </button>
       {refused && (
         <p className="basis-full font-mono text-[10px] leading-snug text-red-300">{refused.message}</p>

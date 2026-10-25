@@ -99,9 +99,13 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   binding that loads are missing, and only warns about `gh`, a `gh` token
   without the `workflow` scope (needed to merge or push a change under
   `.github/workflows/`; `ghProbe` parses it off `gh auth status`'s own
-  "Token scopes" line), Chromium and the web build. Its probes live beside
-  the server code they predict failures in (`accountProbe`, `ghProbe`, and
-  `checkSqlite` and `checkChromium` in `packages/server/src/doctor.ts`), and
+  "Token scopes" line), Chromium, the web build, and, in a checkout, an
+  installed Agent SDK other than the one `package-lock.json` pins (the SDK
+  decides what each model alias means: a stale one is how `haiku` stayed
+  Haiku 4.5, without auto mode, on a board whose lockfile had moved on). Its
+  probes live beside the server code they predict failures in
+  (`accountProbe`, `ghProbe`, and `checkSqlite`, `checkChromium` and
+  `checkSdkMatchesLock` in `packages/server/src/doctor.ts`), and
   it never opens the board's database;
   the SQLite check opens an in-memory one.
 
@@ -259,14 +263,15 @@ switched on.
   it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
   language's toolchain, as it does in Claude Code. Stages declare no mode and
-  no tool list. What a stage should not do (change files while planning,
+  no tool list. What every run does withhold is narrower, never wider: the
+  Claude Code tools no stage has a use for (`UNUSED_TOOLS`: cron, wakeups,
+  plan mode, entering a worktree, ListAgents and the like). What a stage should not do (change files while planning,
   push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
-  model the CLI lists without `supportsAutoMode: true` — Haiku, today — has
+  model the CLI lists without `supportsAutoMode: true` — Haiku 4.5, today;
+  the `haiku` alias is Haiku 5.5 from SDK 0.3.296, which takes it — has
   `permissionMode` left unset instead, so it starts in the SDK's own default
-  mode; `canUseTool` still denies every edit and risky command the session
-  asks it, same as auto mode's escalations, so such a stage can read and
-  respond, and run whatever default mode's own heuristics wave through
-  unasked, but not edit a file. What still fails the run before Claude takes a
+  mode, and is asked about what Claude Code's default mode would prompt for:
+  see the next rule. What still fails the run before Claude takes a
   turn is a session whose `init` message reports a mode other than `'auto'`
   despite auto mode having been asked for — an account setting or
   `disableAutoMode` turning it off underneath a request that should have
@@ -274,9 +279,14 @@ switched on.
 - **What the classifier escalates is asked about, and allowed only by a
   person, once.** In an auto-mode stage run with someone who can be asked, an
   escalated call parks the run as `asking` and shows in the conversation with
-  Allow once and Deny; a typed reply denies it with that reason. It is denied
-  without asking under VIBES MODE, in a one-off task, for a model running
-  without auto mode, and after `REEVE_ASK_TIMEOUT_MS` (10 minutes) unanswered.
+  Allow once and Deny; a typed reply denies it with that reason. A model
+  running without auto mode is asked the same way about every edit and
+  command default mode prompts for, and is also offered Allow for this
+  session, built from the SDK's own suggestions (`sessionScoped` in
+  `runs/permissions.ts`) and always scoped to the session, never written to a
+  settings file: Claude Code's "don't ask again". It is denied without asking
+  under VIBES MODE, in a one-off task, and after `REEVE_ASK_TIMEOUT_MS`
+  (10 minutes) unanswered.
   `packages/server/src/runs/permissions.ts` never answers allow itself — a host
   that did would be `bypassPermissions` by another name — and its refusals
   name the call and tell Claude to carry on another way. AskUserQuestion is a
@@ -321,6 +331,17 @@ switched on.
     Its end is the `task_notification` naming that call, never the call's own
     "launched" result.
   - `spikes/worker-flow-check.ts` drives all of it with real runs.
+- **The advisor is the person's, and off where it adds least.** Every run
+  loads the person's own Claude Code settings, so `advisorModel` there turns
+  the advisor on in stage runs too, and each call sends the whole session to
+  it uncached: a quarter of the board's spend in its first 714 runs.
+  `advisorFor` in `runs/claude.ts` reads the Settings row for the stage
+  (`reeve settings set <stage>.advisor on|off`), then the stage module's
+  `advisor`, which is `false` for Testing and Release; off is sent as
+  `settings: { advisorModel: '' }`, for that session only. Nothing turns it
+  on where the person's settings have not. `prompts/lead.md` also tells the
+  lead not to consult it before submitting, since the worker's report and
+  the lead's own check are already that review.
 - **A run's limits are layered, and hitting one is not a failure.**
   - **The layers**, highest first:
     - the card's own `maxBudgetUsd` and `maxTurns` (the rail, or

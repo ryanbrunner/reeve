@@ -6,6 +6,7 @@ import {
   type HookInput,
   type Options,
   type PermissionResult,
+  type PermissionUpdate,
   type SDKMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { z } from 'zod';
@@ -37,7 +38,7 @@ import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
 import { allowances, askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
 import { Inbox } from './inbox.js';
-import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
+import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial, sessionScoped } from './permissions.js';
 import { runRegistry } from './registry.js';
 import { projectContextFor } from '../projectContext.js';
 import { baseBranchFor, protectedBranches } from '../stacks.js';
@@ -226,6 +227,50 @@ export function modelAndEffortFor(
     effort: card.effort ?? defaults?.effort ?? stage.effort ?? null,
   };
 }
+
+/**
+ * Whether a run may call the advisor: the Settings row for its stage, then the
+ * stage module's own (off for Testing and Release). The advisor is Claude
+ * Code's, switched on by `advisorModel` in the person's own settings, which
+ * every run loads; nothing here turns it on where they have not.
+ *
+ * It costs a stage more than it costs a Claude Code session. Each call sends
+ * the whole session to the advisor uncached, and a stage is just what its
+ * instructions say to consult it on: a large task, ended by declaring it done
+ * with `submit_<stage>`. On the board's first 714 runs it was a quarter of all
+ * spend, and a card going through three stages called it four times at the
+ * median, where one Claude Code session of the same length calls it about as
+ * often as one stage does.
+ *
+ * Out-of-band work keeps the task's own, as with the model and limits.
+ */
+export function advisorFor(db: Db, stage: Pick<ClaudeTask, 'advisor' | 'outOfBand'>, runStage: CardStage): boolean {
+  if (stage.outOfBand) return stage.advisor ?? true;
+  const own = isRunnable(runStage) ? getSettings(db).stageDefaults[runStage].advisor : null;
+  return own ?? stage.advisor ?? true;
+}
+
+/**
+ * Claude Code tools a stage run is never given. Each is for a person at a
+ * terminal, or for a session that manages its own place to work, and Reeve is
+ * both of those for the run already: it owns the worktree, the mode, the
+ * schedule and the person's attention. None was called in any of the board's
+ * first 714 runs, except ScheduleWakeup, which failed in three of its 14 and
+ * means nothing in a run that ends when its turn does, and ListAgents, which
+ * is how two sessions on one worktree found each other and one swept the
+ * other's work into its commit. Leaving them out also takes tokens off the
+ * start of every session, which is written to the cache each time one starts:
+ * about 3k off a lead's opening prompt, 1.4k off a worker's.
+ *
+ * Narrower, never wider: this takes tools away and grants nothing, so it does
+ * not touch what auto mode allows of the tools that are left. TaskStop,
+ * Monitor and SendMessage stay — the lead stops its worker and talks to it
+ * with them — and so does NotebookEdit, which a repo of notebooks needs.
+ */
+const UNUSED_TOOLS = [
+  'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup', 'RemoteTrigger', 'PushNotification',
+  'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'DesignSync', 'ListAgents',
+];
 
 /**
  * The permission mode every run asks for. The classifier decides what a run
@@ -565,8 +610,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   };
 
   // Settled by fitToModel before the session starts, and read by canUseTool:
-  // only an auto-mode session asks a person about an escalation. One in its
-  // own default mode would ask about every edit.
+  // a session in its own default mode is asked about every edit, so only it
+  // is offered Allow for this session.
   let autoMode = false;
 
   // The stage's background worker, when it has one: see `worker` in
@@ -632,6 +677,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     toolUseID: string,
     signal?: AbortSignal,
     agentID?: string,
+    suggestions?: PermissionUpdate[],
   ): Promise<PermissionResult> => {
     // A one-off task — Suggest, a split, resolving conflicts — has no
     // conversation anyone is reading, so nothing in it can be asked: refused
@@ -677,12 +723,21 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       };
     }
 
-    if (!autoMode || unwatched()) {
+    if (unwatched()) {
       refuse(toolName, input, toolUseID);
       return decideToolUse({ toolName, input });
     }
-    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal, fromWorker(agentID) ? 'worker' : undefined);
-    if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
+    // Without auto mode this is Claude Code's default-mode prompt, `npm test`
+    // and every edit included, so it gets Claude Code's answers to it: once,
+    // or for the rest of the session. Auto mode's escalations stay once only.
+    const session = autoMode ? null : sessionScoped(suggestions);
+    const settled = await askPerson(
+      { kind: 'permission', toolName, input, ...(session ? { session: session.label } : {}) },
+      toolUseID, signal, fromWorker(agentID) ? 'worker' : undefined,
+    );
+    if (settled.kind === 'permission' && settled.allow) {
+      return { behavior: 'allow', updatedInput: input, ...(settled.session && session ? { updatedPermissions: session.updates } : {}) };
+    }
     refuse(toolName, input, toolUseID);
     if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
     return decideToolUse({ toolName, input }, 'unanswered');
@@ -707,6 +762,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // a run holding its input open for the person would wait for ever: see
     // spikes/conversation-check.ts.
     env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+    disallowedTools: UNUSED_TOOLS,
     // No `allowedTools`: a list is exactly what this replaced. See PERMISSION_MODE.
     // permissionMode itself is filled in below, once fitToModel says whether this
     // model takes it.
@@ -746,10 +802,13 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     },
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
-    canUseTool: (toolName, input, { toolUseID, signal, agentID }) => canUseTool(toolName, input, toolUseID, signal, agentID),
+    canUseTool: (toolName, input, { toolUseID, signal, agentID, suggestions }) => canUseTool(toolName, input, toolUseID, signal, agentID, suggestions),
     maxBudgetUsd: limits.budgetUsd,
     ...(limits.maxTurns ? { maxTurns: limits.maxTurns } : {}),
     ...(model ? { model } : {}),
+    // An empty advisorModel is how Claude Code itself switches the advisor off,
+    // and flag settings sit above the person's own, for this session only.
+    ...(advisorFor(db, stage, runStage) ? {} : { settings: { advisorModel: '' } }),
   };
 
   if (stage.submit) {

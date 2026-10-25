@@ -40,10 +40,10 @@ export function unpinnedModel(models: ApiModel[]): string | null {
  *
  * Every run asks for auto mode, and a model whose capabilities did not report
  * `supportsAutoMode: true` runs without it instead, in its own default mode —
- * where `canUseTool` still denies every edit, same as auto mode's own
- * escalations (see `fitToModel` in `packages/server/src/runs/claude.ts`). Such
- * a model can read and answer but not change a file, which barely matters for
- * Planning and cripples In Progress and Testing, so it is marked rather than
+ * where every edit and most commands are put to the person, as Claude Code's
+ * default mode prompts for them (see `fitToModel` in
+ * `packages/server/src/runs/claude.ts`). Such a model works only with someone
+ * there to click, and not at all under VIBES MODE, so it is marked rather than
  * hidden. A model a stored choice could not be matched to is left unmarked —
  * nothing is known about it either way.
  */
@@ -51,7 +51,7 @@ export function modelOptions(models: ApiModel[], current: string | null): Dropdo
   const options: DropdownOption[] = models.map((m) => ({
     value: m.value,
     label: m.displayName,
-    warn: m.supportsAutoMode === true ? undefined : "can't edit",
+    warn: m.supportsAutoMode === true ? undefined : 'asks to edit',
   }));
   if (current && !findModel(models, current)) options.push({ value: current, label: current });
   return options;
@@ -98,7 +98,7 @@ export function overflowModelOptions(models: ApiModel[], current: string | null)
   const rest = models.filter((m) => !picked.has(m.value));
   const options: DropdownOption[] = [
     { value: OVERFLOW_DEFAULT, label: 'Settings default' },
-    ...rest.map((m) => ({ value: m.value, label: m.displayName, warn: m.supportsAutoMode === true ? undefined : "can't edit" })),
+    ...rest.map((m) => ({ value: m.value, label: m.displayName, warn: m.supportsAutoMode === true ? undefined : 'asks to edit' })),
   ];
   if (current && !findModel(models, current) && !picked.has(current)) options.push({ value: current, label: current });
   return options;

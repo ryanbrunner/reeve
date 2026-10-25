@@ -55,7 +55,15 @@ export type StopReason = (typeof STOP_REASONS)[number];
 /**
  * Recovery affordances. These are not interchangeable: resume continues the same
  * session (right when the run just needs more room), retry forks a fresh one
- * (right when the accumulated context is itself the problem).
+ * (right when the accumulated context is itself the problem). The first is the
+ * one to offer first.
+ *
+ * Interrupted is resume first because nothing went wrong in the session: a
+ * restart took the process away, and resuming keeps what the person said in
+ * it — notes, answers, a change of mind — which a fresh session would not
+ * have. It is not a saving: the worktree, commits and all, survives either
+ * way, and carrying the session on cost as much as starting again when the
+ * two were measured side by side.
  */
 export function recoveryFor(status: RunStatus, reason: StopReason | null): Array<'resume' | 'retry'> {
   if (status === 'succeeded' || status === 'awaiting_reply') return [];

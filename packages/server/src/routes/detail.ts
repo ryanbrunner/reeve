@@ -73,7 +73,8 @@ const answerSchema = z.object({ answer: z.string().min(1, 'an answer needs words
 const noteSchema = z.object({ body: z.string().min(1, 'a note needs words') });
 const messageSchema = z.object({ text: z.string().trim().min(1, 'a message needs words').max(20_000) });
 const askAnswerSchema = z.union([
-  z.object({ decision: z.enum(['allow', 'deny']), reason: z.string().max(2_000).nullish() }),
+  // `session: true` with allow: Allow for this session, where the ask offered it.
+  z.object({ decision: z.enum(['allow', 'deny']), session: z.boolean().optional(), reason: z.string().max(2_000).nullish() }),
   z.object({ answers: z.record(z.string(), z.string()) }),
 ]);
 
@@ -285,7 +286,13 @@ export function detailRoutes(db: Db, writer: EventWriter) {
     const body = parsed.data;
     const answered = answerAsk(card, c.req.param('askId'), 'answers' in body
       ? { kind: 'question', answers: body.answers, actor: 'human' }
-      : { kind: 'permission', allow: body.decision === 'allow', reason: body.reason ?? null, actor: 'human' });
+      : {
+        kind: 'permission',
+        allow: body.decision === 'allow',
+        ...(body.decision === 'allow' && body.session ? { session: true } : {}),
+        reason: body.reason ?? null,
+        actor: 'human',
+      });
     if (!answered) return c.json({ error: 'not waiting on that', detail: 'answered already, timed out, or stopped' }, 409);
     return c.json({ ok: true });
   });

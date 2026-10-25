@@ -227,6 +227,8 @@ function StatusLine({ detail, live, readOnly, tab, worker, workerAsking }: {
     main = <span className="text-(--color-activity-error-mark)">◆ Submitted · needs a fix</span>;
   } else if (card.activity === 'needs_review') {
     main = <span className="text-(--color-activity-review-mark)">◆ Submitted · ready for review</span>;
+  } else if (card.activity === 'error' && card.latestRun?.status === 'interrupted') {
+    main = <span className="text-red-300">A restart stopped the run. Reply, or Continue, to pick it back up.</span>;
   } else if (card.activity === 'error') {
     main = <span className="text-red-300">The run stopped with an error. Reply to pick it back up, or Retry.</span>;
   }
