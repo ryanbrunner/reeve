@@ -259,7 +259,9 @@ switched on.
   it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
   language's toolchain, as it does in Claude Code. Stages declare no mode and
-  no tool list. What a stage should not do (change files while planning,
+  no tool list. What every run does withhold is narrower, never wider: the
+  Claude Code tools no stage has a use for (`UNUSED_TOOLS`: cron, wakeups,
+  plan mode, entering a worktree, ListAgents and the like). What a stage should not do (change files while planning,
   push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
   model the CLI lists without `supportsAutoMode: true` — Haiku 4.5, today;
   the `haiku` alias is Haiku 5.5 from SDK 0.3.296, which takes it — has

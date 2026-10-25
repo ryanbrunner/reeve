@@ -229,6 +229,28 @@ export function modelAndEffortFor(
 }
 
 /**
+ * Claude Code tools a stage run is never given. Each is for a person at a
+ * terminal, or for a session that manages its own place to work, and Reeve is
+ * both of those for the run already: it owns the worktree, the mode, the
+ * schedule and the person's attention. None was called in any of the board's
+ * first 714 runs, except ScheduleWakeup, which failed in three of its 14 and
+ * means nothing in a run that ends when its turn does, and ListAgents, which
+ * is how two sessions on one worktree found each other and one swept the
+ * other's work into its commit. Leaving them out also takes tokens off the
+ * start of every session, which is written to the cache each time one starts:
+ * about 3k off a lead's opening prompt, 1.4k off a worker's.
+ *
+ * Narrower, never wider: this takes tools away and grants nothing, so it does
+ * not touch what auto mode allows of the tools that are left. TaskStop,
+ * Monitor and SendMessage stay — the lead stops its worker and talks to it
+ * with them — and so does NotebookEdit, which a repo of notebooks needs.
+ */
+const UNUSED_TOOLS = [
+  'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup', 'RemoteTrigger', 'PushNotification',
+  'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'DesignSync', 'ListAgents',
+];
+
+/**
  * The permission mode every run asks for. The classifier decides what a run
  * may do, as it does in Claude Code's auto mode, and each stage's prompt says
  * what it should do; see runs/permissions.ts for what is left for us to
@@ -718,6 +740,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     // a run holding its input open for the person would wait for ever: see
     // spikes/conversation-check.ts.
     env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+    disallowedTools: UNUSED_TOOLS,
     // No `allowedTools`: a list is exactly what this replaced. See PERMISSION_MODE.
     // permissionMode itself is filled in below, once fitToModel says whether this
     // model takes it.
