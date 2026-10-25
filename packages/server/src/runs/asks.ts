@@ -19,11 +19,17 @@ export interface AskQuestion {
 }
 
 export type AskRequest =
-  | { kind: 'permission'; toolName: string; input: Record<string, unknown> }
+  /**
+   * `session`, when set, is what Allow for this session would let through
+   * from now on: Claude Code's own "don't ask again" for the call, offered
+   * only to a session running without auto mode. See `sessionScoped` in
+   * runs/permissions.ts.
+   */
+  | { kind: 'permission'; toolName: string; input: Record<string, unknown>; session?: string }
   | { kind: 'question'; questions: AskQuestion[] };
 
 export type AskAnswer =
-  | { kind: 'permission'; allow: boolean; reason?: string | null; actor: CardEventActor }
+  | { kind: 'permission'; allow: boolean; session?: boolean; reason?: string | null; actor: CardEventActor }
   | { kind: 'question'; answers: Record<string, string>; actor: CardEventActor }
   /** Nobody answered in time, or the run was stopped first. */
   | { kind: 'unanswered'; why: 'timeout' | 'stopped' };

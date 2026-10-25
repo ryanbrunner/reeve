@@ -6,6 +6,7 @@ import {
   type HookInput,
   type Options,
   type PermissionResult,
+  type PermissionUpdate,
   type SDKMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { z } from 'zod';
@@ -37,7 +38,7 @@ import type { EventWriter } from './events.js';
 import { capabilitiesFor } from './models.js';
 import { allowances, askRegistry, type AskAnswer, type AskQuestion, type AskRequest } from './asks.js';
 import { Inbox } from './inbox.js';
-import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial } from './permissions.js';
+import { agentGuard, allowanceHook, decideToolUse, denialRecorder, liveDatabaseGuard, mergeGuard, personDenial, sessionScoped } from './permissions.js';
 import { runRegistry } from './registry.js';
 import { projectContextFor } from '../projectContext.js';
 import { baseBranchFor, protectedBranches } from '../stacks.js';
@@ -565,8 +566,8 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
   };
 
   // Settled by fitToModel before the session starts, and read by canUseTool:
-  // only an auto-mode session asks a person about an escalation. One in its
-  // own default mode would ask about every edit.
+  // a session in its own default mode is asked about every edit, so only it
+  // is offered Allow for this session.
   let autoMode = false;
 
   // The stage's background worker, when it has one: see `worker` in
@@ -632,6 +633,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     toolUseID: string,
     signal?: AbortSignal,
     agentID?: string,
+    suggestions?: PermissionUpdate[],
   ): Promise<PermissionResult> => {
     // A one-off task — Suggest, a split, resolving conflicts — has no
     // conversation anyone is reading, so nothing in it can be asked: refused
@@ -677,12 +679,21 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
       };
     }
 
-    if (!autoMode || unwatched()) {
+    if (unwatched()) {
       refuse(toolName, input, toolUseID);
       return decideToolUse({ toolName, input });
     }
-    const settled = await askPerson({ kind: 'permission', toolName, input }, toolUseID, signal, fromWorker(agentID) ? 'worker' : undefined);
-    if (settled.kind === 'permission' && settled.allow) return { behavior: 'allow', updatedInput: input };
+    // Without auto mode this is Claude Code's default-mode prompt, `npm test`
+    // and every edit included, so it gets Claude Code's answers to it: once,
+    // or for the rest of the session. Auto mode's escalations stay once only.
+    const session = autoMode ? null : sessionScoped(suggestions);
+    const settled = await askPerson(
+      { kind: 'permission', toolName, input, ...(session ? { session: session.label } : {}) },
+      toolUseID, signal, fromWorker(agentID) ? 'worker' : undefined,
+    );
+    if (settled.kind === 'permission' && settled.allow) {
+      return { behavior: 'allow', updatedInput: input, ...(settled.session && session ? { updatedPermissions: session.updates } : {}) };
+    }
     refuse(toolName, input, toolUseID);
     if (settled.kind === 'permission') return personDenial({ toolName, input }, settled.reason);
     return decideToolUse({ toolName, input }, 'unanswered');
@@ -746,7 +757,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
     },
     // Escalations and questions: see canUseTool above, and runs/permissions.ts
     // for the refusals it sends.
-    canUseTool: (toolName, input, { toolUseID, signal, agentID }) => canUseTool(toolName, input, toolUseID, signal, agentID),
+    canUseTool: (toolName, input, { toolUseID, signal, agentID, suggestions }) => canUseTool(toolName, input, toolUseID, signal, agentID, suggestions),
     maxBudgetUsd: limits.budgetUsd,
     ...(limits.maxTurns ? { maxTurns: limits.maxTurns } : {}),
     ...(model ? { model } : {}),

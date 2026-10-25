@@ -216,7 +216,7 @@ export const api = {
   /** Every stage's conversation, projected from its runs. */
   conversation: (cardId: string) => request<ApiConversation>(`/api/cards/${enc(cardId)}/conversation`),
   /** Answer what a live run is parked on: allow or deny a call, or choose a question's options. */
-  answerAsk: (cardId: string, askId: string, body: { decision: 'allow' | 'deny'; reason?: string } | { answers: Record<string, string> }) =>
+  answerAsk: (cardId: string, askId: string, body: { decision: 'allow' | 'deny'; session?: boolean; reason?: string } | { answers: Record<string, string> }) =>
     post<{ ok: true }>(`/api/cards/${enc(cardId)}/asks/${enc(askId)}`, body),
 
   /** The run's transcript from after `since`, live until the run ends. See ./sse.ts. */

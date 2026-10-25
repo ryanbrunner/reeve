@@ -261,12 +261,11 @@ switched on.
   language's toolchain, as it does in Claude Code. Stages declare no mode and
   no tool list. What a stage should not do (change files while planning,
   push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
-  model the CLI lists without `supportsAutoMode: true` — Haiku, today — has
+  model the CLI lists without `supportsAutoMode: true` — Haiku 4.5, today;
+  the `haiku` alias is Haiku 5.5 from SDK 0.3.296, which takes it — has
   `permissionMode` left unset instead, so it starts in the SDK's own default
-  mode; `canUseTool` still denies every edit and risky command the session
-  asks it, same as auto mode's escalations, so such a stage can read and
-  respond, and run whatever default mode's own heuristics wave through
-  unasked, but not edit a file. What still fails the run before Claude takes a
+  mode, and is asked about what Claude Code's default mode would prompt for:
+  see the next rule. What still fails the run before Claude takes a
   turn is a session whose `init` message reports a mode other than `'auto'`
   despite auto mode having been asked for — an account setting or
   `disableAutoMode` turning it off underneath a request that should have
@@ -274,9 +273,14 @@ switched on.
 - **What the classifier escalates is asked about, and allowed only by a
   person, once.** In an auto-mode stage run with someone who can be asked, an
   escalated call parks the run as `asking` and shows in the conversation with
-  Allow once and Deny; a typed reply denies it with that reason. It is denied
-  without asking under VIBES MODE, in a one-off task, for a model running
-  without auto mode, and after `REEVE_ASK_TIMEOUT_MS` (10 minutes) unanswered.
+  Allow once and Deny; a typed reply denies it with that reason. A model
+  running without auto mode is asked the same way about every edit and
+  command default mode prompts for, and is also offered Allow for this
+  session, built from the SDK's own suggestions (`sessionScoped` in
+  `runs/permissions.ts`) and always scoped to the session, never written to a
+  settings file: Claude Code's "don't ask again". It is denied without asking
+  under VIBES MODE, in a one-off task, and after `REEVE_ASK_TIMEOUT_MS`
+  (10 minutes) unanswered.
   `packages/server/src/runs/permissions.ts` never answers allow itself — a host
   that did would be `bypassPermissions` by another name — and its refusals
   name the call and tell Claude to carry on another way. AskUserQuestion is a

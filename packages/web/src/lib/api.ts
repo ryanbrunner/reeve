@@ -141,7 +141,7 @@ export const api = {
   runEvent: (runId: string, seq: number) =>
     fetch(`/api/runs/${runId}/events/${seq}`).then(json<{ seq: number; kind: string; payload: unknown }>),
   /** Answer what a live run is parked on: a permission, or a question's options. */
-  answerAsk: (id: string, askId: string, body: { decision: 'allow' | 'deny'; reason?: string | null } | { answers: Record<string, string> }) =>
+  answerAsk: (id: string, askId: string, body: { decision: 'allow' | 'deny'; session?: boolean; reason?: string | null } | { answers: Record<string, string> }) =>
     post(`/api/cards/${id}/asks/${askId}`, body).then(json<{ ok: true }>),
 
   // --- talking back to Claude ---

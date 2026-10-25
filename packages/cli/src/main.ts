@@ -48,9 +48,9 @@ const USAGE = `Usage: reeve <command> [options]
       the answer to what it is asking, or the stage's conversation carried on.
   reeve card questions <card> [--json] / answer <card> <question> <answer>
       What Claude is waiting on you for, and the answer to a plan's question.
-  reeve card permit <card> allow|deny [--reason T]
+  reeve card permit <card> allow|deny [--session] [--reason T]
       Allow or deny, once, the call a run is parked on: one auto mode would
-      not approve on its own.
+      not approve on its own. --session: for the rest of the run, where offered.
   reeve card wait <card> [--timeout S] [--json]
       Block until the card's run wants a person, and say which by exit status.
   reeve runs <card> [--json]

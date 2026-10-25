@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback, PermissionResult, PermissionUpdate, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
 
@@ -21,11 +21,16 @@ import { realOrSelf } from '../git/worktree.js';
  * What reaches this callback is what the classifier escalated rather than
  * decided. A stage is a conversation now, so in an auto-mode run with a
  * person who can be asked, runs/claude.ts parks the call and asks them, and
- * allows only on their explicit click, for that one call. Everything else is
- * refused here, as it always was: under VIBES MODE nobody is near the board,
- * a model without auto mode would escalate every edit, and a request nobody
- * answers in time is denied for them. This module itself never answers allow
- * — a host that did so on its own would be `bypassPermissions` by another name.
+ * allows only on their explicit click, for that one call. A model without
+ * auto mode is asked about the same way, and about more — everything Claude
+ * Code's default mode would prompt for, `npm test` and every edit included —
+ * so, as Claude Code does, the person can also allow it for the rest of the
+ * session (`sessionScoped`). Haiku 4.5 is why: refusing every one of those
+ * left its Testing runs unable to run the tests. Everything else is refused
+ * here, as it always was: under VIBES MODE nobody is near the board, and a
+ * request nobody answers in time is denied for them. This module itself never
+ * answers allow — a host that did so on its own would be `bypassPermissions`
+ * by another name.
  *
  * The refusal is still worth writing ourselves, and card #22 is why. The SDK's
  * own says anything else requiring approval will fail too, and a run that reads
@@ -42,9 +47,41 @@ export interface ToolDecision {
 }
 
 /**
+ * What Allow for this session would let through, from the suggestions the
+ * SDK hands `canUseTool` with a default-mode prompt: the same "Yes, and don't
+ * ask again" Claude Code offers there, such as `acceptEdits` for an edit or a
+ * `Bash(npm test:*)` rule for a command. Null when there is nothing to offer.
+ *
+ * Every update is re-addressed to the session, whatever the SDK suggested:
+ * Claude Code would write a rule into the repo's `.claude/settings.local.json`,
+ * and a card's click must not outlive its run or reach the person's own
+ * Claude Code. Only rules that allow, a switch to `acceptEdits`, and extra
+ * directories are kept: nothing here may widen a run past what one click on
+ * this call was shown to mean. The hooks still run first — `mergeGuard` and
+ * `liveDatabaseGuard` refuse what they refuse, whatever a rule says.
+ */
+export function sessionScoped(suggestions: PermissionUpdate[] | undefined): { updates: PermissionUpdate[]; label: string } | null {
+  const updates: PermissionUpdate[] = [];
+  const labels: string[] = [];
+  for (const s of suggestions ?? []) {
+    if (s.type === 'addRules' && s.behavior === 'allow' && s.rules.length > 0) {
+      updates.push({ ...s, destination: 'session' });
+      labels.push(...s.rules.map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)));
+    } else if (s.type === 'setMode' && s.mode === 'acceptEdits') {
+      updates.push({ ...s, destination: 'session' });
+      labels.push('every file edit');
+    } else if (s.type === 'addDirectories' && s.directories.length > 0) {
+      updates.push({ ...s, destination: 'session' });
+      labels.push(...s.directories.map((d) => `files in ${d}`));
+    }
+  }
+  return updates.length > 0 ? { updates, label: labels.join(', ') } : null;
+}
+
+/**
  * Deny, in words that keep the run going: what every escalation gets when
- * nobody can be asked — VIBES MODE, a model running without auto mode, or a
- * person who did not answer in time (`why: 'unanswered'`).
+ * nobody can be asked — VIBES MODE, a one-off task, or a person who did not
+ * answer in time (`why: 'unanswered'`).
  *
  * When a person IS there, runs/claude.ts asks them first and only allows on
  * their explicit click, for that one call. Nothing here ever answers allow.
