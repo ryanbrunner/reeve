@@ -19,7 +19,7 @@ const LOG_LINES = 4;
  * say so rather than quietly claim otherwise.
  */
 export function vibesState(db: Db): VibesState | null {
-  const { vibesSince } = getSettings(db);
+  const { vibesSince, vibesOptions } = getSettings(db);
   if (vibesSince === null) return null;
   const since = new Date(vibesSince);
   const ledger = vibesLedger(db, since);
@@ -37,7 +37,7 @@ export function vibesState(db: Db): VibesState | null {
     moves: byClaude('moved'),
     ideas: ledger.filter(isIdea).length,
     log: ledger.flatMap((e) => {
-      const line = logLine(e);
+      const line = logLine(e, vibesOptions.autoMerge);
       return line ? [line] : [];
     }).slice(0, LOG_LINES),
   };
@@ -62,12 +62,14 @@ function isIdea(e: Entry): boolean {
  * person watching would point at: something landed, something was waved
  * through, something broke and nothing stopped.
  */
-function logLine(e: Entry): string | null {
+function logLine(e: Entry, autoMerge: boolean): string | null {
   const it = `“${e.title}”`;
   const to = e.toStage ? STAGE_LABELS[e.toStage as Stage] : null;
   switch (e.kind) {
+    // A person's Merge is the normal way a card lands with Settings' auto-merge
+    // off, and the log must not credit Claude with it.
     case 'merged':
-      return `Claude merged ${it} → main · 0 reviews`;
+      return e.actor === 'claude' ? `Claude merged ${it} → main · 0 reviews` : `You merged ${it}`;
     case 'created':
       return isIdea(e) ? `Claude thought of ${it} · building it next` : null;
     case 'reviewed':
@@ -79,7 +81,7 @@ function logLine(e: Entry): string | null {
     case 'moved':
       return e.actor === 'claude' && to ? `${it} → ${to}` : null;
     case 'pr_opened':
-      return `Pull request open on ${it} · merging it`;
+      return `Pull request open on ${it} · ${autoMerge ? 'merging it' : 'yours to merge'}`;
     case 'pr_failed':
       return `Could not ship ${it} · ${e.body ?? 'no reason given'}`;
     case 'merge_failed':

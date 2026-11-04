@@ -31,6 +31,11 @@ import { ideasTask } from '../stages/ideas.js';
  * that the cap being full or the switch going off simply means it happens on a
  * later pass or not at all.
  *
+ * "Run dry" counts a card in Release as finished, merged or not, so with
+ * Settings' auto-merge off the next ideas still come while pull requests wait
+ * for a person's Merge — and are built on the default branch without them.
+ * That is the option working as asked: it holds back landing, not building.
+ *
  * Settings' own "Suggest follow-up cards" switch governs this too: off, it
  * means Reeve stops thinking of ideas on its own, the same as it stops a stage
  * suggesting cards beside its own work.

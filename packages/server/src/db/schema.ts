@@ -605,6 +605,17 @@ export const settings = sqliteTable('settings', {
    */
   suggestTasks: integer('suggest_tasks', { mode: 'boolean' }),
   /**
+   * What VIBES MODE leaves out, and whether it lands what it builds. Null
+   * reads as what the sweep always did — Planning skipped, Testing run, pull
+   * requests merged — so a board that never opened these keeps doing that.
+   * There is no column for In Progress or Release: without the one nothing is
+   * built and without the other nothing reaches a pull request, so neither is
+   * a thing to skip, and leaving them out of the schema is what makes sure.
+   */
+  vibesSkipPlanning: integer('vibes_skip_planning', { mode: 'boolean' }),
+  vibesSkipTesting: integer('vibes_skip_testing', { mode: 'boolean' }),
+  vibesAutoMerge: integer('vibes_auto_merge', { mode: 'boolean' }),
+  /**
    * The one exception to typed columns: a model and effort per runnable stage.
    * This is a map keyed by stage, not a handful of knobs, and a stage added
    * later should not need a migration. A stage missing from it is unset.

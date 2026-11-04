@@ -75,3 +75,48 @@ export function nextStage(stage: Stage): Stage | null {
 export function needsWorktree(stage: Stage): boolean {
   return STAGES.indexOf(stage) >= STAGES.indexOf('planning');
 }
+
+/**
+ * What VIBES MODE leaves out, and whether it lands what it builds. Settings'
+ * VIBES MODE options, the same for the board's switch as for a card or a
+ * project put in VIBES MODE on its own.
+ *
+ * Only Planning and Testing can be skipped. In Progress is the work and
+ * Release is where it becomes a pull request, so there is no field for either
+ * and nothing can turn them off.
+ */
+export interface VibesOptions {
+  /** Sweep a card from Backlog over Planning straight into In Progress. On by default. */
+  skipPlanning: boolean;
+  /** Approve In Progress straight into Release, over Testing. Off by default. */
+  skipTesting: boolean;
+  /**
+   * Land the pull request once Release has written it. Off leaves a VIBES card
+   * in Release with its pull request open and mergeable, for a person's Merge.
+   * On by default.
+   */
+  autoMerge: boolean;
+}
+
+/** What every board did before these were options, and still does until someone changes one. */
+export const DEFAULT_VIBES_OPTIONS: VibesOptions = { skipPlanning: true, skipTesting: false, autoMerge: true };
+
+/** Whether VIBES MODE steps over this column rather than stopping in it. */
+export function vibesSkips(stage: Stage, options: VibesOptions): boolean {
+  return (stage === 'planning' && options.skipPlanning) || (stage === 'testing' && options.skipTesting);
+}
+
+/**
+ * The column VIBES MODE moves a card into after this one: `nextStage`, with
+ * every column the options skip stepped over. Never skips past Release, which
+ * no option can skip.
+ *
+ * Beside `nextStage` rather than in it, because the calm board, the review
+ * gate and a card's own buttons all advance through every column, and VIBES
+ * MODE is a layer over that product rather than a fork of it.
+ */
+export function vibesNextStage(stage: Stage, options: VibesOptions): Stage | null {
+  let to = nextStage(stage);
+  while (to && vibesSkips(to, options)) to = nextStage(to);
+  return to;
+}

@@ -13,6 +13,7 @@ import {
   type RunnableStage,
   type StageRunDefault,
   type StageRunDefaults,
+  type VibesOptions,
 } from '@reeve/shared';
 import { api } from '../lib/api.js';
 import { Dropdown, type DropdownOption } from '../lib/Dropdown.js';
@@ -219,6 +220,11 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
   const [suggestTasks, setSuggestTasks] = useState(settings.suggestTasks);
+  const [vibesOptions, setVibesOptions] = useState<VibesOptions>(settings.vibesOptions);
+  const setVibes = (next: Partial<VibesOptions>) => {
+    setSaved(false);
+    setVibesOptions((o) => ({ ...o, ...next }));
+  };
   // Four full prompts is a lot of vertical space, so each stays collapsed
   // until asked for.
   const [expandedPrompt, setExpandedPrompt] = useState<RunnableStage | null>(null);
@@ -260,7 +266,8 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
     }])) as StageRunDefaults;
 
   const save = useMutation({
-    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withLimits(), suggestTasks }),
+    mutationFn: () =>
+      api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withLimits(), suggestTasks, vibesOptions }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -318,6 +325,35 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
             repo runs dry. Cards already in Backlog stay.
           </span>
         </div>
+      </section>
+
+      {/* The options, never the switch: that stays in the header, where
+          flipping it is loud on purpose. In Progress and Release have no box
+          because nothing reaches a pull request without them. */}
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>VIBES MODE</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What VIBES MODE does once it is on, for the whole board or a card or project put in it on its own. In Progress
+          and Release always run.
+        </p>
+        <Check
+          label="Skip Planning"
+          checked={vibesOptions.skipPlanning}
+          onChange={(skipPlanning) => setVibes({ skipPlanning })}
+          hint="Backlog goes straight to In Progress, which works from the card itself. Off, Planning runs and its plan is approved unread."
+        />
+        <Check
+          label="Skip Testing"
+          checked={vibesOptions.skipTesting}
+          onChange={(skipTesting) => setVibes({ skipTesting })}
+          hint="Approved work goes straight from In Progress to Release. Off, Testing runs and its report is approved unread."
+        />
+        <Check
+          label="Merge pull requests"
+          checked={vibesOptions.autoMerge}
+          onChange={(autoMerge) => setVibes({ autoMerge })}
+          hint="Land each pull request once Release has written it. Off, Release still opens it and resolves its conflicts, and leaves it for your Merge."
+        />
       </section>
 
       <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
@@ -498,6 +534,24 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
         </p>
       )}
     </form>
+  );
+}
+
+/** A checkbox with its label, and a line under it saying what it does. */
+function Check({ label, checked, onChange, hint }: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  hint: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex w-fit cursor-pointer items-center gap-2 font-mono text-[11px]/4 text-(--color-text)">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-sky-600" />
+        {label}
+      </label>
+      <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">{hint}</span>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import { ReleaseTab } from './tabs/ReleaseTab.js';
 import { TasksTab } from './tabs/TasksTab.js';
 import { Rail } from './Rail.js';
 import { ReviewTools, type ReviewTool } from './ReviewTools.js';
+import { useVibesOptions } from '../vibes/options.js';
 
 /** The review tools at the head of each side tab: what that tab shows is what they review. */
 const TOOLS: Partial<Record<TabId, ReviewTool[]>> = {
@@ -54,7 +55,9 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
   const project = detail.card.kind === 'project';
   // Open on whatever this card is currently about. A card in Testing wants its
   // preview; one in Backlog has only a brief.
-  const [own, setOwn] = useState<TabId>(() => defaultTab(detail, vibes));
+  const { skipPlanning } = useVibesOptions();
+  const planless = vibes && skipPlanning;
+  const [own, setOwn] = useState<TabId>(() => defaultTab(detail, vibes, planless));
   const chosen = controlled ?? own;
   const setTab = (t: TabId) => (onTab ? onTab(t) : setOwn(t));
 
@@ -113,10 +116,12 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
     // Activity goes under the card's facts: eight tabs do not fit beside a thread.
     ? [...all.filter((t) => t.id !== 'brief' && t.id !== 'activity'), all.find((t) => t.id === 'brief')!, { id: 'card', label: 'Card' }]
     : all;
-  const tabs = vibes ? sideTabs.filter((t) => t.id !== 'plan' && t.id !== 'diff') : sideTabs;
+  // No Plan tab while VIBES MODE skips Planning, since there is no plan to
+  // read; with Planning kept there is one, written and approved unread.
+  const tabs = vibes ? sideTabs.filter((t) => (t.id !== 'plan' || !planless) && t.id !== 'diff') : sideTabs;
   // Derived rather than reset, so a card left open on Diff when VIBES MODE
   // comes on shows something real, and goes back to Diff when it goes off.
-  const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, vibes);
+  const tab = tabs.some((t) => t.id === chosen) ? chosen : defaultTab(detail, vibes, planless);
 
   return (
     // min-h-0, or as a column's flex item this grows to its content and the
@@ -182,7 +187,8 @@ export function Tabs({ detail, onOpen, vibes = false, side = false, tab: control
   );
 }
 
-export function defaultTab(detail: CardDetail, vibes: boolean): TabId {
+/** `planless`: VIBES MODE is skipping Planning, so there is no Plan tab to land on. */
+export function defaultTab(detail: CardDetail, vibes: boolean, planless = vibes): TabId {
   if (detail.card.kind === 'project') return 'brief';
   if (detail.card.activity === 'needs_input') return vibes ? 'brief' : 'plan';
   const shots = detail.assets.some((a) => a.kind === 'screenshot');
@@ -192,9 +198,9 @@ export function defaultTab(detail: CardDetail, vibes: boolean): TabId {
   // like, or failing that, what was asked for.
   const work: TabId = detail.implementation ? 'changes' : vibes ? (shots ? 'preview' : 'brief') : 'diff';
   switch (detail.card.stage) {
-    // In VIBES MODE there is no plan to open; Planning looks like Brief until
-    // it has something else to show.
-    case 'planning': return vibes ? work : 'plan';
+    // In VIBES MODE skipping Planning there is no plan to open; Planning looks
+    // like Brief until it has something else to show.
+    case 'planning': return planless ? work : 'plan';
     case 'in_progress': return work;
     case 'testing': return shots ? 'preview' : work;
     case 'release': return detail.release ? 'release' : work;

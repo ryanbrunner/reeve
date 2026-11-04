@@ -30,7 +30,17 @@ export function approveStage(
   card: Card,
   repo: Repo,
   lastRun: Run,
-  opts: { notes?: string | null; meta?: Record<string, unknown>; actor?: CardEventActor } = {},
+  opts: {
+    notes?: string | null;
+    meta?: Record<string, unknown>;
+    actor?: CardEventActor;
+    /**
+     * The column to approve it into, when it is not the next one. Only VIBES
+     * MODE passes this, for a column its options skip; a person approving
+     * always moves the card one column.
+     */
+    to?: Stage;
+  } = {},
 ): { fromStage: Stage; toStage: Stage; moved: boolean } {
   const notes = opts.notes ?? null;
   // Almost always the person who pressed Approve. VIBES MODE approves as
@@ -39,7 +49,7 @@ export function approveStage(
   const actor = opts.actor ?? 'human';
   // Release is the end of the board; approving there is a verdict with nowhere
   // to go, so the card stays put rather than the request failing.
-  const to = nextStage(card.stage as Stage) ?? card.stage;
+  const to = opts.to ?? nextStage(card.stage as Stage) ?? card.stage;
   insertReview(db, {
     id: crypto.randomUUID(), cardId: card.id, runId: lastRun.id,
     stage: card.stage, decision: 'approved', notes,

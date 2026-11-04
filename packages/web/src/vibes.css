@@ -915,7 +915,7 @@
   color: var(--color-muted);
   opacity: 0;
   animation: sk-armrow 0.25s ease-out forwards;
-  animation-delay: calc(var(--sk-i) * 0.16s + 0.45s);
+  animation-delay: calc(var(--sk-i) * 0.14s + 0.45s);
 }
 
 .sk-lead {

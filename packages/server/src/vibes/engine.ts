@@ -1,4 +1,4 @@
-import { canStartRun, isPlaceholderCard, isRunnable, nextStage, type Stage } from '@reeve/shared';
+import { canStartRun, isPlaceholderCard, isRunnable, vibesNextStage, vibesSkips, type Stage, type VibesOptions } from '@reeve/shared';
 import { recordAnswer } from '../answers.js';
 import { blockedMove } from '../blockers.js';
 import { cardActivity, entryRefusal } from '../board.js';
@@ -18,7 +18,7 @@ import {
   vibesCards,
 } from '../db/queries.js';
 import type { Card, Question, Repo, Run } from '../db/schema.js';
-import { isOpeningPr, isPrConflicting, isResolvingConflicts, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
+import { enterRelease, isOpeningPr, isPrConflicting, isResolvingConflicts, landPullRequest, maybeOpenPullRequest } from '../pullRequest.js';
 import { resolveConflicts } from '../resolveConflicts.js';
 import { sendToCard } from '../conversation.js';
 import { approveStage } from '../review.js';
@@ -41,8 +41,13 @@ import { thinkOfIdeas } from './ideas.js';
  * was not ready and the `gh` call that timed out without one line of code
  * knowing that is what it is doing.
  *
- * Exactly the eight things the arming overlay promises, and nothing else — the
- * last of them, deciding what to build once a repo runs dry, in `ideas.ts`.
+ * Exactly the things the arming overlay promises, and nothing else — the last
+ * of them, deciding what to build once a repo runs dry, in `ideas.ts`. Which
+ * columns it steps over and whether it lands the pull request are Settings'
+ * VIBES MODE options (`VibesOptions`), read on every card of every sweep, so
+ * changing one mid-sweep takes effect on the next card rather than the next
+ * time the switch is flipped. Out of the box that is what it always did:
+ * Planning skipped, Testing run, every pull request merged.
  * Reeve's own human-in-the-loop gates come off; the stages' tool permissions, the
  * concurrency cap and the repository's branch protection do not, because none
  * of those is a human in the loop — they are limits on what a run may do, and
@@ -52,8 +57,8 @@ import { thinkOfIdeas } from './ideas.js';
  * A card can also be put in VIBES MODE on its own, and so can a project, which
  * puts every task in its lane there with it. With the board's switch off the
  * sweep looks at those cards and no others, and does the same six things to
- * each — landing its pull request and resolving its conflicts included —
- * while the rest of the board waits for a person as usual. The project itself
+ * each — landing its pull request (when the options allow it) and resolving
+ * its conflicts included — while the rest of the board waits for a person as usual. The project itself
  * is never swept: it is a lane, not a piece of work. With the board's switch
  * on, every card goes whatever its flag or its project's says.
  */
@@ -141,6 +146,7 @@ export async function vibesSweep(db: Db, writer: EventWriter): Promise<void> {
 /** The one thing this card needs next. */
 async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<void> {
   const stage = card.stage as Stage;
+  const options = getSettings(db).vibesOptions;
 
   // Release: open the pull request, let the Release conversation write it,
   // resolve whatever it conflicts on, then land it. Entering Release only
@@ -192,6 +198,12 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // pushed resolution just forgot it. Either way the count of runs that
     // failed to resolve it does not carry into whatever conflicts it next.
     resolveAttempts.delete(card.prUrl);
+    // Merging switched off in Settings: the pull request is written, kept
+    // conflict-free above, and left open for a person's Merge. Conflicts are
+    // still resolved because a pull request handed over unmergeable is not
+    // handed over at all, and Settings' option is about landing, not about
+    // leaving half the job.
+    if (!options.autoMerge) return;
     // A repository that requires a review refuses every time, and each refusal
     // is written to the card. Without this the log would be nothing else.
     const last = lastLandAttempt.get(card.id) ?? 0;
@@ -202,7 +214,8 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
   }
 
   // Backlog. Nobody is going to drag this, so it goes — over Planning, straight
-  // into In Progress — and then starts the way a card dragged there starts.
+  // into In Progress, unless the options keep Planning — and then starts the
+  // way a card dragged there starts.
   if (!isRunnable(stage)) {
     // Except a card nobody has said anything about yet. A card is made with a
     // placeholder title and an empty brief and opened for the details to be
@@ -220,7 +233,7 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     if (isPlaceholderCard(card) || isHeld(card.id)) return;
     // A card waiting on another is held in `moveOn`, which every move this
     // sweep makes goes through.
-    moveOn(db, writer, card, repo);
+    moveOn(db, writer, card, repo, options);
     return;
   }
 
@@ -234,10 +247,14 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
     // reviewed or not, until what it waits on has cleared. Nor a card a person
     // has just rejected, whose revision is waiting on the tree's setup and
     // reads as needing review until it starts.
+    //
+    // Into the next column the options do not skip: with Testing skipped, an
+    // approved In Progress goes straight to Release, and `approveStage` opens
+    // its pull request there as it would after Testing.
     case 'needs_review': {
-      const to = nextStage(stage) ?? stage;
+      const to = vibesNextStage(stage, options) ?? stage;
       if (run && !isStartingStage(card.id) && !blockedMove(db, card, to) && !entryRefusal(db, card, to)) {
-        approveStage(db, writer, card, repo, run, { actor: 'claude', notes: APPROVAL });
+        approveStage(db, writer, card, repo, run, { actor: 'claude', notes: APPROVAL, to });
       }
       return;
     }
@@ -264,14 +281,15 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
       return;
 
     // Started, restarted, or picked up after the cap refused it last time.
-    // Except in Planning, where nothing is ever started in here: a card that
-    // was sitting there when the switch went on, with no plan in flight, is
-    // moved on without one. A plan already written or already asking is left to
-    // finish through the two cases above, because it is paid for.
+    // Except in a column the options skip, where nothing is ever started in
+    // here: a card that was sitting there when the switch went on (or when
+    // the option did), with nothing in flight, is moved on without it. A plan
+    // or a test report already written or already asking is left to finish
+    // through the two cases above, because it is paid for.
     case 'idle':
     case 'error':
-      if (stage === 'planning') {
-        moveOn(db, writer, card, repo);
+      if (vibesSkips(stage, options)) {
+        moveOn(db, writer, card, repo, options);
         return;
       }
       if (canStartRun({ stage, activity, mergedAt: card.mergedAt })) await startStage(db, writer, card, repo);
@@ -283,21 +301,15 @@ async function advance(db: Db, writer: EventWriter, card: Card, repo: Repo): Pro
 }
 
 /**
- * The column after this one, with Planning stepped over.
- *
- * Here and not in `nextStage`, because the calm board, the review gate and the
- * card's own buttons all advance through Planning, and VIBES MODE is a layer
- * over that product rather than a fork of it. Nothing after it needs a plan:
- * In Progress works from the card itself when none was recorded.
+ * Into the next column the options do not skip, as Claude, and started there
+ * as a drag would have: a run in a column Claude works in, the pull request
+ * in Release. Nothing after Planning needs a plan — In Progress works from the
+ * card itself when none was recorded — and Release needs only something built,
+ * which `entryRefusal` checks, so a Testing card skipped over that was never
+ * built waits for a person exactly as the drag would have refused it.
  */
-function vibesNext(stage: Stage): Stage | null {
-  const to = nextStage(stage);
-  return to === 'planning' ? nextStage(to) : to;
-}
-
-/** Into the next column as Claude, and started there, as a drag would have. */
-function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
-  const to = vibesNext(card.stage as Stage);
+function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo, options: VibesOptions): void {
+  const to = vibesNextStage(card.stage as Stage, options);
   if (!to) return;
   // Except a card waiting on another that has not cleared. That is not one of
   // Reeve's human gates but the order the work has to happen in, and taking
@@ -305,9 +317,10 @@ function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo): void {
   // after its dependency's pull request merges — or after it reaches Release, if
   // it has none. Here rather than beside each caller, so a Planning card left
   // with no plan in flight is held the same as one in Backlog.
-  if (blockedMove(db, card, to)) return;
+  if (blockedMove(db, card, to) || entryRefusal(db, card, to)) return;
   const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
-  if (moved) maybeStartStage(db, writer, moved, repo);
+  if (moved?.stage === 'release') enterRelease(db, moved, repo);
+  else if (moved) maybeStartStage(db, writer, moved, repo);
 }
 
 /**

@@ -30,6 +30,7 @@ const LINK_STYLE: Record<LinkRole, string> = {
 import { MergeButton } from './MergeButton.js';
 import { RunButton } from './RunButton.js';
 import { SuggestionButtons } from './SuggestionButtons.js';
+import { useVibesOptions, whatClaudeDoes } from '../vibes/options.js';
 
 export function CardFace({
   card,
@@ -86,6 +87,7 @@ export function CardFace({
   // In VIBES MODE on its own, on the calm board. Not once merged: after that
   // there is nothing left for it to do.
   const solo = !vibes && card.vibes && card.mergedAt == null;
+  const vibesOptions = useVibesOptions();
   // The model actually executing tints the running glow toward its family —
   // the run that is live, falling back to the card's own pinned override,
   // since the server's effective choice (through Settings' stage defaults)
@@ -125,7 +127,7 @@ export function CardFace({
         {solo && (
           <span
             className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold"
-            title="In VIBES MODE: Claude approves and merges this card with nobody reviewing it"
+            title={`In VIBES MODE: Claude ${whatClaudeDoes(vibesOptions)} this card with nobody reviewing it`}
           >
             <span>vibes</span>
           </span>

@@ -26,7 +26,14 @@ changes the card's activity, not its column. VIBES MODE
 approves, answers, advances and resolves the conflicts of cards with nobody
 watching, and, with the board's switch on, asks Claude for the next cards once
 a repo has run out of work (`vibes/ideas.ts`). It takes off Reeve's own human
-gates and nothing else.
+gates and nothing else. What it skips and whether it merges are Settings'
+VIBES MODE options (`VibesOptions` in `packages/shared/src/stages.ts`, or
+`reeve settings set vibes.skip-planning|skip-testing|auto-merge`): Planning
+skipped, Testing run and every pull request merged until someone says
+otherwise. In Progress and Release always run, and have no option to skip
+them. With merging off, Release still opens the pull request and resolves its
+conflicts, and leaves it for a person's Merge. A single card is put in VIBES
+MODE on its own from its Brief, or with `reeve card add --vibes`.
 
 This file describes the project. What a stage run should do is in its prompt,
 under `packages/server/src/stages/prompts/`, and that wins.
@@ -406,8 +413,8 @@ switched on.
   - `spikes/stack-check.ts` drives all of it with real git and no GitHub.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
-  since auto mode may approve them. The Merge button, and VIBES MODE, land a
-  pull request.
+  since auto mode may approve them. The Merge button, and VIBES MODE unless
+  its auto-merge option is off, land a pull request.
 - **A spike never opens the live board.** A PreToolUse hook on Bash refuses
   any command that sets `REEVE_DB` to the running server's own database, or
   to a value it cannot read plainly. It is a hook because a command the

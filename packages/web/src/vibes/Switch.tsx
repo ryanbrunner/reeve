@@ -9,7 +9,7 @@
  *
  * The diamond is deliberate. It is the same mark the board puts in a column
  * header to mean "Claude runs here", and in VIBES MODE that is every column
- * but Planning, which it skips.
+ * but the ones Settings' options skip — Planning, out of the box.
  *
  * Also a card's own switch, in its Brief, which is why the words can be
  * handed in: the header's are about the whole board.

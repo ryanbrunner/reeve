@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { DEFAULT_VIBES_OPTIONS } from '@reeve/shared';
 import { api } from '../lib/api.js';
 
 /**
@@ -10,14 +11,6 @@ import { api } from '../lib/api.js';
  * feature is against. What it does instead is tell you exactly what you just
  * did, in words, while it is happening.
  */
-const OFF = [
-  ['Human review', 'off'],
-  ['Stage gates', 'off'],
-  ['Planning', 'skipped'],
-  ['Merge to main', 'automatic'],
-  ['Merge conflicts', 'Claude resolves'],
-  ['New ideas', 'run on arrival'],
-] as const;
 const WATCHING = ['You', 'watching'] as const;
 
 export function VibesArming() {
@@ -26,6 +19,20 @@ export function VibesArming() {
   // enforces the setting, this overlay is only naming it.
   const { data } = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const suggestTasks = data?.suggestTasks ?? true;
+  // Named as Settings has them, so the overlay never promises a skip or a
+  // merge the sweep is not going to do.
+  const { skipPlanning, skipTesting, autoMerge } = data?.vibesOptions ?? DEFAULT_VIBES_OPTIONS;
+  const rows: Array<readonly [string, string]> = [
+    ['Human review', 'off'],
+    ['Stage gates', 'off'],
+    ['Planning', skipPlanning ? 'skipped' : 'approved unread'],
+    ['Testing', skipTesting ? 'skipped' : 'approved unread'],
+    ['Merge to main', autoMerge ? 'automatic' : 'yours (left open)'],
+    ['Merge conflicts', 'Claude resolves'],
+    ['New ideas', 'run on arrival'],
+    ['What to build', suggestTasks ? 'Claude decides' : 'you decide (suggestions off)'],
+    WATCHING,
+  ];
 
   return (
     <div className="sk-arm" role="status">
@@ -38,11 +45,7 @@ export function VibesArming() {
       </div>
       <p className="sk-arm-sub">Taking the human out of the loop…</p>
       <div className="sk-arm-list">
-        {[
-          ...OFF,
-          ['What to build', suggestTasks ? 'Claude decides' : 'you decide (suggestions off)'],
-          WATCHING,
-        ].map(([label, value], i) => (
+        {rows.map(([label, value], i) => (
           <div key={label} className="sk-arm-row" style={{ '--sk-i': i } as React.CSSProperties}>
             <span>{label}</span>
             <span className="sk-lead" aria-hidden="true" />

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
+  DEFAULT_VIBES_OPTIONS,
   RUNNABLE_STAGES,
   isPlaceholderCard,
   type ApiCard,
@@ -917,6 +918,11 @@ export function getSettings(db: Db): ApiSettings {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
     vibesSince: row?.vibesSince?.getTime() ?? null,
     suggestTasks: row?.suggestTasks ?? true,
+    vibesOptions: {
+      skipPlanning: row?.vibesSkipPlanning ?? DEFAULT_VIBES_OPTIONS.skipPlanning,
+      skipTesting: row?.vibesSkipTesting ?? DEFAULT_VIBES_OPTIONS.skipTesting,
+      autoMerge: row?.vibesAutoMerge ?? DEFAULT_VIBES_OPTIONS.autoMerge,
+    },
     stageDefaults: Object.fromEntries(
       RUNNABLE_STAGES.map((s) => [s, {
         model: stored[s]?.model ?? null,
@@ -946,7 +952,7 @@ function normalizeStageDefault(stage: RunnableStage, row: StageRunDefault): Stag
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, vibes, ...rest } = patch;
+  const { stageDefaults, vibes, vibesOptions, ...rest } = patch;
   const current = getSettings(db);
   const values = {
     ...rest,
@@ -961,6 +967,10 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
           ) as StageRunDefaults,
         }
       : {}),
+    // One column each, so a field left out of the patch is left as it is.
+    ...(vibesOptions?.skipPlanning !== undefined ? { vibesSkipPlanning: vibesOptions.skipPlanning } : {}),
+    ...(vibesOptions?.skipTesting !== undefined ? { vibesSkipTesting: vibesOptions.skipTesting } : {}),
+    ...(vibesOptions?.autoMerge !== undefined ? { vibesAutoMerge: vibesOptions.autoMerge } : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
     ...(vibes === undefined ? {}

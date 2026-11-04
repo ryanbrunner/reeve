@@ -1,6 +1,7 @@
 import type { ApiCard } from '@reeve/shared';
 import { ACTIVITY_DOTS, ACTIVITY_LABELS } from './activity.js';
 import { ProjectProgress } from './ProjectProgress.js';
+import { useVibesOptions, whatClaudeDoes } from '../vibes/options.js';
 
 /**
  * A lane's header: the chevron that folds it, its colour, its name, and how
@@ -45,6 +46,7 @@ export function LaneHeader({
   /** This lane's project alone in VIBES MODE, on the calm board. */
   solo: boolean;
 }) {
+  const vibesOptions = useVibesOptions();
   return (
     <h2
       className={`flex items-center gap-2 font-mono text-[11px]/4 font-medium tracking-[0.06em] text-(--color-muted) uppercase ${
@@ -93,7 +95,7 @@ export function LaneHeader({
       {solo && !vibes && (
         <span
           className="sk-solo rounded px-[5px] py-px font-mono text-[10px]/4 font-semibold tracking-normal normal-case"
-          title="In VIBES MODE: Claude approves and merges every task in this project with nobody reviewing them"
+          title={`In VIBES MODE: Claude ${whatClaudeDoes(vibesOptions)} every task in this project with nobody reviewing them`}
         >
           <span>vibes</span>
         </span>

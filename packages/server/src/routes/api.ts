@@ -168,6 +168,11 @@ const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
   vibes: z.boolean().optional(),
   suggestTasks: z.boolean().optional(),
+  vibesOptions: z.object({
+    skipPlanning: z.boolean().optional(),
+    skipTesting: z.boolean().optional(),
+    autoMerge: z.boolean().optional(),
+  }).optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
     .partialRecord(z.enum(RUNNABLE_STAGES), z.object({

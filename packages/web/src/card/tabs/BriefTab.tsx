@@ -8,6 +8,7 @@ import { Lightbox } from '../Lightbox.js';
 import { Markdown } from '../Markdown.js';
 import { RichText } from '../RichText.js';
 import { Code, Empty, SectionHead, SmallButton } from '../ui.js';
+import { useVibesOptions, whatClaudeDoes } from '../../vibes/options.js';
 
 /**
  * What this card is for, and what would make it done.
@@ -229,6 +230,7 @@ function GenerateMockups({ detail }: { detail: CardDetail }) {
  */
 function CardVibes({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
+  const vibesOptions = useVibesOptions();
   const { data: board } = useQuery({ queryKey: ['board'], queryFn: api.board });
   const set = useMutation({
     mutationFn: (vibes: boolean) => api.updateCard(detail.card.id, { vibes }),
@@ -258,10 +260,10 @@ function CardVibes({ detail }: { detail: CardDetail }) {
           : lane ? 'Every task in this project goes while the project is in VIBES MODE'
           : project ?
             on ? 'Put the human back in the loop for this project'
-            : 'Claude approves, answers and merges every task in this project to main, with nobody reviewing them'
+            : `Claude ${whatClaudeDoes(vibesOptions, true)} every task in this project${vibesOptions.autoMerge ? ' to main' : ''}, with nobody reviewing them`
           : on ?
             'Put the human back in the loop for this card'
-          : 'Claude approves, answers and merges this card to main, with nobody reviewing it'
+          : `Claude ${whatClaudeDoes(vibesOptions, true)} this card${vibesOptions.autoMerge ? ' to main' : ''}, with nobody reviewing it`
         }
       />
       <span className="font-mono text-[10px]/4 text-(--color-muted)">

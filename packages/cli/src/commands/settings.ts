@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  DEFAULT_VIBES_OPTIONS,
   EFFORT_LEVELS,
   isRunnable,
   RUNNABLE_STAGES,
@@ -18,17 +19,26 @@ import { formatTime, note, parseCount, parseOrUsage, print, printJson, usageErro
 import { parseStage } from '../resolve.js';
 
 /**
- * `reeve settings`: what the Settings screen shows and saves. VIBES MODE is
- * in there on the wire, but not here — see ./vibes.ts for why.
+ * `reeve settings`: what the Settings screen shows and saves. VIBES MODE's
+ * switch is in there on the wire, but not here — see ./vibes.ts for why. Its
+ * options are: what it skips and whether it merges are preferences about how
+ * it behaves once on, not the switch that takes a person out of the loop.
  */
 
 const KEYS =
-  'max-concurrent-runs, suggest-tasks, or <stage>.model, <stage>.effort, <stage>.max-budget-usd, ' +
+  'max-concurrent-runs, suggest-tasks, vibes.skip-planning, vibes.skip-testing, vibes.auto-merge, ' +
+  'or <stage>.model, <stage>.effort, <stage>.max-budget-usd, ' +
   '<stage>.max-turns, <stage>.prompt or <stage>.advisor for planning, in-progress, testing or release';
+
+/** The VIBES MODE options by the name `reeve settings set vibes.<name>` takes. */
+const VIBES_KEYS = { 'skip-planning': 'skipPlanning', 'skip-testing': 'skipTesting', 'auto-merge': 'autoMerge' } as const;
+type VibesField = (typeof VIBES_KEYS)[keyof typeof VIBES_KEYS];
+const VIBES_NAMES: Record<VibesField, string> = { skipPlanning: 'skip-planning', skipTesting: 'skip-testing', autoMerge: 'auto-merge' };
 
 type Key =
   | { kind: 'maxConcurrentRuns' }
   | { kind: 'suggestTasks' }
+  | { kind: 'vibes'; field: VibesField }
   | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'prompt' | 'advisor' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
@@ -38,6 +48,18 @@ function parseKey(input: string): Key {
   if (kebab(input) === 'suggest-tasks') return { kind: 'suggestTasks' };
   if (kebab(input) === 'vibes' || kebab(input) === 'vibes-mode') {
     throw usageError('VIBES MODE is not a setting to set in passing. Use `reeve vibes on` or `reeve vibes off`');
+  }
+  const [head, ...tail] = input.split('.');
+  if (head !== undefined && kebab(head) === 'vibes' && tail.length === 1) {
+    const name = kebab(tail[0] ?? '');
+    const field = VIBES_KEYS[name as keyof typeof VIBES_KEYS];
+    if (field) return { kind: 'vibes', field };
+    // In Progress and Release are named so the refusal says why, rather than
+    // reading as a typo of one of the three.
+    if (name === 'skip-in-progress' || name === 'skip-release') {
+      throw usageError('VIBES MODE always runs In Progress and Release; only Planning and Testing can be skipped');
+    }
+    throw usageError(`'${input}' is not a VIBES MODE option. Options: vibes.skip-planning, vibes.skip-testing, vibes.auto-merge`);
   }
   const dot = input.lastIndexOf('.');
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
@@ -113,6 +135,11 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
     // Unset goes back to on, the same default a board with no row ever reads.
     return { suggestTasks: value === null ? true : requireBoolean('suggest-tasks', value) };
   }
+  if (key.kind === 'vibes') {
+    // Unset goes back to what the sweep did before these were options.
+    const on = value === null ? DEFAULT_VIBES_OPTIONS[key.field] : requireBoolean(`vibes.${VIBES_NAMES[key.field]}`, value);
+    return { vibesOptions: { [key.field]: on } };
+  }
   const next = { ...current.stageDefaults[key.stage] };
   if (key.field === 'effort') next.effort = value === null ? null : requireEffort(value);
   else if (key.field === 'maxBudgetUsd') next.maxBudgetUsd = value === null ? null : requireBudget(value);
@@ -142,6 +169,9 @@ function render(settings: ApiSettings, models: ModelsResponse | null): string {
     ['Max concurrent runs', String(settings.maxConcurrentRuns)],
     ['Suggest follow-up cards', settings.suggestTasks ? 'on' : 'off'],
     ['VIBES MODE', settings.vibesSince === null ? 'off' : `ON since ${formatTime(settings.vibesSince)}`],
+    ['  skip Planning', settings.vibesOptions.skipPlanning ? 'yes' : 'no'],
+    ['  skip Testing', settings.vibesOptions.skipTesting ? 'yes' : 'no'],
+    ['  merge pull requests', settings.vibesOptions.autoMerge ? 'yes' : 'no, left for you'],
   ];
   const width = Math.max(...rows.map(([label]) => label.length));
   const stageWidth = Math.max(...RUNNABLE_STAGES.map((s) => STAGE_LABELS[s].length));
@@ -198,6 +228,9 @@ async function set(args: string[], unset: boolean): Promise<void> {
   }
   if (key.kind === 'suggestTasks') {
     return print(`Suggest follow-up cards: ${saved.suggestTasks ? 'on' : 'off'}`);
+  }
+  if (key.kind === 'vibes') {
+    return print(`VIBES MODE ${VIBES_NAMES[key.field]}: ${saved.vibesOptions[key.field] ? 'on' : 'off'}`);
   }
   const stored = saved.stageDefaults[key.stage][key.field];
   const fieldName = key.field === 'maxBudgetUsd' ? 'max-budget-usd' : key.field === 'maxTurns' ? 'max-turns' : key.field;

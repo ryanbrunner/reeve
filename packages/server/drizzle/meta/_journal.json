@@ -204,6 +204,13 @@
       "when": 1791722854511,
       "tag": "0028_card_limits_and_stacks",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1793804131597,
+      "tag": "0029_settings_vibes_options",
+      "breakpoints": true
     }
   ]
 }

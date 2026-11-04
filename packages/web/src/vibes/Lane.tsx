@@ -1,8 +1,9 @@
-import { STAGES, type ApiCard } from '@reeve/shared';
+import { STAGES, vibesSkips, type ApiCard, type Stage } from '@reeve/shared';
 import { Column } from '../board/Column.js';
 import type { DropdownOption } from '../lib/Dropdown.js';
 import { VibesCards, useVibesLane } from './Cards.js';
 import { cardsIn } from '../lib/api.js';
+import { useVibesOptions } from './options.js';
 
 /**
  * One swim lane in VIBES MODE: five wells, one of them closed, and the lane's
@@ -24,6 +25,8 @@ export function VibesLane({ cards, laneId, justMerged, onOpen, onAdd, addOptions
   adding?: boolean;
 }) {
   const { placed, height, hot } = useVibesLane(cards);
+  // Which wells are taped off is Settings' to say.
+  const options = useVibesOptions();
   return (
     <div className="sk-lane-body" style={{ height }}>
       <div className="sk-cols grid w-full grid-cols-5 gap-3">
@@ -36,12 +39,12 @@ export function VibesLane({ cards, laneId, justMerged, onOpen, onAdd, addOptions
             onOpen={onOpen}
             vibes
             hot={hot.has(i)}
-            skipped={stage === 'planning'}
+            skipped={vibesSkips(stage, options)}
             onAdd={stage === 'backlog' ? onAdd : undefined}
             addOptions={stage === 'backlog' ? addOptions : undefined}
             adding={adding}
           >
-            {stage === 'planning' && <NoPlanning />}
+            {vibesSkips(stage, options) && <Closed stage={stage} />}
           </Column>
         ))}
       </div>
@@ -50,20 +53,41 @@ export function VibesLane({ cards, laneId, justMerged, onOpen, onAdd, addOptions
   );
 }
 
+/** What each column that can be skipped says while it is. */
+const CLOSED: Partial<Record<Stage, { tape: string; title: string; sub: string; est: string; label: string }>> = {
+  planning: {
+    tape: 'Do not plan · ',
+    title: 'Closed for thinking',
+    sub: 'plans are for people with doubts',
+    est: 'est. 0 thoughts',
+    label: 'Planning is skipped in VIBES MODE',
+  },
+  testing: {
+    tape: 'Do not test · ',
+    title: 'Closed for checking',
+    sub: 'it compiled on someone’s machine',
+    est: 'est. 0 assertions',
+    label: 'Testing is skipped in VIBES MODE',
+  },
+};
+
 /**
- * Planning, condemned. The sweep sends every card straight over it, so the
- * well is taped off rather than removed: five columns is what the flying
- * layer's arithmetic is written in, and a card sailing over a closed column
- * says where it did not stop better than a missing one could.
+ * A column condemned: Planning, Testing, or both, as Settings' VIBES MODE
+ * options say. The sweep sends every card straight over it, so the well is
+ * taped off rather than removed: five columns is what the flying layer's
+ * arithmetic is written in, and a card sailing over a closed column says
+ * where it did not stop better than a missing one could.
  *
  * The sign hangs at the bottom because a card left over from before the
  * switch still lands at the top, and it must not cover the joke.
  */
-function NoPlanning() {
-  const tape = 'Do not plan · '.repeat(8);
+function Closed({ stage }: { stage: Stage }) {
+  const copy = CLOSED[stage];
+  if (!copy) return null;
+  const tape = copy.tape.repeat(8);
   return (
     <>
-      <span className="sr-only">Planning is skipped in VIBES MODE</span>
+      <span className="sr-only">{copy.label}</span>
       <div className="sk-tape sk-tape-a" aria-hidden="true">
         <span className="sk-tape-run">{tape}{tape}</span>
       </div>
@@ -71,9 +95,9 @@ function NoPlanning() {
         <span className="sk-tape-run">{tape}{tape}</span>
       </div>
       <div className="sk-sign" aria-hidden="true">
-        <strong className="sk-sign-t">Closed for thinking</strong>
-        <span className="sk-sign-s">plans are for people with doubts</span>
-        <span className="sk-sign-e">est. 0 thoughts</span>
+        <strong className="sk-sign-t">{copy.title}</strong>
+        <span className="sk-sign-s">{copy.sub}</span>
+        <span className="sk-sign-e">{copy.est}</span>
       </div>
     </>
   );

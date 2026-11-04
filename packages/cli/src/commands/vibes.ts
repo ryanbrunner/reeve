@@ -32,6 +32,8 @@ function whatComesOff(board: BoardResponse, settings: ApiSettings): string[] {
   const reviews = live.filter((c) => c.activity === 'needs_review').length;
   const questions = live.filter((c) => c.activity === 'needs_input').length;
   const done = live.filter((c) => c.stage === 'release' && !c.mergedAt).length;
+  const { skipPlanning, skipTesting, autoMerge } = settings.vibesOptions;
+  const first = skipPlanning ? 'In Progress' : 'Planning';
   const whatToBuild = settings.suggestTasks
     ? '  What to build   Claude decides: a repo with nothing left to do gets up to three cards of its own'
     : '  What to build   you decide: suggestions are off, so a repo with nothing left to do sits idle';
@@ -40,11 +42,19 @@ function whatComesOff(board: BoardResponse, settings: ApiSettings): string[] {
     `  Human review    off: plans, work and test reports are approved unread (${reviews} waiting now)`,
     `  Questions       Claude answers its own (${plural(questions, 'card')} asking now)`,
     '  Stage gates     off: approved cards move on, and idle or failed stages are started again',
-    `  Planning        skipped: Backlog goes straight to In Progress (${plural(backlog, 'card')} there now)`,
-    `  Merge to main   automatic: Release opens its pull request and merges it (${plural(done, 'card')} in Release now)`,
-    '  New ideas       run on arrival: a card added to Backlog starts once it has a title or a brief',
+    skipPlanning
+      ? `  Planning        skipped: Backlog goes straight to In Progress (${plural(backlog, 'card')} there now)`
+      : `  Planning        run, unread: Backlog goes to Planning and its plan is approved (${plural(backlog, 'card')} there now)`,
+    skipTesting
+      ? '  Testing         skipped: approved work goes straight from In Progress to Release'
+      : '  Testing         run, unread: its report is approved like any other',
+    autoMerge
+      ? `  Merge to main   automatic: Release opens its pull request and merges it (${plural(done, 'card')} in Release now)`
+      : `  Merge to main   yours: Release opens its pull request and leaves it for you to merge (${plural(done, 'card')} in Release now)`,
+    `  New ideas       run on arrival: a card added to Backlog goes to ${first} once it has a title or a brief`,
     whatToBuild,
     "Tool permissions, the concurrency cap and the repository's branch protection stay as they are.",
+    'What it skips and whether it merges: `reeve settings set vibes.skip-planning|skip-testing|auto-merge on|off`.',
   ];
 }
 

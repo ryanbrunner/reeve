@@ -1,4 +1,4 @@
-import type { CardKind, RunnableStage, Stage } from './stages.js';
+import type { CardKind, RunnableStage, Stage, VibesOptions } from './stages.js';
 import type { CardActivity } from './activity.js';
 import type { EffortLevel, RunKind, RunStatus, StopReason } from './runs.js';
 
@@ -507,6 +507,8 @@ export interface ApiSettings {
    * think up ideas once a repo runs dry. On by default.
    */
   suggestTasks: boolean;
+  /** What VIBES MODE skips and whether it merges, wherever it is on. Every field resolved. */
+  vibesOptions: VibesOptions;
   /**
    * Every runnable stage is present, so the form can loop over them. A null in
    * one falls through to what the stage's own module asks for.
@@ -526,6 +528,8 @@ export interface UpdateSettingsBody {
   vibes?: boolean;
   /** Off stops a stage suggesting tasks and VIBES MODE thinking up ideas. */
   suggestTasks?: boolean;
+  /** A field left out is left as it was. */
+  vibesOptions?: Partial<VibesOptions>;
 }
 
 /**
