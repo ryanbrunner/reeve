@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { config } from '../config.js';
 
 /** Fills a template's `{{var}}` placeholders, shared by the file on disk and a Settings override alike. */
-function fillVars(template: string, vars: Record<string, string>): string {
+export function fillVars(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
 }
 

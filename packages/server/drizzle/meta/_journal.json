@@ -211,6 +211,13 @@
       "when": 1793804131597,
       "tag": "0029_settings_vibes_options",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1793804417694,
+      "tag": "0030_settings_stage_hooks",
+      "breakpoints": true
     }
   ]
 }

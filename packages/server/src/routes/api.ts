@@ -5,7 +5,8 @@ import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, S
 import { deleteAsset } from '../assets/store.js';
 import { entryRefusal, toBoardCard } from '../board.js';
 import { blockedMove } from '../blockers.js';
-import { holdCard, releaseCard } from '../cardHold.js';
+import { holdCard, isHeld, releaseCard } from '../cardHold.js';
+import { fireStageHooks } from '../hooks.js';
 import type { Db } from '../db/client.js';
 import {
   acceptSuggestion,
@@ -168,6 +169,13 @@ const settingsSchema = z.object({
   maxConcurrentRuns: z.number().int().min(1).optional(),
   vibes: z.boolean().optional(),
   suggestTasks: z.boolean().optional(),
+  // Bounded like a stage's prompt: to refuse an accident, not a long hook.
+  stageHooks: z
+    .partialRecord(z.enum(STAGES), z.object({
+      enter: z.string().max(20_000).nullable().optional(),
+      leave: z.string().max(20_000).nullable().optional(),
+    }))
+    .optional(),
   vibesOptions: z.object({
     skipPlanning: z.boolean().optional(),
     skipTesting: z.boolean().optional(),
@@ -380,6 +388,10 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const repo = created.repoId ? listRepos(db).find((p) => p.id === created.repoId) : undefined;
     // Made straight into a column Claude works in is entering it, the same as a drag.
     maybeStartStage(db, writer, created, repo);
+    // Being made is entering its column too, for the hooks. Not yet for a held
+    // card, which is still "Untitled": its hook waits for its modal to close,
+    // in the discard route, when it has a title worth telling a tracker.
+    if (!isPlaceholderCard(created)) fireStageHooks(db, writer, created, null, created.stage);
     return c.json(toBoardCard(db, created, repo?.name ?? null, repo?.laneColor ?? null), 201);
   });
 
@@ -477,6 +489,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
       const repo = listRepos(db).find((p) => p.id === moved.repoId);
       if (moved.stage === 'release') enterRelease(db, moved, repo);
       else maybeStartStage(db, writer, moved, repo);
+      fireStageHooks(db, writer, moved, before.stage, moved.stage);
     }
     return c.json(toBoardCard(db, moved, null, null));
   });
@@ -602,8 +615,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
   api.post('/cards/:id/discard', (c) => {
     const id = c.req.param('id');
     if (!getCard(db, id)) return c.json({ error: 'not found' }, 404);
+    const firstClose = isHeld(id);
     const deleted = discardIfBlank(db, id);
     releaseCard(id);
+    // A held card is one the create route made and fired no hook for. Kept,
+    // it has now been made, as far as anyone outside Reeve should hear.
+    if (firstClose && !deleted) {
+      const kept = getCard(db, id);
+      if (kept && !isPlaceholderCard(kept)) fireStageHooks(db, writer, kept, null, kept.stage);
+    }
     return c.json({ deleted });
   });
 

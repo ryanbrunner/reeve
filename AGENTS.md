@@ -219,8 +219,8 @@ switched on.
   `.reeve/test-report.md` and `.reeve/release.md` from it. That inversion is
   why Planning, which could edit files, is told to change nothing, and why
   Release's pull request text is set by the server, not by Claude. One-off
-  tasks (Suggest, a split, ideas, resolving conflicts) keep `outputFormat`
-  and are one turn.
+  tasks (Suggest, a split, ideas, resolving conflicts, stage hooks) keep
+  `outputFormat` and are one turn.
 - **A stage run is a conversation, and the SDK's idle event is its turn
   boundary.** `startClaudeRun` holds the run's input open (`runs/inbox.ts`)
   and sets `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, without which the event
@@ -411,6 +411,31 @@ switched on.
     its parent's base, when it is stacked, counts those in its diff until it
     moves onto the default branch, because `baseSha` is the parent's tip.
   - `spikes/stack-check.ts` drives all of it with real git and no GitHub.
+- **Stage hooks are prompts, run beside the card** (`packages/server/src/hooks.ts`).
+  Settings holds an on-enter and an on-leave text for every column, Backlog
+  included (`reeve settings set <stage>.on-enter|on-leave @file`), for
+  keeping an issue tracker or a channel up with the board.
+  - **What fires them.** The places that change a column, after they do: the
+    move route, `approveStage`, VIBES MODE's `moveOn`, and a person making a
+    card (the create route, or the discard route once a held card's modal
+    first closes). Never `moveCard` itself, which spikes call directly. A card
+    Claude makes fires nothing until it moves, and archiving fires nothing.
+  - **The run.** One out-of-band `stage_hook` task per move, with the left
+    column's leave text and the entered column's enter text both in it
+    (`stages/hook.ts`, `prompts/hook.md`), filled with `HOOK_VARS`. It runs
+    in the card's worktree, else the repo's checkout, and is told to change
+    nothing there. A card's hooks run one at a time, in order. A hook into
+    Release waits for the pull request it opens, so `{{prUrl}}` is real.
+  - **Past the cap, but pooled.** It is `uncapped`, so `countByKind` never
+    counts it: a move is not retried, so a hook the cap refused would be
+    lost, and one counted could take the slot its own stage was about to
+    start in. Instead at most `HOOK_SLOTS` (2) hook runs go at once across
+    the board, and the rest wait their turn, since one VIBES sweep can move
+    every card in Backlog at once. Waiting hooks are in memory and a restart
+    loses them. A hook run is never in the stage's conversation, only the
+    card's run history.
+  - **Permissions** are a one-off task's: MCP servers in the person's Claude
+    Code settings load, and an escalated call is denied without asking.
 - **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
   `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
   since auto mode may approve them. The Merge button, and VIBES MODE unless

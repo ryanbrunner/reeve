@@ -104,6 +104,14 @@ export interface ClaudeTask<Output = unknown> {
    */
   outOfBand?: boolean;
   /**
+   * Runs past the concurrency cap and is not counted against it. Only a stage
+   * hook (hook.ts) says this: it is started by a move rather than a person
+   * pressing something, so a cap that refused it would lose it for good, and
+   * counting it would let a hook take the slot the stage it was set off with
+   * was about to start in.
+   */
+  uncapped?: boolean;
+  /**
    * Directories beyond the one the run is in that Claude may read. A project's
    * split reads every repo, since its tasks can land in any of them.
    */

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  HOOK_VARS,
   LANE_COLORS,
   RUNNABLE_STAGES,
+  STAGES,
   STAGE_LABELS,
   freeLaneColor,
   type ApiRepo,
@@ -11,6 +13,9 @@ import {
   type CreateRepoBody,
   type EffortLevel,
   type RunnableStage,
+  type Stage,
+  type StageHook,
+  type StageHooks,
   type StageRunDefault,
   type StageRunDefaults,
   type VibesOptions,
@@ -228,6 +233,12 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
   // Four full prompts is a lot of vertical space, so each stays collapsed
   // until asked for.
   const [expandedPrompt, setExpandedPrompt] = useState<RunnableStage | null>(null);
+  const [stageHooks, setStageHooks] = useState<StageHooks>(settings.stageHooks);
+  const [expandedHook, setExpandedHook] = useState<Stage | null>(null);
+  const setHook = (stage: Stage, next: Partial<StageHook>) => {
+    setSaved(false);
+    setStageHooks((h) => ({ ...h, [stage]: { ...h[stage], ...next } }));
+  };
   const [saved, setSaved] = useState(false);
   // Asked of the CLI once per server process, so there is nothing to refetch.
   const { data: catalogue } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
@@ -267,7 +278,13 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
 
   const save = useMutation({
     mutationFn: () =>
-      api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withLimits(), suggestTasks, vibesOptions }),
+      api.updateSettings({
+        maxConcurrentRuns: Number(maxConcurrentRuns),
+        stageDefaults: withLimits(),
+        suggestTasks,
+        vibesOptions,
+        stageHooks,
+      }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
@@ -275,6 +292,8 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
       // null; without this the form would keep showing it as Custom with an
       // empty textarea, when a fresh run now uses the shipped file again.
       setStageDefaults(s.stageDefaults);
+      // Blank hooks come back as null for the same reason.
+      setStageHooks(s.stageHooks);
     },
   });
 
@@ -509,6 +528,59 @@ function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: Stage
                   <SmallButton onClick={() => setStage(stage, { prompt: null })}>Reset to default</SmallButton>
                 )}
                 <SmallButton onClick={() => setExpandedPrompt(null)}>Collapse</SmallButton>
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Hooks</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What Claude should do when a card enters or leaves a column — move its issue in your tracker, post to a
+          channel. Each move runs once, beside the card's own work, with the tools your Claude Code settings give it,
+          and shows in the card's history. A card made by you counts as entering its first column; one Claude
+          suggests fires nothing until it moves.
+        </p>
+        {STAGES.map((stage) => {
+          const hook = stageHooks[stage];
+          const set = [hook.enter, hook.leave].filter((h) => h !== null && h.trim()).length;
+          if (expandedHook !== stage) {
+            return (
+              <div key={stage} className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+                    {set === 0 ? 'None' : hook.enter?.trim() && hook.leave?.trim() ? 'On enter and leave' : hook.enter?.trim() ? 'On enter' : 'On leave'}
+                  </span>
+                  <SmallButton onClick={() => setExpandedHook(stage)}>Edit</SmallButton>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={stage} className="flex flex-col gap-2 rounded-md border border-sky-700 bg-white/2 p-3">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              {(['enter', 'leave'] as const).map((field) => (
+                <label key={field} className="flex flex-col gap-1">
+                  <span className="font-mono text-[10px]/[15px] text-(--color-muted)">
+                    When a card {field === 'enter' ? 'enters' : 'leaves'} {STAGE_LABELS[stage]}
+                  </span>
+                  <textarea
+                    value={hook[field] ?? ''}
+                    spellCheck={false}
+                    placeholder="Nothing. e.g. Move the Linear issue linked in {{body}} to In Review and comment {{prUrl}} on it."
+                    onChange={(e) => setHook(stage, { [field]: e.target.value })}
+                    rows={4}
+                    className="w-full resize-y rounded-sm border border-(--color-edge) bg-(--color-ink) p-2 font-mono text-[11px]/[18px] text-(--color-text) outline-none placeholder:text-(--color-muted)/60 focus:border-sky-600"
+                  />
+                </label>
+              ))}
+              <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+                Vars: {Object.entries(HOOK_VARS).map(([v, what]) => `{{${v}}} ${what}`).join(' · ')}
+              </span>
+              <div className="flex items-center gap-2">
+                <SmallButton onClick={() => setExpandedHook(null)}>Collapse</SmallButton>
               </div>
             </div>
           );

@@ -25,6 +25,7 @@ import { approveStage } from '../review.js';
 import { askRegistry } from '../runs/asks.js';
 import type { EventWriter } from '../runs/events.js';
 import { isStartingStage, maybeStartStage, startStage } from '../startStage.js';
+import { fireStageHooks } from '../hooks.js';
 import { thinkOfIdeas } from './ideas.js';
 
 /**
@@ -321,6 +322,7 @@ function moveOn(db: Db, writer: EventWriter, card: Card, repo: Repo, options: Vi
   const moved = moveCard(db, card.id, to, cardsInStage(db, to).length, 'claude');
   if (moved?.stage === 'release') enterRelease(db, moved, repo);
   else if (moved) maybeStartStage(db, writer, moved, repo);
+  if (moved) fireStageHooks(db, writer, moved, card.stage as Stage, to);
 }
 
 /**

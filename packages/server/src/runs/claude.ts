@@ -917,6 +917,7 @@ export function startClaudeRun(params: ClaudeRunParams): ClaudeRunHandle {
         cardId: card.id,
         kind: 'claude',
         outOfBand: stage.outOfBand ?? false,
+        uncapped: stage.uncapped ?? false,
         send: stage.submit ? (text) => input.push(text) : undefined,
         pulse: () => pulse.read(options.maxBudgetUsd ?? null),
         stop: async () => {

@@ -356,6 +356,18 @@ export const conflictResolutionOutput = z.object({
 
 export type CriteriaOutput = z.infer<typeof criteriaOutput>;
 export type ProjectSplitOutput = z.infer<typeof projectSplitOutput>;
+/**
+ * A stage hook's answer: what it did, said back so the card's history records
+ * it. The hook's work happens outside Reeve — an issue tracker, a channel —
+ * so there is nothing here for the server to write but the summary.
+ */
+export const hookOutput = z.object({
+  summary: z
+    .string()
+    .describe('What you did for this hook, in a sentence or two, or why you did nothing: the instructions did not apply, or a tool they needed was missing.'),
+});
+
+export type HookOutput = z.infer<typeof hookOutput>;
 export type IdeasOutput = z.infer<typeof ideasOutput>;
 export type ConflictResolutionOutput = z.infer<typeof conflictResolutionOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
@@ -410,4 +422,5 @@ export function assertContractsConvertible(): void {
   jsonSchemaFor(projectSplitOutput);
   jsonSchemaFor(ideasOutput);
   jsonSchemaFor(conflictResolutionOutput);
+  jsonSchemaFor(hookOutput);
 }

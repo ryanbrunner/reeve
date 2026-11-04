@@ -496,6 +496,33 @@ export interface StageRunDefault {
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
 
+/**
+ * What Claude is asked to do when a card enters or leaves a column — update
+ * an issue tracker, post to a channel — as a person wrote it in Settings.
+ * Null means nothing. Filled with the same `{{vars}}` the hook's prompt has
+ * (`HOOK_VARS`), so the text can name the card, its branch or its pull request.
+ */
+export interface StageHook {
+  enter: string | null;
+  leave: string | null;
+}
+
+/** Every column, Backlog included: a card arriving there or leaving it is as worth telling a tracker about as any. */
+export type StageHooks = Record<Stage, StageHook>;
+
+/** The `{{vars}}` a hook's text is filled with, and what each one is. Settings lists them under the fields. */
+export const HOOK_VARS: Record<string, string> = {
+  ref: 'the card as repo#number',
+  number: 'the card\'s number',
+  title: 'the card\'s title',
+  body: 'the card\'s brief',
+  repo: 'the repo\'s name',
+  from: 'the column it left (none, when it was just made)',
+  to: 'the column it entered',
+  branch: 'its branch, once it has one',
+  prUrl: 'its pull request, once it has one',
+};
+
 /** Reeve's own settings, as opposed to a repo's. Every field is resolved: never null. */
 export interface ApiSettings {
   /** Claude runs allowed at once, across every card and repo. */
@@ -514,6 +541,8 @@ export interface ApiSettings {
    * one falls through to what the stage's own module asks for.
    */
   stageDefaults: StageRunDefaults;
+  /** Every column is present, with nulls where no hook is set. */
+  stageHooks: StageHooks;
 }
 
 /** A stage left out of `stageDefaults` is left as it was, so saving one row cannot wipe the others. */
@@ -530,6 +559,8 @@ export interface UpdateSettingsBody {
   suggestTasks?: boolean;
   /** A field left out is left as it was. */
   vibesOptions?: Partial<VibesOptions>;
+  /** A column or a field left out is left as it was; a blank one is cleared. */
+  stageHooks?: Partial<Record<Stage, Partial<StageHook>>>;
 }
 
 /**

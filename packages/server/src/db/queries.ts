@@ -3,11 +3,14 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import {
   DEFAULT_VIBES_OPTIONS,
   RUNNABLE_STAGES,
+  STAGES,
   isPlaceholderCard,
   type ApiCard,
   type ApiCardLink,
   type ApiSettings,
   type RunnableStage,
+  type StageHook,
+  type StageHooks,
   type StageRunDefault,
   type StageRunDefaults,
   type UpdateSettingsBody,
@@ -914,6 +917,7 @@ export function updateRepo(db: Db, id: string, patch: Partial<typeof repo.$infer
 export function getSettings(db: Db): ApiSettings {
   const row = db.select().from(settings).where(eq(settings.id, 1)).get();
   const stored = row?.stageDefaults ?? {};
+  const hooks = row?.stageHooks ?? {};
   return {
     maxConcurrentRuns: row?.maxConcurrentRuns ?? config.maxConcurrentRuns,
     vibesSince: row?.vibesSince?.getTime() ?? null,
@@ -933,7 +937,15 @@ export function getSettings(db: Db): ApiSettings {
         advisor: stored[s]?.advisor ?? null,
       }]),
     ) as StageRunDefaults,
+    stageHooks: Object.fromEntries(
+      STAGES.map((s) => [s, { enter: hooks[s]?.enter ?? null, leave: hooks[s]?.leave ?? null }]),
+    ) as StageHooks,
   };
+}
+
+/** A blank hook is no hook: a cleared textarea must not start a run that is told to do nothing. */
+function normalizeHook(hook: StageHook): StageHook {
+  return { enter: hook.enter?.trim() ? hook.enter : null, leave: hook.leave?.trim() ? hook.leave : null };
 }
 
 /**
@@ -952,7 +964,7 @@ function normalizeStageDefault(stage: RunnableStage, row: StageRunDefault): Stag
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
   // Drizzle refuses an update with nothing in its SET, and an empty PATCH is no change anyway.
   if (Object.keys(patch).length === 0) return getSettings(db);
-  const { stageDefaults, vibes, vibesOptions, ...rest } = patch;
+  const { stageDefaults, stageHooks, vibes, vibesOptions, ...rest } = patch;
   const current = getSettings(db);
   const values = {
     ...rest,
@@ -965,6 +977,14 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
           stageDefaults: Object.fromEntries(
             RUNNABLE_STAGES.map((s) => [s, normalizeStageDefault(s, { ...current.stageDefaults[s], ...stageDefaults[s] })]),
           ) as StageRunDefaults,
+        }
+      : {}),
+    // Merged the same way as `stageDefaults`: column by column, field by field.
+    ...(stageHooks
+      ? {
+          stageHooks: Object.fromEntries(
+            STAGES.map((s) => [s, normalizeHook({ ...current.stageHooks[s], ...stageHooks[s] })]),
+          ) as StageHooks,
         }
       : {}),
     // One column each, so a field left out of the patch is left as it is.

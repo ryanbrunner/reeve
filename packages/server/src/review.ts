@@ -2,6 +2,7 @@ import { nextStage, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import { cardsInStage, insertCardEvent, insertReview, moveCard } from './db/queries.js';
 import type { Card, CardEventActor, Repo, Run } from './db/schema.js';
+import { fireStageHooks } from './hooks.js';
 import { enterRelease } from './pullRequest.js';
 import type { EventWriter } from './runs/events.js';
 import { sendToCard } from './conversation.js';
@@ -68,6 +69,7 @@ export function approveStage(
     // start any other stage gets — Release no longer starts itself.
     if (moved?.stage === 'release') enterRelease(db, moved, repo);
     else if (moved) maybeStartStage(db, writer, moved, repo);
+    if (moved) fireStageHooks(db, writer, moved, card.stage as Stage, moved.stage as Stage);
   }
   return { fromStage: card.stage, toStage: to, moved: to !== card.stage };
 }

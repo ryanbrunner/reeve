@@ -6,11 +6,13 @@ import {
   EFFORT_LEVELS,
   isRunnable,
   RUNNABLE_STAGES,
+  STAGES,
   STAGE_LABELS,
   type ApiSettings,
   type EffortLevel,
   type ModelsResponse,
   type RunnableStage,
+  type Stage,
   type StageRunDefaults,
   type UpdateSettingsBody,
 } from '@reeve/shared';
@@ -28,7 +30,8 @@ import { parseStage } from '../resolve.js';
 const KEYS =
   'max-concurrent-runs, suggest-tasks, vibes.skip-planning, vibes.skip-testing, vibes.auto-merge, ' +
   'or <stage>.model, <stage>.effort, <stage>.max-budget-usd, ' +
-  '<stage>.max-turns, <stage>.prompt or <stage>.advisor for planning, in-progress, testing or release';
+  '<stage>.max-turns, <stage>.prompt or <stage>.advisor for planning, in-progress, testing or release, ' +
+  'or <stage>.on-enter or <stage>.on-leave for any column, backlog included';
 
 /** The VIBES MODE options by the name `reeve settings set vibes.<name>` takes. */
 const VIBES_KEYS = { 'skip-planning': 'skipPlanning', 'skip-testing': 'skipTesting', 'auto-merge': 'autoMerge' } as const;
@@ -39,6 +42,7 @@ type Key =
   | { kind: 'maxConcurrentRuns' }
   | { kind: 'suggestTasks' }
   | { kind: 'vibes'; field: VibesField }
+  | { kind: 'hook'; stage: Stage; field: 'enter' | 'leave' }
   | { kind: 'stage'; stage: RunnableStage; field: 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'prompt' | 'advisor' };
 
 /** `max-concurrent-runs` and `maxConcurrentRuns` alike; `in-progress.model` and `In Progress.model` alike. */
@@ -64,6 +68,11 @@ function parseKey(input: string): Key {
   const dot = input.lastIndexOf('.');
   const stage = dot > 0 ? parseStage(input.slice(0, dot)) : null;
   const rawField = kebab(input.slice(dot + 1));
+  // Any column has hooks, Backlog included, so these come before the
+  // refusal below of a column that runs no Claude.
+  if (stage && (rawField === 'on-enter' || rawField === 'on-leave')) {
+    return { kind: 'hook', stage, field: rawField === 'on-enter' ? 'enter' : 'leave' };
+  }
   const field = rawField === 'max-budget-usd' ? 'maxBudgetUsd' : rawField === 'max-turns' ? 'maxTurns' : rawField;
   if (
     stage &&
@@ -135,6 +144,10 @@ function patchFor(key: Key, value: string | null, current: ApiSettings): UpdateS
     // Unset goes back to on, the same default a board with no row ever reads.
     return { suggestTasks: value === null ? true : requireBoolean('suggest-tasks', value) };
   }
+  if (key.kind === 'hook') {
+    // `@file` as for a stage's prompt: a hook worth writing is rarely one line.
+    return { stageHooks: { [key.stage]: { [key.field]: value === null ? null : requirePrompt(value) } } };
+  }
   if (key.kind === 'vibes') {
     // Unset goes back to what the sweep did before these were options.
     const on = value === null ? DEFAULT_VIBES_OPTIONS[key.field] : requireBoolean(`vibes.${VIBES_NAMES[key.field]}`, value);
@@ -193,7 +206,17 @@ function render(settings: ApiSettings, models: ModelsResponse | null): string {
     const advisor = own.advisor !== null ? onOff(own.advisor) : `${onOff(builtIn?.advisor)} (default)`;
     return `  ${STAGE_LABELS[s].padEnd(stageWidth)}  model ${model.padEnd(24)}  effort ${effort.padEnd(16)}  budget ${budget.padEnd(14)}  turns ${turns.padEnd(14)}  advisor ${advisor}${prompt}`;
   });
-  return [...rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`), '', 'Stage runs', ...stages].join('\n');
+  // Whether each is set, never the text, for the same reason as the prompts.
+  const hookWidth = Math.max(...STAGES.map((s) => STAGE_LABELS[s].length));
+  const hooks = STAGES.map((s) => {
+    const { enter, leave } = settings.stageHooks[s];
+    return `  ${STAGE_LABELS[s].padEnd(hookWidth)}  on enter ${(enter === null ? 'none' : 'set').padEnd(6)}  on leave ${leave === null ? 'none' : 'set'}`;
+  });
+  return [
+    ...rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`),
+    '', 'Stage runs', ...stages,
+    '', 'Hooks', ...hooks,
+  ].join('\n');
 }
 
 /** Says so, and carries on: the server stores any model name, since the list can be out of date or unreachable. */
@@ -228,6 +251,10 @@ async function set(args: string[], unset: boolean): Promise<void> {
   }
   if (key.kind === 'suggestTasks') {
     return print(`Suggest follow-up cards: ${saved.suggestTasks ? 'on' : 'off'}`);
+  }
+  if (key.kind === 'hook') {
+    const text = saved.stageHooks[key.stage][key.field];
+    return print(`${STAGE_LABELS[key.stage]} on-${key.field}: ${text === null ? 'none' : 'set'}`);
   }
   if (key.kind === 'vibes') {
     return print(`VIBES MODE ${VIBES_NAMES[key.field]}: ${saved.vibesOptions[key.field] ? 'on' : 'off'}`);

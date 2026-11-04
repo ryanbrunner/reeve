@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { CardKind, DevServerUrlSource, EffortLevel, RunKind, RunStatus, Stage, StageRunDefaults, StopReason } from '@reeve/shared';
+import type { CardKind, DevServerUrlSource, EffortLevel, RunKind, RunStatus, Stage, StageHooks, StageRunDefaults, StopReason } from '@reeve/shared';
 import {
   index,
   integer,
@@ -621,6 +621,12 @@ export const settings = sqliteTable('settings', {
    * later should not need a migration. A stage missing from it is unset.
    */
   stageDefaults: text('stage_defaults', { mode: 'json' }).$type<Partial<StageRunDefaults>>(),
+  /**
+   * The other map: a hook to enter and leave each column (see hooks.ts).
+   * JSON for the same reason as `stageDefaults`, keyed by every stage rather
+   * than the runnable ones, since Backlog has an arrival and a departure too.
+   */
+  stageHooks: text('stage_hooks', { mode: 'json' }).$type<Partial<StageHooks>>(),
 });
 
 export type Repo = typeof repo.$inferSelect;
