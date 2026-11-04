@@ -72,6 +72,7 @@ const createCardSchema = z.object({
   kind: z.enum(CARD_KINDS).optional(),
   projectId: z.string().nullable().optional(),
   generateMockups: z.boolean().optional(),
+  vibes: z.boolean().optional(),
 });
 
 const updateCardSchema = z.object({

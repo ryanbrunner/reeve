@@ -644,6 +644,8 @@ export function createCard(
     repoId?: string | null;
     stage?: CardStage;
     generateMockups?: boolean;
+    /** VIBES MODE for this card on its own. A project's lane is the project's flag, not this. */
+    vibes?: boolean;
     kind?: CardKind;
     projectId?: string | null;
     suggestedById?: string | null;
@@ -674,6 +676,7 @@ export function createCard(
       // needed is Planning's time and budget spent for nothing. Decided here
       // rather than by the column's default, which still says true.
       generateMockups: values.generateMockups ?? false,
+      vibes: values.vibes ?? false,
     })
     .returning()
     .get();

@@ -131,8 +131,8 @@ the worker's steps indented under `· worker started`.
 
 ```sh
 reeve project add "Title" [--body TEXT | --body-file PATH|-] [--repo R] [--split]
-reeve card add "Title" [--body TEXT | --body-file PATH|-] [--repo R] [--project P] [--stage S] [--ref PATH|URL]...
-reeve card edit <card> [--title T] [--body …] [--repo R | --no-repo] [--model M] [--effort E] [--ref PATH|URL]...
+reeve card add "Title" [--body TEXT | --body-file PATH|-] [--repo R] [--project P] [--stage S] [--ref PATH|URL]... [--vibes]
+reeve card edit <card> [--title T] [--body …] [--repo R | --no-repo] [--model M] [--effort E] [--vibes | --no-vibes] [--ref PATH|URL]...
 reeve card criteria list|add|rm <card> …
 reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
@@ -153,6 +153,13 @@ Release pushes its branch and opens a pull request. So does `card add --stage` i
 a Claude column, and `project add --split`. The command waits a few seconds and
 says on stderr what it set off: the run's id, the pull request's link, or why
 nothing started. Reeve records these as your actions, whoever ran the command.
+
+`card add --vibes` makes a card that is in VIBES MODE on its own from the
+moment it exists, the same as flipping the switch in its Brief: the sweep
+approves, answers and advances that card, and the rest of the board waits for
+you as usual. What the sweep skips and whether it merges are Settings' VIBES
+MODE options, the same for a lone card as for the whole board. `card edit
+--no-vibes` hands it back.
 
 `card merge` is the board's Merge button: it lands a Release card's pull request
 on GitHub, and only once GitHub has said it merges cleanly. Branch protection

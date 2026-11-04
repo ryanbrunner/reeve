@@ -9,11 +9,14 @@ import { watchStart } from '../../setOff.js';
 
 export const add: Command = {
   usage: `  reeve card add <title> [--body TEXT | --body-file PATH|-] [--repo <repo>] [--project <project>]
-                 [--stage <stage>] [--ref PATH|URL]... [--no-mockups] [--json | --quiet]
+                 [--stage <stage>] [--ref PATH|URL]... [--no-mockups] [--vibes] [--json | --quiet]
       A new card, in Backlog unless --stage says otherwise. It goes in --repo, else the repo you
       are in, else its project's repo, else the only repo there is. --ref pins a file or a link
       to it, and may be given more than once. Made in Planning, In Progress or Testing, it starts
       a Claude run there at once, as a drag would.
+      --vibes puts the card in VIBES MODE on its own: the sweep takes it to a pull request (and,
+      unless Settings says otherwise, merges it) with nobody approving, while the rest of the
+      board waits for you as usual. \`reeve card edit --no-vibes\` takes it back.
       Prints the new card's id: --quiet prints the id and nothing else, --json the whole card.`,
 
   async run(args) {
@@ -28,6 +31,7 @@ export const add: Command = {
           stage: { type: 'string' },
           ref: { type: 'string', multiple: true },
           'no-mockups': { type: 'boolean' },
+          vibes: { type: 'boolean' },
           json: { type: 'boolean' },
           quiet: { type: 'boolean' },
         },
@@ -52,6 +56,10 @@ export const add: Command = {
       stage,
       projectId: project?.id ?? null,
       ...(values['no-mockups'] ? { generateMockups: false } : {}),
+      // At creation rather than a PATCH after it, so the sweep can never see
+      // the card unflagged — and a card made straight into a column is never
+      // started as a calm card first.
+      ...(values.vibes ? { vibes: true } : {}),
     });
     try {
       await addRefs(created.id, values.ref);
@@ -65,7 +73,7 @@ export const add: Command = {
 
     if (values.quiet) return print(card.id);
     if (values.json) return printJson(card);
-    print(`Created ${cardRef(card)} in ${STAGE_LABELS[card.stage]}: ${card.title}`);
+    print(`Created ${cardRef(card)} in ${STAGE_LABELS[card.stage]}${card.vibes ? ', in VIBES MODE' : ''}: ${card.title}`);
     print(`  id   ${card.id}`);
     print(`  url  ${cardUrl(card.id)}`);
   },

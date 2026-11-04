@@ -428,6 +428,12 @@ export interface CreateCardBody {
   kind?: CardKind;
   /** The project a task is made under. A project cannot belong to another. */
   projectId?: string | null;
+  /**
+   * VIBES MODE for this card on its own, from the moment it exists. Omitted
+   * is off. The same flag the card's Brief switches, set at birth so a script
+   * can hand a card to the sweep without a second call racing it.
+   */
+  vibes?: boolean;
 }
 
 /**

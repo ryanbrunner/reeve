@@ -19,6 +19,7 @@ const FIELD_NAMES: Record<keyof UpdateCardBody, string> = {
   maxBudgetUsd: 'budget',
   maxTurns: 'max-turns',
   generateMockups: 'mockups',
+  vibes: 'vibes',
 };
 
 /** A limit as a number, or `default` to clear it; anything else is a usage error. */
@@ -35,11 +36,12 @@ function limit(flag: string, value: string | undefined, integer: boolean): numbe
 export const edit: Command = {
   usage: `  reeve card edit <card> [--title T] [--body TEXT | --body-file PATH|-] [--repo <repo> | --no-repo]
                   [--model M] [--effort E] [--budget USD] [--max-turns N] [--mockups | --no-mockups]
-                  [--ref PATH|URL]... [--json]
+                  [--vibes | --no-vibes] [--ref PATH|URL]... [--json]
       Change a card, or a project's brief. --model, --effort, --budget and --max-turns set this
       card's own, above the stage's default in Settings; \`default\` clears them. --budget is the
       dollars one run may spend, --max-turns the calls one loop may make, before the SDK stops it.
-      --ref pins another file or link to it.
+      --ref pins another file or link to it. --vibes puts the card, or every task in a project's
+      lane, in VIBES MODE on its own; --no-vibes hands it back to you.
       A project's first brief is split into tasks by Claude as soon as it is saved, as on the board.`,
 
   async run(args) {
@@ -58,6 +60,8 @@ export const edit: Command = {
           'max-turns': { type: 'string' },
           mockups: { type: 'boolean' },
           'no-mockups': { type: 'boolean' },
+          vibes: { type: 'boolean' },
+          'no-vibes': { type: 'boolean' },
           ref: { type: 'string', multiple: true },
           json: { type: 'boolean' },
         },
@@ -67,6 +71,7 @@ export const edit: Command = {
     if (ref === undefined || extra.length > 0) throw usageError('card edit needs one card, then what to change');
     if (values.repo !== undefined && values['no-repo']) throw usageError('give --repo or --no-repo, not both');
     if (values.mockups && values['no-mockups']) throw usageError('give --mockups or --no-mockups, not both');
+    if (values.vibes && values['no-vibes']) throw usageError('give --vibes or --no-vibes, not both');
     const body = await bodyFrom(values);
 
     const board = await api.board();
@@ -80,6 +85,7 @@ export const edit: Command = {
       maxBudgetUsd: limit('budget', values.budget, false),
       maxTurns: limit('max-turns', values['max-turns'], true),
       generateMockups: values.mockups ? true : values['no-mockups'] ? false : undefined,
+      vibes: values.vibes ? true : values['no-vibes'] ? false : undefined,
     };
     const changes = Object.values(patch).some((v) => v !== undefined);
     if (!changes && !values.ref?.length) throw usageError('card edit was given nothing to change');

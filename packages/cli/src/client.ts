@@ -151,6 +151,7 @@ export interface UpdateCardBody {
   maxBudgetUsd?: number | null;
   maxTurns?: number | null;
   generateMockups?: boolean;
+  vibes?: boolean;
 }
 
 const enc = encodeURIComponent;
