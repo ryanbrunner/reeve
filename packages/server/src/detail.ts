@@ -1,11 +1,13 @@
 import {
   implementationOutput,
   planningOutput,
+  releaseOutput,
   testingOutput,
   type ApiCard,
   type ApiChecks,
   type ApiImplementation,
   type ApiPlan,
+  type ApiRelease,
   type ApiWorktree,
   type CardDetail,
   type Stage,
@@ -27,7 +29,8 @@ import {
   stageHistory,
 } from './db/queries.js';
 import type { Card, Repo, Run } from './db/schema.js';
-import { behindBase, checkWorktree } from './git/worktree.js';
+import { behindBase, checkWorktree, commitsBehind } from './git/worktree.js';
+import { stackedOn } from './stacks.js';
 import {
   toApiAsset,
   toApiCardEvent,
@@ -81,6 +84,7 @@ export async function cardDetail(
     plan: latestPlan(claudeRuns),
     implementation: latestImplementation(claudeRuns),
     checks: latestChecks(db, card.id, claudeRuns),
+    release: latestRelease(claudeRuns),
     runs: runs.map(toApiRunSummary),
     thought: latest ? { activity: latest.lastActivity, thinking: latest.lastThinking } : null,
     events: cardEventsFor(db, card.id).map(toApiCardEvent),
@@ -161,6 +165,23 @@ function latestImplementation(runs: Run[]): ApiImplementation | null {
   };
 }
 
+function latestRelease(runs: Run[]): ApiRelease | null {
+  const found = latestReadable(runs, 'release', releaseOutput);
+  if (!found) return null;
+  const { run, output: r } = found;
+  return {
+    runId: run.id,
+    createdAt: at(run),
+    summary: r.summary,
+    ready: r.ready,
+    prTitle: r.pr_title,
+    prBody: r.pr_body,
+    releaseNotes: r.release_notes,
+    finish: r.finish,
+    concerns: r.concerns,
+  };
+}
+
 function latestChecks(db: Db, cardId: string, runs: Run[]): ApiChecks | null {
   const found = latestReadable(runs, 'testing', testingOutput);
   if (!found) return null;
@@ -194,7 +215,10 @@ async function worktreeFacts(
   repo: Repo | null,
   runs: Run[],
 ): Promise<ApiWorktree> {
-  const baseBranch = repo?.defaultBranch ?? 'main';
+  // A stacked card's base is the branch it builds on, which every worktree of
+  // the repo shares, so it is counted against that rather than origin's.
+  const parent = stackedOn(db, card);
+  const baseBranch = parent?.branchName ?? repo?.defaultBranch ?? 'main';
   const health = card.worktreePath && repo
     ? await checkWorktree(repo.repoPath, card.worktreePath)
     : { state: 'none' as const };
@@ -206,7 +230,9 @@ async function worktreeFacts(
     path: card.worktreePath,
     base: card.baseSha,
     baseBranch,
-    behind: exists && card.worktreePath ? await behindBase(card.worktreePath, baseBranch) : null,
+    behind: exists && card.worktreePath
+      ? parent ? await commitsBehind(card.worktreePath, baseBranch) : await behindBase(card.worktreePath, baseBranch)
+      : null,
     exists,
     server: server
       ? {

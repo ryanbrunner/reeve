@@ -72,7 +72,7 @@ const PASTE_IMAGE = `(async () => {
 const { app, db } = createApp();
 const repo = createRepo(db, {
   name: `brief-${Date.now()}`, repoPath: '/tmp/brief', worktreeRoot: '/tmp/brief-worktrees', defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: '#6b8fb3',
 });
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {

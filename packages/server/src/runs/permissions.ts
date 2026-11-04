@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import type { HookCallback, PermissionResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback, PermissionResult, PermissionUpdate, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 import { realOrSelf } from '../git/worktree.js';
 
@@ -20,9 +20,18 @@ import { realOrSelf } from '../git/worktree.js';
  * should not do is now said in its prompt.
  *
  * What reaches this callback is what the classifier escalated rather than
- * decided, and the answer is always no. Nobody is watching to say yes, and a
- * host that answered allow would be `bypassPermissions` by another name, in
- * runs VIBES MODE starts with nobody near the board.
+ * decided. A stage is a conversation now, so in an auto-mode run with a
+ * person who can be asked, runs/claude.ts parks the call and asks them, and
+ * allows only on their explicit click, for that one call. A model without
+ * auto mode is asked about the same way, and about more — everything Claude
+ * Code's default mode would prompt for, `npm test` and every edit included —
+ * so, as Claude Code does, the person can also allow it for the rest of the
+ * session (`sessionScoped`). Haiku 4.5 is why: refusing every one of those
+ * left its Testing runs unable to run the tests. Everything else is refused
+ * here, as it always was: under VIBES MODE nobody is near the board, and a
+ * request nobody answers in time is denied for them. This module itself never
+ * answers allow — a host that did so on its own would be `bypassPermissions`
+ * by another name.
  *
  * The refusal is still worth writing ourselves, and card #22 is why. The SDK's
  * own says anything else requiring approval will fail too, and a run that reads
@@ -38,13 +47,149 @@ export interface ToolDecision {
   input: Record<string, unknown>;
 }
 
-/** Deny, in words that keep the run going. See the header for why never allow. */
-export function decideToolUse({ toolName, input }: ToolDecision): PermissionResult {
+/**
+ * What Allow for this session would let through, from the suggestions the
+ * SDK hands `canUseTool` with a default-mode prompt: the same "Yes, and don't
+ * ask again" Claude Code offers there, such as `acceptEdits` for an edit or a
+ * `Bash(npm test:*)` rule for a command. Null when there is nothing to offer.
+ *
+ * Every update is re-addressed to the session, whatever the SDK suggested:
+ * Claude Code would write a rule into the repo's `.claude/settings.local.json`,
+ * and a card's click must not outlive its run or reach the person's own
+ * Claude Code. Only rules that allow, a switch to `acceptEdits`, and extra
+ * directories are kept: nothing here may widen a run past what one click on
+ * this call was shown to mean. The hooks still run first — `mergeGuard` and
+ * `liveDatabaseGuard` refuse what they refuse, whatever a rule says.
+ */
+export function sessionScoped(suggestions: PermissionUpdate[] | undefined): { updates: PermissionUpdate[]; label: string } | null {
+  const updates: PermissionUpdate[] = [];
+  const labels: string[] = [];
+  for (const s of suggestions ?? []) {
+    if (s.type === 'addRules' && s.behavior === 'allow' && s.rules.length > 0) {
+      updates.push({ ...s, destination: 'session' });
+      labels.push(...s.rules.map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)));
+    } else if (s.type === 'setMode' && s.mode === 'acceptEdits') {
+      updates.push({ ...s, destination: 'session' });
+      labels.push('every file edit');
+    } else if (s.type === 'addDirectories' && s.directories.length > 0) {
+      updates.push({ ...s, destination: 'session' });
+      labels.push(...s.directories.map((d) => `files in ${d}`));
+    }
+  }
+  return updates.length > 0 ? { updates, label: labels.join(', ') } : null;
+}
+
+/**
+ * Deny, in words that keep the run going: what every escalation gets when
+ * nobody can be asked — VIBES MODE, a one-off task, or a person who did not
+ * answer in time (`why: 'unanswered'`).
+ *
+ * When a person IS there, runs/claude.ts asks them first and only allows on
+ * their explicit click, for that one call. Nothing here ever answers allow.
+ */
+export function decideToolUse(
+  { toolName, input }: ToolDecision,
+  why: 'unwatched' | 'unanswered' = 'unwatched',
+): PermissionResult {
   const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
   return {
     behavior: 'deny',
-    message: toolName === 'Bash' && command ? bashDenial(command) : toolDenial(toolName, input),
+    message: toolName === 'Bash' && command ? bashDenial(command, why) : toolDenial(toolName, input, why),
   };
+}
+
+/** A person said no. Their reason, when they gave one, is the most useful thing Claude can read. */
+export function personDenial({ toolName, input }: ToolDecision, reason: string | null | undefined): PermissionResult {
+  const what = typeof input['command'] === 'string' ? input['command'] : Object.values(identifying(input))[0];
+  return {
+    behavior: 'deny',
+    message: [
+      `The person watching this run denied this ${toolName} call${what ? ` (\`${short(what)}\`)` : ''}.`,
+      reason?.trim() ? `They said: "${reason.trim()}"` : '',
+      'Only this call was refused. Take what they said into account, find another way, and carry on.',
+    ].filter(Boolean).join(' '),
+  };
+}
+
+/**
+ * Merging and closing are a person's, on the board's Merge button, and so is
+ * the base branch. Auto mode may well approve `gh pr merge` in a repo whose
+ * remote allows it, and a Release run that talks about merging is exactly the
+ * run that might try — so this is a hook, not a line in a prompt, and it
+ * applies to every stage.
+ */
+export function mergeGuard(
+  baseBranch: string | readonly string[],
+  onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void,
+): HookCallback {
+  return (hook, toolUseId) => {
+    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const command = typeof input['command'] === 'string' ? input['command'] : '';
+    const reason = mergeRefusal(command, baseBranch);
+    if (!reason) return Promise.resolve({});
+    onDenied(hook.tool_name, input, hook.tool_use_id ?? toolUseId ?? '');
+    return Promise.resolve({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+    });
+  };
+}
+
+/**
+ * Let through, once, a call a person allowed after auto mode refused it: see
+ * `allowances` in runs/asks.ts. Never one the guards above refuse — merging
+ * stays the person's on the board, and the live database stays shut — which
+ * this checks itself rather than trusting the order hooks run in.
+ */
+export function allowanceHook(
+  cardId: string,
+  worktreePath: string,
+  baseBranch: string | readonly string[],
+  take: (cardId: string, toolName: string, input: Record<string, unknown>) => boolean,
+): HookCallback {
+  return (hook) => {
+    if (hook.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const command = typeof input['command'] === 'string' ? input['command'] : '';
+    if (command && (mergeRefusal(command, baseBranch) || scratchDbRefusal(command.trim(), worktreePath))) return Promise.resolve({});
+    if (!take(cardId, hook.tool_name, input)) return Promise.resolve({});
+    return Promise.resolve({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+        permissionDecisionReason: 'The person watching this run allowed this exact call, once.',
+      },
+    });
+  };
+}
+
+const MERGE_OR_CLOSE = /\bgh\s+pr\s+(merge|close)\b/;
+const GIT_PUSH = /\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g;
+
+/** Exported for the spike that checks it. */
+export function mergeRefusal(command: string, baseBranch: string | readonly string[]): string | null {
+  if (MERGE_OR_CLOSE.test(command)) {
+    return [
+      `Denied: \`${short(command)}\`.`,
+      'Merging or closing the pull request is the person\'s to do, with the board\'s Merge button.',
+      'Say in your reply that it is ready, and why, and leave it there.',
+    ].join(' ');
+  }
+  // The default branch, and for a stacked card the branch of the card it
+  // builds on: that one is another card's work, landed by its own pull request.
+  const bases = typeof baseBranch === 'string' ? [baseBranch] : baseBranch;
+  for (const m of command.matchAll(GIT_PUSH)) {
+    const args = (m[1] ?? '').trim().split(/\s+/);
+    const hit = bases.find((b) => args.some((a) => a === b || a.endsWith(`:${b}`) || a.endsWith(`:refs/heads/${b}`)));
+    if (hit) {
+      return [
+        `Denied: \`${short(command)}\`.`,
+        `Nothing in a card pushes to \`${hit}\`: the work lands through its pull request, merged by the person.`,
+        'Push the card\'s own branch instead if it needs pushing.',
+      ].join(' ');
+    }
+  }
+  return null;
 }
 
 /**
@@ -73,6 +218,64 @@ export function liveDatabaseGuard(
     const reason = scratchDbRefusal(command, worktreePath);
     if (!reason) return Promise.resolve({});
     onDenied(hook.tool_name, input, hook.tool_use_id ?? toolUseId ?? '');
+    return Promise.resolve({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+    });
+  };
+}
+
+/**
+ * What a run may launch with the Agent tool. Two rules for every run, and two
+ * more for a stage with a worker (see `worker` in stages/types.ts):
+ *
+ * - No `isolation`. Reeve owns the card's worktree; an agent in a worktree of
+ *   its own commits on a branch the card never sees, and a remote one works
+ *   on nothing of the card's at all.
+ * - A worker runs in the background, since a worker the lead waits on is the
+ *   stage before workers with extra steps: nobody could talk to it.
+ * - One worker at a time. Two would edit the same tree at once.
+ * - No other agent in the background. Background work in such a stage is the
+ *   worker's, and an agent of another type would build beside it unseen by
+ *   the rules above. A look-up the lead waits on is still fine.
+ *
+ * A hook, like the guards above, so the call is refused whatever the
+ * classifier makes of it, and `onLaunch` hears of each worker it lets through
+ * before the call runs, which is when the next launch must already see it.
+ */
+export function agentGuard(opts: {
+  workerType: string | null;
+  workerRunning: () => boolean;
+  onLaunch: (toolUseId: string) => void;
+  onDenied: (toolName: string, input: Record<string, unknown>, toolUseId: string) => void;
+}): HookCallback {
+  return (hook, toolUseId) => {
+    if (hook.hook_event_name !== 'PreToolUse' || (hook.tool_name !== 'Agent' && hook.tool_name !== 'Task')) return Promise.resolve({});
+    const input = isRecord(hook.tool_input) ? hook.tool_input : {};
+    const id = hook.tool_use_id ?? toolUseId ?? '';
+    const isWorker = opts.workerType !== null && input['subagent_type'] === opts.workerType;
+    let reason: string | null = null;
+    if (typeof input['isolation'] === 'string') {
+      reason =
+        `Agents in this run share the card's worktree, so \`isolation: "${input['isolation']}"\` is refused: ` +
+        'its commits would land somewhere the card never sees. Launch it again without `isolation`.';
+    } else if (isWorker && input['run_in_background'] === false) {
+      reason =
+        'The worker always runs in the background, so you stay free to talk to the person while it works. ' +
+        'Launch it again without `run_in_background: false`; you are told when it finishes.';
+    } else if (opts.workerType !== null && !isWorker && input['run_in_background'] !== false) {
+      reason =
+        `In this stage, work in the background is the ${opts.workerType}'s: launch it with \`subagent_type: "${opts.workerType}"\`. ` +
+        'For a quick look-up you wait on, launch this agent again with `run_in_background: false`.';
+    } else if (isWorker && opts.workerRunning()) {
+      reason =
+        'A worker is already running, and two would edit the same worktree at once. Send it what you wanted ' +
+        'done with SendMessage instead, or wait for it to finish and launch the next one then.';
+    }
+    if (!reason) {
+      if (isWorker) opts.onLaunch(id);
+      return Promise.resolve({});
+    }
+    opts.onDenied(hook.tool_name, input, id);
     return Promise.resolve({
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
     });
@@ -223,21 +426,26 @@ function samePath(a: string, b: string): boolean {
   return real(a) === real(b);
 }
 
-function bashDenial(command: string): string {
+const NOBODY = {
+  unwatched: 'nobody is watching this run to approve it by hand.',
+  unanswered: 'nobody answered when this run asked for approval.',
+};
+
+function bashDenial(command: string, why: keyof typeof NOBODY): string {
   return [
     `Denied: \`${short(command)}\`.`,
-    'Auto mode would not approve this one command, and nobody is watching this run to approve it by hand.',
+    `Auto mode would not approve this one command, and ${NOBODY[why]}`,
     'Only this call was refused. Every other command and every other tool still works:',
     "find another way to do what this one was for — a narrower command, one that stays inside the worktree, or a",
     'different tool — and carry on. Running the same command again will be refused again.',
   ].join(' ');
 }
 
-function toolDenial(toolName: string, input: Record<string, unknown>): string {
+function toolDenial(toolName: string, input: Record<string, unknown>, why: keyof typeof NOBODY): string {
   const what = Object.values(identifying(input))[0];
   return [
     `Denied: this ${toolName} call${what ? ` (\`${short(what)}\`)` : ''}.`,
-    'Auto mode would not approve it, and nobody is watching this run to approve it by hand.',
+    `Auto mode would not approve it, and ${NOBODY[why]}`,
     `Only this call was refused, not ${toolName} and not your other tools: find another way to do what it was for`,
     'and carry on.',
   ].join(' ');
@@ -316,12 +524,12 @@ export interface DenialRecorder {
 }
 
 export function denialRecorder(): DenialRecorder {
-  // Only the latest turn's calls, for `observe`: the denial event names the tool
+  // Only the last few calls, for `observe`: the denial event names the tool
   // and the id but carries no input, and it lands while the message that asked
-  // is still executing, so it is always this map the id is in. Holding every
+  // is still executing, so the id is always among the latest. Holding every
   // call of a 200-turn run to caption a denial that may never come is not a
   // trade worth making.
-  let asked = new Map<string, ToolDenialRecord>();
+  const asked = new Map<string, ToolDenialRecord>();
   const denied: ToolDenialRecord[] = [];
   const seen = new Set<string>();
 
@@ -338,7 +546,11 @@ export function denialRecorder(): DenialRecorder {
     },
     observe(message) {
       if (message.type === 'assistant') {
-        asked = asksIn(message);
+        // Merged, not replaced: with a worker running, the lead's messages and
+        // the worker's interleave, and a denial of the worker's call can land
+        // after the lead has spoken. Still only the last few calls.
+        for (const [id, record] of asksIn(message)) asked.set(id, record);
+        while (asked.size > 32) asked.delete(asked.keys().next().value!);
         return null;
       }
       const m = message as { type?: string; subtype?: string; tool_name?: string; tool_use_id?: string };

@@ -28,6 +28,7 @@ const FIELDS = {
   'worktree-root': { type: 'string' },
   setup: { type: 'string' },
   test: { type: 'string' },
+  'focused-test': { type: 'string' },
   seed: { type: 'string' },
   server: { type: 'string' },
   'server-url': { type: 'string' },
@@ -74,6 +75,7 @@ function body(fields: Fields): UpdateRepoBody {
   }
   if (fields.setup !== undefined) out.setupCommand = blankIsNull(fields.setup);
   if (fields.test !== undefined) out.testCommand = blankIsNull(fields.test);
+  if (fields['focused-test'] !== undefined) out.focusedTestCommand = blankIsNull(fields['focused-test']);
   if (fields.seed !== undefined) out.seedCommand = blankIsNull(fields.seed);
   if (fields.server !== undefined) out.serverCommand = blankIsNull(fields.server);
   if (fields['server-url'] !== undefined) out.serverUrl = blankIsNull(fields['server-url']);
@@ -93,6 +95,7 @@ function render(repo: ApiRepo): string {
     ['Worktrees', repo.worktreeRoot],
     ['Setup', repo.setupCommand ?? '-'],
     ['Test', repo.testCommand ?? '-'],
+    ['Focused tests', repo.focusedTestCommand ?? '-'],
     ['Seed', repo.seedCommand ?? '-'],
     ['Server', repo.serverCommand ?? '-'],
     ['Server URL', repo.serverUrl ?? '-'],

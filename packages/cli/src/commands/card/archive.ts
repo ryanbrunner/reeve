@@ -25,7 +25,7 @@ export const archive: Command = {
   usage: `  reeve card archive <card> [--detach-open] [--json]
       Take a card, or a project, off the board. Nothing is deleted, and \`card restore\` puts it
       back. Refused while the card has a run or a dev server going: stop them first.
-      A project takes its Done cards with it. One with cards not yet Done is refused, naming
+      A project takes its Release cards with it. One with cards not yet in Release is refused, naming
       them, unless --detach-open says to move them to No project, where they carry on.
       --json prints the server's answer: for a project, how many cards went and how many moved.`,
 
@@ -35,7 +35,7 @@ export const archive: Command = {
     const target = resolveTarget(board, ref, whereAmI(board, process.cwd()));
     const done = await api.archiveCard(target.id, detachOpen ? { detachOpen } : undefined);
     if (json) return printJson(done);
-    const taken = done.archived ? `, with ${cards(done.archived)} from Done` : '';
+    const taken = done.archived ? `, with ${cards(done.archived)} from Release` : '';
     const moved = done.detached ? ` Moved ${cards(done.detached)} to No project.` : '';
     print(`Archived ${target.label}${taken}.${moved}`);
   },
@@ -44,7 +44,7 @@ export const archive: Command = {
 export const restore: Command = {
   usage: `  reeve card restore <card> [--json]
       Put an archived card back on the board, in the column it left. <card> is looked for among
-      the archived: its number or id, as for any other card. A project brings back the Done
+      the archived: its number or id, as for any other card. A project brings back the Release
       cards archived with it, but not cards archived on their own or moved to No project.`,
 
   async run(args) {

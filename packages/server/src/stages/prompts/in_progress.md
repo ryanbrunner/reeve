@@ -6,6 +6,8 @@ You are implementing a piece of work in the repository at `{{worktreePath}}`.
 
 {{body}}
 
+{{project}}
+
 ## The approved plan
 
 {{plan}}
@@ -51,5 +53,5 @@ written: its own scripts, package manager and test runner.
 - Report what you actually did in `summary`. If something does not work, say
   that plainly — the human is about to look at it either way, and a summary
   that oversells is worse than no summary.
-{{suggesting}}{{reviewNotes}}
+{{suggesting}}
 {{notes}}

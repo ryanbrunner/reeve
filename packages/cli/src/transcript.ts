@@ -15,6 +15,7 @@ const MAX = 160;
 
 interface Block {
   type?: string;
+  id?: string;
   text?: string;
   thinking?: string;
   name?: string;
@@ -49,6 +50,15 @@ const blocksOf = (payload: { message?: { content?: unknown } }): Block[] => {
   return Array.isArray(content) ? (content as Block[]) : [];
 };
 
+/**
+ * The run's Agent calls, and those of them that went to the background, so a
+ * worker's start and end can be told from a background shell's and from the
+ * worker's own commands. One follow is one run, so one set each for the
+ * process is enough.
+ */
+const agentCalls = new Set<string>();
+const backgrounded = new Set<string>();
+
 export function renderEvent(kind: string, data: string): string[] {
   let payload: Record<string, unknown>;
   try {
@@ -57,13 +67,30 @@ export function renderEvent(kind: string, data: string): string[] {
     return [];
   }
 
+  // A background worker's own steps, set off from the lead's: the lead is the
+  // one being talked to, and the two interleave while the worker runs.
+  if (payload.parent_tool_use_id && (kind === 'assistant' || kind === 'tool_result')) {
+    return renderEvent(kind, JSON.stringify({ ...payload, parent_tool_use_id: null })).map((l) => `  │ ${l}`);
+  }
+
   switch (kind) {
+    case 'system:task_started':
+      if (!payload.is_backgrounded || typeof payload.tool_use_id !== 'string' || !agentCalls.has(payload.tool_use_id)) return [];
+      backgrounded.add(payload.tool_use_id);
+      return [`· worker started: ${oneLine(String(payload.description ?? ''))}`];
+    case 'system:task_notification':
+      // Each of the worker's own commands ends in one of these too, with
+      // nothing a person needs: only the background one's end is said.
+      if (typeof payload.tool_use_id !== 'string' || !backgrounded.delete(payload.tool_use_id)) return [];
+      return [`· worker ${String(payload.status ?? 'ended')}`];
+
     case 'system:init':
       return [`· session started${typeof payload.model === 'string' ? ` on ${payload.model}` : ''}`];
 
     case 'assistant': {
       const lines: string[] = [];
       for (const block of blocksOf(payload)) {
+        if (block.type === 'tool_use' && (block.name === 'Agent' || block.name === 'Task') && typeof block.id === 'string') agentCalls.add(block.id);
         if (block.type === 'text' && block.text?.trim()) lines.push(block.text.trim());
         else if (block.type === 'tool_use' && block.name) lines.push(toolCall(block));
         // Empty unless summaries were asked for, which is most of the time.
@@ -90,6 +117,32 @@ export function renderEvent(kind: string, data: string): string[] {
 
     case 'error':
       return [`! ${String(payload.message ?? 'error')}`];
+
+    // A stage is a conversation: what the person said, what Claude asked,
+    // and what it submitted are the turns worth seeing.
+    case 'user_message': {
+      const who = payload.actor === 'claude' ? 'VIBES MODE' : 'you';
+      const via = typeof payload.source === 'string' && payload.source !== 'chat' ? ` (${payload.source})` : '';
+      return [`» ${who}${via}: ${oneLine(String(payload.text ?? ''))}`];
+    }
+    case 'ask': {
+      if (payload.kind === 'question') {
+        const qs = Array.isArray(payload.questions) ? (payload.questions as Array<{ question?: string; options?: Array<{ label?: string }> }>) : [];
+        return qs.map((q) => `? Claude asks: ${q.question ?? ''}${q.options?.length ? ` [${q.options.map((o) => o.label).join(' / ')}]` : ''}`);
+      }
+      const input = (payload.input ?? {}) as Record<string, unknown>;
+      const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : '';
+      const who = payload.agent === 'worker' ? 'The worker' : 'Claude';
+      const verbs = typeof payload.session === 'string' ? 'allow|deny [--session]' : 'allow|deny';
+      return [`? ${who} asks to use ${String(payload.toolName ?? 'a tool')}${what ? `: ${oneLine(what)}` : ''} — reeve card permit <card> ${verbs}`];
+    }
+    case 'ask_answered': {
+      if (payload.kind === 'permission') return [`· ${payload.allow ? (payload.session ? 'allowed for this session' : 'allowed') : 'denied'}${payload.reason ? `: ${oneLine(String(payload.reason))}` : ''}`];
+      if (payload.kind === 'question') return [`· answered: ${Object.values((payload.answers ?? {}) as Record<string, string>).join('; ')}`];
+      return [`· not answered (${String(payload.why ?? '')})`];
+    }
+    case 'submitted':
+      return [`◆ submitted: ${oneLine(String(payload.summary ?? ''))}`];
 
     case 'command':
       return [`$ ${String(payload.command ?? '')}`];

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   STAGES,
@@ -10,14 +10,13 @@ import {
   type ApiCard,
   type ApiRunSummary,
   type CardDetail,
-  type EffortLevel,
   type Stage,
 } from '@reeve/shared';
 import { api, cardsIn } from '../lib/api.js';
 import { copyText } from '../lib/clipboard.js';
 import { Dropdown } from '../lib/Dropdown.js';
-import { effortLevelsFor, findModel, keepEffort, modelOptions } from '../lib/models.js';
-import { duration, sumTokens, tok, tokenTitle, when } from './format.js';
+import { findModel } from '../lib/models.js';
+import { cost, duration, when } from './format.js';
 import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
 
 /**
@@ -27,16 +26,24 @@ import { Empty, Fact, SectionHead, SmallButton } from './ui.js';
  * these are things the system knows rather than things a person wrote, and
  * they should read as reference rather than as prose.
  */
-export function Rail({ detail, onOpen }: { detail: CardDetail; onOpen: (id: string) => void }) {
+export function Rail({ detail, onOpen, embedded = false }: {
+  detail: CardDetail;
+  onOpen: (id: string) => void;
+  /** Inside the conversation's side panel, as its Card tab, rather than a column of its own. */
+  embedded?: boolean;
+}) {
   return (
     <aside
       aria-label="Card facts"
-      className="flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4"
+      className={embedded
+        ? 'flex flex-col gap-[18px]'
+        : 'flex w-[300px] shrink-0 flex-col gap-[18px] overflow-y-auto border-l border-(--color-edge) p-4'}
     >
       <Repo detail={detail} />
       <Dependencies detail={detail} onOpen={onOpen} />
       <Suggestions detail={detail} onOpen={onOpen} />
-      <Model detail={detail} />
+      {/* Keyed so a budget half-typed for one card is not left sitting in another's field. */}
+      <Limits key={detail.card.id} detail={detail} />
       <Worktree detail={detail} />
       {detail.checks && <Checks detail={detail} />}
       <Commits detail={detail} />
@@ -323,59 +330,79 @@ function byRepo(cards: ApiCard[]): Array<[string, ApiCard[]]> {
 }
 
 /**
- * Which model this card's runs use, and how hard they think.
- *
- * One override for every stage, above the Settings default for each: a card
- * that needs Opus needs it for the plan and the build alike. Suggest is left
- * out — it is a cheap aside, not the card's work — and says so, since a person
- * who has just picked Opus here would otherwise expect it everywhere.
+ * What this card's runs may spend, and how many calls a loop may make, above
+ * the Settings limits for each stage: a big card gets room without raising it
+ * for every card. Typed, and saved when the field is left or Enter pressed.
  */
-function Model({ detail }: { detail: CardDetail }) {
+function Limits({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
-  const models = data?.models ?? [];
-  const { model, effort } = detail.card;
   const set = useMutation({
-    mutationFn: (body: { model?: string | null; effort?: EffortLevel | null }) => api.updateCard(detail.card.id, body),
+    mutationFn: (body: { maxBudgetUsd?: number | null; maxTurns?: number | null }) => api.updateCard(detail.card.id, body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
       void qc.invalidateQueries({ queryKey: ['board'] });
     },
   });
-  const levels = effortLevelsFor(models, model);
-
   return (
     <section className="flex flex-col gap-2">
-      <SectionHead>Model</SectionHead>
-      <div className="flex flex-col gap-1.5">
-        <Dropdown
-          label="Model for this card's runs"
-          value={model ?? ''}
+      <SectionHead>Limits</SectionHead>
+      <div className="grid grid-cols-2 gap-1.5">
+        <LimitInput
+          label="Budget per run"
+          prefix="$"
+          value={detail.card.maxBudgetUsd}
+          valid={(n) => n >= 0.5 && n <= 1000}
           disabled={set.isPending}
-          options={[{ value: '', label: 'Settings default' }, ...modelOptions(models, model)]}
-          onChange={(v) => {
-            const next = v || null;
-            set.mutate({ model: next, effort: keepEffort(models, next, effort) });
-          }}
-          className={FIELD}
+          onSave={(maxBudgetUsd) => set.mutate({ maxBudgetUsd })}
         />
-        <Dropdown
-          label="Effort for this card's runs"
-          value={effort ?? ''}
-          disabled={set.isPending || levels.length === 0}
-          options={[
-            { value: '', label: levels.length === 0 ? 'No effort on this model' : 'Settings default' },
-            ...levels.map((l) => ({ value: l, label: l })),
-          ]}
-          onChange={(v) => set.mutate({ effort: (v || null) as EffortLevel | null })}
-          className={FIELD}
+        <LimitInput
+          label="Turns per loop"
+          suffix="turns"
+          value={detail.card.maxTurns}
+          valid={(n) => Number.isInteger(n) && n >= 10 && n <= 10_000}
+          disabled={set.isPending}
+          onSave={(maxTurns) => set.mutate({ maxTurns })}
         />
       </div>
-      <p className="font-mono text-[10px]/4 text-(--color-muted)">
-        For Planning, In Progress and Testing. Suggest keeps its own.
-      </p>
+      <p className="font-mono text-[10px]/4 text-(--color-muted)">Blank uses the Settings limit for the stage.</p>
       {set.error && <p className="font-mono text-[10px]/4 text-red-300">{set.error.message}</p>}
     </section>
+  );
+}
+
+function LimitInput({ label, prefix, suffix, value, valid, disabled, onSave }: {
+  label: string;
+  prefix?: string;
+  suffix?: string;
+  value: number | null;
+  valid: (n: number) => boolean;
+  disabled: boolean;
+  onSave: (next: number | null) => void;
+}) {
+  const [text, setText] = useState(value?.toString() ?? '');
+  // A save, or a change made elsewhere — the CLI — puts the stored value back.
+  useEffect(() => setText(value?.toString() ?? ''), [value]);
+  const parsed = text.trim() ? Number(text.trim().replace(/^\$/, '')) : null;
+  const bad = parsed !== null && !(Number.isFinite(parsed) && valid(parsed));
+  const commit = () => {
+    if (bad || parsed === value) return;
+    onSave(parsed);
+  };
+  return (
+    <label className={`flex items-center gap-1 rounded-md border bg-(--color-panel) px-2 font-mono text-[11px] text-(--color-muted) ${bad ? 'border-red-400/70' : 'border-(--color-edge)'}`} title={label}>
+      {prefix}
+      <input
+        aria-label={label}
+        value={text}
+        disabled={disabled}
+        placeholder="default"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
+        className="h-7 w-full min-w-0 bg-transparent text-(--color-text) outline-none placeholder:text-(--color-muted)/60"
+      />
+      {suffix}
+    </label>
   );
 }
 
@@ -537,7 +564,7 @@ function Handoff({ detail }: { detail: CardDetail }) {
   });
 
   const { card, worktree } = detail;
-  if (card.stage === 'done') return null;
+  if (card.stage === 'release') return null;
   const blocked =
     !needsWorktree(card.stage) ? 'Move to Planning to get a worktree'
     // Restored after its worktree was removed: starting it is refused too.
@@ -623,17 +650,11 @@ function Runs({ detail }: { detail: CardDetail }) {
   const models = data?.models ?? [];
   const runs = detail.runs.filter((r) => r.kind === 'claude');
   // The same sum the header shows, so the two totals can never disagree.
-  const spent = sumTokens(runs);
+  const spent = runs.reduce((n, r) => n + (r.totalCostUsd ?? 0), 0);
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
-        aside={
-          spent ? (
-            <span title={tokenTitle(spent.breakdown)} className="font-mono text-[11px]/4 text-(--color-muted)">
-              {tok(spent.total)}
-            </span>
-          ) : null
-        }
+        aside={runs.length ? <span className="font-mono text-[11px]/4 text-(--color-muted)">{cost(spent)}</span> : null}
       >
         Runs
       </SectionHead>
@@ -663,9 +684,7 @@ function Runs({ detail }: { detail: CardDetail }) {
               <span className="text-(--color-muted)">
                 {duration(r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null)}
               </span>
-              <span title={tokenTitle(r.tokenBreakdown)} className="min-w-[40px] text-right whitespace-nowrap text-(--color-muted)">
-                {tok(r.totalTokens)}
-              </span>
+              <span className="min-w-[40px] text-right text-(--color-muted)">{cost(r.totalCostUsd)}</span>
             </div>
           ))}
         </div>
@@ -679,7 +698,7 @@ function Runs({ detail }: { detail: CardDetail }) {
  *
  * Clicking a stage moves the card, which is the same human action as a drag —
  * appended to the end of that column, because the choice being made here is
- * the column and not the slot within it. Testing and Done stay shut until the
+ * the column and not the slot within it. Testing and Release stay shut until the
  * card has been implemented, and every stage but Backlog while it waits on a
  * card that has not cleared, both of which the server enforces too.
  */
@@ -710,7 +729,7 @@ function StageList({ detail }: { detail: CardDetail }) {
           // `detail.dependencies`: only the links carry the server's `done`.
           const refusal =
             stageEntryRefusal(detail.card.stage, stage, detail.card.implemented) ??
-            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn);
+            blockedMoveRefusal(detail.card.stage, stage, detail.card.dependsOn, detail.card.stackedOn);
           const button = (
             <button
               key={stage}

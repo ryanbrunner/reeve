@@ -7,11 +7,20 @@ import {
   type ResolveConflictsResponse,
 } from '@reeve/shared';
 import { cardActivity } from '../board.js';
-import { startCritReview } from '../crit.js';
+import { startCritReview, type CritTarget } from '../crit.js';
 import type { Db } from '../db/client.js';
-import { getCard, insertCardEvent, latestClaudeRunForStage, listRepos } from '../db/queries.js';
-import { GitError, checkWorktree } from '../git/worktree.js';
-import { startGlossReview } from '../gloss.js';
+import {
+  artifactsForCard,
+  getCard,
+  insertCardEvent,
+  latestClaudeRunForStage,
+  latestDeliverableRun,
+  listRepos,
+  liveStageRun,
+} from '../db/queries.js';
+import { GitError, checkWorktree, commitsSince } from '../git/worktree.js';
+import { startGlossReview, startMockupReview } from '../gloss.js';
+import { config } from '../config.js';
 import { writeHandoff } from '../handoff.js';
 import { toApiRunSummary } from '../mappers.js';
 import { canMergePr, isPrConflicting, landPullRequest, openPullRequest } from '../pullRequest.js';
@@ -64,7 +73,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Open the pull request by hand. Entering Done already tries once on its
+   * Open the pull request by hand. Entering Release already tries once on its
    * own; this is for after that failed and the cause — a dirty tree, a missing
    * login — has been put right.
    */
@@ -79,7 +88,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Merge the base branch into a Done card's branch and push it to its pull
+   * Merge the base branch into a Release card's branch and push it to its pull
    * request, with Claude resolving the conflicts in between. Answers once the
    * run has started, or once the push is done if the base merged cleanly and
    * no run was needed. See resolveConflicts.ts.
@@ -97,7 +106,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Merge a Done card's pull request on GitHub, from the board. Only one that
+   * Merge a Release card's pull request on GitHub, from the board. Only one that
    * GitHub has said merges cleanly: the button is not offered otherwise, and a
    * page left open since is refused the same. Branch protection still applies;
    * see mergePullRequest.
@@ -109,10 +118,10 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const repo = repoFor(card.repoId);
     if (!repo) return c.json({ error: 'card has no repo', detail: 'a merge needs a repo' }, 400);
     if (card.mergedAt) return c.json({ error: 'already merged', detail: card.prUrl ?? `#${card.number}` }, 409);
-    if (!canMergePr(card)) {
+    if (!canMergePr(db, card)) {
       return c.json({
         error: 'not ready to merge',
-        detail: card.stage !== 'done' ? 'only a Done card’s pull request is merged'
+        detail: card.stage !== 'release' ? 'only a Release card’s pull request is merged'
           : !card.prUrl ? 'the card has no pull request'
           : isPrConflicting(card) ? 'GitHub says the pull request has conflicts'
           : 'GitHub has not yet said the pull request can merge; it is asked again on the next sync',
@@ -164,8 +173,8 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!card) return c.json({ error: 'not found' }, 404);
     const repo = repoFor(card.repoId);
     if (!repo) return c.json({ error: 'card has no repo', detail: 'a handoff needs a repo' }, 400);
-    // `needsWorktree` is true for Done too, and Done has nothing left to hand over.
-    if (card.stage === 'done' || !needsWorktree(card.stage)) {
+    // `needsWorktree` is true for Release too, and Release has nothing left to hand over.
+    if (card.stage === 'release' || !needsWorktree(card.stage)) {
       return c.json({ error: 'stage cannot be handed off', detail: card.stage }, 400);
     }
     // The row as well as the registry: a run is only registered once its
@@ -174,7 +183,7 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     const latest = latestClaudeRunForStage(db, cardId, card.stage);
     if (
       runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude') ||
-      (latest && ['queued', 'running', 'stopping'].includes(latest.status))
+      (latest && ['queued', 'running', 'asking', 'stopping'].includes(latest.status))
     ) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
@@ -195,13 +204,13 @@ export function actionRoutes(db: Db, writer: EventWriter) {
   });
 
   /**
-   * Open the card's plan for review in Crit. Finishing there sends the plan
-   * back with the comments as notes, or approves it when there are none.
+   * Open the card's plan, or its changes, for review in Crit. Comments come
+   * back into the card's conversation; finishing with none approves the stage
+   * when that work is the one waiting at its gate. See ../crit.ts.
    *
-   * Only a plan waiting for review, the same state the review buttons appear
-   * in: a plan still being written, or one whose questions are unanswered, is
-   * not ready to be judged. A second click answers with the review already
-   * open rather than starting another.
+   * Whenever there is something to review: a plan once one has been written,
+   * the changes once the branch has commits. A second click answers with the
+   * review already open rather than starting another.
    */
   routes.post('/:id/crit', async (c) => {
     const cardId = c.req.param('id');
@@ -209,16 +218,11 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!card) return c.json({ error: 'not found' }, 404);
     if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const repo = repoFor(card.repoId);
-    if (!repo) return c.json({ error: 'card has no repo', detail: 'a plan review needs a repo' }, 400);
-    if (card.stage !== 'planning') {
-      return c.json({ error: 'only a plan can be reviewed in Crit', detail: card.stage }, 400);
-    }
-    const { activity, run } = cardActivity(db, card);
-    if (!run || activity !== 'needs_review') {
-      return c.json({ error: 'the plan is not waiting for review', detail: activity }, 409);
-    }
-    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand)) {
-      return c.json({ error: 'a run is already active for this card' }, 409);
+    if (!repo) return c.json({ error: 'card has no repo', detail: 'a review in Crit needs a repo' }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { target?: unknown };
+    const target: CritTarget = body.target === 'changes' ? 'changes' : 'plan';
+    if (target === 'plan' && !artifactsForCard(db, cardId).some((a) => a.kind === 'plan')) {
+      return c.json({ error: 'no plan to review', detail: 'Planning has not submitted one yet' }, 409);
     }
     const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') {
@@ -227,11 +231,14 @@ export function actionRoutes(db: Db, writer: EventWriter) {
         409,
       );
     }
+    if (target === 'changes' && (!card.baseSha || (await commitsSince(health.path, card.baseSha).catch(() => [])).length === 0)) {
+      return c.json({ error: 'no changes to review', detail: 'the branch has no commits of its own yet' }, 409);
+    }
 
-    const review = await startCritReview(db, writer, card, health.path, run);
+    const review = await startCritReview(db, writer, card, health.path, target);
     if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
-    const body: CritReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
-    return c.json(body, review.reused ? 200 : 201);
+    const res: CritReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
+    return c.json(res, review.reused ? 200 : 201);
   });
 
   /**
@@ -239,9 +246,9 @@ export function actionRoutes(db: Db, writer: EventWriter) {
    * sends the build back with the comments as notes, and the window reloads
    * onto the revision once it is ready; approving there approves the stage.
    *
-   * Only where there is a build, In Progress or Testing, and only while it is
-   * waiting for review, as the buttons are. A second click answers with the
-   * round already waiting rather than starting another.
+   * Wherever there is a build to use — In Progress, Testing or Release — once
+   * Claude has submitted it and while nothing runs on top of it. A second
+   * click answers with the round already waiting rather than starting another.
    */
   routes.post('/:id/gloss', async (c) => {
     const cardId = c.req.param('id');
@@ -250,19 +257,19 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
     const repo = repoFor(card.repoId);
     if (!repo) return c.json({ error: 'card has no repo', detail: 'a review in Gloss needs a repo' }, 400);
-    if (card.stage !== 'in_progress' && card.stage !== 'testing') {
-      return c.json({ error: 'only a build in In Progress or Testing can be reviewed in Gloss', detail: card.stage }, 400);
+    if (card.stage !== 'in_progress' && card.stage !== 'testing' && card.stage !== 'release') {
+      return c.json({ error: 'only a build can be reviewed in Gloss', detail: `${card.stage} has none yet` }, 400);
     }
     if (!repo.serverCommand) {
       return c.json({ error: 'repo has no server command', detail: 'Gloss reviews the card’s dev server' }, 400);
     }
-    const { activity, run } = cardActivity(db, card);
-    if (!run || activity !== 'needs_review') {
-      return c.json({ error: 'the build is not waiting for review', detail: activity }, 409);
-    }
-    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand)) {
+    if (runRegistry.all().some((r) => r.cardId === cardId && r.kind === 'claude' && !r.outOfBand) || liveStageRun(db, cardId)) {
       return c.json({ error: 'a run is already active for this card' }, 409);
     }
+    // The stage's submitted work, which a round answers: a reply about it
+    // since does not take it away.
+    const run = latestDeliverableRun(db, cardId, card.stage);
+    if (!run) return c.json({ error: 'the build is not waiting for review', detail: 'nothing has been submitted in this stage yet' }, 409);
     const health = await checkWorktree(repo.repoPath, card.worktreePath);
     if (health.state !== 'ok') {
       return c.json(
@@ -275,6 +282,28 @@ export function actionRoutes(db: Db, writer: EventWriter) {
     if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
     const body: GlossReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
     return c.json(body, review.reused ? 200 : 201);
+  });
+
+  /**
+   * Open one of the mockups Planning drew in Gloss, before anything is built.
+   * Its comments go into the conversation; see `startMockupReview`.
+   */
+  routes.post('/:id/gloss-mockup', async (c) => {
+    const cardId = c.req.param('id');
+    const card = getCard(db, cardId);
+    if (!card) return c.json({ error: 'not found' }, 404);
+    if (card.archivedAt) return c.json({ error: 'card is archived' }, 409);
+    const repo = repoFor(card.repoId);
+    if (!repo) return c.json({ error: 'card has no repo' }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { runId?: unknown; label?: unknown };
+    if (typeof body.runId !== 'string' || typeof body.label !== 'string') return c.json({ error: 'needs runId and label' }, 400);
+    const health = await checkWorktree(repo.repoPath, card.worktreePath);
+    if (health.state !== 'ok') return c.json({ error: 'card has no usable worktree' }, 409);
+    const url = `http://${config.hostname}:${config.port}/api/cards/${encodeURIComponent(cardId)}/mockups/${encodeURIComponent(body.runId)}/${encodeURIComponent(body.label)}`;
+    const review = await startMockupReview(db, writer, card, health.path, body.label, url);
+    if (!review.ok) return c.json({ error: review.error, detail: review.detail }, review.status);
+    const res: GlossReviewResponse = { runId: review.runId, url: review.url, reused: review.reused };
+    return c.json(res, review.reused ? 200 : 201);
   });
 
   /** Run the repo's test command against the worktree. */

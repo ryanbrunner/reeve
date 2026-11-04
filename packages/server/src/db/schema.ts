@@ -22,7 +22,7 @@ export type { CardKind, RunKind, RunStatus, StopReason };
 export const REVIEW_DECISIONS = ['approved', 'rejected'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 
-export const ARTIFACT_KINDS = ['plan', 'diff', 'test_report', 'summary'] as const;
+export const ARTIFACT_KINDS = ['plan', 'diff', 'test_report', 'summary', 'release'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /**
@@ -71,7 +71,7 @@ export const CARD_EVENT_KINDS = [
   // The same for a round of a review in Gloss: stopped, ended without a
   // verdict, or answered after the build had moved on. `meta.round` is Gloss's.
   'gloss_reviewed',
-  // The Done band's Resolve conflicts: the base branch merged in and pushed to
+  // The Release band's Resolve conflicts: the base branch merged in and pushed to
   // the pull request, or the reason the branch was put back as it was.
   'conflicts_resolved',
   'conflicts_failed',
@@ -80,7 +80,7 @@ export const CARD_EVENT_KINDS = [
   // VIBES MODE's own attempts: the button's refusal is an HTTP error the UI
   // already shows inline, so a person pressing it leaves no second record here.
   'conflicts_refused',
-  // `gh` refused to merge the pull request: from the Done band's Merge, or
+  // `gh` refused to merge the pull request: from the Release band's Merge, or
   // VIBES MODE landing it. Success is `merged`, written once GitHub says so.
   'merge_failed',
   // The card's worktree deleted from disk, by hand or once a merged card was
@@ -107,6 +107,10 @@ export const repo = sqliteTable('repo', {
   // Any of the six lifecycle commands may be blank.
   setupCommand: text('setup_command'),
   testCommand: text('test_command'),
+  // The tests near a change, for a run to check its work as it goes and leave
+  // the whole suite to the end: `{{paths}}` is where the paths go. Not a
+  // lifecycle command — Reeve never runs it, only names it in the prompt.
+  focusedTestCommand: text('focused_test_command'),
   // Puts fixture data where the dev server will read it. Testing runs it, with
   // the card's server stopped, before taking its screenshots, so a capture
   // shows the state the mockup draws rather than an empty page.
@@ -169,8 +173,17 @@ export const card = sqliteTable(
     priorityRationale: text('priority_rationale'),
     branchName: text('branch_name'),
     worktreePath: text('worktree_path'),
-    // Captured once at worktree creation; the diff is `git diff <base_sha>` with no second ref.
+    // Captured at worktree creation, and moved on whenever a base is merged
+    // in; the diff is `git diff <base_sha>` with no second ref.
     baseSha: text('base_sha'),
+    /**
+     * The card whose unmerged branch this one was cut from, or has since had
+     * merged in, while that card has not landed: see stacks.ts. Its branch is
+     * this card's base, and its pull request's. Cleared once the card it
+     * builds on merges and this one has been moved onto the default branch.
+     * Not a foreign key, which SQLite could only add by rebuilding `card`.
+     */
+    stackedOnId: text('stacked_on_id'),
     /**
      * The squash commit this card landed as on the default branch. Stored
      * rather than derived like everything else about a card: a squash leaves no
@@ -192,6 +205,10 @@ export const card = sqliteTable(
     // Settings default for the stage, then to the stage module's own value.
     model: text('model'),
     effort: text('effort').$type<EffortLevel>(),
+    // Its limits too, the same way: a big card can be given room for its runs
+    // without raising them for every card on the board.
+    maxBudgetUsd: real('max_budget_usd'),
+    maxTurns: integer('max_turns'),
     // Whether Planning draws its own mockups for the states this card changes.
     // The `true` default only filled in the cards that predate the column, and
     // they keep it. New cards are opt-in, decided by `createCard`: changing the
@@ -304,7 +321,12 @@ export const runEvent = sqliteTable(
     payload: text('payload').notNull(),
     at: timestamp('at').notNull().default(sql`(unixepoch() * 1000)`),
   },
-  (t) => [primaryKey({ columns: [t.runId, t.seq] })],
+  (t) => [
+    primaryKey({ columns: [t.runId, t.seq] }),
+    // Only the rate-limit readings, which boot looks up the newest of (usage.ts):
+    // an index over every event's kind would cost a write on each of them.
+    index('run_event_rate_limit').on(t.at).where(sql`${t.kind} = 'unknown:rate_limit_event'`),
+  ],
 );
 
 /**

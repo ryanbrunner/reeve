@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { PLACEHOLDER_TITLE, type ApiSettings, type BoardResponse, type VibesState } from '@reeve/shared';
 import { api } from '../client.js';
-import { formatTokens, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
+import { formatCost, formatTime, note, parseOrUsage, print, printJson, usageError } from '../output.js';
 
 /**
  * `reeve vibes on|off`: VIBES MODE, from a script.
@@ -31,7 +31,7 @@ function whatComesOff(board: BoardResponse, settings: ApiSettings): string[] {
   ).length;
   const reviews = live.filter((c) => c.activity === 'needs_review').length;
   const questions = live.filter((c) => c.activity === 'needs_input').length;
-  const done = live.filter((c) => c.stage === 'done' && !c.mergedAt).length;
+  const done = live.filter((c) => c.stage === 'release' && !c.mergedAt).length;
   const whatToBuild = settings.suggestTasks
     ? '  What to build   Claude decides: a repo with nothing left to do gets up to three cards of its own'
     : '  What to build   you decide: suggestions are off, so a repo with nothing left to do sits idle';
@@ -41,7 +41,7 @@ function whatComesOff(board: BoardResponse, settings: ApiSettings): string[] {
     `  Questions       Claude answers its own (${plural(questions, 'card')} asking now)`,
     '  Stage gates     off: approved cards move on, and idle or failed stages are started again',
     `  Planning        skipped: Backlog goes straight to In Progress (${plural(backlog, 'card')} there now)`,
-    `  Merge to main   automatic: Done opens its pull request and merges it (${plural(done, 'card')} in Done now)`,
+    `  Merge to main   automatic: Release opens its pull request and merges it (${plural(done, 'card')} in Release now)`,
     '  New ideas       run on arrival: a card added to Backlog starts once it has a title or a brief',
     whatToBuild,
     "Tool permissions, the concurrency cap and the repository's branch protection stay as they are.",
@@ -54,7 +54,7 @@ function summary(state: VibesState): string {
     `${plural(state.reviewsSkipped, 'review')} skipped`,
     `${plural(state.questionsSelfAnswered, 'question')} self-answered`,
     `${plural(state.ideas, 'idea')} of its own`,
-    `${formatTokens(state.spendTokens)} spent`,
+    `${formatCost(state.spendUsd)} spent`,
   ].join(', ');
 }
 

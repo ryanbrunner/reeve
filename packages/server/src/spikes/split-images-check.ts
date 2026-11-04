@@ -32,7 +32,7 @@ type StageContext = import('../stages/types.js').StageContext;
 const { app, db } = createApp();
 const repo = createRepo(db, {
   name: `check-images-${Date.now()}`, repoPath: '/tmp/check-images', worktreeRoot: '/tmp/check-images-worktrees',
-  defaultBranch: 'main', setupCommand: null, testCommand: null, serverCommand: null,
+  defaultBranch: 'main', setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
 });
 

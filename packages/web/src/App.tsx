@@ -285,7 +285,7 @@ export function App() {
     // Refused before the optimistic move rather than after the server's 409,
     // so a blocked card never shows in a column it cannot go to. The server
     // still checks; this reads its answer off the card's links.
-    const blocked = blockedMoveRefusal(card.stage, stage, card.dependsOn);
+    const blocked = blockedMoveRefusal(card.stage, stage, card.dependsOn, card.stackedOn);
     if (blocked) {
       resetMove();
       setRefusedDrag(`Could not move “${card.title}” — ${blocked}`);
@@ -391,7 +391,7 @@ export function App() {
                       stage={stage}
                       laneId={lane.id}
                       cards={cardsIn(cards, stage, lane.id)}
-                      refuses={dragging !== null && blockedMoveRefusal(dragging.stage, stage, dragging.dependsOn) !== null}
+                      refuses={dragging !== null && blockedMoveRefusal(dragging.stage, stage, dragging.dependsOn, dragging.stackedOn) !== null}
                       onOpen={openAndClose.open}
                       onAdd={stage === 'backlog' ? (repoId) => addCard(lane.id, repoId) : undefined}
                       addOptions={stage === 'backlog' ? addOptions(lane.id) : undefined}

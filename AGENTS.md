@@ -4,11 +4,20 @@ A local kanban board where each card is a piece of work in one of your repos,
 and each column past Backlog runs a Claude Agent SDK stage in that card's own
 git worktree:
 
-    backlog → planning → in_progress → testing → done
+    backlog → planning → in_progress → testing → release
 
-Planning, In Progress and Testing run Claude; Backlog and Done are holding
-areas (`packages/shared/src/stages.ts`). A card's column is its stage — there
-is no second status field.
+Every column but Backlog runs Claude; Backlog is where work waits
+(`packages/shared/src/stages.ts`). Release was Done until it became a stage:
+`done` is still accepted wherever a stage is named. A card's column is its
+stage — there is no second status field. Unlike every other stage, Release
+runs no default review of its own: arriving there only opens its pull
+request, and Claude does only what the conversation actually asks of it.
+
+Each stage is a conversation. Its session stays open while Claude works, so a
+person's message reaches it at the next tool boundary; a turn can end in a
+question or a reply rather than the stage's work; and the work is delivered
+when Claude calls the stage's `submit_<stage>` tool. A card's conversation —
+every stage's, each its own session — is the card modal's main view.
 
 The rule the whole board is built around: **Claude never moves a card; a human
 action does**, whether a drag or an approval. A run finishing on its own
@@ -87,10 +96,17 @@ Node >= 22.12 (`.tool-versions` pins 22.17.0). From the repo root:
   ask before starting one.
 - `reeve doctor` — one line per requirement, with the fix for each one that is
   missing. It exits 1 only when Node, git, Claude credentials or a SQLite
-  binding that loads are missing, and only warns about `gh`, Chromium and the
-  web build. Its probes live beside the server code they predict failures in
-  (`accountProbe`, `ghProbe`, and `checkSqlite` and `checkChromium` in
-  `packages/server/src/doctor.ts`), and it never opens the board's database;
+  binding that loads are missing, and only warns about `gh`, a `gh` token
+  without the `workflow` scope (needed to merge or push a change under
+  `.github/workflows/`; `ghProbe` parses it off `gh auth status`'s own
+  "Token scopes" line), Chromium, the web build, and, in a checkout, an
+  installed Agent SDK other than the one `package-lock.json` pins (the SDK
+  decides what each model alias means: a stale one is how `haiku` stayed
+  Haiku 4.5, without auto mode, on a board whose lockfile had moved on). Its
+  probes live beside the server code they predict failures in
+  (`accountProbe`, `ghProbe`, and `checkSqlite`, `checkChromium` and
+  `checkSdkMatchesLock` in `packages/server/src/doctor.ts`), and
+  it never opens the board's database;
   the SQLite check opens an in-memory one.
 
 Settings are env vars read in `packages/server/src/config.ts`: `REEVE_DB`,
@@ -145,8 +161,10 @@ the board from a script or an agent:
     reeve card run <card>                  start the card's stage; prints the run id
     reeve run follow <run>                 its transcript, until it ends
     reeve card wait <card>                 block until the card needs a person
-    reeve card questions <card>            what Claude asked
-    reeve card answer <card> <n> <answer…> the last answer resumes the run
+    reeve card reply <card> <text…>        talk to Claude: interjects, answers, or carries on
+    reeve card questions <card>            what Claude is waiting on you for
+    reeve card answer <card> <n> <answer…> answer a plan's question; the last resumes it
+    reeve card permit <card> allow|deny    the call a live run is parked on, once
     reeve card approve <card> [--notes]    pass the gate: the card moves one column
     reeve card reject <card> --notes …     send it back; the notes are the next prompt
     reeve run stop <run>
@@ -165,9 +183,9 @@ same numbers for how its run ended.
 | 0    | the run finished and awaits review                                                | the run succeeded |
 | 1    | error: Reeve unreachable, no such card, the server refused                        | the same          |
 | 2    | the command line was wrong                                                        | the same          |
-| 3    | Claude asked questions                                                            | —                 |
+| 3    | Claude is waiting on you: questions, a reply, a permission, a limit               | the run ended waiting on a reply |
 | 4    | the stage's run failed or was interrupted                                         | the run did       |
-| 5    | idle: nothing running or waiting — Backlog, Done, stopped, or a start was refused | the run was stopped |
+| 5    | idle: nothing running or waiting — Backlog, stopped, or a start was refused       | the run was stopped |
 | 6    | `--timeout` ran out with the card still running                                   | —                 |
 
 `wait` on a card that already needs a person returns at once. A card that has
@@ -175,7 +193,10 @@ just been approved into a runnable column reads idle while its worktree is
 made; `wait` keeps waiting through that, because the card says so
 (`startingStage`), rather than returning 5. The same holds while a revision or
 a resume waits on the worktree's setup, when the card still reads as the
-review or the questions it was just given.
+review or the questions it was just given. Release is the exception: approval
+or a drag only opens its pull request, starting no run, so `reeve card wait`
+on a freshly-approved Release card reads idle at once and exits 5 — a person
+has to run it or message it first, or VIBES MODE has to act.
 
 Approving is a human gate, and the CLI passes it only when a person or their
 script calls `reeve card approve`. Nothing in the CLI approves, answers or
@@ -185,10 +206,25 @@ switched on.
 ## Rules the code depends on
 
 - **Claude returns data; the server writes the documents.** Each stage's
-  output is a zod schema in `packages/shared/src/contracts.ts`, and the server
-  composes `.reeve/plan.md`, `.reeve/implementation.md` and
-  `.reeve/test-report.md` from it. That inversion is why Planning, which
-  could edit files, is told to change nothing.
+  output is a zod schema in `packages/shared/src/contracts.ts`, delivered as
+  the input of the stage's in-process `submit_<stage>` tool, and the server
+  composes `.reeve/plan.md`, `.reeve/implementation.md`,
+  `.reeve/test-report.md` and `.reeve/release.md` from it. That inversion is
+  why Planning, which could edit files, is told to change nothing, and why
+  Release's pull request text is set by the server, not by Claude. One-off
+  tasks (Suggest, a split, ideas, resolving conflicts) keep `outputFormat`
+  and are one turn.
+- **A stage run is a conversation, and the SDK's idle event is its turn
+  boundary.** `startClaudeRun` holds the run's input open (`runs/inbox.ts`)
+  and sets `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, without which the event
+  never comes; `spikes/conversation-check.ts` has what the SDK does. At idle
+  with nothing queued the input closes: a turn that submitted is `succeeded`,
+  one that did not is `awaiting_reply`. No process is held for a person's
+  reply — the next message forks the session, as a rejection always did.
+  Interjections send no `priority`: `'now'` cuts the turn off with an empty
+  result. Everything a person says goes through `sendToCard` in
+  `packages/server/src/conversation.ts`: the composer, `reeve card reply`,
+  answers, rejections, live notes, Crit and Gloss comments, VIBES MODE.
 - **`.reeve/` is untracked stage output and must never be committed.** It is
   not in `.gitignore` — it is written into whatever repo a card belongs to —
   so `git add -A` or `git add .` would sweep it in. The pull request and
@@ -227,28 +263,167 @@ switched on.
   it.** `startClaudeRun` in `packages/server/src/runs/claude.ts` sends no
   `allowedTools`, so the SDK's classifier decides what a run may do in any
   language's toolchain, as it does in Claude Code. Stages declare no mode and
-  no tool list. What a stage should not do (change files while planning,
+  no tool list. What every run does withhold is narrower, never wider: the
+  Claude Code tools no stage has a use for (`UNUSED_TOOLS`: cron, wakeups,
+  plan mode, entering a worktree, ListAgents and the like). What a stage should not do (change files while planning,
   push, open pull requests, commit `.reeve/`) is its prompt's to say. A pinned
-  model the CLI lists without `supportsAutoMode: true` — Haiku, today — has
+  model the CLI lists without `supportsAutoMode: true` — Haiku 4.5, today;
+  the `haiku` alias is Haiku 5.5 from SDK 0.3.296, which takes it — has
   `permissionMode` left unset instead, so it starts in the SDK's own default
-  mode; `canUseTool` still denies every edit and risky command the session
-  asks it, same as auto mode's escalations, so such a stage can read and
-  respond, and run whatever default mode's own heuristics wave through
-  unasked, but not edit a file. What still fails the run before Claude takes a
+  mode, and is asked about what Claude Code's default mode would prompt for:
+  see the next rule. What still fails the run before Claude takes a
   turn is a session whose `init` message reports a mode other than `'auto'`
   despite auto mode having been asked for — an account setting or
   `disableAutoMode` turning it off underneath a request that should have
   gotten it.
-- **What the classifier escalates is denied.**
-  `packages/server/src/runs/permissions.ts` answers `canUseTool`, and it never
-  answers allow. Nobody is watching, and allowing would be `bypassPermissions`
-  by another name. Its refusal names the call and tells Claude to carry on
-  another way.
+- **What the classifier escalates is asked about, and allowed only by a
+  person, once.** In an auto-mode stage run with someone who can be asked, an
+  escalated call parks the run as `asking` and shows in the conversation with
+  Allow once and Deny; a typed reply denies it with that reason. A model
+  running without auto mode is asked the same way about every edit and
+  command default mode prompts for, and is also offered Allow for this
+  session, built from the SDK's own suggestions (`sessionScoped` in
+  `runs/permissions.ts`) and always scoped to the session, never written to a
+  settings file: Claude Code's "don't ask again". It is denied without asking
+  under VIBES MODE, in a one-off task, and after `REEVE_ASK_TIMEOUT_MS`
+  (10 minutes) unanswered.
+  `packages/server/src/runs/permissions.ts` never answers allow itself — a host
+  that did would be `bypassPermissions` by another name — and its refusals
+  name the call and tell Claude to carry on another way. AskUserQuestion is a
+  question, not a permission: it parks the same way and is answered with the
+  person's choice, or Claude's own first option under VIBES MODE.
+- **Most refusals are the classifier's own, and a person can allow one
+  once.** Auto mode refuses most risky calls without asking `canUseTool` at
+  all (`spikes/permission-ask-check.ts`), so a refusal is written to the run
+  as a `refused` event and shown with Allow once and retry. Allowing puts that
+  exact call (same tool, same input; for Bash the command) in `allowances`
+  (`runs/asks.ts`) for one use, tells Claude to make it again, and a PreToolUse
+  hook lets it through — a hook's allow is honoured over the classifier. The
+  hook never allows what the merge or live-database guards refuse, and nothing
+  is offered under VIBES MODE or outside the stage's current conversation.
+- **In Progress and Testing lead a background worker.** A stage with
+  `worker` (`packages/server/src/stages/types.ts`) passes the Agent SDK an
+  `agents` entry built from its own brief (`prompts/worker.md` wrapped around
+  `buildPrompt`'s output, also kept in `.reeve/<stage>-brief.md` for a forked
+  follow-up). The session a person talks to opens with `prompts/lead.md`:
+  launch the worker, end the turn, answer the person and relay changes with
+  `SendMessage`, then check the work and submit.
+  - **What the SDK does** (`spikes/background-agent-check.ts`): each message
+    pushed while the worker runs is a short turn of its own that ends in a
+    `result` with no `idle`, and `idle` only comes once the worker is done.
+  - **Reeve's rules:**
+    - The 15s fallback never closes the input while a background agent
+      runs, and `idle` already waits for one.
+    - A background shell holds nothing open: the SDK says idle with one
+      still listed, and waiting on a dev server would keep the run open
+      forever.
+    - `submit_<stage>` is refused while any background agent runs.
+    - `agentGuard` refuses `isolation`, a foreground worker, a second worker,
+      and any agent other than the worker in the background.
+    - The worker has no `AskUserQuestion` and no reeve tools.
+  - **A worker's escalation** parks the run like the lead's, marked
+    `agent: 'worker'`. Only Allow or Deny settles it. Typed words still go to
+    the lead.
+    - The worker is known by the `agent_id` its calls carry, learnt in a
+      PreToolUse hook. Any other subagent's calls are treated as the lead's.
+  - **On the card,** the worker's messages (non-null `parent_tool_use_id`)
+    nest under its Agent call (`agent` on the tool item in `RunProjector`).
+    Its end is the `task_notification` naming that call, never the call's own
+    "launched" result.
+  - `spikes/worker-flow-check.ts` drives all of it with real runs.
+- **The advisor is the person's, and off where it adds least.** Every run
+  loads the person's own Claude Code settings, so `advisorModel` there turns
+  the advisor on in stage runs too, and each call sends the whole session to
+  it uncached: a quarter of the board's spend in its first 714 runs.
+  `advisorFor` in `runs/claude.ts` reads the Settings row for the stage
+  (`reeve settings set <stage>.advisor on|off`), then the stage module's
+  `advisor`, which is `false` for Testing and Release; off is sent as
+  `settings: { advisorModel: '' }`, for that session only. Nothing turns it
+  on where the person's settings have not. `prompts/lead.md` also tells the
+  lead not to consult it before submitting, since the worker's report and
+  the lead's own check are already that review.
+- **A run's limits are layered, and hitting one is not a failure.**
+  - **The layers**, highest first:
+    - the card's own `maxBudgetUsd` and `maxTurns` (the rail, or
+      `reeve card edit --budget --max-turns`)
+    - the Settings row for the stage (`stageDefaults`, or
+      `reeve settings set <stage>.max-budget-usd` and `<stage>.max-turns`)
+    - the stage module's `maxBudgetUsd` and `maxTurns`
+
+    `limitsFor` in `runs/claude.ts` reads them.
+  - **What `maxTurns` counts.** The SDK counts it per loop: the lead's
+    current turn, or a worker's whole run.
+  - **When a run reaches a limit.** It ends `failed` with `budget_exhausted`
+    or `max_turns`, and `stoppedAtLimit` (`packages/shared/src/activity.ts`)
+    reads that as `needs_input`, not `error`:
+    - The card offers Continue, which is a reply, so the fork gets a fresh
+      budget.
+    - `reeve card wait` exits 3.
+    - VIBES MODE leaves such a card for a person, since granting budget after
+      budget unattended has no ceiling.
+  - **Live spend** is on the run's `pulse`, kept in memory by the process
+    running it (`Pulse` in `runs/claude.ts`):
+    - It is exact as of each turn's end.
+    - Between turns it is estimated from `shared/src/pricing.ts`, calibrated
+      by the run's own exact figures.
+    - Prices there are list prices, and need updating when they change.
+- **A card can build on another's unmerged branch** (`packages/server/src/stacks.ts`).
+  - **When it can.** Its one unfinished dependency must be a task in the same
+    repo that has been built (an In Progress run succeeded) on a branch that
+    hasn't merged. That dependency, its stack parent, then holds nothing back
+    (`blockersOf`) except Release. Release waits for the parent's pull request
+    to be open in Release, and for the card to really be on its branch. A
+    start that can't take the parent's branch in is refused, since the card
+    would otherwise run without the work it waits for.
+  - **Its branch.** The card's worktree is cut from the parent's local
+    branch, which every worktree of the repo shares, and `card.stackedOnId`
+    records the parent.
+  - **Revisions.** `mergeLatestBase` merges the parent's revisions in, and
+    `baseSha` follows the parent's tip so the diff is the card's own work.
+  - **Its pull request** targets the parent's branch.
+  - **Merging is refused**, for every card, while any dependency hasn't
+    landed, or while GitHub says the pull request targets anything but the
+    default branch. Merging is where landing order is finally kept.
+  - **Restacking.** When the parent squash-merges, the merge sync's
+    `restackChildren`:
+    - merges `origin/<default>` into the card
+    - moves `baseSha` there
+    - pushes, and retargets the PR with `gh pr edit --base`
+    - clears the stack, only once the push and retarget have both succeeded
+
+    A conflict is left for Resolve conflicts against the default branch.
+    Removing the dependency link ends the stack the same way. Starts, pushes,
+    resolutions and merges wait while a card is being restacked
+    (`isRestacking`).
+  - **No stacking** for a card waiting on two unmerged cards, or on one in
+    another repo: it waits as before.
+  - Every place that once assumed the default branch asks `baseBranchFor`
+    instead: the PR base, the Release prompt, the rail, the diff label and the
+    handoff. `mergeGuard` also refuses pushes to the parent's branch.
+  - **Known gap:** a card already holding newer default-branch commits than
+    its parent's base, when it is stacked, counts those in its diff until it
+    moves onto the default branch, because `baseSha` is the parent's tip.
+  - `spikes/stack-check.ts` drives all of it with real git and no GitHub.
+- **Merging is the person's.** A PreToolUse hook (`mergeGuard`) refuses
+  `gh pr merge`, `gh pr close` and pushes to the base branch in every stage,
+  since auto mode may approve them. The Merge button, and VIBES MODE, land a
+  pull request.
 - **A spike never opens the live board.** A PreToolUse hook on Bash refuses
   any command that sets `REEVE_DB` to the running server's own database, or
   to a value it cannot read plainly. It is a hook because a command the
   classifier approves never reaches `canUseTool`. VIBES MODE does not widen
   permissions either.
+
+## Looking at the conversation without API credit
+
+`packages/server/src/spikes/seed-conversation.ts` puts a card in each
+conversation state — waiting on a reply, parked on a permission, parked on a
+question, working with a message interjected, a Release with its pull request
+written — onto a server already running on a scratch database (opening it
+does not reap, so the live ones stay live; its header has the commands).
+`conversation-flow-check.ts` and `release-flow-check.ts` drive the same states
+with real runs, and `conversation-size-check.ts` measures a long run's
+conversation.
 
 ## Database migrations
 
@@ -334,7 +509,9 @@ made, before the setup command starts (`copyWorktreeIncludes` in
 never over a file the worktree already has. A reused worktree gets nothing.
 
 A repo has six lifecycle commands: setup, test, seed, server, teardown and
-finish. The seed is for Testing's screenshots, which a fresh worktree's server
+finish. The finish command is Release's to run, as the repo's own last check
+before merging, when asked, and its result goes into what Release writes then.
+The seed is for Testing's screenshots, which a fresh worktree's server
 would otherwise take of an empty page. When a card has captures to take,
 Testing stops the card's dev server, runs the seed in the worktree, and then
 starts the server again (`seedForCapture` in
@@ -351,15 +528,29 @@ It runs from the worktree root, so it writes the database the dev server then
 opens. Its merged card is archived on the server's first merge-sync tick
 unless `REEVE_AUTO_ARCHIVE_MS` is large; see the script's header.
 
-For the same repo the server command is `npm run build && npm start`, not
-`npm run dev`: dev runs Vite alongside the tsx API server, and Vite proxies
-`/api` to the live board's hardcoded 4317 and binds whatever port it likes,
-while the tsx server quietly answers the port Reeve tracks, serving
-`packages/web/dist` as of whenever it was last built — stale next to the
-card's own changes. Building before every start keeps what Testing and
-Preview see current. No `{{port}}`: `REEVE_PORT` already reaches the command
-in its environment, and the server announces `[reeve] http://127.0.0.1:<port>`
-for `announcedUrl` to read.
+For the same repo the server command is:
+
+    API=$(node -e "const{createServer}=require('node:net');const s=createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"); REEVE_PORT=$API npm run dev -w @reeve/server & REEVE_DEV_API_PORT=$API npm run dev -w @reeve/web -- --port {{port}} --strictPort --host 127.0.0.1
+
+not `npm run build && npm start`: plain `npm run dev` runs Vite and the tsx
+API server side by side, and Vite binds whatever port it likes while the tsx
+server quietly answers the port Reeve tracks, so Testing and Preview would
+have screenshotted Vite's own, unannounced port instead of the one Reeve
+polls. This command gives the tsx server a free port of its own instead
+(asked of the OS, then passed in as that server's own `REEVE_PORT`) and
+points Vite's dev proxy at it with `REEVE_DEV_API_PORT`, so Vite's `/api`
+calls still land on this worktree's own backend; Vite itself binds the port
+Reeve tracks. It runs through `npm run dev -w @reeve/web` rather than the
+root's own `dev:web`, because that script is itself a nested `npm run`, which
+swallows a `--port` meant for Vite as more arguments to npm instead. Vite
+takes `{{port}}` on its own `--port` flag rather than just the
+`REEVE_PORT` env it already gets, which puts that url on the run row before
+either server has printed a line (see `known` in `devServer.ts`) — otherwise
+the row would depend on whichever server's banner `announcedUrl` read first,
+tsx's `[reeve] http://127.0.0.1:<port>` or Vite's own `Local:` line, and a
+race lost to the API server would leave the row pointing at the wrong port.
+Giving up the build gets back HMR for Preview, at the cost of the worktree
+always running two servers instead of one.
 
 ## Conventions
 

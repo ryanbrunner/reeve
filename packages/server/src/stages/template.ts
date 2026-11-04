@@ -2,16 +2,31 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config.js';
 
+/** Fills a template's `{{var}}` placeholders, shared by the file on disk and a Settings override alike. */
+function fillVars(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
+}
+
+/** The file Reeve ships for one of these templates, unfilled — what Settings shows as the default and resets to. */
+export function defaultPromptText(name: string): string {
+  return readFileSync(join(config.promptsDir, `${name}.md`), 'utf8');
+}
+
 /**
  * Prompts live as editable files, not string literals buried in logic. They are
  * the part of this system most likely to be rewritten once real runs start, and
  * they are where stage quality actually lives. Where they live on disk is
  * `config.promptsDir`'s call, not this file's, since that is the one place
  * that already knows a checkout from a published package.
+ *
+ * `override`, when given, replaces the file entirely — a stage's own Settings
+ * prompt, read by its `buildPrompt` off `StageContext.promptOverride`. Still
+ * filled with the same `{{vars}}`, so a person tuning a stage's wording keeps
+ * every variable `buildPrompt` hands it.
  */
-export function renderPrompt(name: string, vars: Record<string, string>): string {
-  const template = readFileSync(join(config.promptsDir, `${name}.md`), 'utf8');
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
+export function renderPrompt(name: string, vars: Record<string, string>, override?: string): string {
+  const template = override ?? defaultPromptText(name);
+  return fillVars(template, vars);
 }
 
 /**
@@ -33,6 +48,29 @@ export function blockquote(text: string): string {
  */
 export function renderSuggesting(enabled: boolean): string {
   return renderPrompt(enabled ? 'suggested_tasks' : 'no_suggested_tasks', {});
+}
+
+/**
+ * How a stage that builds or checks code should run its tests, worded once
+ * for In Progress and Testing. Big repos are why: a whole suite run after
+ * every edit is most of a run's time, and its output most of its context.
+ * So the tests near the change while working — the plan's own focused
+ * tests, or the repo's focused command, or the narrowest the runner allows —
+ * and the whole suite once, at the end, kept to its tail.
+ */
+export function renderTests(repo: { testCommand: string | null; focusedTestCommand: string | null }, final: string): string {
+  // Nothing to point at at all: say so, rather than send it looking for a
+  // runner the repo may not have.
+  if (!repo.testCommand?.trim() && !repo.focusedTestCommand?.trim()) {
+    return "This repo defines no test command. If the plan names focused tests, run them; otherwise there is nothing Reeve knows to run.";
+  }
+  const focused = repo.focusedTestCommand?.trim()
+    ? `the plan's focused tests if it names them, or \`${repo.focusedTestCommand.trim()}\` with \`{{paths}}\` replaced by the test files or directories that cover what you changed`
+    : "the plan's focused tests if it names them, or else the narrowest command the repo's own runner allows for what you changed";
+  return renderPrompt('tests', {
+    focused,
+    final: repo.testCommand?.trim() ? final.replace('{{command}}', `\`${repo.testCommand.trim()}\``) : '',
+  });
 }
 
 /** The notes block, or nothing at all when there are none. Every stage renders it. */

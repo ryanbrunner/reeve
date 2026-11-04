@@ -15,7 +15,7 @@ function repo(id: string, name: string, repoPath: string): ApiRepo {
     worktreeRoot: join(repoPath, '..', '.reeve-worktrees'),
     defaultBranch: 'main',
     setupCommand: null,
-    testCommand: null,
+    testCommand: null, focusedTestCommand: null,
     seedCommand: null,
     serverCommand: null,
     serverUrl: null,
@@ -53,12 +53,17 @@ function card(values: Partial<ApiCard> & Pick<ApiCard, 'id' | 'number'>): ApiCar
     implemented: false,
     vibes: false,
     dependsOn: [],
+    stackedOn: null,
     dependents: [],
     suggestedBy: null,
     suggestions: [],
     pendingSuggestion: false,
+    reviewFailed: false,
+    waitingOn: null,
     model: null,
     effort: null,
+    maxBudgetUsd: null,
+    maxTurns: null,
     generateMockups: false,
     activity: 'idle',
     latestRun: null,
@@ -103,6 +108,10 @@ describe('parseStage', () => {
       assert.equal(parseStage(input), 'in_progress', input);
     }
     assert.equal(parseStage('Backlog'), 'backlog');
+  });
+
+  test('takes Done, the old name of Release', () => {
+    for (const input of ['done', 'Done', 'release', 'Release']) assert.equal(parseStage(input), 'release', input);
   });
 
   test('rejects anything else, as a usage error', () => {
@@ -204,7 +213,7 @@ describe('resolveCard', () => {
 describe('appendIndex', () => {
   test('is the column’s length for a card joining it', () => {
     assert.equal(appendIndex(board, board.cards[0]!.id, 'in_progress'), 2);
-    assert.equal(appendIndex(board, board.cards[0]!.id, 'done'), 0);
+    assert.equal(appendIndex(board, board.cards[0]!.id, 'release'), 0);
   });
 
   test('does not count the card itself when it is already there', () => {

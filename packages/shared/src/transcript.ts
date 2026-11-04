@@ -31,6 +31,10 @@ export interface TranscriptMessage {
   type?: string;
   subtype?: string;
   message?: { content?: unknown };
+  /** Set on a subagent's own messages: the Agent call that launched it. */
+  parent_tool_use_id?: string | null;
+  /** On `system:task_progress`, every half minute or so, when summaries are asked for. */
+  summary?: string;
 }
 
 export function describeMessage(raw: string): TranscriptLine | null {
@@ -48,7 +52,18 @@ export function describeParsed(msg: TranscriptMessage): TranscriptLine | null {
   // Sent while Claude is still thinking, before the block itself lands. Says
   // so, rather than leaving the last tool call on screen as if it were current.
   if (msg.type === 'system' && msg.subtype === 'thinking_tokens') return { text: 'thinking' };
+  // A background worker's own summary of where it has got to: the best line
+  // there is while the lead sits waiting for it.
+  if (msg.type === 'system' && msg.subtype === 'task_progress' && msg.summary?.trim()) {
+    return { text: `worker: ${msg.summary.trim().split('\n')[0]!.slice(0, MAX - 8)}` };
+  }
   if (msg.type !== 'assistant') return null;
+  // A subagent's step, said as one, and never its reasoning: the band's
+  // thinking is the lead's, which is what a person is talking to.
+  if (msg.parent_tool_use_id) {
+    const line = describeParsed({ ...msg, parent_tool_use_id: null });
+    return line?.text ? { text: `worker: ${line.text}`.slice(0, MAX) } : null;
+  }
 
   const content = msg.message?.content;
   if (!Array.isArray(content)) return { text: null };

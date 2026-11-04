@@ -6,7 +6,7 @@ import { findProject, findRepo, requireStage } from '../resolve.js';
 
 /**
  * What a card is doing, in a word or two: its activity when it has one, and on
- * a Done card the pull request, which is the only thing still moving there.
+ * a Release card the pull request, which is the only thing still moving there.
  */
 function status(card: ApiCard): string {
   const parts = card.activity === 'idle' ? [] : [activityLabel(card.activity)];

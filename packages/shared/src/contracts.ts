@@ -140,6 +140,29 @@ export const planningOutput = z.object({
     .array(z.string())
     .describe('Repo-relative paths you expect to create or modify.'),
   risk: z.enum(['low', 'medium', 'high']).describe('How likely this is to go wrong or need rework.'),
+  /**
+   * What reading the repo taught, handed on. In Progress builds in a fresh
+   * context — its worker fresher still — and in a big codebase finding its
+   * way about again is most of the turns it spends before writing a line.
+   * Defaulted, as `mockups` is, so plans stored before it still parse.
+   */
+  orientation: z
+    .array(
+      z.object({
+        path: z.string().describe('A repo-relative file or directory.'),
+        what: z.string().describe('What it holds, and why it matters for this work, in a line.'),
+      }),
+    )
+    .default([])
+    .describe(
+      'Where the code this work touches and leans on lives, as you found it: the files and directories worth knowing before starting, including the tests that cover this area and any helper to reuse. Whoever builds this starts without your context. Five to fifteen entries is usual; fewer for a small change.',
+    ),
+  focused_tests: z
+    .string()
+    .default('')
+    .describe(
+      'The command that runs only the tests covering this change, in the repo\'s own runner (e.g. `npx vitest run src/cart`, `pytest tests/cart`), for checking work as it goes without the whole suite. Empty if there is no way to run a subset.',
+    ),
   suggested_tasks: suggestedTasks,
 });
 
@@ -191,6 +214,37 @@ export const testingOutput = z.object({
     .describe(
       'Where the build and the mockup differ, judged by looking at both images. Report what a person would notice — a control that became a link, spacing that changed the rhythm — not every pixel. Empty if there were no mockups, or if they match.',
     ),
+  suggested_tasks: suggestedTasks,
+});
+
+/**
+ * Release: the card's pull request, made ready to merge with the person. The
+ * server opens the pull request on entry; this is what Claude says about it,
+ * and the title and body are set on it from here. Merging is not in it, on
+ * purpose — that is the person's, on the board's Merge button.
+ */
+export const releaseOutput = z.object({
+  summary: z.string().describe('One or two sentences on where the release stands, for the card face.'),
+  pr_title: z.string().describe('The pull request title, as it should read in the repository history: imperative, specific, no prefix.'),
+  pr_body: z
+    .string()
+    .describe(
+      'The pull request description, in Markdown: what changed and why, how it was verified, and anything a reviewer should look at. Reeve sets it on the pull request; do not mention Reeve or yourself.',
+    ),
+  release_notes: z
+    .string()
+    .describe('What this changes for someone using the software, in a few user-facing lines of Markdown. Empty when nothing user-facing changed.'),
+  finish: z
+    .object({
+      ran: z.boolean().describe('Whether you ran the repo’s finish command.'),
+      passed: z.boolean().describe('Whether it succeeded. False when it did not run.'),
+      notes: z.string().describe('What it did or why it failed, in a line or two. Empty when there was none to run.'),
+    })
+    .describe('The repo’s finish command, when it has one.'),
+  ready: z.boolean().describe('Whether, as far as you can tell, this is ready to merge.'),
+  concerns: z
+    .array(z.string())
+    .describe('What the person should know before merging: a risk, something you could not verify, a follow-up. Empty if none.'),
   suggested_tasks: suggestedTasks,
 });
 
@@ -276,7 +330,7 @@ export const ideasOutput = z.object({
 });
 
 /**
- * Not a stage either — the Done band's Resolve conflicts button. The server
+ * Not a stage either — the Release band's Resolve conflicts button. The server
  * starts the merge and checks it afterwards; this is Claude's account of what
  * it decided in between, which is all a person has to go on before the push
  * lands on the pull request.
@@ -307,18 +361,21 @@ export type ConflictResolutionOutput = z.infer<typeof conflictResolutionOutput>;
 export type PlanningOutput = z.infer<typeof planningOutput>;
 export type ImplementationOutput = z.infer<typeof implementationOutput>;
 export type TestingOutput = z.infer<typeof testingOutput>;
+export type ReleaseOutput = z.infer<typeof releaseOutput>;
 export type TriageOutput = z.infer<typeof triageOutput>;
 
 export const STAGE_CONTRACTS = {
   planning: planningOutput,
   in_progress: implementationOutput,
   testing: testingOutput,
+  release: releaseOutput,
 } as const satisfies Record<RunnableStage, z.ZodType>;
 
 export type StageOutput = {
   planning: PlanningOutput;
   in_progress: ImplementationOutput;
   testing: TestingOutput;
+  release: ReleaseOutput;
 };
 
 /**

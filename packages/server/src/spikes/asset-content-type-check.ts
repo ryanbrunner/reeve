@@ -25,7 +25,7 @@ const { assetsFor, createRepo } = await import('../db/queries.js');
 const { app, db } = createApp();
 const repo = createRepo(db, {
   name: `check-content-type-${Date.now()}`, repoPath: '/tmp/check-content-type', worktreeRoot: '/tmp/check-content-type-worktrees',
-  defaultBranch: 'main', setupCommand: null, testCommand: null, serverCommand: null,
+  defaultBranch: 'main', setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
 });
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, isPlaceholderCard, stageEntryRefusal } from '@reeve/shared';
+import { CARD_KINDS, EFFORT_LEVELS, RUNNABLE_STAGES, STAGES, isPlaceholderCard, normaliseStage, stageEntryRefusal } from '@reeve/shared';
 import type { ApiSettings, ArchiveCardResponse, BoardResponse, ModelsResponse, StageRunDefaults } from '@reeve/shared';
 import { deleteAsset } from '../assets/store.js';
 import { entryRefusal, toBoardCard } from '../board.js';
@@ -41,14 +41,17 @@ import { listModels } from '../runs/models.js';
 import { runRegistry } from '../runs/registry.js';
 import { requireJson } from './security.js';
 import { SERVER_VARS, unknownVars, usesVar } from '../runs/serverUrl.js';
-import { cleanUpArchivedWorktrees, maybeOpenPullRequest } from '../pullRequest.js';
+import { cleanUpArchivedWorktrees, enterRelease } from '../pullRequest.js';
 import { vibesState } from '../vibes/state.js';
 import { maybeStartStage } from '../startStage.js';
 import { startSplit } from './detail.js';
 import { STAGE_DEFINITIONS } from '../stages/index.js';
+import { defaultPromptText } from '../stages/template.js';
 import { usageState } from '../usage.js';
 
-const stageSchema = z.enum(STAGES);
+// A stage's old name still names it — `done` is Release — so a client or a
+// script written before the rename lands where it meant to.
+const stageSchema = z.preprocess((v) => (typeof v === 'string' ? normaliseStage(v) ?? v : v), z.enum(STAGES));
 
 /**
  * Any non-empty string, not one of the listed models: an alias or id stored
@@ -57,6 +60,9 @@ const stageSchema = z.enum(STAGES);
  */
 const modelSchema = z.string().min(1).nullable();
 const effortSchema = z.enum(EFFORT_LEVELS).nullable();
+/** A run's limits. Bounded so a typo cannot hand one run a fortune or no room at all. */
+const budgetSchema = z.number().min(0.5).max(1000).nullable();
+const maxTurnsSchema = z.number().int().min(10).max(10_000).nullable();
 
 const createCardSchema = z.object({
   title: z.string().min(1, 'title is required'),
@@ -74,6 +80,8 @@ const updateCardSchema = z.object({
   repoId: z.string().nullable().optional(),
   model: modelSchema.optional(),
   effort: effortSchema.optional(),
+  maxBudgetUsd: budgetSchema.optional(),
+  maxTurns: maxTurnsSchema.optional(),
   generateMockups: z.boolean().optional(),
   vibes: z.boolean().optional(),
 });
@@ -107,6 +115,7 @@ const repoSchema = z.object({
   defaultBranch: z.string().min(1).optional(),
   setupCommand: z.string().nullable().optional(),
   testCommand: z.string().nullable().optional(),
+  focusedTestCommand: z.string().nullable().optional(),
   // Filled like the server's, but it runs before the server has been given a
   // port, so a `{{port}}` here would reach the shell as written.
   seedCommand: z
@@ -160,16 +169,34 @@ const settingsSchema = z.object({
   suggestTasks: z.boolean().optional(),
   // Partial: a stage left out is left as it is.
   stageDefaults: z
-    .partialRecord(z.enum(RUNNABLE_STAGES), z.object({ model: modelSchema, effort: effortSchema }))
+    .partialRecord(z.enum(RUNNABLE_STAGES), z.object({
+      model: modelSchema,
+      effort: effortSchema,
+      // Optional, so a client that only knows model and effort clears nothing.
+      maxBudgetUsd: budgetSchema.optional(),
+      maxTurns: maxTurnsSchema.optional(),
+      // Well above any shipped prompt's length (the largest today is under
+      // 4,000 characters) — the cap is there to refuse an accident, not to
+      // pinch someone who grew a template.
+      prompt: z.string().max(20_000).nullable().optional(),
+      advisor: z.boolean().nullable().optional(),
+    }))
     .optional(),
 });
 
-/** Each stage's model and effort as its own module sets them, beneath Settings and the card. */
+/** Each stage's model, effort and budget as its own module sets them, beneath Settings and the card. */
 function builtInStageDefaults(): StageRunDefaults {
   return Object.fromEntries(
     RUNNABLE_STAGES.map((s) => [
       s,
-      { model: STAGE_DEFINITIONS[s]?.model ?? null, effort: STAGE_DEFINITIONS[s]?.effort ?? null },
+      {
+        model: STAGE_DEFINITIONS[s]?.model ?? null,
+        effort: STAGE_DEFINITIONS[s]?.effort ?? null,
+        maxBudgetUsd: STAGE_DEFINITIONS[s]?.maxBudgetUsd ?? null,
+        maxTurns: STAGE_DEFINITIONS[s]?.maxTurns ?? null,
+        prompt: defaultPromptText(s),
+        advisor: STAGE_DEFINITIONS[s]?.advisor ?? null,
+      },
     ]),
   ) as StageRunDefaults;
 }
@@ -241,6 +268,15 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const parsed = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid settings', detail: parsed.error.message }, 400);
     const body: ApiSettings = updateSettings(db, parsed.data);
+    return c.json(body);
+  });
+
+  // The stage modules' own model, budget and prompt, with nothing asked of
+  // the CLI — unlike `/models` below, this answers at once, so Settings can
+  // show a stage's shipped prompt the moment someone opens it to customize
+  // it, rather than racing the CLI's own model listing for it.
+  api.get('/stage-defaults', (c) => {
+    const body: StageRunDefaults = builtInStageDefaults();
     return c.json(body);
   });
 
@@ -421,7 +457,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     // back — but can only be moved to Backlog. Reorders are always fine.
     const blocked = blockedMove(db, before, parsed.data.stage);
     if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
-    // Entering Testing starts a run against the branch and entering Done pushes
+    // Entering Testing starts a run against the branch and entering Release pushes
     // it, so with nothing built yet one tests nothing and the other opens an
     // empty pull request. Reorders and moves backwards are never refused.
     const refusal = entryRefusal(db, before, parsed.data.stage);
@@ -433,7 +469,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     // entering it, and starts nothing.
     if (before.stage !== moved.stage) {
       const repo = listRepos(db).find((p) => p.id === moved.repoId);
-      if (moved.stage === 'done') maybeOpenPullRequest(db, moved, repo);
+      if (moved.stage === 'release') enterRelease(db, moved, repo);
       else maybeStartStage(db, writer, moved, repo);
     }
     return c.json(toBoardCard(db, moved, null, null));
@@ -465,13 +501,13 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     // move between these checks and the archive they allow.
     if (existing.kind === 'project') {
       const { done, open } = liveTasksInProject(db, id);
-      // Its Done cards leave with it, so they are held to the rule below too.
+      // Its Release cards leave with it, so they are held to the rule below too.
       // Its open cards stay on the board, and may keep running there.
       const leaving = new Set([id, ...done.map((t) => t.id)]);
       if (runRegistry.all().some((r) => leaving.has(r.cardId))) {
         return c.json({
           error: 'card is running',
-          detail: 'stop the runs and servers on the project and its Done cards before archiving',
+          detail: 'stop the runs and servers on the project and its Release cards before archiving',
         }, 409);
       }
       if (open.length > 0 && !parsed.data.detachOpen) {
@@ -479,12 +515,12 @@ export function apiRoutes(db: Db, writer: EventWriter) {
         const more = open.length > 3 ? ` and ${open.length - 3} more` : '';
         return c.json({
           error: 'project has open cards',
-          detail: `${open.length} ${open.length === 1 ? 'card is' : 'cards are'} not Done (${named.join(', ')}${more}).`
+          detail: `${open.length} ${open.length === 1 ? 'card is' : 'cards are'} not in Release (${named.join(', ')}${more}).`
             + ' Archive with detachOpen (--detach-open) to move them to No project.',
         }, 409);
       }
       const counts = archiveProject(db, id);
-      // The Done cards that went with it lose their worktrees now too, if they
+      // The Release cards that went with it lose their worktrees now too, if they
       // merged, as when each is archived on its own. The sweep only acts on
       // merged cards, so it costs one query when none of them did.
       if (counts?.archived) {
@@ -569,7 +605,7 @@ export function apiRoutes(db: Db, writer: EventWriter) {
     const id = c.req.param('id');
     const existing = getCard(db, id);
     if (!existing) return c.json({ error: 'not found' }, 404);
-    // A project brings back the Done cards archived with it.
+    // A project brings back the Release cards archived with it.
     const restored = !existing.archivedAt ? existing
       : ((existing.kind === 'project' ? restoreProject(db, id) : restoreCard(db, id)) ?? existing);
     const repo = restored.repoId ? listRepos(db).find((p) => p.id === restored.repoId) : undefined;

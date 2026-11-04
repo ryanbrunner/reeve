@@ -12,19 +12,23 @@ import {
   abortMerge,
   behindBase,
   checkWorktree,
+  commitsBehind,
   copyWorktreeIncludes,
   createWorktree,
   isAncestor,
   isDirty,
+  refSha,
   removeWorktree,
   startMerge,
   type MergeStart,
 } from './git/worktree.js';
+import { isOpeningPr, isResolvingConflicts } from './pullRequest.js';
 import { startClaudeRun, type ClaudeRunParams } from './runs/claude.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
 import { serverEnv, serverVars } from './runs/serverUrl.js';
 import { startShellRun, type ShellRunHandle } from './runs/shell.js';
+import { isRestacking, setStackedOn, stackParent, stackedOn, unstack } from './stacks.js';
 import { stageDefinition } from './stages/index.js';
 
 /**
@@ -89,17 +93,24 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     return { reused: true as const, path: health.path, setupRunId: owedSetup(db, writer, card, repo, health.path) };
   }
 
-  // From the base as origin has it, never the local branch: that is the
-  // person's own, and a commit sitting unpushed on it would otherwise ride
+  // A card stacked on another's unmerged work is cut from that card's branch,
+  // which every worktree of the repo shares: see stacks.ts. Only a new branch:
+  // one the card already has keeps its history, and a stage start merges the
+  // parent in instead (`mergeLatestBase`).
+  const parent = card.branchName ? null : stackParent(db, card);
+  // Otherwise from the base as origin has it, never the local branch: that is
+  // the person's own, and a commit sitting unpushed on it would otherwise ride
   // along in this card's pull request and every sibling cut beside it. Only a
   // fetch that fails falls back to the local branch, and the card says so.
-  const base = repo.defaultBranch;
+  const base = parent?.branchName ?? repo.defaultBranch;
   let fetched: string | null = null;
   let fetchFailure = '';
-  try {
-    fetched = await fetchBranch(repo.repoPath, base);
-  } catch (e) {
-    fetchFailure = reason(e);
+  if (!parent) {
+    try {
+      fetched = await fetchBranch(repo.repoPath, base);
+    } catch (e) {
+      fetchFailure = reason(e);
+    }
   }
   const created = await createWorktree({
     repoPath: repo.repoPath,
@@ -110,10 +121,22 @@ export async function ensureWorktree(db: Db, writer: EventWriter, card: Card, re
     previous: card.branchName && card.baseSha ? { branch: card.branchName, baseSha: card.baseSha } : null,
   });
   db.update(cardTable)
-    .set({ worktreePath: created.path, branchName: created.branch, baseSha: created.baseSha, updatedAt: new Date() })
+    .set({
+      worktreePath: created.path,
+      branchName: created.branch,
+      baseSha: created.baseSha,
+      ...(parent ? { stackedOnId: parent.id } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(cardTable.id, card.id))
     .run();
-  if (!fetched) {
+  if (parent) {
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+      body: `Built on #${parent.number}'s branch \`${base}\` at ${created.baseSha.slice(0, 7)}, because #${parent.number} has not merged yet: ` +
+        `this card works on top of it, its pull request will target that branch, and it moves onto ${repo.defaultBranch} once #${parent.number} lands.`,
+    });
+  } else if (!fetched) {
     insertCardEvent(db, {
       cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
       body: `Started from the local ${base} at ${created.baseSha.slice(0, 7)}, because fetching origin/${base} failed: ${fetchFailure}`,
@@ -187,7 +210,7 @@ export type BaseMerge =
  * Bring what has landed on the repo's base since the card's branch was cut
  * into its reused worktree, before a stage starts there. A card that spent a
  * day in planning and review was otherwise built and tested against the main
- * it started from, and met everything merged since only as conflicts in Done.
+ * it started from, and met everything merged since only as conflicts in Release.
  * Always, whatever the repo's "keep the default branch up to date" says: that
  * moves the person's own checkout, and this only the card's.
  *
@@ -197,12 +220,25 @@ export type BaseMerge =
  *
  * Anything short of a clean merge leaves the branch as it was found and the
  * card says why: a fetch that fails, uncommitted work a merge could tangle
- * with, or conflicts, which are aborted and left for Done's resolve. The stage
+ * with, or conflicts, which are aborted and left for Release's resolve. The stage
  * starts either way. Once the base is in the branch, `baseSha` moves to it,
  * since the Diff tab and the commit list count from there and would otherwise
  * show everything just merged as the card's own work.
  */
 export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: string): Promise<BaseMerge> {
+  // A stacked card takes in its parent's latest instead: a revision made to
+  // the work it builds on. Or, once the parent has landed, it is moved onto
+  // the default branch, as the merge sync would at its next tick.
+  const parent = stackedOn(db, card) ?? (card.stackedOnId ? null : stackParent(db, card));
+  if (parent?.branchName) return mergeParent(db, card, repo, path, parent);
+  if (card.stackedOnId) {
+    const moved = await unstack(db, card, repo);
+    if (moved.state === 'moved') return { state: 'merged', baseSha: moved.baseSha, commits: 0 };
+    if (moved.state === 'conflicted') return { state: 'skipped', why: `merging origin/${repo.defaultBranch} conflicted` };
+    // Still waiting: carry on as a card on its parent's branch would.
+    return { state: 'skipped', why: moved.why };
+  }
+
   const base = repo.defaultBranch;
   const skip = (why: string): BaseMerge => {
     insertCardEvent(db, {
@@ -238,7 +274,7 @@ export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: stri
     } catch (e) {
       return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}, and the merge could not be aborted: ${reason(e)}`);
     }
-    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are left for Resolve conflicts once the card is in Done`);
+    return skip(`merging origin/${base} conflicted in ${merge.conflicts.join(', ')}; they are left for Resolve conflicts once the card is in Release`);
   }
 
   setBaseSha(db, card, fetched);
@@ -250,10 +286,66 @@ export async function mergeLatestBase(db: Db, card: Card, repo: Repo, path: stri
 }
 
 /**
+ * `mergeLatestBase` for a stacked card: its parent's local branch, which the
+ * repo's worktrees share, so nothing is fetched. A card cut from the default
+ * branch before its dependency could be built on is stacked here, on its first
+ * stage start after: the parent's work comes in, and from then on so do its
+ * revisions. Anything short of a clean merge is skipped and said, as above.
+ */
+async function mergeParent(db: Db, card: Card, repo: Repo, path: string, parent: Card): Promise<BaseMerge> {
+  const branch = parent.branchName!;
+  const label = `#${parent.number}'s branch \`${branch}\``;
+  const skip = (why: string): BaseMerge => {
+    insertCardEvent(db, {
+      cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+      body: `Started without the latest of ${label}, because ${why}.`,
+    });
+    return { state: 'skipped', why };
+  };
+  let tip: string;
+  try {
+    tip = await refSha(repo.repoPath, branch);
+  } catch (e) {
+    return skip(`it could not be read: ${reason(e)}`);
+  }
+  if (await isAncestor(path, tip)) {
+    setStackedOn(db, card, parent.id);
+    setBaseSha(db, card, tip);
+    return { state: 'current' };
+  }
+  if (await isDirty(path, { ignore: ['.reeve'] })) return skip('the worktree has uncommitted changes');
+  const commits = (await commitsBehind(path, branch)) ?? 0;
+  let merge: MergeStart;
+  try {
+    merge = await startMerge(path, branch);
+  } catch (e) {
+    return skip(`merging it failed: ${reason(e)}`);
+  }
+  if (!merge.clean) {
+    try {
+      await abortMerge(path);
+    } catch (e) {
+      return skip(`merging it conflicted in ${merge.conflicts.join(', ')}, and the merge could not be aborted: ${reason(e)}`);
+    }
+    return skip(`merging it conflicted in ${merge.conflicts.join(', ')}`);
+  }
+  const first = card.stackedOnId !== parent.id;
+  setStackedOn(db, card, parent.id);
+  setBaseSha(db, card, tip);
+  insertCardEvent(db, {
+    cardId: card.id, actor: 'human', kind: 'note', stage: card.stage,
+    body: first
+      ? `Merged ${label} (${tip.slice(0, 7)}) before the stage started: #${parent.number} has not merged yet, so this card now builds on its work, and moves onto ${repo.defaultBranch} once it lands.`
+      : `Merged ${commits} new commit${commits === 1 ? '' : 's'} from ${label} (${tip.slice(0, 7)}) before the stage started.`,
+  });
+  return { state: 'merged', baseSha: tip, commits };
+}
+
+/**
  * Move a card's `baseSha` to a base it is now known to contain, so the Diff
  * tab and the commit list count from there rather than from where the card
  * started. Shared with `resolveConflicts`, which moves it the same way once
- * a Done card's branch has the base merged into it.
+ * a Release card's branch has the base merged into it.
  */
 export function setBaseSha(db: Db, card: Card, sha: string) {
   if (card.baseSha === sha) return;
@@ -333,7 +425,15 @@ export async function removeCardWorktree(
  * base into the one it has, then its Claude run. The Run button and a card entering a runnable column both come
  * through here, so they refuse the same things for the same reasons.
  */
-export async function startStage(db: Db, writer: EventWriter, card: Card, repo: Repo): Promise<StartStageResult> {
+export async function startStage(
+  db: Db,
+  writer: EventWriter,
+  card: Card,
+  repo: Repo,
+  // A person's message that started the stage, from the composer: shown at
+  // the head of its conversation. Its words reach Claude as a note.
+  opts: { userMessage?: ClaudeRunParams['userMessage'] } = {},
+): Promise<StartStageResult> {
   if (card.kind === 'project') {
     return { ok: false, status: 400, error: 'a project has no stages', detail: 'split it into tasks instead' };
   }
@@ -344,9 +444,27 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
   if (!stage) return { ok: false, status: 501, error: 'stage not implemented yet', detail: card.stage };
   const merged = refuseMergedWorktree(card);
   if (merged) return { ok: false, status: 409, ...merged };
+  // A worktree a merged card still has is no reason to start one: its pull
+  // request is history, and anything more is a new card.
+  if (card.mergedAt) return { ok: false, status: 409, error: 'already merged', detail: 'start a new card for more work' };
+  // A conflict resolution has the tree mid-merge; a stage there would start
+  // on half of one. It pushes when it is done, and the stage can start then.
+  if (isResolvingConflicts(card.id)) {
+    return { ok: false, status: 409, error: 'conflicts are being resolved', detail: 'start it again once the resolution is done' };
+  }
+  if (isRestacking(card.id)) {
+    return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: 'start it again in a moment' };
+  }
+  // A card arriving in Release pushes its branch and opens its pull request
+  // before anything else; a run started in the middle of that would read a
+  // half-finished push. Covers the Run button and `sendToCard`'s cold-start
+  // path, the two ways a person can trigger Release's first run.
+  if (isOpeningPr(card.id)) {
+    return { ok: false, status: 409, error: 'the pull request is still opening', detail: 'start it again once the pull request is open' };
+  }
   // The move route and approval already keep a blocked card from moving on,
   // so this is for the one that got past Backlog first: a dependency added, or
-  // put back out of Done, after the card had left. It keeps its column, can
+  // put back out of Release, after the card had left. It keeps its column, can
   // only be moved back to Backlog, and does not run until the dependency
   // clears. Before the worktree, so a card that may not start is not given one.
   const blocked = blockedStart(db, card);
@@ -383,12 +501,28 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
     // stage is running there: a Run pressed beside one is refused below, and
     // must not merge underneath it first. A merge that brought commits in
     // may have brought dependencies with them, so setup runs again.
-    if (reused) {
+    // So is a tree made again from a branch the card already had, when it
+    // should be stacked on another card and is not yet: a fresh branch is cut
+    // from the parent's, but a kept one has to have the parent merged in.
+    const candidate = stackParent(db, card);
+    const unstacked = candidate !== null && card.stackedOnId !== candidate.id;
+    if (reused || unstacked) {
       const live = liveStageRun(db, card.id);
       if (live) return { ok: false, status: 409, error: 'a run is already active for this card', detail: live.id };
       const merged = await mergeLatestBase(db, card, repo, path);
       if (merged.state === 'merged' && startSetup(db, writer, card, repo, path, card.branchName)) {
         setup = await setupSettled(card.id);
+      }
+      // Its dependency was let through only because this card builds on it.
+      // If its branch could not be taken in, the card would run without the
+      // very work it waits for — and could open its pull request against main
+      // without it — so it does not start.
+      const after = getCard(db, card.id);
+      if (candidate && after?.stackedOnId !== candidate.id) {
+        return {
+          ok: false, status: 409, error: `could not build on #${candidate.number}`,
+          detail: merged.state === 'skipped' ? merged.why : `#${candidate.number}'s branch is not in this card's`,
+        };
       }
     }
 
@@ -414,7 +548,7 @@ export async function startStage(db: Db, writer: EventWriter, card: Card, repo: 
     }
 
     noteFailedSetup(db, fresh, setup);
-    const handle = startClaudeRun({ db, writer, card: fresh, repo, stage, worktreePath: path });
+    const handle = startClaudeRun({ db, writer, card: fresh, repo, stage, worktreePath: path, userMessage: opts.userMessage ?? null });
     return { ok: true, runId: handle.runId, sessionId: handle.sessionId };
   } finally {
     starting.delete(card.id);
@@ -462,6 +596,8 @@ export async function continueStage(
   run: Omit<ClaudeRunParams, 'db' | 'writer' | 'card' | 'repo' | 'worktreePath'>,
 ): Promise<ContinueStageResult> {
   if (starting.has(card.id)) return { ok: false, error: 'the stage is already starting' };
+  // Mid-merge onto the default branch: a run now would start on half of one.
+  if (isRestacking(card.id)) return { ok: false, error: 'it is being moved onto the default branch; send it again in a moment' };
   starting.add(card.id);
 
   try {
@@ -503,7 +639,7 @@ export async function continueStage(
  */
 export function maybeStartStage(db: Db, writer: EventWriter, card: Card, repo: Repo | undefined): void {
   if (!repo || card.archivedAt || card.kind === 'project') return;
-  if (!canStartRun({ stage: card.stage as Stage, activity: cardActivity(db, card).activity })) return;
+  if (!canStartRun({ stage: card.stage as Stage, activity: cardActivity(db, card).activity, mergedAt: card.mergedAt })) return;
   startStage(db, writer, card, repo)
     .then((result) => {
       if (!result.ok) console.log(`[reeve] #${card.number} not started in ${card.stage}: ${result.error} (${result.detail})`);

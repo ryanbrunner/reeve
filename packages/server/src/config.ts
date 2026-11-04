@@ -84,4 +84,10 @@ export const config = {
    * most one step, so this is also the pace the board advances at.
    */
   vibesSweepMs: Number(process.env.REEVE_VIBES_SWEEP_MS ?? 2_000),
+  /**
+   * How long a live run waits on a person for a permission or a question it
+   * asked mid-turn before the request is denied for them. Bounded because the
+   * run holds a process and a concurrency slot all the while.
+   */
+  askTimeoutMs: Number(process.env.REEVE_ASK_TIMEOUT_MS ?? 600_000),
 } as const;

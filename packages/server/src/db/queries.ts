@@ -6,12 +6,14 @@ import {
   type ApiCard,
   type ApiCardLink,
   type ApiSettings,
+  type RunnableStage,
+  type StageRunDefault,
   type StageRunDefaults,
   type UpdateSettingsBody,
 } from '@reeve/shared';
 import { ASSET_ROUTE } from '../assets/store.js';
 import { config } from '../config.js';
-import { runTokens } from '../mappers.js';
+import { defaultPromptText } from '../stages/template.js';
 import type { Db } from './client.js';
 import {
   acceptanceCriterion,
@@ -45,7 +47,7 @@ import {
   type RunStatus,
 } from './schema.js';
 
-const NON_TERMINAL: RunStatus[] = ['queued', 'running', 'stopping'];
+const NON_TERMINAL: RunStatus[] = ['queued', 'running', 'asking', 'stopping'];
 
 /**
  * Every card that is a piece of work rather than a project. Each query below
@@ -110,11 +112,11 @@ export function inVibes(db: Db, c: Card): boolean {
 /**
  * A project's task that finished and was then archived, by the merge sweep or
  * with its project: what `archivedDoneCount` counts. `archiveCard` leaves the
- * stage alone, so an archived card still in Done is one that finished, and one
+ * stage alone, so an archived card still in Release is one that finished, and one
  * archived from any other column was dropped on purpose. One definition for
  * the lane and the modal, so the two can never count differently.
  */
-const isArchivedDone = and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'done'), isNotNull(card.projectId));
+const isArchivedDone = and(isTask, isNotNull(card.archivedAt), eq(card.stage, 'release'), isNotNull(card.projectId));
 
 /**
  * The board's lanes: every live project, oldest first, with its default repo's
@@ -154,7 +156,7 @@ export function boardProjects(db: Db) {
 /**
  * One project's `archivedDoneCount`, whether or not the project is live. An
  * archived project is no lane, so `boardProjects` has no row for it, and its
- * modal asks here instead. Archiving a project archives its Done tasks with
+ * modal asks here instead. Archiving a project archives its Release tasks with
  * their `projectId` kept, so they count with the ones swept before it; its
  * open tasks went to No project, and do not.
  */
@@ -192,7 +194,7 @@ export function cardsSuggestedBy(db: Db, cardId: string): Card[] {
 
 /**
  * Every live card with a pull request GitHub might yet merge, beside the repo
- * to ask from. Not filtered on stage: a card dragged back out of Done for
+ * to ask from. Not filtered on stage: a card dragged back out of Release for
  * another round keeps its pull request, and it can be merged from there.
  */
 export function cardsAwaitingMerge(db: Db) {
@@ -261,20 +263,20 @@ export function cardsInRepo(db: Db, repoId: string): Card[] {
 }
 
 /**
- * The repo's live tasks that are still to be finished: anywhere but Done. A
+ * The repo's live tasks that are still to be finished: anywhere but Release. A
  * blank card someone has not typed into yet is not work, and is left out.
  */
 export function openCardsInRepo(db: Db, repoId: string): Card[] {
   return db
     .select()
     .from(card)
-    .where(and(isTask, eq(card.repoId, repoId), isNull(card.archivedAt), ne(card.stage, 'done')))
+    .where(and(isTask, eq(card.repoId, repoId), isNull(card.archivedAt), ne(card.stage, 'release')))
     .all()
     .filter((c) => !isPlaceholderCard(c));
 }
 
 /**
- * The repo's task that most recently arrived in Done after a moment, archived
+ * The repo's task that most recently arrived in Release after a moment, archived
  * or not, if it is still there. Read off the events rather than the live
  * cards, because a merged card is archived a few minutes later and the card
  * that arrived before it must not become "the latest" when it goes.
@@ -289,14 +291,14 @@ export function latestIntoDone(db: Db, repoId: string, since: Date): Card | unde
       eq(card.repoId, repoId),
       gt(cardEvent.createdAt, since),
       or(
-        and(eq(cardEvent.kind, 'moved'), eq(cardEvent.toStage, 'done')),
-        and(eq(cardEvent.kind, 'created'), eq(cardEvent.stage, 'done')),
+        and(eq(cardEvent.kind, 'moved'), eq(cardEvent.toStage, 'release')),
+        and(eq(cardEvent.kind, 'created'), eq(cardEvent.stage, 'release')),
       ),
     ))
     .orderBy(desc(cardEvent.createdAt), desc(sql`"card_event"."rowid"`))
     .limit(1)
     .get();
-  return row?.card.stage === 'done' ? row.card : undefined;
+  return row?.card.stage === 'release' ? row.card : undefined;
 }
 
 export function cardsInStage(db: Db, stage: CardStage): Card[] {
@@ -309,13 +311,33 @@ export function cardsInStage(db: Db, stage: CardStage): Card[] {
 }
 
 /** SSE replay. `(run_id, seq)` is the primary key, so this needs no secondary index. */
-export function eventsSince(db: Db, runId: string, since: number) {
-  return db
+export function eventAt(db: Db, runId: string, seq: number) {
+  return db.select().from(runEvent).where(and(eq(runEvent.runId, runId), eq(runEvent.seq, seq))).get();
+}
+
+export function eventsSince(db: Db, runId: string, since: number, limit?: number) {
+  const q = db
     .select()
     .from(runEvent)
     .where(and(eq(runEvent.runId, runId), gt(runEvent.seq, since)))
+    .orderBy(asc(runEvent.seq));
+  return (limit ? q.limit(limit) : q).all();
+}
+
+/**
+ * A run's first event of a kind, without reading the rest. Walks the primary
+ * key in seq order and stops at the first match, so for something near the
+ * start — the person's opening message — it reads a row or two of a run that
+ * may have tens of thousands.
+ */
+export function firstEventOfKind(db: Db, runId: string, kind: string) {
+  return db
+    .select()
+    .from(runEvent)
+    .where(and(eq(runEvent.runId, runId), eq(runEvent.kind, kind)))
     .orderBy(asc(runEvent.seq))
-    .all();
+    .limit(1)
+    .get();
 }
 
 /**
@@ -389,6 +411,25 @@ export function latestClaudeRunForStage(db: Db, cardId: string, stage: CardStage
     .select()
     .from(run)
     .where(and(eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task)))
+    .orderBy(desc(run.createdAt))
+    .limit(1)
+    .get();
+}
+
+/**
+ * The stage's newest submitted work, which is what the review gate approves.
+ * Not simply the latest run: a stage is a conversation, and the person may
+ * have asked Claude something after it submitted, whose run ends in a reply
+ * rather than a second submission. The work before it still stands.
+ */
+export function latestDeliverableRun(db: Db, cardId: string, stage: CardStage) {
+  return db
+    .select()
+    .from(run)
+    .where(and(
+      eq(run.cardId, cardId), eq(run.stage, stage), eq(run.kind, 'claude'), isNull(run.task),
+      eq(run.status, 'succeeded'),
+    ))
     .orderBy(desc(run.createdAt))
     .limit(1)
     .get();
@@ -676,7 +717,7 @@ function nextCardNumber(db: Db, repoId: string | null): number {
 export function updateCard(
   db: Db,
   id: string,
-  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'generateMockups' | 'vibes'>>,
+  patch: Partial<Pick<Card, 'title' | 'body' | 'repoId' | 'model' | 'effort' | 'maxBudgetUsd' | 'maxTurns' | 'generateMockups' | 'vibes'>>,
 ) {
   const before = patch.repoId === undefined ? undefined : getCard(db, id);
   const reassigned = before !== undefined && before.kind === 'task' && patch.repoId !== before.repoId;
@@ -744,11 +785,11 @@ export function restoreCard(db: Db, id: string) {
  */
 export function liveTasksInProject(db: Db, projectId: string): { done: Card[]; open: Card[] } {
   const live = tasksInProject(db, projectId).filter((t) => !t.archivedAt);
-  return { done: live.filter((t) => t.stage === 'done'), open: live.filter((t) => t.stage !== 'done') };
+  return { done: live.filter((t) => t.stage === 'release'), open: live.filter((t) => t.stage !== 'release') };
 }
 
 /**
- * A project off the board, and its finished work with it. Its Done cards are
+ * A project off the board, and its finished work with it. Its Release cards are
  * archived as `reason: 'project'` and keep their `projectId`, which is how
  * `restoreProject` knows to bring them back. Its open cards are still work,
  * so they stay on the board under No project, each with a `left_project`
@@ -780,7 +821,7 @@ export function archiveProject(db: Db, id: string) {
 }
 
 /**
- * The project back as a lane, with the Done cards that went when it did.
+ * The project back as a lane, with the Release cards that went when it did.
  * Only those: a card archived on its own, before or since, is left in the
  * Archive, and a card moved to No project is left there, since it may have
  * joined another project in the meantime. Which cards went with it is read
@@ -874,9 +915,29 @@ export function getSettings(db: Db): ApiSettings {
     vibesSince: row?.vibesSince?.getTime() ?? null,
     suggestTasks: row?.suggestTasks ?? true,
     stageDefaults: Object.fromEntries(
-      RUNNABLE_STAGES.map((s) => [s, { model: stored[s]?.model ?? null, effort: stored[s]?.effort ?? null }]),
+      RUNNABLE_STAGES.map((s) => [s, {
+        model: stored[s]?.model ?? null,
+        effort: stored[s]?.effort ?? null,
+        maxBudgetUsd: stored[s]?.maxBudgetUsd ?? null,
+        maxTurns: stored[s]?.maxTurns ?? null,
+        prompt: stored[s]?.prompt ?? null,
+        advisor: stored[s]?.advisor ?? null,
+      }]),
     ) as StageRunDefaults,
   };
+}
+
+/**
+ * A blank override, or one that reads back the shipped file verbatim, is
+ * stored as null rather than as text — the first so a half-cleared textarea
+ * doesn't become a real override, the second so a board stops receiving
+ * future improvements to that file the moment someone saves without
+ * changing a word of it.
+ */
+function normalizeStageDefault(stage: RunnableStage, row: StageRunDefault): StageRunDefault {
+  const prompt = row.prompt?.trim();
+  if (!prompt) return { ...row, prompt: null };
+  return { ...row, prompt: prompt === defaultPromptText(stage).trim() ? null : row.prompt };
 }
 
 export function updateSettings(db: Db, patch: UpdateSettingsBody) {
@@ -888,7 +949,15 @@ export function updateSettings(db: Db, patch: UpdateSettingsBody) {
     ...rest,
     // Merged into what is stored rather than written over it, so saving one
     // stage's row leaves the other stages as they were.
-    ...(stageDefaults ? { stageDefaults: { ...current.stageDefaults, ...stageDefaults } } : {}),
+    // Field by field within a stage too, so a client that sends only a
+    // model and effort leaves the stage's limits alone.
+    ...(stageDefaults
+      ? {
+          stageDefaults: Object.fromEntries(
+            RUNNABLE_STAGES.map((s) => [s, normalizeStageDefault(s, { ...current.stageDefaults[s], ...stageDefaults[s] })]),
+          ) as StageRunDefaults,
+        }
+      : {}),
     // On is only the moment it went on, so saying on twice does not reset the
     // clock every number in the HUD is counted from.
     ...(vibes === undefined ? {}
@@ -911,8 +980,18 @@ export function getRun(db: Db, id: string) {
   return db.select().from(run).where(eq(run.id, id)).get();
 }
 
-export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>) {
-  return db.update(run).set(patch).where(eq(run.id, id)).returning().get();
+/**
+ * Returns nothing: it is called on a live run's message path, whenever its
+ * activity line changes, and reading the whole row back — prompt, result and
+ * usage JSON included — on every call cost more than the write.
+ */
+export function setRunStatus(db: Db, id: string, patch: Partial<typeof run.$inferInsert>): void {
+  db.update(run).set(patch).where(eq(run.id, id)).run();
+}
+
+/** Just a run's status, for the SSE stream that asks every second whether it has ended. */
+export function runStatus(db: Db, id: string): string | undefined {
+  return db.select({ status: run.status }).from(run).where(eq(run.id, id)).get()?.status;
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,17 +1107,18 @@ export function vibesLedger(db: Db, since: Date) {
 }
 
 /**
- * The tokens every run started since a moment has used. Runs still going have
- * no count yet. Summed here rather than in SQL because the count lives in the
- * SDK's JSON, and `runTokens` is the one place that knows how to read it.
+ * What every run started since a moment has cost, at list price. Runs still
+ * going have no figure yet, and `totalCostUsd` is a plain column, so this is
+ * a sum in SQL rather than something read out of the SDK's JSON.
  */
-export function tokensSince(db: Db, since: Date): number {
-  return db
-    .select({ modelUsageJson: run.modelUsageJson })
-    .from(run)
-    .where(gt(run.createdAt, since))
-    .all()
-    .reduce((n, r) => n + (runTokens(r.modelUsageJson)?.total ?? 0), 0);
+export function spendSince(db: Db, since: Date): number {
+  return (
+    db
+      .select({ total: sql<number>`coalesce(sum(${run.totalCostUsd}), 0)` })
+      .from(run)
+      .where(gt(run.createdAt, since))
+      .get()?.total ?? 0
+  );
 }
 
 /**
@@ -1160,23 +1240,32 @@ export function deleteRef(db: Db, id: string) {
 // ---------------------------------------------------------------------------
 
 /**
- * Whether a dependency is still holding up whatever waits on it: not in Done,
- * or in Done with a pull request that has not merged — and never once archived.
+ * Whether a dependency is still holding up whatever waits on it: not in Release,
+ * or in Release with real work that has not landed on the default branch — and
+ * never once archived.
  *
- * Done is not enough while the pull request is open. What waits on a card
- * builds on its code, and a worktree is cut from main: start the dependent
- * before the merge and it is built without the very thing it waited for. A
- * Done card with no pull request has nothing still to land, so it clears. The
- * column is read first, so a merged card dragged back out of Done blocks again.
+ * Release is not enough while the pull request is open, or not even opened yet.
+ * What waits on a card builds on its code, and a worktree is cut from main:
+ * start the dependent before the merge and it is built without the very thing
+ * it waited for. The exception is a card that can be stacked on its one
+ * unfinished dependency's branch instead (stacks.ts): `blockersOf` leaves
+ * that dependency out, and the dependency is still "not done" here. `prUrl` covers one already open; `branchName` is set once,
+ * the moment a card's first worktree is made, and never cleared again —
+ * including by a failed or still-retrying attempt to open the pull request —
+ * so a card with either still has work that has not landed until `mergedAt`
+ * says otherwise. A Release card with neither never ran a stage and has nothing
+ * to land, so it clears the moment it arrives. The column is read first, so a
+ * merged card dragged back out of Release blocks again.
  *
  * A pull request closed without merging keeps blocking, because nothing here
  * records a close — only `mergedAt`. Archiving the dependency is the way out.
  * One merged on GitHub rather than with the Merge button clears at the next
  * merge sync, which is when `mergedAt` is set.
  *
- * `blockersOf` adds the few seconds after a card enters Done and before its
- * pull request exists, which read as "no pull request" here. That is in-memory
- * state in `pullRequest.ts`, which this file does not import.
+ * This is also what closes the race `blockersOf` used to patch with in-memory
+ * state: the few seconds (or, when `gh` keeps failing, far longer) between a
+ * card entering Release and its pull request existing, which used to read here as
+ * "nothing to land" and let a dependent start on work that had not gone out.
  *
  * An archived dependency does not hold anything up. Archiving is how a card is
  * taken off the board on purpose — dropped, superseded, or merged and swept
@@ -1189,13 +1278,14 @@ export function deleteRef(db: Db, id: string) {
  */
 export function stillBlocking(c: Card): boolean {
   if (c.archivedAt) return false;
-  if (c.stage !== 'done') return true;
-  return awaitingMerge(c);
+  if (c.stage !== 'release') return true;
+  if (c.mergedAt) return false;
+  return c.prUrl !== null || c.branchName !== null;
 }
 
-/** Blocking only for its pull request: in Done, on the board, and not merged yet. */
+/** Blocking only for its pull request: in Release, on the board, and not merged yet. */
 export function awaitingMerge(c: Card): boolean {
-  return c.stage === 'done' && !c.archivedAt && c.prUrl !== null && c.mergedAt === null;
+  return c.stage === 'release' && !c.archivedAt && c.prUrl !== null && c.mergedAt === null;
 }
 
 /** The cards this one waits on, in any stage and archived or not: `blockers.ts` judges them. */
@@ -1584,7 +1674,8 @@ export function unreadNotesFor(db: Db, cardId: string): string[] {
   const lastStart =
     events.find((e) => e.kind === 'run_started' && !(e.runId && tasks.has(e.runId)))?.createdAt?.getTime() ?? 0;
   return events
-    .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart)
+    // A note left while a run was live was handed to that run already.
+    .filter((e) => e.kind === 'note' && (e.createdAt?.getTime() ?? 0) > lastStart && !e.meta?.['deliveredTo'])
     .map((e) => e.body)
     .filter((b): b is string => Boolean(b))
     .reverse();

@@ -22,7 +22,7 @@ export function useCardDetail(cardId: string | null) {
     // things are the exception, and none is pushed: a Suggest is not the
     // card's run, so nothing streams it, and on a Backlog card nothing else
     // would ever notice it finish; a start made anywhere but this modal; a
-    // pull request opened on entering Done comes back on its own schedule;
+    // pull request opened on entering Release comes back on its own schedule;
     // and one merged on GitHub is only noticed by the server's own sync, which
     // is slower still.
     refetchInterval: (q) => {
@@ -46,7 +46,7 @@ export function useCardDetail(cardId: string | null) {
       // Quicker than the board's calm poll, because a start that finds nothing
       // to set up turns into a run within seconds, and it is the seconds before
       // that when those buttons are wrong.
-      if (data && data.card.stage !== 'done') return 3_000;
+      if (data && data.card.stage !== 'release') return 3_000;
       return data?.card.prUrl && data.card.mergedAt == null ? 15_000 : false;
     },
     // The interval pauses in a hidden tab, and the other tab is where a start
@@ -64,6 +64,8 @@ export interface LiveRun {
   activity: string | null;
   /** The latest summary of Claude's reasoning, whole. */
   thinking: string | null;
+  /** When this stream last brought anything: the pulse's last word, between polls. */
+  lastAt: number | null;
 }
 
 /**
@@ -92,7 +94,7 @@ export function useLiveRun(
     // From when the run actually began, not from when this modal opened. A run
     // that has been going half an hour reads "31m", not "0s" counting up.
     since.current = startedAt ?? Date.now();
-    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null });
+    setLive({ elapsedMs: Date.now() - since.current, activity: null, thinking: null, lastAt: null });
 
     // `since=live` asks for new events only. Without it the server replays the
     // whole transcript, which for a long run is thousands of messages to learn
@@ -103,16 +105,23 @@ export function useLiveRun(
 
     const onEvent = (e: MessageEvent<string>) => {
       const line = describeMessage(e.data);
-      if (line === null) return;
+      if (line === null) {
+        setLive((prev) => (prev ? { ...prev, lastAt: Date.now() } : prev));
+        return;
+      }
       setLive((prev) => ({
         elapsedMs: prev?.elapsedMs ?? Date.now() - since.current,
         ...nextThought({ activity: prev?.activity ?? null, thinking: prev?.thinking ?? null }, line),
+        lastAt: Date.now(),
       }));
     };
     // The server names every event after its kind, and a named event never
     // reaches `onmessage` — so each kind describeMessage reads is listened for.
     source.addEventListener('assistant', onEvent);
     source.addEventListener('system:thinking_tokens', onEvent);
+    source.addEventListener('system:task_progress', onEvent);
+    // Says nothing for the band, but is a sign of life all the same.
+    source.addEventListener('tool_result', onEvent);
     source.addEventListener('end', () => {
       source.close();
       void qc.invalidateQueries({ queryKey: ['card', cardId] });

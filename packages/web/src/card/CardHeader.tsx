@@ -5,7 +5,8 @@ import { ProjectProgress } from '../board/ProjectProgress.js';
 import { api } from '../lib/api.js';
 import { Dropdown } from '../lib/Dropdown.js';
 import { AttentionBand } from './AttentionBand.js';
-import { plural, sumTokens, tok, tokenTitle, when } from './format.js';
+import { cost, plural, sumCost, when } from './format.js';
+import { ModelEffort } from './ModelEffort.js';
 import { SmallButton } from './ui.js';
 import type { LiveRun } from './useCardDetail.js';
 
@@ -20,16 +21,23 @@ export function CardHeader({
   live,
   onClose,
   editTitle = false,
+  band = true,
+  modelEffort = false,
 }: {
   detail: CardDetail;
   live: LiveRun | null;
   onClose: () => void;
   /** Arrive with the title selected, so typing replaces it. For a card just made. */
   editTitle?: boolean;
+  /** The attention band, which the conversation layout moves above its composer. */
+  band?: boolean;
+  /** The model/effort control, top-right beside the title: a task outside VIBES MODE alone. */
+  modelEffort?: boolean;
 }) {
   const { card } = detail;
   const runs = detail.runs.filter((r) => r.kind === 'claude');
-  const spent = sumTokens(runs);
+  // A live run's spend counted too, so the figure moves while it works.
+  const spent = sumCost(runs);
   const running = card.activity === 'running';
   const createdBy = detail.events.find((e) => e.kind === 'created')?.actor;
 
@@ -41,7 +49,7 @@ export function CardHeader({
   };
   // Closes on success: the card has left the board, and the archive is where
   // it can be found again — which is also why there is no "are you sure". The
-  // one exception is a project with cards not yet Done: those do not go to the
+  // one exception is a project with cards not yet in Release: those do not go to the
   // Archive but to No project, and restoring the project does not bring them
   // back, so that is asked first.
   const archive = useMutation({
@@ -68,8 +76,8 @@ export function CardHeader({
   const board = useQuery({ queryKey: ['board'], queryFn: api.board }).data;
   const repos = board?.repos ?? [];
   const tasks = card.kind === 'project' ? (board?.cards ?? []).filter((c) => c.projectId === card.id) : [];
-  const open = tasks.filter((c) => c.stage !== 'done');
-  // Live Done cards alone: these are what go to the Archive with the project,
+  const open = tasks.filter((c) => c.stage !== 'release');
+  // Live Release cards alone: these are what go to the Archive with the project,
   // and the ones already there are not the confirm's to count.
   const done = tasks.length - open.length;
   // The project's lane, for the tasks the sweep has archived. Only a live
@@ -194,7 +202,7 @@ export function CardHeader({
                 disabled={running || archive.isPending || confirming}
                 title={
                   running ? 'Stop the run before archiving'
-                  : 'Take the project off the board, with its Done cards. The Archive can restore them.'
+                  : 'Take the project off the board, with its Release cards. The Archive can restore them.'
                 }
                 onClick={() => (open.length > 0 ? setConfirming(true) : archive.mutate(false))}
               >
@@ -223,57 +231,59 @@ export function CardHeader({
         </button>
       </div>
 
-      {/* Keyed on the title so a saved rename remounts it with React's text,
-          not the text the browser was left holding. */}
-      <h2
-        key={card.title}
-        ref={heading}
-        id="card-title"
-        contentEditable="plaintext-only"
-        suppressContentEditableWarning
-        title="Click to edit"
-        onBlur={(e) => commit(e.currentTarget)}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          e.currentTarget.blur();
-        }}
-        className="relative -mx-1.5 mt-2.5 max-w-[33rem] cursor-text rounded-sm border border-transparent px-1.5 text-[18px]/[26px] font-medium tracking-[-0.01em] text-(--color-text) outline-none hover:border-(--color-edge) focus:border-sky-600"
-      >
-        {card.title}
-      </h2>
+      {/* The title and byline stay left; the model/effort control, when there
+          is one, anchors top-right, level with the title. */}
+      <div className="relative mt-2.5 flex items-start justify-between gap-4">
+        <div className="min-w-0 grow">
+          {/* Keyed on the title so a saved rename remounts it with React's text,
+              not the text the browser was left holding. */}
+          <h2
+            key={card.title}
+            ref={heading}
+            id="card-title"
+            contentEditable="plaintext-only"
+            suppressContentEditableWarning
+            title="Click to edit"
+            onBlur={(e) => commit(e.currentTarget)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              e.currentTarget.blur();
+            }}
+            className="-mx-1.5 max-w-[33rem] cursor-text rounded-sm border border-transparent px-1.5 text-[18px]/[26px] font-medium tracking-[-0.01em] text-(--color-text) outline-none hover:border-(--color-edge) focus:border-sky-600"
+          >
+            {card.title}
+          </h2>
 
-      <div className="relative mt-1 font-mono text-[11px]/4 text-(--color-muted)">
-        {/* "by you" is rendered, never stored: there is one person, and the day
-            there are two this is the line that changes. Claude is the other
-            author, of the tasks a project was split into. */}
-        Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
-        {runs.length === 0 ? 'No runs yet' : plural(runs.length, 'run')}
-        {/* Left off while no run has a count yet, rather than "· —". */}
-        {spent && (
-          <>
-            {' · '}
-            <span title={tokenTitle(spent.breakdown)}>{tok(spent.total)}</span>
-          </>
-        )}
-        {running && runs.length > 0 && ' so far'}
+          <div className="mt-1 font-mono text-[11px]/4 text-(--color-muted)">
+            {/* "by you" is rendered, never stored: there is one person, and the day
+                there are two this is the line that changes. Claude is the other
+                author, of the tasks a project was split into. */}
+            Created {when(card.createdAt)} by {createdBy === 'claude' ? 'Claude' : 'you'} ·{' '}
+            {runs.length === 0
+              ? 'No runs yet'
+              : `${plural(runs.length, 'run')} · ${spent && !spent.exact ? '≈ ' : ''}${cost(spent?.usd ?? 0)}`}
+            {running && runs.length > 0 && ' so far'}
+          </div>
+          {failed && <p className="mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}
+        </div>
+        {modelEffort && <ModelEffort detail={detail} />}
       </div>
-      {failed && <p className="relative mt-1 font-mono text-[10px]/4 text-red-300">{failed.message}</p>}
 
       {/* Gone by itself if the last open card finishes while it is up: the
           button then archives straight away, as for any project. */}
       {confirming && open.length > 0 && (
         <div role="group" aria-labelledby="archive-confirm" className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
           <div id="archive-confirm" className="text-sm/5 font-medium text-(--color-text)">
-            {open.length === 1 ? '1 card is' : `${open.length} cards are`} not Done
+            {open.length === 1 ? '1 card is' : `${open.length} cards are`} not in Release
           </div>
           <p className="mt-0.5 text-sm/5 text-(--color-muted)">
             {open.length === 1 ?
               'It moves to No project, in the column it is in, and stays there if the project is restored.'
             : 'They move to No project, in the columns they are in, and stay there if the project is restored.'}{' '}
-            {done === 0 ? 'The project has no Done cards to archive.'
-            : done === 1 ? 'Its one Done card goes to the Archive with it.'
-            : `Its ${done} Done cards go to the Archive with it.`}
+            {done === 0 ? 'The project has no Release cards to archive.'
+            : done === 1 ? 'Its one Release card goes to the Archive with it.'
+            : `Its ${done} Release cards go to the Archive with it.`}
           </p>
           <ul className="mt-2 flex max-h-40 flex-col gap-1 overflow-y-auto">
             {open.map((c) => (
@@ -295,7 +305,7 @@ export function CardHeader({
         </div>
       )}
 
-      <AttentionBand detail={detail} live={live} onClose={onClose} />
+      {band && <AttentionBand detail={detail} live={live} onClose={onClose} />}
     </header>
   );
 }

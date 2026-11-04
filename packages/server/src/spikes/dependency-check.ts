@@ -94,7 +94,7 @@ const repo =
   listRepos(db).find((r) => r.name === 'deps-check') ??
   createRepo(db, {
     name: 'deps-check', repoPath: '/tmp/deps-check', worktreeRoot: '/tmp/deps-check-worktrees', defaultBranch: 'main',
-    setupCommand: null, testCommand: null, serverCommand: null,
+    setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
     teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
   });
 

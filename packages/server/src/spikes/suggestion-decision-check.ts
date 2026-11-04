@@ -40,7 +40,7 @@ const { app, db } = createApp();
 const repo = createRepo(db, {
   name: `decide-check-${Date.now()}`,
   repoPath: '/tmp/decide-check', worktreeRoot: '/tmp/decide-check-worktrees', defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: '#6b7db3',
 });
 

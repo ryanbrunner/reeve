@@ -40,7 +40,7 @@ import { ideasTask } from '../stages/ideas.js';
  * The card a repo should have its next ideas after, or null while it should
  * not have any: while it still has work open, or is already thinking.
  *
- * Only the card that last arrived in Done since the switch went on, and only
+ * Only the card that last arrived in Release since the switch went on, and only
  * once. Not "any finished card without ideas yet", which would work back
  * through the repo's whole history as each newest card was archived, and a
  * run for every card anyone ever finished is not what anyone flipped the

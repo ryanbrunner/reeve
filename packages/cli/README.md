@@ -61,8 +61,11 @@ found, and for anything missing how to fix it.
   Node that runs Reeve. It is tried on an in-memory database, never the
   board's.
 - **Warnings**, which still exit 0: `gh` installed and logged in (only pull
-  requests need it), Chromium for Playwright (only screenshots need it; the
-  line names the `npx … playwright install chromium` that fetches it), and
+  requests need it), its token carrying the `workflow` scope (only a merge or
+  push that touches a file under `.github/workflows/` needs it; without it
+  GitHub refuses with an OAuth App error, and the fix is `gh auth refresh -h
+  github.com -s workflow`), Chromium for Playwright (only screenshots need it;
+  the line names the `npx … playwright install chromium` that fetches it), and
   the built web app (only `reeve serve` needs it; `npm run dev` never has one).
 - **Information**: whether a server answers at the URL `reeve status` would
   ask, and where the database and assets are. The paths are a running server's
@@ -84,7 +87,7 @@ reeve runs <card> [--json]
 ```
 
 - **`reeve board`** prints the board column by column, one card to a line:
-  its short id, activity (and pull request, on Done), repo, project and title.
+  its short id, activity (and pull request, on Release), repo, project and title.
   The projects follow as their own list. `--archived` lists what has been taken
   off the board instead, most recently archived first.
 
@@ -93,18 +96,36 @@ reeve runs <card> [--json]
 ```sh
 reeve card run <card> [--follow] [--json]
 reeve card approve <card> [--notes TEXT] / reeve card reject <card> --notes TEXT
+reeve card reply <card> <text…> [--file F] [--follow] [--json]
 reeve card questions <card> [--json] / reeve card answer <card> <question> <answer>
+reeve card permit <card> allow|deny [--reason TEXT]
 reeve card wait <card> [--timeout S] [--json]
 reeve run follow <run> [--json] / reeve run stop <run>
 ```
+
+Each stage is a conversation with Claude, and `card reply` is the CLI's side
+of it: a message is read by a running Claude at its next step, answers what a
+run is parked on, or carries the stage's conversation on once a turn has
+ended. It prints the run it went to.
 
 Claude never moves a card; a human does. Approving is that human action for a
 finished stage: it passes the gate and moves the card one column, where
 `card move` moves it anywhere else.
 
 `card wait` blocks until the card's run wants a person and says which by its
-exit status: 0 it finished and awaits review, 3 Claude asked questions, 4 the
-run failed, 5 nothing was running, 6 `--timeout` ran out.
+exit status: 0 it finished and awaits review, 3 Claude is waiting on you (or its
+run stopped at its budget or turn limit: a reply carries it on), 4 the run failed, 5 nothing was running, 6 `--timeout` ran out. On 3, `card
+questions` says what about — a plan's questions, the question a turn ended
+on, or a call the run wants to make — and `answer`, `reply` or `permit` is the
+way back.
+
+In Progress and Testing hand their work to a background worker, and the
+session `card reply` talks to leads it. While the worker runs, a reply gets a
+prompt answer instead of waiting for the work to finish, and a change you ask
+for is passed on to the worker. `card wait` keeps waiting through that, since
+the run is still working. A call the worker wants to make is settled only by
+`permit`, and a `reply` meanwhile still goes to the lead. `run follow` shows
+the worker's steps indented under `· worker started`.
 
 ## Writing
 
@@ -117,7 +138,7 @@ reeve card note <card> <text>
 reeve card move <card> <stage> [--index N] [--project P | --no-project]
 reeve card archive <card> [--detach-open]
 reeve card restore <card>
-reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--seed CMD] [--server CMD] …
+reeve repos add [PATH] / reeve repos edit <repo> [--setup CMD] [--test CMD] [--focused-test CMD] [--seed CMD] [--server CMD] …
 reeve repos show <repo> [--json]
 reeve card accept <card>
 reeve card dismiss <card>
@@ -128,18 +149,18 @@ it does in full.
 
 **A move is a human action.** Moving a card into Planning, In Progress or
 Testing starts a Claude run there, exactly as a drag does, and moving it into
-Done pushes its branch and opens a pull request. So does `card add --stage` into
+Release pushes its branch and opens a pull request. So does `card add --stage` into
 a Claude column, and `project add --split`. The command waits a few seconds and
 says on stderr what it set off: the run's id, the pull request's link, or why
 nothing started. Reeve records these as your actions, whoever ran the command.
 
-`card merge` is the board's Merge button: it lands a Done card's pull request
+`card merge` is the board's Merge button: it lands a Release card's pull request
 on GitHub, and only once GitHub has said it merges cleanly. Branch protection
 still applies, and a refusal says what `gh` said.
 
-**Archiving a project takes its Done cards with it.** A project with cards not
-yet Done is refused, and the refusal names them; `--detach-open` archives it
-anyway and moves them to No project. Restoring the project brings back the Done
+**Archiving a project takes its Release cards with it.** A project with cards not
+yet Release is refused, and the refusal names them; `--detach-open` archives it
+anyway and moves them to No project. Restoring the project brings back the Release
 cards that went with it, and leaves the moved ones where they are.
 
 `repos add` and `repos edit` take the Settings form's fields as flags, and a
@@ -167,7 +188,7 @@ Criteria are numbered from 1, as `criteria list` shows them. There is no
   means whichever repo has one, and it is an error naming them when more than
   one does. The card commands take a project too, by its id or its title.
 - **`<stage>`** is `backlog`, `planning`, `in-progress` (or `in_progress`, or
-  `"In Progress"`), `testing` or `done`.
+  `"In Progress"`), `testing` or `release` (`done`, its old name, still works).
 - **`--repo`** takes a repo's name or its id. Without it a new card goes in the
   repo you are in, else its project's repo, else the only repo there is.
 - **`--project`** takes a project's title, ignoring case, or its id or a

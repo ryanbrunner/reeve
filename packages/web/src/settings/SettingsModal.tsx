@@ -191,14 +191,18 @@ function NavItem({ current, onClick, children }: { current: boolean; onClick: ()
  */
 function RunsPane() {
   const { data, error } = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  if (error) {
+  // Its own query, not `api.models`'s `builtIn` field: that one waits on the
+  // CLI's model listing, which can take seconds, and a stage's shipped
+  // prompt should be there the moment someone opens it to customize it.
+  const { data: builtIn, error: builtInError } = useQuery({ queryKey: ['stageDefaults'], queryFn: api.stageDefaults });
+  if (error || builtInError) {
     return (
       <div className="grow p-5">
-        <Empty>Could not load settings: {error.message}</Empty>
+        <Empty>Could not load settings: {(error ?? builtInError)?.message}</Empty>
       </div>
     );
   }
-  if (!data) {
+  if (!data || !builtIn) {
     return (
       <div className="grow p-5">
         <Empty>Loading…</Empty>
@@ -207,14 +211,17 @@ function RunsPane() {
   }
   // Mounted only once the settings are here, so the field starts from the
   // stored value rather than from blank and then jumping.
-  return <RunsForm settings={data} />;
+  return <RunsForm settings={data} builtIn={builtIn} />;
 }
 
-function RunsForm({ settings }: { settings: ApiSettings }) {
+function RunsForm({ settings, builtIn }: { settings: ApiSettings; builtIn: StageRunDefaults }) {
   const qc = useQueryClient();
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(String(settings.maxConcurrentRuns));
   const [stageDefaults, setStageDefaults] = useState<StageRunDefaults>(settings.stageDefaults);
   const [suggestTasks, setSuggestTasks] = useState(settings.suggestTasks);
+  // Four full prompts is a lot of vertical space, so each stays collapsed
+  // until asked for.
+  const [expandedPrompt, setExpandedPrompt] = useState<RunnableStage | null>(null);
   const [saved, setSaved] = useState(false);
   // Asked of the CLI once per server process, so there is nothing to refetch.
   const { data: catalogue } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
@@ -225,16 +232,47 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
     setStageDefaults((d) => ({ ...d, [stage]: { ...d[stage], ...next } }));
   };
 
+  // Typed as text and read on save, so a half-typed "1." is not refused mid-keystroke.
+  const [limits, setLimits] = useState(() =>
+    Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
+      budget: settings.stageDefaults[s].maxBudgetUsd?.toString() ?? '',
+      turns: settings.stageDefaults[s].maxTurns?.toString() ?? '',
+    }])) as Record<RunnableStage, { budget: string; turns: string }>,
+  );
+  const setLimit = (stage: RunnableStage, next: Partial<{ budget: string; turns: string }>) => {
+    setSaved(false);
+    setLimits((l) => ({ ...l, [stage]: { ...l[stage], ...next } }));
+  };
+  const limitErrors = RUNNABLE_STAGES.flatMap((stage) => {
+    const { budget, turns } = limits[stage];
+    const b = Number(budget);
+    const t = Number(turns);
+    return [
+      ...(budget.trim() && !(b >= 0.5 && b <= 1000) ? [`${STAGE_LABELS[stage]}'s budget must be between $0.50 and $1,000.`] : []),
+      ...(turns.trim() && !(Number.isInteger(t) && t >= 10 && t <= 10_000) ? [`${STAGE_LABELS[stage]}'s turns must be a whole number from 10 to 10,000.`] : []),
+    ];
+  });
+  const withLimits = (): StageRunDefaults =>
+    Object.fromEntries(RUNNABLE_STAGES.map((s) => [s, {
+      ...stageDefaults[s],
+      maxBudgetUsd: limits[s].budget.trim() ? Number(limits[s].budget) : null,
+      maxTurns: limits[s].turns.trim() ? Number(limits[s].turns) : null,
+    }])) as StageRunDefaults;
+
   const save = useMutation({
-    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults, suggestTasks }),
+    mutationFn: () => api.updateSettings({ maxConcurrentRuns: Number(maxConcurrentRuns), stageDefaults: withLimits(), suggestTasks }),
     onSuccess: (s) => {
       setSaved(true);
       qc.setQueryData(['settings'], s);
+      // The server normalizes a blank or default-text prompt override to
+      // null; without this the form would keep showing it as Custom with an
+      // empty textarea, when a fresh run now uses the shipped file again.
+      setStageDefaults(s.stageDefaults);
     },
   });
 
   const limit = Number(maxConcurrentRuns);
-  const valid = Number.isInteger(limit) && limit >= 1;
+  const valid = Number.isInteger(limit) && limit >= 1 && limitErrors.length === 0;
 
   return (
     <form
@@ -289,8 +327,8 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
         </p>
         {RUNNABLE_STAGES.map((stage) => {
           const row = stageDefaults[stage];
-          const builtIn = catalogue?.builtIn[stage];
-          const builtInModel = builtIn?.model ?? null;
+          const stageBuiltIn = builtIn[stage];
+          const builtInModel = stageBuiltIn.model;
           const builtInName = builtInModel && (findModel(models, builtInModel)?.displayName ?? builtInModel);
           const levels = effortLevelsFor(models, row.model ?? builtInModel);
           return (
@@ -310,13 +348,132 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
                 value={row.effort}
                 empty={
                   levels.length === 0 ? 'No effort on this model'
-                  : builtIn?.effort ? `Stage default (${builtIn.effort})`
+                  : stageBuiltIn.effort ? `Stage default (${stageBuiltIn.effort})`
                   : 'Stage default'
                 }
                 options={levels.map((l) => ({ value: l, label: l }))}
                 disabled={levels.length === 0}
                 onChange={(effort) => setStage(stage, { effort: effort as EffortLevel | null })}
               />
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Limits</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What one run may spend, and how many calls one loop may make, before it is stopped: the lead's turn, or a
+          worker's whole build. A run stopped at its limit waits for you to carry it on, with a fresh budget. A card can
+          set its own.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const stageBuiltIn = builtIn[stage];
+          return (
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-(--color-muted)">
+                $
+                <Text
+                  value={limits[stage].budget}
+                  onChange={(budget) => setLimit(stage, { budget })}
+                  placeholder={stageBuiltIn.maxBudgetUsd ? `${stageBuiltIn.maxBudgetUsd} (stage default)` : 'stage default'}
+                  mono
+                />
+              </label>
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-(--color-muted)">
+                <Text
+                  value={limits[stage].turns}
+                  onChange={(turns) => setLimit(stage, { turns })}
+                  placeholder={stageBuiltIn.maxTurns ? `${stageBuiltIn.maxTurns} (stage default)` : 'no turn limit'}
+                  mono
+                />
+                turns
+              </label>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Advisor</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          Whether a stage may consult the advisor your Claude Code settings turn on. Each call sends the whole session to
+          it, uncached, so it is off by default where the work was already advised on: Testing and Release.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const value = stageDefaults[stage].advisor;
+          const builtInOn = builtIn[stage].advisor !== false;
+          return (
+            <div key={stage} className="grid grid-cols-[96px_minmax(0,160px)] items-center gap-2">
+              <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+              <Select
+                label={`${STAGE_LABELS[stage]} advisor`}
+                value={value === null ? null : value ? 'on' : 'off'}
+                empty={`Stage default (${builtInOn ? 'on' : 'off'})`}
+                options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]}
+                onChange={(next) => setStage(stage, { advisor: next === null ? null : next === 'on' })}
+              />
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="flex flex-col gap-3 border-t border-(--color-edge) pt-4">
+        <SectionHead>Prompts</SectionHead>
+        <p className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+          What each stage is told to do, beyond its model and budget. A blank one runs the file Reeve ships with.
+        </p>
+        {RUNNABLE_STAGES.map((stage) => {
+          const defaultPrompt = builtIn[stage].prompt ?? '';
+          const row = stageDefaults[stage];
+          const custom = row.prompt !== null;
+          const expanded = expandedPrompt === stage;
+          const vars = [...defaultPrompt.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+          if (!expanded) {
+            return (
+              <div key={stage} className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+                    {custom ? 'Custom' : 'Default'}
+                  </span>
+                  <SmallButton onClick={() => setExpandedPrompt(stage)}>Edit</SmallButton>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={stage} className="flex flex-col gap-2 rounded-md border border-sky-700 bg-white/2 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px]/4 text-(--color-text)">{STAGE_LABELS[stage]}</span>
+                {custom && (
+                  <span className="rounded-sm border border-sky-700 px-1.5 py-px font-mono text-[10px]/4 text-sky-300">
+                    Custom
+                  </span>
+                )}
+              </div>
+              <textarea
+                value={row.prompt ?? defaultPrompt}
+                spellCheck={false}
+                onChange={(e) => {
+                  setSaved(false);
+                  setStage(stage, { prompt: e.target.value });
+                }}
+                rows={12}
+                className="w-full resize-y rounded-sm border border-(--color-edge) bg-(--color-ink) p-2 font-mono text-[11px]/[18px] text-(--color-text) outline-none focus:border-sky-600"
+              />
+              {vars.length > 0 && (
+                <span className="font-mono text-[10px]/[15px] text-(--color-muted)/80">
+                  Vars this stage fills in: {vars.map((v) => `{{${v}}}`).join(', ')}
+                </span>
+              )}
+              <div className="flex items-center gap-2">
+                {custom && (
+                  <SmallButton onClick={() => setStage(stage, { prompt: null })}>Reset to default</SmallButton>
+                )}
+                <SmallButton onClick={() => setExpandedPrompt(null)}>Collapse</SmallButton>
+              </div>
             </div>
           );
         })}
@@ -330,7 +487,9 @@ function RunsForm({ settings }: { settings: ApiSettings }) {
           <span className="font-mono text-[11px]/4 text-(--color-muted)">Saved</span>
         )}
         {!valid && (
-          <span className="font-mono text-[11px]/4 text-red-300">Concurrent runs must be a whole number, 1 or more.</span>
+          <span className="font-mono text-[11px]/4 text-red-300">
+            {limitErrors[0] ?? 'Concurrent runs must be a whole number, 1 or more.'}
+          </span>
         )}
       </div>
       {save.error && (
@@ -356,6 +515,7 @@ function initialState(repo: ApiRepo | null, takenColors: (string | null)[]): For
     defaultBranch: repo?.defaultBranch ?? '',
     setupCommand: repo?.setupCommand ?? '',
     testCommand: repo?.testCommand ?? '',
+    focusedTestCommand: repo?.focusedTestCommand ?? '',
     seedCommand: repo?.seedCommand ?? '',
     serverCommand: repo?.serverCommand ?? '',
     serverUrl: repo?.serverUrl ?? '',
@@ -393,6 +553,7 @@ function RepoForm({
         repoPath: form.repoPath.trim(),
         setupCommand: blankIsNull(form.setupCommand),
         testCommand: blankIsNull(form.testCommand),
+        focusedTestCommand: blankIsNull(form.focusedTestCommand),
         seedCommand: blankIsNull(form.seedCommand),
         serverCommand: blankIsNull(form.serverCommand),
         serverUrl: blankIsNull(form.serverUrl),
@@ -486,6 +647,12 @@ function RepoForm({
           <Text value={form.testCommand} onChange={set('testCommand')} placeholder="npm test" mono />
         </Field>
         <Field
+          label="Focused tests"
+          hint="Runs only the tests near a change, so a run can check its work as it goes and leave the whole suite to the end. Put {{paths}} where the test files or directories go. Reeve never runs it; it tells Claude how."
+        >
+          <Text value={form.focusedTestCommand} onChange={set('focusedTestCommand')} placeholder="npx vitest run {{paths}}" mono />
+        </Field>
+        <Field
           label="Seed"
           hint="Fixture data for Testing's screenshots. Before it takes them, Testing stops the card's dev server, runs this, then starts the server again, so a Preview open on the card restarts on this data. Sees REEVE_WORKTREE and REEVE_SLUG."
         >
@@ -511,7 +678,7 @@ function RepoForm({
         <Field label="Teardown" hint="Before a worktree is removed.">
           <Text value={form.teardownCommand} onChange={set('teardownCommand')} mono />
         </Field>
-        <Field label="Finish" hint="When a card reaches Done.">
+        <Field label="Finish" hint="When a card reaches Release.">
           <Text value={form.finishCommand} onChange={set('finishCommand')} mono />
         </Field>
       </section>

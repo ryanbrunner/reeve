@@ -7,3 +7,5 @@ export * from './contracts.js';
 export * from './api.js';
 export * from './detail.js';
 export * from './transcript.js';
+export * from './conversation.js';
+export * from './pricing.js';

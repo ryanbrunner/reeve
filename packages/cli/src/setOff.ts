@@ -1,4 +1,4 @@
-import { STAGE_LABELS, canStartRun, type ApiCard, type CardActivity } from '@reeve/shared';
+import { STAGE_LABELS, canStartRun, stoppedAtLimit, type ApiCard, type CardActivity } from '@reeve/shared';
 import { api } from './client.js';
 import { cardRef, note } from './output.js';
 
@@ -50,7 +50,11 @@ export async function watchStart(card: ApiCard, before: Set<string>): Promise<Ap
     return card;
   }
   if (!canStartRun(card)) {
-    note(`No ${stage} run: ${HELD[card.activity] ?? card.activity}.`);
+    // Waiting on the person, but for room rather than an answer.
+    const held = stoppedAtLimit(card.latestRun)
+      ? `its last run there stopped at its limit; \`reeve card reply ${card.number} <message>\` carries it on with a fresh one`
+      : HELD[card.activity] ?? card.activity;
+    note(`No ${stage} run: ${held}.`);
     return card;
   }
   note(`${stage} runs Claude: starting a run for ${label}…`);
@@ -75,7 +79,7 @@ export async function watchStart(card: ApiCard, before: Set<string>): Promise<Ap
 }
 
 /**
- * A card just moved into Done. `openingPr` is set before the move answers,
+ * A card just moved into Release. `openingPr` is set before the move answers,
  * so it says at once whether a push began; this then waits to see it land.
  */
 export async function watchPullRequest(card: ApiCard): Promise<ApiCard> {
@@ -86,7 +90,7 @@ export async function watchPullRequest(card: ApiCard): Promise<ApiCard> {
     else note(`Reeve did not start a pull request for ${label}; the card says why if something went wrong.`);
     return card;
   }
-  note(`Done opens a pull request: pushing ${label}'s branch…`);
+  note(`Release opens a pull request: pushing ${label}'s branch…`);
   const deadline = Date.now() + WATCH_MS;
   while (Date.now() < deadline) {
     await sleep(POLL_MS);

@@ -1,12 +1,10 @@
+## Sent back for revision
 
----
-
-## Revision requested
-
-Your previous plan was reviewed and sent back with these notes:
+The person reviewed what you submitted and sent it back with these notes:
 
 {{notes}}
 
 Address each point. You have the full context of your earlier work in this
-session — do not start over, revise. Where you disagree with a note, say so in
-the plan and explain why rather than silently ignoring it.
+session, so revise rather than start over. Where you disagree with a note, say
+so and explain why rather than silently ignoring it. When you are done, call
+`{{submitTool}}` again with the whole revised result.

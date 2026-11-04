@@ -55,8 +55,10 @@ export function DiffTab({
       )}
 
       {files.length > 0 && current && (
-        <div className="flex min-h-0 grow gap-3">
-          <div className="flex w-[260px] shrink-0 flex-col overflow-y-auto rounded-md border border-(--color-edge)">
+        // Stacked, not side-by-side: this tab only ever renders in the 420px
+        // aside, which leaves no real width for a list beside the file.
+        <div className="flex min-h-0 grow flex-col gap-2">
+          <div className="flex max-h-24 shrink-0 flex-col overflow-y-auto rounded-md border border-(--color-edge)">
             {files.map((f) => (
               <button
                 key={f.path}
@@ -67,9 +69,9 @@ export function DiffTab({
                   f.path === current.path ? 'bg-white/6' : 'hover:bg-white/3'
                 }`}
               >
-                <span className="min-w-0 truncate">
-                  <span className="text-(--color-muted)">{dirOf(f.path)}</span>
-                  <span className="text-(--color-text)">{baseOf(f.path)}</span>
+                <span className="flex min-w-0 items-baseline">
+                  <span className="min-w-0 truncate text-(--color-muted)">{dirOf(f.path)}</span>
+                  <span className="shrink-0 text-(--color-text)">{baseOf(f.path)}</span>
                 </span>
                 <span className="shrink-0">
                   <span className="text-emerald-400">+{f.additions}</span>{' '}
@@ -86,13 +88,32 @@ export function DiffTab({
 }
 
 function FileDiff({ file }: { file: ApiDiffFile }) {
+  // Size both gutters to this file's own widest line number rather than a flat
+  // 3rem each, so a short file (most of them) gives that width back to the code.
+  // A loop, not Math.max(...spread): the server sends a regenerated lockfile's
+  // tens of thousands of lines whole, and spreading that many arguments throws.
+  let widest = 0;
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) widest = Math.max(widest, line.oldLine ?? 0, line.newLine ?? 0);
+  }
+  const gutterWidth = Math.max(1, String(widest).length);
+  // Each number column keeps its px-2 (1rem) padding, so the track needs that
+  // added back on top of the digits themselves or the widest number clips.
+  const gridStyle = { gridTemplateColumns: `calc(${gutterWidth}ch + 1rem) calc(${gutterWidth}ch + 1rem) 1rem minmax(0,1fr)` };
+
   return (
-    <div className="flex min-w-0 grow flex-col overflow-hidden rounded-md border border-(--color-edge)">
-      <div className="flex shrink-0 items-baseline justify-between gap-2 border-b border-(--color-edge) px-2.5 py-1.5">
-        <span className="min-w-0 truncate font-mono text-[11px]/4 text-(--color-text)">
-          {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}{' '}
-          <span className="text-emerald-400">+{file.additions}</span>{' '}
-          <span className="text-red-400">−{file.deletions}</span>
+    <div className="flex min-h-0 grow flex-col overflow-hidden rounded-md border border-(--color-edge)">
+      <div className="flex min-w-0 shrink-0 items-baseline justify-between gap-2 border-b border-(--color-edge) px-2.5 py-1.5">
+        <span className="flex min-w-0 items-baseline font-mono text-[11px]/4 text-(--color-text)">
+          <span className="min-w-0 truncate text-(--color-muted)">
+            {file.oldPath ? `${file.oldPath} → ` : ''}
+            {dirOf(file.path)}
+          </span>
+          <span className="shrink-0">{baseOf(file.path)}</span>
+          <span className="ml-2 shrink-0">
+            <span className="text-emerald-400">+{file.additions}</span>{' '}
+            <span className="text-red-400">−{file.deletions}</span>
+          </span>
         </span>
         <span className="shrink-0 font-mono text-[10px]/4 text-(--color-muted)">{file.status}</span>
       </div>
@@ -107,9 +128,10 @@ function FileDiff({ file }: { file: ApiDiffFile }) {
               {hunk.lines.map((line, i) => (
                 <div
                   key={i}
-                  className={`grid grid-cols-[3rem_3rem_1rem_minmax(0,1fr)] font-mono text-[11px]/[17px] ${
+                  className={`grid font-mono text-[11px]/[17px] ${
                     line.kind === 'add' ? 'bg-emerald-500/10' : line.kind === 'del' ? 'bg-red-500/10' : ''
                   }`}
+                  style={gridStyle}
                 >
                   <span className="px-2 text-right text-(--color-muted)/60 select-none">{line.oldLine ?? ''}</span>
                   <span className="px-2 text-right text-(--color-muted)/60 select-none">{line.newLine ?? ''}</span>
@@ -120,7 +142,9 @@ function FileDiff({ file }: { file: ApiDiffFile }) {
                   >
                     {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}
                   </span>
-                  <span className="pr-3 whitespace-pre text-(--color-text)">{line.text}</span>
+                  <span className="pr-3 whitespace-pre-wrap text-(--color-text) [overflow-wrap:anywhere]">
+                    {line.text}
+                  </span>
                 </div>
               ))}
             </div>

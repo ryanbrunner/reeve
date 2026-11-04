@@ -6,9 +6,12 @@ import {
   archiveCard,
   archivedMergedWorktrees,
   cardsAwaitingMerge,
+  dependenciesOf,
+  getCard,
   insertCardEvent,
   listRepos,
   mergedCardsDueForArchive,
+  stillBlocking,
 } from './db/queries.js';
 import { card as cardTable, type Card, type Repo } from './db/schema.js';
 import {
@@ -23,10 +26,11 @@ import {
 import { GitError, checkWorktree, commitsSince, fastForwardBranch, isDirty } from './git/worktree.js';
 import type { EventWriter } from './runs/events.js';
 import { runRegistry } from './runs/registry.js';
+import { baseBranchFor, isRestacking, restackChildren, stackParent } from './stacks.js';
 import { removeCardWorktree } from './startStage.js';
 
 /**
- * Cards with a push under way. Two quick drags into Done, or a retry pressed
+ * Cards with a push under way. Two quick drags into Release, or a retry pressed
  * while the automatic attempt is still talking to GitHub, would otherwise
  * both find no pull request and both create one.
  */
@@ -83,6 +87,11 @@ const mergeable = new Map<string, string>();
 export const isPrMergeable = (card: Pick<Card, 'id' | 'prUrl'>) =>
   card.prUrl !== null && mergeable.get(card.id) === card.prUrl;
 
+/** A pull request pointed at another base: GitHub's verdict was about merging into the old one. */
+export function forgetMergeable(cardId: string): void {
+  mergeable.delete(cardId);
+}
+
 /** After a push, GitHub's last verdict is about a branch that no longer exists. */
 export function forgetConflict(cardId: string): void {
   conflicting.delete(cardId);
@@ -123,7 +132,7 @@ const prDescription = (body: string) =>
   body.trim().replace(PASTED_IMAGE, (_, alt: string) => (alt.trim() ? `(image: ${alt.trim()})` : '(image)'));
 
 /**
- * Push a Done card's branch to `origin` and open a pull request for it against
+ * Push a Release card's branch to `origin` and open a pull request for it against
  * the repo's default branch — or, if one is already open, leave it to pick
  * up the push. Nothing is merged and nothing is torn down: review comments may
  * yet want more commits, and they go in the same worktree.
@@ -136,8 +145,8 @@ const prDescription = (body: string) =>
  * a response to read it in.
  */
 export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<PullRequestResult> {
-  if (card.stage !== 'done') {
-    return { ok: false, status: 400, error: 'only a Done card gets a pull request', detail: card.stage };
+  if (card.stage !== 'release') {
+    return { ok: false, status: 400, error: 'only a Release card gets a pull request', detail: card.stage };
   }
   // Its pull request is history, so a push would restore the branch GitHub
   // deleted on merge and open a second one for work already landed.
@@ -161,6 +170,9 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
   }
   if (landing.has(card.id)) {
     return { ok: false, status: 409, error: 'the pull request is being merged', detail: card.prUrl ?? `#${card.number}` };
+  }
+  if (isRestacking(card.id)) {
+    return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: 'its pull request is pushed and retargeted as part of that' };
   }
   opening.add(card.id);
 
@@ -196,7 +208,17 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
     // commits rarely settle one, and its button is how it gets settled.
     mergeable.delete(card.id);
 
-    const base = repo.defaultBranch;
+    // A stacked card's targets the branch of the card it builds on, so it
+    // reads as its own change; it is pointed at the default once that lands.
+    // One that should build on another but has not taken its branch in yet
+    // would open against main without it. Release no longer runs on arrival,
+    // so it waits for a person: starting its Release run merges the branch in,
+    // and the pull request opens from there (Retry, or the run's submit).
+    const candidate = stackParent(db, card);
+    if (candidate && card.stackedOnId !== candidate.id) {
+      return failed(409, `not yet built on #${candidate.number}`, 'run it in Release to merge that card\'s branch in, then open the pull request');
+    }
+    const base = baseBranchFor(db, card, repo);
     let pr: { url: string; number: number };
     let reused: boolean;
     try {
@@ -237,13 +259,13 @@ export async function openPullRequest(db: Db, card: Card, repo: Repo): Promise<P
 }
 
 /**
- * The automatic attempt, for a card that has just entered Done. The routes
+ * The automatic attempt, for a card that has just entered Release. The routes
  * that move cards call this without awaiting it: a push and a `gh` call take
  * seconds, and a drag should not hang on them. The outcome lands on the card,
  * where the board's poll picks it up.
  *
  * A card that never had a worktree has nothing to push and is passed over in
- * silence — a Backlog idea dragged straight to Done is not a failure, and
+ * silence — a Backlog idea dragged straight to Release is not a failure, and
  * nor is a merged card dragged back there. And nothing may escape: an
  * unhandled rejection here would take the server down.
  */
@@ -255,13 +277,33 @@ export function maybeOpenPullRequest(db: Db, card: Card, repo: Repo | undefined)
 }
 
 /**
- * Whether the board offers to merge this card's pull request: a Done card's
+ * A card arriving in Release: its pull request opened, so the person has
+ * something to read before they ask Claude for anything. It no longer starts
+ * the Release conversation itself — nothing does, on arrival — so a card
+ * dragged or approved into Release reads idle until a person runs it or
+ * sends it a message, or VIBES MODE acts. The same attempt as
+ * `maybeOpenPullRequest`, under the name the routes that move a card into
+ * Release call it by.
+ */
+export const enterRelease = maybeOpenPullRequest;
+
+/**
+ * Whether the board offers to merge this card's pull request: a Release card's
  * open one, which GitHub has said merges cleanly. The Merge button is drawn
  * from this and the route refuses by it, so a page left open since the last
  * verdict cannot merge what the board has stopped offering.
  */
-export const canMergePr = (card: Card) =>
-  card.stage === 'done' && card.prUrl !== null && card.mergedAt === null && isPrMergeable(card);
+export const canMergePr = (db: Db, card: Card) =>
+  card.stage === 'release' && card.prUrl !== null && card.mergedAt === null && card.stackedOnId === null &&
+  !isRestacking(card.id) && isPrMergeable(card) && !waitsOnUnlanded(db, card);
+
+/**
+ * Whether anything this card waits on has yet to land. Merging is where the
+ * order the work has to happen in is finally kept: a card stacked on another
+ * reaches Release before that one merges, and nothing else stops its pull
+ * request landing first.
+ */
+const waitsOnUnlanded = (db: Db, card: Card) => dependenciesOf(db, card.id).some(stillBlocking);
 
 export type LandResult =
   | { ok: true; merged: boolean }
@@ -270,7 +312,7 @@ export type LandResult =
 /**
  * Land the card's pull request on the default branch.
  *
- * Two callers. A person pressing Merge on a Done card, having read the pull
+ * Two callers. A person pressing Merge on a Release card, having read the pull
  * request or decided not to; and VIBES MODE, which is the mode where nobody
  * reads it. Either way the decision is a human's — made on the button, or made
  * once by switching VIBES MODE on — and never Claude's own.
@@ -288,15 +330,42 @@ export type LandResult =
  */
 export async function landPullRequest(db: Db, card: Card, repo: Repo, actor: 'human' | 'claude'): Promise<LandResult> {
   if (card.mergedAt) return { ok: true, merged: true };
-  if (card.stage !== 'done') return { ok: false, status: 400, error: 'only a Done card’s pull request is merged', detail: card.stage };
+  if (card.stage !== 'release') return { ok: false, status: 400, error: 'only a Release card’s pull request is merged', detail: card.stage };
   const url = card.prUrl;
   if (!url) return { ok: false, status: 400, error: 'nothing to merge', detail: 'the card has no pull request' };
   // Taken before the first await, like `opening`.
   if (landing.has(card.id)) return { ok: false, status: 409, error: 'already merging', detail: url };
   if (opening.has(card.id)) return { ok: false, status: 409, error: 'a push to the pull request is under way', detail: url };
   if (resolving.has(card.id)) return { ok: false, status: 409, error: 'conflicts are being resolved', detail: url };
+  if (isRestacking(card.id)) return { ok: false, status: 409, error: 'it is being moved onto the default branch', detail: url };
+  const waiting = dependenciesOf(db, card.id).filter(stillBlocking);
+  if (waiting.length > 0) {
+    return {
+      ok: false, status: 409, error: 'it waits on cards that have not landed',
+      detail: waiting.map((c) => `#${c.number} ${c.title}`).join(', '),
+    };
+  }
+  // A stacked card lands after the card it builds on, once it has been moved
+  // onto the default branch: merged now, it would land on the parent's branch.
+  if (card.stackedOnId) {
+    const parent = getCard(db, card.stackedOnId);
+    return {
+      ok: false, status: 409, error: 'it builds on another card that has not landed',
+      detail: parent?.mergedAt
+        ? `#${parent.number} has merged; this card is moved onto ${repo.defaultBranch} at the next merge sync, and can merge then`
+        : `merge #${parent?.number ?? '?'} first`,
+    };
+  }
   landing.add(card.id);
   try {
+    // Only ever onto the default branch. A pull request still pointed at
+    // another card's branch — a retarget that failed, or one changed on
+    // GitHub — would land there, and the card would read merged with its
+    // work nowhere near main.
+    const pr = await pullRequestState(repo.repoPath, url);
+    if (pr.base && pr.base !== repo.defaultBranch) {
+      return { ok: false, status: 409, error: `its pull request targets ${pr.base}`, detail: `point it at ${repo.defaultBranch} first` };
+    }
     await mergePullRequest(repo.repoPath, url);
   } catch (e) {
     const detail = reason(e);
@@ -387,7 +456,7 @@ let syncing = false;
  * `cleanUpArchivedWorktrees`, and the branch stays for good.
  *
  * The same answer says whether GitHub could merge an open one as it stands,
- * which is what offers a Done card's conflicts for resolving, or its Merge
+ * which is what offers a Release card's conflicts for resolving, or its Merge
  * button.
  *
  * One card at a time, and one sync at a time, since each is a `gh` call and a
@@ -426,6 +495,8 @@ export async function syncMergedPullRequests(db: Db): Promise<void> {
       if (keepsDefaultBranch(repo, into)) landedOnDefault.set(repo.id, repo);
     }
     for (const repo of landedOnDefault.values()) await syncDefaultBranch(repo);
+    // Cards built on one that has just landed, moved onto the default branch.
+    await restackChildren(db);
   } finally {
     syncing = false;
   }

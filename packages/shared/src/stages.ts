@@ -7,7 +7,7 @@ export const STAGES = [
   'planning',
   'in_progress',
   'testing',
-  'done',
+  'release',
 ] as const;
 
 export type Stage = (typeof STAGES)[number];
@@ -17,8 +17,23 @@ export const STAGE_LABELS: Record<Stage, string> = {
   planning: 'Planning',
   in_progress: 'In Progress',
   testing: 'Testing',
-  done: 'Done',
+  release: 'Release',
 };
+
+/**
+ * The name a stage went by before, mapped to the one it has now, for whatever
+ * still says it: a script running `reeve card move 142 done`, a URL, a person.
+ * Done became Release when the last column became a conversation with Claude
+ * about shipping the work rather than a place it waited.
+ */
+const FORMER: Record<string, Stage> = { done: 'release' };
+
+/** A stage named by a person or a script, old names included; null if it is none. */
+export function normaliseStage(name: string): Stage | null {
+  const key = name.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if ((STAGES as readonly string[]).includes(key)) return key as Stage;
+  return FORMER[key] ?? null;
+}
 
 /**
  * A card is a piece of work, or a project: a brief that groups several of them.
@@ -31,10 +46,11 @@ export const CARD_KINDS = ['task', 'project'] as const;
 export type CardKind = (typeof CARD_KINDS)[number];
 
 /**
- * Stages that run Claude. The others are holding areas the human moves cards
- * through, which is why `backlog` and `done` have no runnable work.
+ * Stages that run Claude: every column but Backlog, which is where work waits
+ * to be taken on. Release is the last of them — the conversation in which
+ * Claude prepares the pull request and the person merges it.
  */
-export const RUNNABLE_STAGES = ['planning', 'in_progress', 'testing'] as const;
+export const RUNNABLE_STAGES = ['planning', 'in_progress', 'testing', 'release'] as const;
 export type RunnableStage = (typeof RUNNABLE_STAGES)[number];
 
 export function isRunnable(stage: Stage): stage is RunnableStage {

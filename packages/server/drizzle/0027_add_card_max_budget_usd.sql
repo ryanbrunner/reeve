@@ -1,0 +1,1 @@
+ALTER TABLE `card` ADD `max_budget_usd` real;

@@ -17,7 +17,7 @@ export const move: Command = {
       which in Reeve is a human action, and is recorded as yours whoever runs the command.
       Moving a card INTO Planning, In Progress or Testing starts a Claude run there, which spends
       money, unless its last run in that column is still waiting on your review or your answers.
-      Moving it INTO Done pushes its branch and opens a pull request on GitHub.
+      Moving it INTO Release pushes its branch and opens a pull request on GitHub.
       Reordering within a column starts nothing. The command waits a few seconds to say what the
       move set off — the run's id, or the pull request's link — on stderr.
       --project files it under a project's lane as it goes; --no-project takes it out of one.`,
@@ -57,7 +57,7 @@ export const move: Command = {
     let card = moved;
     // The answer itself, not a fresh read: `openingPr` in it is the push this
     // move began, where a later read could find it already over.
-    if (from !== moved.stage && moved.stage === 'done') card = await watchPullRequest(moved);
+    if (from !== moved.stage && moved.stage === 'release') card = await watchPullRequest(moved);
     else if (from !== moved.stage && isRunnable(moved.stage)) card = await watchStart(moved, before);
 
     if (values.json) return printJson(card);

@@ -50,7 +50,7 @@ const { app, db } = createApp();
 updateSettings(db, { maxConcurrentRuns: 0 });
 const repo = createRepo(db, {
   name: `starting-ui-${Date.now()}`, repoPath, worktreeRoot: join(scratch, 'worktrees'), defaultBranch: 'main',
-  setupCommand: SETUP, testCommand: null, serverCommand: null,
+  setupCommand: SETUP, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: '#6b8bb3',
 });
 

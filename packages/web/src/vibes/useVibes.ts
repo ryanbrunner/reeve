@@ -54,7 +54,7 @@ export function useVibes(
   /**
    * Whether a board has arrived at all. Without it the loading render — no
    * data, so no merged cards — counts as the first reading, and the real board
-   * that follows reads as every card in Done having just landed: a reload with
+   * that follows reads as every card in Release having just landed: a reload with
    * VIBES MODE on would stamp old cards MERGED, flash the screen and shake the
    * stage for work that finished days ago.
    */

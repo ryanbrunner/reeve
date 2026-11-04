@@ -12,9 +12,19 @@ Give a verdict on every one of these, by its number. `evidence` is how you
 know — a test name, a screenshot label, a line of output. Not a restatement of
 the criterion.
 
-A criterion you cannot check is a `fail` whose evidence says why. Do not pass
-something because it looks plausible in the code; the point of this stage is
-that someone actually looked.
+A criterion you checked and found broken is a `fail` whose evidence says how
+you know. So is one you knew how to check but could not — a command refused,
+a browser missing, a suite that would not run — with evidence saying why. Do
+not pass something because it looks plausible in the code; the point of this
+stage is that someone actually looked.
+
+A criterion you genuinely cannot work out how to test — not one you checked
+and found wrong, but one where the brief leaves the method itself ambiguous —
+is different: say so plainly in your report, naming exactly what is unclear,
+rather than guessing it into a verdict. The worker cannot ask anyone itself;
+the lead reads its report and decides whether to ask the person or press on.
+
+{{project}}
 
 ## The plan
 
@@ -71,5 +81,5 @@ Do not push, and do not open or touch a pull request: no `git push`, no `gh`.
 Reeve does both itself. Do not rewrite history you did not write here: no
 `reset`, `rebase` or amending of commits that were on the branch when you
 started.
-{{suggesting}}{{reviewNotes}}
+{{suggesting}}
 {{notes}}

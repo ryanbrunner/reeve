@@ -1,11 +1,15 @@
 import {
   deriveActivity,
   isRunnable,
+  stoppedAtLimit,
   stageEntryRefusal,
   type ApiCard,
+  type ApiCardLink,
   type CardActivity,
   type RunnableStage,
   type Stage,
+  type RunStatus,
+  type StopReason,
 } from '@reeve/shared';
 import type { Db } from './db/client.js';
 import {
@@ -18,6 +22,8 @@ import {
 import type { Card, Run } from './db/schema.js';
 import { toApiCard } from './mappers.js';
 import { canMergePr, isMergingPr, isOpeningPr, isPrConflicting, isResolvingConflicts } from './pullRequest.js';
+import { askRegistry } from './runs/asks.js';
+import { stackParent, stackedOn } from './stacks.js';
 import { stageDefinition } from './stages/index.js';
 // A cycle, as startStage reads cardActivity from here. Harmless: neither side
 // calls the other while the modules are still loading.
@@ -31,12 +37,15 @@ import { isStartingStage } from './startStage.js';
  */
 export function cardActivity(db: Db, card: Card): { activity: CardActivity; run: Run | null } {
   const stage = card.stage as Stage;
-  // Backlog and Done are holding areas — no Claude work, so nothing to colour.
+  // Backlog and Release are holding areas — no Claude work, so nothing to colour.
   if (!isRunnable(stage)) return { activity: 'idle', run: null };
 
   const run = latestClaudeRunForStage(db, card.id, stage) ?? null;
   if (!run) return { activity: 'idle', run: null };
-  return { activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run) }), run };
+  return {
+    activity: deriveActivity({ status: run.status, awaitsInput: awaitsInput(stage, run), stopReason: run.stopReason as StopReason | null }),
+    run,
+  };
 }
 
 /**
@@ -51,19 +60,64 @@ export function toBoardCard(
   links: (id: string) => CardLinks = cardLinks(db, card.id),
 ): ApiCard {
   const { activity, run } = cardActivity(db, card);
-  // Only Done offers a resolution. A card dragged back for another round keeps
+  const cardLinks = links(card.id);
+  // Only Release offers a resolution. A card dragged back for another round keeps
   // its pull request, and its conflicts wait until it returns.
-  const openInDone = card.stage === 'done' && card.prUrl !== null && card.mergedAt === null;
+  const openInDone = card.stage === 'release' && card.prUrl !== null && card.mergedAt === null;
   return toApiCard(card, repoName, laneColor, run, activity, {
     openingPr: isOpeningPr(card.id),
     prConflicting: openInDone && isPrConflicting(card),
-    prMergeable: canMergePr(card),
+    prMergeable: canMergePr(db, card),
     resolvingConflicts: isResolvingConflicts(card.id),
     mergingPr: isMergingPr(card.id),
     startingStage: isStartingStage(card.id),
     implemented: hasImplementationRun(db, card.id),
     pendingSuggestion: isPendingSuggestion(card),
-  }, links(card.id));
+    waitingOn: activity === 'needs_input' && run ? waitingOn(card, run) : null,
+    stackedOn: stackedOnLink(db, card, cardLinks),
+    reviewFailed: activity === 'needs_review' && run !== null && isFailed(card.stage as RunnableStage, run),
+  }, cardLinks);
+}
+
+/**
+ * The dependency this card builds on, or may build on now (stacks.ts), as the
+ * board names it. Asked only of a card with something unfinished to wait on,
+ * which is rare: most cards' dependencies are done or absent.
+ */
+function stackedOnLink(db: Db, card: Card, links: CardLinks): ApiCardLink | null {
+  if (!links.dependsOn.some((d) => !d.done)) return null;
+  const parent = stackedOn(db, card) ?? stackParent(db, card);
+  return parent ? links.dependsOn.find((d) => d.id === parent.id) ?? null : null;
+}
+
+/**
+ * The one line a waiting card shows on the board: what a live run is parked
+ * on, or the end of what Claude said before it ended its turn — which is
+ * where it puts its question.
+ */
+function waitingOn(card: Card, run: Run): string | null {
+  if (run.status === 'asking') {
+    const ask = askRegistry.forCard(card.id);
+    if (!ask) return 'Waiting on you';
+    if (ask.kind === 'question') return ask.questions[0]?.question ?? 'Asking you a question';
+    const command = typeof ask.input['command'] === 'string' ? ask.input['command'] : null;
+    const who = ask.agent === 'worker' ? 'The worker asks' : 'Asks';
+    return command ? `${who} to run ${oneLine(command, 80)}` : `${who} to use ${ask.toolName}`;
+  }
+  if (stoppedAtLimit({ status: run.status as RunStatus, stopReason: run.stopReason as StopReason | null })) {
+    return run.stopReason === 'max_turns'
+      ? 'Stopped at its turn limit: reply to carry on'
+      : `Stopped at its $${(run.maxBudgetUsd ?? 0).toFixed(2)} budget: reply to carry on`;
+  }
+  if (run.status !== 'awaiting_reply' || !run.resultText) return null;
+  const lines = run.resultText.split('\n').map((l) => l.replace(/[*_`#>]/g, '').trim()).filter(Boolean);
+  const question = [...lines].reverse().find((l) => l.endsWith('?'));
+  return oneLine(question ?? lines.at(-1) ?? '', 160) || null;
+}
+
+function oneLine(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 /**
@@ -89,4 +143,18 @@ function awaitsInput(stage: RunnableStage, run: Run): boolean {
   if (!definition?.awaitsInput) return false;
   const parsed = definition.schema.safeParse(run.structuredOutput);
   return parsed.success ? definition.awaitsInput(parsed.data) : false;
+}
+
+/**
+ * The sibling of `awaitsInput`: whether a succeeded run's own output judged
+ * the work failing — Testing's `failed`, a criterion gone wrong rather than a
+ * question about how to check one. Only ever asked of a run already read as
+ * `needs_review`, so a running or freshly-started card never shows it.
+ */
+function isFailed(stage: RunnableStage, run: Run): boolean {
+  if (run.status !== 'succeeded') return false;
+  const definition = stageDefinition(stage);
+  if (!definition?.failed) return false;
+  const parsed = definition.schema.safeParse(run.structuredOutput);
+  return parsed.success ? definition.failed(parsed.data) : false;
 }

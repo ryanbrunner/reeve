@@ -1,8 +1,14 @@
-import { canStartRun, type ApiCard, type ApiCardLink } from '@reeve/shared';
-import { tok, tokenTitle } from '../card/format.js';
+import { useQuery } from '@tanstack/react-query';
+import { canStartRun, type ApiCard, type ApiCardLink, type ApiRunPulse } from '@reeve/shared';
+import { cost } from '../card/format.js';
+import { readPulse } from '../card/pulse.js';
+import { api } from '../lib/api.js';
+import { familyOf, MODEL_TINT } from '../lib/modelTint.js';
+import { useNow } from '../lib/useNow.js';
 import {
-  ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, shownActivity, STARTING_LABEL,
-  SUGGESTION_LABEL, SUGGESTION_MARK, SUGGESTION_STYLE,
+  ACTIVITY_LABELS, ACTIVITY_MARKS, ACTIVITY_STYLE, isMerged, MERGED_MARK, MERGED_STYLE, REVIEW_FAILED_LABEL,
+  REVIEW_FAILED_MARK, REVIEW_FAILED_STYLE, shownActivity, STARTING_LABEL, SUGGESTION_LABEL, SUGGESTION_MARK,
+  SUGGESTION_STYLE,
 } from './activity.js';
 import { NeededByGlyph, SuggestedGlyph, WaitsGlyph } from './Glyph.js';
 import { useLinks, type LinkRole } from './links.js';
@@ -52,13 +58,27 @@ export function CardFace({
   // A suggestion waiting on a person, which VIBES MODE does not wait for: its
   // sweep takes the card on as it would any other in Backlog.
   const suggested = !vibes && !merged && card.pendingSuggestion;
-  const label = suggested ? SUGGESTION_LABEL : card.startingStage ? STARTING_LABEL : ACTIVITY_LABELS[activity];
+  // A submitted result the stage itself judged failing — Testing's `fail` —
+  // reads red rather than the green `needs_review` otherwise wears. VIBES
+  // MODE's one-line card has no room for a sixth state and waives the gate
+  // regardless, so it keeps its own skin.
+  const reviewFailed = !vibes && !merged && !suggested && card.reviewFailed;
+  const label =
+    reviewFailed ? REVIEW_FAILED_LABEL
+    : suggested ? SUGGESTION_LABEL
+    : card.startingStage ? STARTING_LABEL
+    : ACTIVITY_LABELS[activity];
   const skin =
     vibes && card.mergedAt != null ? 'sk-merged'
     : merged ? MERGED_STYLE
     : suggested ? SUGGESTION_STYLE
+    : reviewFailed ? REVIEW_FAILED_STYLE
     : ACTIVITY_STYLE[activity];
-  const mark = merged ? (vibes ? null : MERGED_MARK) : suggested ? SUGGESTION_MARK : ACTIVITY_MARKS[activity];
+  const mark =
+    merged ? (vibes ? null : MERGED_MARK)
+    : suggested ? SUGGESTION_MARK
+    : reviewFailed ? REVIEW_FAILED_MARK
+    : ACTIVITY_MARKS[activity];
   const links = useLinks();
   // The copy under the cursor mid-drag is not on the board, so it neither
   // traces a chain nor takes part in one.
@@ -66,6 +86,14 @@ export function CardFace({
   // In VIBES MODE on its own, on the calm board. Not once merged: after that
   // there is nothing left for it to do.
   const solo = !vibes && card.vibes && card.mergedAt == null;
+  // The model actually executing tints the running glow toward its family —
+  // the run that is live, falling back to the card's own pinned override,
+  // since the server's effective choice (through Settings' stage defaults)
+  // isn't known here. Absent a known family the card keeps the plain default
+  // blue it always has.
+  const { data: modelsResp } = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: Infinity });
+  const family = activity === 'running' ? familyOf(run?.model ?? card.model, modelsResp?.models ?? []) : undefined;
+  const runningTint = family ? (MODEL_TINT[family] as React.CSSProperties) : undefined;
   return (
     <article
       // The card opens its details, but the whole card is also the drag handle.
@@ -77,12 +105,20 @@ export function CardFace({
       className={`relative cursor-grab rounded-md border p-2.5 transition-opacity duration-150 ${skin} ${
         dragging ? 'rotate-2 shadow-xl shadow-black/40' : ''
       } ${vibes ? 'sk-card' : ''} ${solo ? 'sk-solo-ring' : ''} ${role ? LINK_STYLE[role] : ''}`}
+      style={runningTint}
     >
       {mark}
       {/* The title and footer are positioned so they read above the mark. */}
       <p className={`relative text-sm leading-snug font-medium tracking-[-0.01em] ${vibes ? 'sk-card-title' : ''}`}>
         {card.title}
       </p>
+      {/* What Claude is waiting on, so a waiting card says why without being opened. */}
+      {!vibes && card.waitingOn && (
+        <p className="relative mt-1.5 line-clamp-2 text-xs/4 text-amber-100/85">{card.waitingOn}</p>
+      )}
+      {/* What a working card is stuck on, or has been at a long while, so a
+          long test run and a hang can be told apart without opening it. */}
+      {!vibes && activity === 'running' && <PulseLine pulse={run?.pulse ?? null} />}
       <div className={`relative mt-2 flex flex-wrap items-center gap-1.5 ${vibes ? 'sk-card-foot' : ''}`}>
         {/* The ring dresses the card; this names why, so it is not left to
             colour alone. */}
@@ -118,12 +154,9 @@ export function CardFace({
             {run.status}
           </span>
         )}
-        {run?.totalTokens != null && (
-          <span
-            title={tokenTitle(run.tokenBreakdown)}
-            className={`font-mono text-[10px] leading-snug whitespace-nowrap text-(--color-muted) ${vibes ? 'sk-cost' : ''}`}
-          >
-            {tok(run.totalTokens)}
+        {run?.totalCostUsd != null && (
+          <span className={`font-mono text-[10px] leading-snug text-(--color-muted) ${vibes ? 'sk-cost' : ''}`}>
+            {cost(run.totalCostUsd)}
           </span>
         )}
         {!vibes && card.mergedAt != null && (
@@ -146,7 +179,7 @@ export function CardFace({
             PR{card.prNumber != null && ` #${card.prNumber}`}
           </a>
         )}
-        {/* GitHub's verdict, which the server only has for a Done card's open pull request. */}
+        {/* GitHub's verdict, which the server only has for a Release card's open pull request. */}
         {!vibes && (card.prConflicting || card.resolvingConflicts) && (
           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px]/4 text-amber-300">
             {card.resolvingConflicts ? 'resolving…' : 'conflicts'}
@@ -170,7 +203,7 @@ export function CardFace({
         {/* Backlog runs nothing, so these are never beside Run. */}
         {suggested && !dragging && <SuggestionButtons card={card} />}
         {/* Never beside Run: that is for a column Claude works in, and this is
-            Done's alone. Gone while a push or a resolution is changing the
+            Release's alone. Gone while a push or a resolution is changing the
             branch GitHub's verdict was about. */}
         {!vibes && !dragging && (card.prMergeable || card.mergingPr) && !card.openingPr && !card.resolvingConflicts && (
           <MergeButton card={card} />
@@ -183,6 +216,20 @@ export function CardFace({
       )}
       {stamped && <span className="sk-stamp" aria-hidden="true">Merged</span>}
     </article>
+  );
+}
+
+function PulseLine({ pulse }: { pulse: ApiRunPulse | null }) {
+  const now = useNow(pulse !== null, 5_000);
+  const reading = readPulse(pulse, now);
+  if (!reading.text) return null;
+  return (
+    <p
+      className={`relative mt-1.5 truncate font-mono text-[11px]/4 ${reading.tone === 'warn' ? 'text-(--color-activity-input-mark)' : 'text-sky-200/70'}`}
+      title={reading.text}
+    >
+      {reading.text}
+    </p>
   );
 }
 
@@ -205,9 +252,11 @@ const NAMED = 3;
  * the blocked chip alone: the first number and how many more.
  */
 function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
-  const open = card.dependsOn.filter((d) => !d.done);
+  // The one it builds on is not holding it up, so it gets a chip of its own.
+  const open = card.dependsOn.filter((d) => !d.done && d.id !== card.stackedOn?.id);
+  const stacked = card.stackedOn;
   const ref = (d: ApiCardLink) => refFrom(card, d);
-  // A Done card whose pull request is still open is not done here, and saying
+  // A Release card whose pull request is still open is not done here, and saying
   // so plainly keeps it from reading as work still under way.
   const status = (d: ApiCardLink) => (d.done ? ' (done)' : d.awaitingMerge ? ' (PR not merged)' : '');
   const list = card.dependsOn.map((d) => `${ref(d)} ${d.title}${status(d)}`).join('\n');
@@ -217,6 +266,16 @@ function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
   const named = vibes ? 1 : NAMED;
   return (
     <>
+      {stacked && !vibes && (
+        <span
+          title={`Builds on ${ref(stacked)} ${stacked.title}, which has not merged: this card's branch is cut from its branch, and moves onto the default branch once it lands.`}
+          className={`${chip} bg-sky-500/15 text-sky-200`}
+        >
+          <WaitsGlyph open />
+          <span className="sr-only">Stacked:</span>
+          on {ref(stacked)}
+        </span>
+      )}
       {open.length > 0 ?
         <span
           title={`Waits on\n${list}`}
@@ -227,7 +286,7 @@ function Dependencies({ card, vibes }: { card: ApiCard; vibes: boolean }) {
           {!vibes && 'waits on'} {open.slice(0, named).map(ref).join(' ')}
           {open.length > named && ` +${open.length - named}`}
         </span>
-      : !vibes && card.dependsOn.length > 0 && (
+      : !vibes && !stacked && card.dependsOn.length > 0 && (
           <span title={`Waited on, all done\n${list}`} className={`${chip} bg-slate-500/15 text-(--color-muted)`}>
             <WaitsGlyph open />
             <span className="sr-only">Dependencies done:</span>
@@ -316,7 +375,7 @@ function vibesChip(card: ApiCard): string {
       return 'no tests';
     case 'testing':
       return 'auto-approved';
-    case 'done':
+    case 'release':
       return card.mergedAt != null ? 'merged → main' : card.prUrl ? 'merging → main' : 'straight to main';
   }
 }

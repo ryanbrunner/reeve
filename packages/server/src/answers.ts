@@ -1,16 +1,10 @@
 import { isRunnable, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import {
-  answerQuestion,
-  getRun,
-  insertCardEvent,
-  listRepos,
-  questionsForRun,
-} from './db/queries.js';
+import { answerQuestion, insertCardEvent, questionsForRun } from './db/queries.js';
 import type { Card, CardEventActor, Question } from './db/schema.js';
 import type { EventWriter } from './runs/events.js';
-import { stageDefinition } from './stages/index.js';
-import { continueStage } from './startStage.js';
+import { sendToCard } from './conversation.js';
+import { renderPrompt } from './stages/template.js';
 
 export interface AnswerResult {
   answered: number;
@@ -30,9 +24,9 @@ export interface AnswerResult {
  * resume the run that asked" would drift apart the first time one of them grew
  * a step.
  *
- * The resume forks the session exactly as a rejection does: the attempt that
- * asked stays readable, and the answers arrive as prompt rather than as some
- * second channel Claude has to be taught about. Answering out of order is
+ * The answers go into the stage's conversation through `sendToCard`, the
+ * same as anything else a person says: the session that asked is carried on
+ * with them as its next message. Answering out of order is
  * fine — what matters is that none are left, not which came last.
  *
  * Anything that stops the resume is reported rather than thrown: the answer is
@@ -64,26 +58,17 @@ export async function recordAnswer(
     answered: siblings.length, of: siblings.length, resumed: null, blocked: detail,
   });
 
-  if (card.archivedAt) return blocked('card is archived');
-  const repo = card.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
-  if (!repo) return blocked('card has no repo');
   if (!isRunnable(card.stage as Stage)) return blocked('stage has no Claude work');
-  const stage = stageDefinition(card.stage as never);
-  if (!stage) return blocked('stage not implemented yet');
 
-  // Fork the run that ASKED, not simply the latest one: those are the same
-  // run today, and would quietly stop being so the moment anything else can
-  // start one in between.
-  const asked = question.runId ? getRun(db, question.runId) : null;
-
-  // Waits for any setup the worktree is owed, the same as a revision: the run
-  // that asked may have started in a tree whose setup failed.
-  const resumed = await continueStage(db, writer, card, repo, {
-    stage,
-    answers: siblings.map((q) => ({ question: q.text, answer: q.answer ?? '' })),
-    resumeSessionId: asked?.sessionId ?? null,
-    parentRunId: asked?.id ?? null,
+  // Into the conversation like anything else a person says: the run that
+  // asked is the stage's last, and its session is the one carried on. Paired
+  // with their questions, so Claude reads them as decided.
+  const pairs = siblings.map((q) => `**${q.text}**\n${q.answer ?? ''}`).join('\n\n');
+  const resumed = await sendToCard(db, writer, card, pairs, {
+    actor,
+    source: 'answer',
+    prompt: renderPrompt('answers', { answers: pairs, submitTool: `submit_${card.stage}` }),
   });
-  if (!resumed.ok) return blocked(resumed.error);
+  if (!resumed.ok) return blocked(resumed.detail ? `${resumed.error} (${resumed.detail})` : resumed.error);
   return { answered: siblings.length, of: siblings.length, resumed: resumed.runId };
 }

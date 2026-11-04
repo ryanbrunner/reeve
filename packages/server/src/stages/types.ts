@@ -37,15 +37,32 @@ export interface StageContext {
    */
   notes?: string[];
   /**
+   * Where the rest of the card's project stands, for a task in one: see
+   * projectContext.ts. Empty for a card in no project, or alone in one.
+   */
+  project?: string;
+  /**
+   * The branch the card's work is based on: the repo's default, or for a
+   * stacked card the branch of the card it builds on (stacks.ts).
+   */
+  baseBranch?: string;
+  /**
    * Whether Settings allows this run to suggest cards of its own. Undefined
    * means on, the same reading `getSettings` gives a board with no row yet, so
    * a hand-built context (a spike) that never sets it behaves as it always did.
    */
   suggestTasks?: boolean;
+  /**
+   * Settings' override for this run's stage, in place of the file Reeve ships
+   * under `stages/prompts/`. Undefined means no override is set, or this run
+   * is not one of the four runnable stages — the same reading `suggestTasks`
+   * gives a hand-built context (a spike, a one-off task) that never sets it.
+   */
+  promptOverride?: string;
 }
 
 export interface ArtifactDraft {
-  kind: 'plan' | 'diff' | 'test_report' | 'summary';
+  kind: 'plan' | 'diff' | 'test_report' | 'summary' | 'release';
   content: string;
   /** Relative to the worktree. The server writes it; Claude never does. */
   path?: string;
@@ -72,6 +89,12 @@ export interface ClaudeTask<Output = unknown> {
   maxTurns?: number;
   model?: string;
   effort?: EffortLevel;
+  /**
+   * False switches off the advisor for this task's runs, beneath the Settings
+   * row (`advisorFor` in runs/claude.ts). Absent leaves it as Claude Code's
+   * own settings have it, on wherever `advisorModel` is set.
+   */
+  advisor?: boolean;
   /**
    * Work done beside the card's stage rather than as it. The run is tagged with
    * the task's id, so it stays in the card's history and cost but never becomes
@@ -119,8 +142,41 @@ export interface ClaudeTask<Output = unknown> {
    * then reads as ready for review.
    */
   awaitsInput?(output: Output): boolean;
+  /**
+   * Does this output mean the gate should read as failed rather than ready?
+   * Drives the red card face for a submitted result that judged the work not
+   * done — a failed criterion, say — as against one that simply asks a
+   * question (`awaitsInput`, yellow) or one that passed outright (green).
+   * Omitted means "never fails" — a succeeded run always reads as ready.
+   */
+  failed?(output: Output): boolean;
   /** One-line card summary from the output. */
   summarise(output: Output): string;
+  /**
+   * Present on a task held as a conversation — the stages. Its output is
+   * delivered by Claude calling a `submit_<id>` tool, whose input is `schema`,
+   * when it decides the work is done, rather than demanded as structured
+   * output at the end of every turn: a turn may instead end in a question or
+   * a reply, and the person answers. Absent, the task keeps `outputFormat`
+   * and is one turn, as the one-off tasks are.
+   */
+  submit?: {
+    /** What the tool is for, in the words Claude reads beside its name. */
+    description: string;
+  };
+  /**
+   * Present on a stage whose long work is done by a background subagent, so
+   * the session the person talks to stays free to answer them while it runs.
+   * That session leads: it launches the worker, passes on what the person
+   * says, checks what comes back and submits. The worker's brief is the
+   * stage's own prompt, `buildPrompt`'s output, and the lead's is
+   * prompts/lead.md wrapped round the same text. Only meaningful with
+   * `submit`; see runs/claude.ts.
+   */
+  worker?: {
+    /** What the worker is for, as the lead's Agent tool lists it. */
+    description: string;
+  };
 }
 
 /** A task that is also a column on the board, and so can be reviewed and moved on from. */

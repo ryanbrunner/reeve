@@ -6,6 +6,8 @@ You are planning a single piece of work in the repository at `{{worktreePath}}`.
 
 {{body}}
 
+{{project}}
+
 ## What to do
 
 Read enough of the codebase to plan this concretely. Look for existing
@@ -14,18 +16,20 @@ there over adding parallel machinery.
 
 Read, search and run whatever read-only commands help, with the repo's own
 tooling in whatever language it is written. But change nothing: do not edit,
-create or delete files, install anything or commit. Return the plan as
-structured output instead. The harness writes it to disk, and the next stage
-starts from this worktree exactly as you leave it.
+create or delete files, install anything or commit. Deliver the plan with the
+submit tool instead (see the end of this prompt). The harness writes it to
+disk, and the next stage starts from this worktree exactly as you leave it.
 
 ## What makes a good plan here
 
 - Name the specific files to change, with paths that actually exist.
 - Reference the existing code you intend to reuse, by path.
 - Say what you would *not* do, where you considered an approach and rejected it.
-- Put anything genuinely ambiguous in `open_questions` rather than guessing. An
-  open question is for a decision only a human can make — not for something you
-  could have settled by reading the code.
+- Where something genuinely ambiguous decides the plan, ask the person before
+  you submit rather than guessing — a question is for a decision only a human
+  can make, not for something you could have settled by reading the code.
+  `open_questions` is for what is still undecided when you submit; once you
+  have asked, it is usually empty.
 - Be honest in `risk`. A plan that touches shared state or has no test coverage
   is not low risk because you feel confident.
 
@@ -57,9 +61,21 @@ reachable by URL alone: the capturer opens a path at a viewport width and takes
 a picture, it does not click through a journey. Leave it empty for work with no
 visible surface. {{seed}}
 
+`orientation` hands on what reading the repo taught you. In Progress starts
+from a fresh context and does the work in a worker with a fresher one still,
+and in a big codebase finding its way about again costs it more than anything
+else. List the files and directories it should know before it starts: what
+each holds and why it matters here, the tests that cover the area, and any
+helper it should reuse rather than rewrite.
+
+`focused_tests` is the command that runs only the tests covering this change,
+so the build can check its work as it goes and run the whole suite once at the
+end. Work it out from the repo's own test runner, and leave it empty if there
+is no way to run a subset.
+
 Leave `mockups` empty unless a Mockups section below asks you to draw them.
 
 There is no `plan_markdown`. The harness composes the plan document from the
 fields above, so everything you want a reader to see belongs in one of them.
-{{suggesting}}{{mockups}}{{answers}}{{reviewNotes}}
+{{suggesting}}{{mockups}}
 {{notes}}

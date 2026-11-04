@@ -5,10 +5,20 @@ import { STAGE_LABELS, nextStage, type GlossReviewResponse, type Stage, type Sto
 import { blockedMove } from './blockers.js';
 import { cardActivity, entryRefusal } from './board.js';
 import type { Db } from './db/client.js';
-import { getCard, getRun, insertCardEvent, listRepos, liveTaskRun, reviewsForCard } from './db/queries.js';
+import {
+  getCard,
+  getRun,
+  insertCardEvent,
+  latestDeliverableRun,
+  listRepos,
+  liveStageRun,
+  liveTaskRun,
+  reviewsForCard,
+} from './db/queries.js';
 import type { Card, Repo, Run } from './db/schema.js';
 import { failureOutput } from './git/worktree.js';
 import { shellQuote } from './handoff.js';
+import { sendToCard } from './conversation.js';
 import { approveStage, sendBackForRevision } from './review.js';
 import { ensureDevServer, waitForServer } from './runs/devServer.js';
 import type { EventWriter } from './runs/events.js';
@@ -242,7 +252,7 @@ async function finishRound(
     const card = getCard(db, session.cardId);
     const repo = card?.repoId ? listRepos(db).find((p) => p.id === card.repoId) : undefined;
     const stale = staleReason(db, card, repo, session.stage, reviewedRunId);
-    const run = card && cardActivity(db, card).run;
+    const run = card ? latestDeliverableRun(db, card.id, card.stage) : undefined;
     if (stale || !card || !repo || !run) {
       // The window would otherwise wait on a round no one is going to answer.
       await gloss(session, 'close').catch(() => {});
@@ -355,9 +365,11 @@ function staleReason(
   if (runRegistry.all().some((r) => r.cardId === card.id && r.kind === 'claude' && !r.outOfBand)) {
     return 'Claude is running on the card';
   }
-  const { activity, run } = cardActivity(db, card);
+  // The stage's submitted work, as the route reads it: a question asked
+  // about the build since does not make the round stale; a new submission does.
+  const run = latestDeliverableRun(db, card.id, card.stage);
   if (run?.id !== reviewedRunId) return 'a newer run replaced the build reviewed';
-  if (activity !== 'needs_review') return 'the build is no longer waiting for review';
+  if (liveStageRun(db, card.id)) return 'Claude is running on the card';
   return null;
 }
 
@@ -442,4 +454,92 @@ function pagePath(page: string | null): string | null {
   } catch {
     return page;
   }
+}
+
+// ---------------------------------------------------------------------------
+// A mockup, in Gloss
+// ---------------------------------------------------------------------------
+
+export const GLOSS_MOCKUP_TASK = 'gloss_mockup';
+
+/**
+ * Review one of the mockups Planning drew, in Gloss, before anything is built:
+ * the HTML Claude wrote, served by this server (see the mockup route in
+ * routes/detail.ts) and opened in a Gloss window. One round, not a loop —
+ * there is no build to reload onto — and its comments go into the card's
+ * conversation, framed so Claude revises the mockup and the plan with it.
+ * An approval is recorded and moves nothing: the plan has its own gate.
+ */
+export async function startMockupReview(
+  db: Db,
+  writer: EventWriter,
+  card: Card,
+  worktreePath: string,
+  label: string,
+  url: string,
+): Promise<GlossStart> {
+  try {
+    await exec('gloss', ['--help'], { timeout: GLOSS_TIMEOUT_MS });
+  } catch (cause) {
+    return (cause as { code?: unknown }).code === 'ENOENT'
+      ? { ok: false, error: 'gloss is not installed', detail: 'there is no gloss on the server’s PATH', status: 400 }
+      : { ok: false, error: 'gloss did not run', detail: failureOutput(cause, GLOSS_TIMEOUT_MS), status: 400 };
+  }
+  const live = liveTaskRun(db, card.id, GLOSS_MOCKUP_TASK);
+  if (live) return { ok: true, runId: live.id, url: live.url ?? url, reused: true };
+
+  const session: Session = { cardId: card.id, stage: card.stage as Stage, cwd: worktreePath, name: `reeve-mockup-${card.id.slice(0, 8)}`, url };
+  try {
+    await gloss(session, 'open', url);
+  } catch (cause) {
+    return { ok: false, error: 'Gloss did not open', detail: failureOutput(cause, GLOSS_TIMEOUT_MS), status: 409 };
+  }
+
+  const out: string[] = [];
+  const handle = startShellRun({
+    db, writer, cardId: card.id, stage: card.stage,
+    command: `gloss wait --name ${shellQuote(session.name)}`,
+    cwd: worktreePath,
+    task: GLOSS_MOCKUP_TASK,
+    onLine: (kind, line) => {
+      if (kind === 'stdout') out.push(line);
+    },
+  });
+  void handle.done.then(async (result) => {
+    try {
+      if (result.stopReason === 'cancelled_by_user' || result.exitCode !== 0) {
+        await gloss(session, 'close').catch(() => {});
+        return;
+      }
+      const text = out.join('\n');
+      const parsed = glossVerdict.safeParse(JSON.parse(text.slice(text.indexOf('{'))));
+      if (!parsed.success) throw new Error('the verdict was not in the shape expected');
+      const comments = parsed.data.comments.filter((c) => c.body.trim());
+      if (parsed.data.approved || comments.length === 0) {
+        await gloss(session, 'close').catch(() => {});
+        insertCardEvent(db, {
+          cardId: card.id, actor: 'human', kind: 'gloss_reviewed', stage: card.stage,
+          runId: handle.runId, body: `The mockup “${label}” was approved in Gloss.`, meta: { outcome: 'mockup_approved', label },
+        });
+        return;
+      }
+      const fresh = getCard(db, card.id);
+      if (!fresh) return;
+      const notes = formatNotes(parsed.data, comments);
+      const sent = await sendToCard(db, writer, fresh, `**${comments.length} comment${comments.length === 1 ? '' : 's'} on the mockup “${label}”**\n\n${notes}`, {
+        actor: 'human',
+        source: 'gloss',
+        prompt:
+          `The person reviewed your mockup “${label}” — the HTML you drew while planning — in Gloss, and left these comments:\n\n${notes}\n\n` +
+          'Redraw the mockup to answer them, change the plan where they change what is to be built, and submit the plan again.',
+      });
+      await gloss(session, 'ready', sent.ok ? 'Your comments are with Claude, in the card’s conversation.' : `Reeve could not send them: ${sent.error}`).catch(() => {});
+    } catch (err) {
+      insertCardEvent(db, {
+        cardId: card.id, actor: 'human', kind: 'gloss_reviewed', stage: card.stage,
+        runId: handle.runId, body: `Mockup review ended badly: ${String(err)}`, meta: { outcome: 'failed', label },
+      });
+    }
+  });
+  return { ok: true, runId: handle.runId, url, reused: false };
 }

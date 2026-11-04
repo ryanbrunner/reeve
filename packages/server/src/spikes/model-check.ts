@@ -41,7 +41,7 @@ for (const model of ['opus', 'sonnet', 'haiku']) {
 const repo = createRepo(db, {
   name: `model-check-${Date.now()}`,
   repoPath: '/tmp/x', worktreeRoot: '/tmp/x', defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const card = createCard(db, { title: 'probe', repoId: repo.id, stage: 'planning' });
@@ -58,12 +58,12 @@ function check(name: string, want: string, task: Pick<ClaudeTask, 'model' | 'eff
 }
 
 try {
-  const unset = { model: null, effort: null };
+  const unset = { model: null, effort: null, maxBudgetUsd: null };
   updateSettings(db, { stageDefaults: { planning: unset, in_progress: unset, testing: unset } });
   check('nothing set, planning', 'null / high', planning, 'planning');
   check('nothing set, suggest', 'null / medium', suggestCriteriaTask, 'planning');
 
-  updateSettings(db, { stageDefaults: { in_progress: { model: 'sonnet', effort: 'low' } } });
+  updateSettings(db, { stageDefaults: { in_progress: { model: 'sonnet', effort: 'low', maxBudgetUsd: null } } });
   check('settings default, in progress', 'sonnet / low', inProgress, 'in_progress');
   check('settings default is per stage', 'null / high', planning, 'planning');
 

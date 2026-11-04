@@ -19,6 +19,8 @@ export interface ApiRepo {
   defaultBranch: string;
   setupCommand: string | null;
   testCommand: string | null;
+  /** The tests near a change, `{{paths}}` standing for them. Named in prompts; Reeve never runs it. */
+  focusedTestCommand: string | null;
   /** Run by Testing, with the card's server stopped, before it takes screenshots. */
   seedCommand: string | null;
   serverCommand: string | null;
@@ -29,22 +31,6 @@ export interface ApiRepo {
   laneColor: string | null;
   /** Fast-forward the repo's own `defaultBranch` when a card's pull request is merged. */
   syncDefaultBranch: boolean;
-}
-
-/**
- * Where a run's tokens went, summed across every model it used.
- *
- * The run's count is `input + output + cacheWrite`. Cache reads are carried so
- * the tooltip can show them, but they are not in the count: an agentic run
- * re-reads its whole context every turn, and counting that would make every
- * figure on the board mostly the same prompt read again.
- */
-export interface ApiTokenBreakdown {
-  input: number;
-  /** Thinking included: the SDK already counts it here. */
-  output: number;
-  cacheWrite: number;
-  cacheRead: number;
 }
 
 /**
@@ -75,19 +61,51 @@ export interface ApiRunSummary {
   model: string | null;
   effort: EffortLevel | null;
   stopReason: StopReason | null;
-  /**
-   * Input, output and cache-write tokens across every model the run used,
-   * subagents included. Null until the run has finished, and for a run that
-   * ended without a result to read them from.
-   */
-  totalTokens: number | null;
-  tokenBreakdown: ApiTokenBreakdown | null;
+  /** What the run cost, at list price: its own share of a forked session. Null until it has ended; live spend is on `pulse`. */
+  totalCostUsd: number | null;
+  /** What it was allowed to spend. */
+  budgetUsd: number | null;
   port: number | null;
   startedAt: number | null;
   finishedAt: number | null;
   errorMessage: string | null;
   /** Empty for almost every run. Not empty is a thing the human should see. */
   deniedToolUses: ApiToolDenial[];
+  /**
+   * How a live run is doing right now, read from the process running it: null
+   * once it has ended, and for a run this server is not the one running.
+   */
+  pulse: ApiRunPulse | null;
+}
+
+/**
+ * The signs of life of a run under way, for telling a long run from a stuck
+ * one: when it last produced anything, which calls it is waiting on and for
+ * how long, and what it has spent against its budget.
+ */
+export interface ApiRunPulse {
+  /** When the session last sent anything at all. */
+  lastEventAt: number;
+  /**
+   * Tool calls started and not yet answered, and shells left running in the
+   * background (verb `Background`), oldest first: the lead's and its worker's.
+   */
+  inFlight: Array<{ verb: string; target: string; since: number; worker: boolean; background: boolean }>;
+  /**
+   * Spent so far: exact as of the last turn's end, plus an estimate for the
+   * tokens since. Null for a model with no known price before its first turn ends.
+   */
+  costUsd: number | null;
+  /** False while any of `costUsd` is an estimate. */
+  costExact: boolean;
+  /** What the run may spend before the SDK stops it. */
+  budgetUsd: number | null;
+  /**
+   * How far the furthest loop has got toward `maxTurns`, which the SDK counts
+   * per loop: the lead's current turn, or a worker's whole run.
+   */
+  turns: number;
+  maxTurns: number | null;
 }
 
 export interface ApiCard {
@@ -116,7 +134,7 @@ export interface ApiCard {
   mergedSha: string | null;
   /** Set for those, and for a card whose pull request has merged on GitHub. */
   mergedAt: number | null;
-  /** The pull request the branch was opened as, once Done has pushed it. */
+  /** The pull request the branch was opened as, once Release has pushed it. */
   prUrl: string | null;
   prNumber: number | null;
   prOpenedAt: number | null;
@@ -128,7 +146,7 @@ export interface ApiCard {
   openingPr: boolean;
   /**
    * GitHub last said the pull request cannot merge for conflicts with its base.
-   * Only ever set on a Done card with an open pull request, and only by
+   * Only ever set on a Release card with an open pull request, and only by
    * GitHub's own verdict, so it can lag a push by one sync.
    */
   prConflicting: boolean;
@@ -160,6 +178,9 @@ export interface ApiCard {
    */
   model: string | null;
   effort: EffortLevel | null;
+  /** This card's limits for every stage run, the same way. Null falls through. */
+  maxBudgetUsd: number | null;
+  maxTurns: number | null;
   /** Whether Planning draws its own mockups of the states this card changes. */
   generateMockups: boolean;
   /**
@@ -180,6 +201,13 @@ export interface ApiCard {
    * part.
    */
   dependsOn: ApiCardLink[];
+  /**
+   * The one of `dependsOn` this card builds on while it has not merged, or may
+   * build on now: its branch is this card's base, so it does not hold the card
+   * back, and only Release waits for its pull request (see stacks.ts on the
+   * server). Null for a card with nothing to stack on.
+   */
+  stackedOn: ApiCardLink | null;
   /**
    * Live cards waiting on this one, by id. Ids rather than a count because the
    * board lights them up when this card is hovered; the face only shows how
@@ -206,6 +234,22 @@ export interface ApiCard {
    * turns into exit codes; this is a fact about the card, as merged is.
    */
   pendingSuggestion: boolean;
+  /**
+   * A submitted `needs_review` card whose own stage judged the work failing —
+   * a criterion Testing marked `fail`, or a `passed: false` report — rather
+   * than merely asking a question, which is `needs_input` instead. A card
+   * fact like `isMerged`, for the same reason: it is read from the stage's
+   * `failed` hook, not stored, and always false outside `needs_review` so a
+   * running or freshly-started card never shows it.
+   */
+  reviewFailed: boolean;
+  /**
+   * What Claude is waiting on the person for, in a line, when the card is
+   * `needs_input`: the question it ended its turn on, or the command it asked
+   * to run. The board card shows it, so a waiting card says why without being
+   * opened. Null otherwise.
+   */
+  waitingOn: string | null;
   /** Sub-state within the column. Derived from `latestRun`, never stored. */
   activity: CardActivity;
   /**
@@ -217,7 +261,7 @@ export interface ApiCard {
   latestRun: ApiRunSummary | null;
   /**
    * The card has an In Progress run that finished, which is what Testing and
-   * Done need before a card may enter them (see `stageEntryRefusal`). Derived
+   * Release need before a card may enter them (see `stageEntryRefusal`). Derived
    * from the runs, never stored. `latestRun` cannot answer it: it only ever
    * holds the current stage's run, and the question is asked of cards that are
    * not in In Progress.
@@ -237,12 +281,12 @@ export interface ApiCardLink {
   repoName: string | null;
   title: string;
   /**
-   * It has stopped holding anything up: in Done with its pull request merged or
+   * It has stopped holding anything up: in Release with its pull request merged or
    * with none, or archived. Worked out on the server; nothing else decides it.
    */
   done: boolean;
   /**
-   * In Done, and not `done` only because its pull request has not merged. Lets
+   * In Release, and not `done` only because its pull request has not merged. Lets
    * a chip say "PR not merged" rather than suggest the work is still going on.
    */
   awaitingMerge: boolean;
@@ -261,10 +305,10 @@ export interface ApiProject {
   /** Live tasks under it. */
   taskCount: number;
   /**
-   * Tasks under it that were archived from Done: finished, then swept off the
+   * Tasks under it that were archived from Release: finished, then swept off the
    * board. The lane's progress bar counts its live tasks from the board's own
-   * cards and adds these to Done, because the merge sweep archives a merged
-   * task ten minutes after it lands, and without them the Done segment would
+   * cards and adds these to Release, because the merge sweep archives a merged
+   * task ten minutes after it lands, and without them the Release segment would
    * grow at each merge and shrink again once the sweep ran. A task archived
    * from any other column was dropped on purpose and is counted nowhere.
    */
@@ -310,8 +354,8 @@ export interface VibesState {
   reviewsSkipped: number;
   /** Questions Claude was handed back to itself. */
   questionsSelfAnswered: number;
-  /** The tokens every run since then has used, counted as a run's own figure is. */
-  spendTokens: number;
+  /** What every run since then has cost, at list price, summed the same way a run's own figure is. */
+  spendUsd: number;
   /** Cards Claude has moved a column on its own. */
   moves: number;
   /** Cards Claude thought of itself, once a repo had nothing left to do. */
@@ -398,6 +442,7 @@ export interface CreateRepoBody {
   defaultBranch?: string;
   setupCommand?: string | null;
   testCommand?: string | null;
+  focusedTestCommand?: string | null;
   seedCommand?: string | null;
   serverCommand?: string | null;
   serverUrl?: string | null;
@@ -424,10 +469,23 @@ export function freeLaneColor(taken: readonly (string | null)[]): string {
   return LANE_COLORS.find((c) => !taken.includes(c)) ?? LANE_COLORS[0];
 }
 
-/** A model and effort for one stage's runs. Null means "not set here": the next layer down decides. */
+/** A model, effort and limits for one stage's runs. Null means "not set here": the next layer down decides. */
 export interface StageRunDefault {
   model: string | null;
   effort: EffortLevel | null;
+  /** Dollars a run may spend before the SDK stops it. */
+  maxBudgetUsd: number | null;
+  /** API calls one loop may make, the lead's turn or a worker's run, before the SDK stops it. */
+  maxTurns: number | null;
+  /** The stage's own prompt template, in place of the file Reeve ships. Null means "use the file on disk". */
+  prompt: string | null;
+  /**
+   * Whether the stage's runs may call the advisor (the server-side tool
+   * `advisorModel` in Claude Code's own settings turns on): false switches it
+   * off for that stage, true leaves it as Claude Code has it. Null means the
+   * stage module's own default, which is off for Testing and Release.
+   */
+  advisor: boolean | null;
 }
 
 export type StageRunDefaults = Record<RunnableStage, StageRunDefault>;
@@ -453,7 +511,7 @@ export interface ApiSettings {
 /** A stage left out of `stageDefaults` is left as it was, so saving one row cannot wipe the others. */
 export interface UpdateSettingsBody {
   maxConcurrentRuns?: number;
-  stageDefaults?: Partial<StageRunDefaults>;
+  stageDefaults?: Partial<Record<RunnableStage, Partial<StageRunDefault>>>;
   /**
    * The VIBES MODE switch. A boolean rather than the timestamp it sets, because
    * "on" must not silently restart the clock — flipping it while it is already
@@ -506,7 +564,7 @@ export interface MoveCardBody {
 }
 
 /**
- * Archiving a project takes its Done cards with it. Its open cards are
+ * Archiving a project takes its Release cards with it. Its open cards are
  * refused, not taken: they are work still going on. `detachOpen` is the
  * caller saying it has seen them, and moves them to No project instead.
  * Ignored for a task.
@@ -524,7 +582,7 @@ export interface SuggestionDecisionBody {
   decision: 'accepted' | 'rejected';
 }
 
-/** The counts only for a project: how many Done cards went with it, and how many open ones were moved out. */
+/** The counts only for a project: how many Release cards went with it, and how many open ones were moved out. */
 export interface ArchiveCardResponse {
   ok: true;
   archived?: number;

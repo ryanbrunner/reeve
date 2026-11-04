@@ -1,5 +1,4 @@
 import type { VibesState } from '@reeve/shared';
-import { tokens } from '../card/format.js';
 
 /**
  * The scoreboard along the bottom: six numbers and a running log of what
@@ -23,7 +22,7 @@ export function VibesHud({ state, pop }: { state: VibesState; pop: boolean }) {
       <Stat label="Reviews skipped" value={state.reviewsSkipped} />
       <Stat label="Questions self-answered" value={state.questionsSelfAnswered} />
       <Stat label="Ideas of its own" value={state.ideas} />
-      <Stat label="Tokens" value={tokens(state.spendTokens)} zero={state.spendTokens === 0} />
+      <Stat label="Spent" value={`$${state.spendUsd.toFixed(3)}`} zero={state.spendUsd === 0} />
       <div className="sk-log">
         {/* Two deep: the newest in white, the one before it faded out. */}
         {state.log.slice(0, 2).map((line, i) => (

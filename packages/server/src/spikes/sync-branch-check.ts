@@ -73,14 +73,14 @@ const db = openDatabase(join(root, 'reeve.db'));
 runMigrations(db);
 const repo = createRepo(db, {
   name: 'sync-branch-check', repoPath, worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 check('the switch is off by default', repo.syncDefaultBranch === false);
 
 let prs = 0;
 /**
- * A pull request landing on GitHub, for a Done card that opened it: `origin`
+ * A pull request landing on GitHub, for a Release card that opened it: `origin`
  * moves, `gh` says merged, and the local checkout has heard of neither until
  * the next sync.
  */
@@ -92,7 +92,7 @@ function merge(title: string, base = 'main') {
     join(ghState, url.replace(/[/:]/g, '_')),
     JSON.stringify({ state: 'MERGED', mergedAt: new Date().toISOString(), mergeCommit: { oid: sha }, baseRefName: base, mergeable: 'UNKNOWN' }),
   );
-  const c = createCard(db, { title, repoId: repo.id, stage: 'done' });
+  const c = createCard(db, { title, repoId: repo.id, stage: 'release' });
   db.update(cardTable).set({ prUrl: url, prNumber: prs, prOpenedAt: new Date() }).where(eq(cardTable.id, c.id)).run();
   return { card: c, sha };
 }

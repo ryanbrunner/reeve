@@ -17,6 +17,7 @@ import type {
   CreateCardBody,
   CreateRepoBody,
   CritReviewResponse,
+  ApiConversation,
   EffortLevel,
   GlossReviewResponse,
   HandoffResponse,
@@ -25,6 +26,7 @@ import type {
   MoveCardBody,
   ResolveConflictsResponse,
   Stage,
+  StageRunDefaults,
   SuggestionDecisionBody,
   UpdateRepoBody,
   UpdateSettingsBody,
@@ -57,6 +59,8 @@ export const api = {
   updateSettings: (body: UpdateSettingsBody) => patch('/api/settings', body).then(json<ApiSettings>),
   /** What the Claude CLI offers. Empty when it could not be asked; the pickers then offer defaults only. */
   models: () => fetch('/api/models').then(json<ModelsResponse>),
+  /** Each stage's own model, budget and prompt, without asking the CLI for anything — fast, unlike `models()`. */
+  stageDefaults: () => fetch('/api/stage-defaults').then(json<StageRunDefaults>),
 
   // --- repos ---
   createRepo: (body: CreateRepoBody) => post('/api/repos', body).then(json<ApiRepo>),
@@ -89,6 +93,8 @@ export const api = {
       repoId?: string | null;
       model?: string | null;
       effort?: EffortLevel | null;
+      maxBudgetUsd?: number | null;
+      maxTurns?: number | null;
       generateMockups?: boolean;
       vibes?: boolean;
     },
@@ -119,6 +125,24 @@ export const api = {
     post(`/api/cards/${id}/dependencies`, body).then(json<{ ok: true }>),
   removeDependency: (id: string, dependsOnId: string) =>
     del(`/api/cards/${id}/dependencies/${dependsOnId}`).then(json<{ ok: true }>),
+
+  // --- the conversation ---
+  /** Every stage's conversation with Claude, projected from its runs' events. */
+  conversation: (id: string) => fetch(`/api/cards/${id}/conversation`).then(json<ApiConversation>),
+  /** Into the live run, or carrying the stage's conversation on in a new one. */
+  sendMessage: (id: string, text: string) =>
+    post(`/api/cards/${id}/messages`, { text }).then(
+      json<{ ok: true; delivered: 'answered' | 'live' | 'resumed' | 'started'; runId: string }>,
+    ),
+  /** Allow, once, a call auto mode refused, and have Claude make it again. */
+  allowOnce: (id: string, runId: string, toolUseId: string) =>
+    post(`/api/cards/${id}/allow`, { runId, toolUseId }).then(json<{ ok: true; delivered: string; runId: string }>),
+  /** One stored event of a run, whole: a conversation row's full tool output. */
+  runEvent: (runId: string, seq: number) =>
+    fetch(`/api/runs/${runId}/events/${seq}`).then(json<{ seq: number; kind: string; payload: unknown }>),
+  /** Answer what a live run is parked on: a permission, or a question's options. */
+  answerAsk: (id: string, askId: string, body: { decision: 'allow' | 'deny'; session?: boolean; reason?: string | null } | { answers: Record<string, string> }) =>
+    post(`/api/cards/${id}/asks/${askId}`, body).then(json<{ ok: true }>),
 
   // --- talking back to Claude ---
   /** Answering the last open question resumes the run that asked. */
@@ -155,7 +179,7 @@ export const api = {
   removeWorktree: (id: string) => del(`/api/cards/${id}/worktree`).then(json<{ ok: true; forced: boolean }>),
   /**
    * Push the branch and open its pull request, or push to the one already
-   * open. Entering Done does this on its own; this is the retry.
+   * open. Entering Release does this on its own; this is the retry.
    */
   openPr: (id: string) =>
     post(`/api/cards/${id}/pr`, {}).then(json<{ ok: true; url: string; number: number; reused: boolean }>),
@@ -167,9 +191,14 @@ export const api = {
   /** Writes `.reeve/handoff.md` into the worktree and answers with the command to paste. */
   handoff: (id: string) => post(`/api/cards/${id}/handoff`, {}).then(json<HandoffResponse>),
   /** Opens the plan in Crit, or answers with the review already open. Finishing there is the verdict. */
-  reviewWithCrit: (id: string) => post(`/api/cards/${id}/crit`, {}).then(json<CritReviewResponse>),
+  /** The plan, or the branch's changes, opened in Crit. */
+  reviewWithCrit: (id: string, target: 'plan' | 'changes' = 'plan') =>
+    post(`/api/cards/${id}/crit`, { target }).then(json<CritReviewResponse>),
   /** Opens the running app in Gloss, or answers with the round already waiting. Each round there is a verdict. */
   reviewWithGloss: (id: string) => post(`/api/cards/${id}/gloss`, {}).then(json<GlossReviewResponse>),
+  /** One of Planning's drawn mockups, opened in Gloss: its comments go to the conversation. */
+  reviewMockupInGloss: (id: string, runId: string, label: string) =>
+    post(`/api/cards/${id}/gloss-mockup`, { runId, label }).then(json<GlossReviewResponse>),
 };
 
 /** A column's cards in order, or only one lane's of them when a project is given: null is No project. */

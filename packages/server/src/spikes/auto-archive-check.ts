@@ -26,7 +26,7 @@ const db = openDatabase(join(root, 'reeve.db'));
 runMigrations(db);
 const repo = createRepo(db, {
   name: 'auto-archive-check', repoPath: join(root, 'repo'), worktreeRoot: join(root, 'worktrees'), defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 
@@ -35,9 +35,9 @@ const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000);
 const delay = config.autoArchiveAfterMs;
 note('archive after (ms)', delay);
 
-/** A Done card, merged at `mergedAt` if given. */
+/** A Release card, merged at `mergedAt` if given. */
 function card(title: string, mergedAt?: Date) {
-  const c = createCard(db, { title, repoId: repo.id, stage: 'done' });
+  const c = createCard(db, { title, repoId: repo.id, stage: 'release' });
   if (mergedAt) db.update(cardTable).set({ mergedAt }).where(eq(cardTable.id, c.id)).run();
   return c.id;
 }

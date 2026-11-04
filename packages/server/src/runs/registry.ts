@@ -1,4 +1,4 @@
-import type { RunKind, StopReason } from '@reeve/shared';
+import type { ApiRunPulse, RunKind, StopReason } from '@reeve/shared';
 
 export interface ActiveRun {
   runId: string;
@@ -6,8 +6,16 @@ export interface ActiveRun {
   cardId: string;
   /** A task beside the card's stage, which does not hold the card's run lock. See ClaudeTask.outOfBand. */
   outOfBand?: boolean;
+  /**
+   * Put a person's message into the live session: folded into the turn under
+   * way, or the start of the next. False once the run has stopped listening,
+   * when the caller resumes instead. Absent on runs that are no conversation.
+   */
+  send?: (text: string) => boolean;
   /** Best-effort graceful stop, then force. Resolves once the run is terminal. */
   stop: (reason: StopReason) => Promise<void>;
+  /** How the run is doing right now: see ApiRunPulse. Absent on runs that keep none. */
+  pulse?: () => ApiRunPulse;
 }
 
 /**

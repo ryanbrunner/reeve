@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { isTerminal, type ApiAsset, type CardDetail } from '@reeve/shared';
+import type { ApiAsset, CardDetail } from '@reeve/shared';
 import { api } from '../../lib/api.js';
 import { when } from '../format.js';
 import { Lightbox } from '../Lightbox.js';
@@ -27,18 +27,17 @@ export function PlanTab({ detail }: { detail: CardDetail }) {
 
   return (
     <>
-      <CritReview detail={detail} />
-      <div className="grid grid-cols-[minmax(0,1fr)_312px] gap-6">
-        <div className="flex flex-col gap-4">
-          {plan.details.map((section) => (
-            <section key={section.heading} className="flex flex-col gap-2">
-              <SectionHead>{section.heading}</SectionHead>
-              <Markdown>{section.body}</Markdown>
-            </section>
-          ))}
-          {plan.details.length === 0 && <Empty><InlineMarkdown>{plan.summary}</InlineMarkdown></Empty>}
-        </div>
-        <Designs detail={detail} />
+      {/* Stacked, designs first: the plan lives in a 420px panel beside the
+          conversation, and side by side there it was a column a word wide. */}
+      <Designs detail={detail} />
+      <div className="flex flex-col gap-4">
+        {plan.details.map((section) => (
+          <section key={section.heading} className="flex flex-col gap-2">
+            <SectionHead>{section.heading}</SectionHead>
+            <Markdown>{section.body}</Markdown>
+          </section>
+        ))}
+        {plan.details.length === 0 && <Empty><InlineMarkdown>{plan.summary}</InlineMarkdown></Empty>}
       </div>
 
       <section className="flex flex-col gap-2">
@@ -93,95 +92,6 @@ export function PlanTab({ detail }: { detail: CardDetail }) {
   );
 }
 
-/**
- * Review the plan in Crit, line by line, instead of in one text box.
- *
- * The verdict comes from Crit rather than from here: comments left there send
- * the plan back as a revision, and finishing with none approves it. So this
- * only opens the review, links back to it, and stops it.
- */
-function CritReview({ detail }: { detail: CardDetail }) {
-  const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
-  // Returned rather than fired, as Suggest does, so the button stays pending
-  // until the refetch has the run in it and `live` below takes over.
-  const open = useMutation({
-    mutationFn: () => api.reviewWithCrit(detail.card.id),
-    onSuccess: invalidate,
-  });
-
-  // Read off the card's runs, newest first, so a modal opened again finds the
-  // review still open.
-  const last = detail.runs.find((r) => r.task === 'crit_review');
-  const live = last && !isTerminal(last.status) ? last : null;
-  const stop = useMutation({ mutationFn: (runId: string) => api.stopRun(runId), onSuccess: invalidate });
-
-  // An approval moves the card, and the board does not poll. The modal does,
-  // so the review ending is noticed here and passed on.
-  const isLive = Boolean(live);
-  const wasLive = useRef(isLive);
-  useEffect(() => {
-    if (wasLive.current && !isLive) void qc.invalidateQueries({ queryKey: ['board'] });
-    wasLive.current = isLive;
-  }, [isLive, qc]);
-
-  const { card, worktree } = detail;
-  const blocked =
-    card.stage !== 'planning' ? 'Only a plan in Planning can be reviewed in Crit.'
-    // Before `activity`, which still reads as the last run's until the next
-    // one exists: a revision starting is not a plan to review.
-    : card.startingStage ? 'Claude is starting on the plan. Wait for it to finish.'
-    : card.activity === 'running' ? 'Claude is working on the plan. Wait for it to finish.'
-    : card.activity === 'needs_input' ? 'Answer Claude’s questions first.'
-    : card.activity !== 'needs_review' ? 'The plan is not ready for review.'
-    : !worktree.path || !worktree.exists ? 'The worktree is missing from disk.'
-    : null;
-  // The URL Crit printed, while it is this review's; the port on the row, for
-  // a modal opened since.
-  const opened = open.data;
-  const href = !live ? null
-    : opened?.runId === live.id && opened.url ? opened.url
-    : live.port ? `http://127.0.0.1:${live.port}`
-    : null;
-  const error = open.error ?? stop.error;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-2">
-        {live ? (
-          <>
-            {href ? (
-              <a
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono text-[11px]/4 text-sky-300 no-underline hover:underline"
-              >
-                Open in Crit
-              </a>
-            ) : (
-              <span className="font-mono text-[11px]/4 text-(--color-muted)">Crit opened in your browser.</span>
-            )}
-            <SmallButton busy={stop.isPending} onClick={() => stop.mutate(live.id)}>
-              {stop.isPending ? 'Stopping…' : 'Stop'}
-            </SmallButton>
-          </>
-        ) : (
-          <SmallButton tone="sky" disabled={Boolean(blocked)} busy={open.isPending} onClick={() => open.mutate()}>
-            {open.isPending ? 'Opening Crit…' : 'Review with Crit'}
-          </SmallButton>
-        )}
-        {(live || blocked) && (
-          <p className="font-mono text-[10px]/4 text-(--color-muted)">
-            {live ? 'Comments come back as feedback. Finish Review with no comments approves the plan.' : blocked}
-          </p>
-        )}
-      </div>
-      {error && <p className="font-mono text-[10px]/4 text-red-300">{error.message}</p>}
-    </div>
-  );
-}
-
 function Designs({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const file = useRef<HTMLInputElement>(null);
@@ -227,15 +137,10 @@ function Designs({ detail }: { detail: CardDetail }) {
         }}
       />
       {mockups.length === 0 ? (
-        <Empty>
-          None attached. A mockup with a page and a width is what tells Testing which screen to
-          photograph.
-          {!detail.card.generateMockups &&
-            ' Tick Generate mockups in the Brief for Claude to draw its own while planning.'}
-        </Empty>
+        <Empty>None</Empty>
       ) : (
         <div className="flex flex-wrap gap-3">
-          {mockups.map((m) => <Thumb key={m.id} asset={m} onRemove={() => remove.mutate(m.id)} />)}
+          {mockups.map((m) => <Thumb key={m.id} asset={m} cardId={detail.card.id} onRemove={() => remove.mutate(m.id)} />)}
         </div>
       )}
       {error && <p className="font-mono text-[10px]/4 text-red-300">{error}</p>}
@@ -243,8 +148,15 @@ function Designs({ detail }: { detail: CardDetail }) {
   );
 }
 
-function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
+function Thumb({ asset, cardId, onRemove }: { asset: ApiAsset; cardId: string; onRemove: () => void }) {
   const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+  // A mockup Claude drew is HTML underneath, which Gloss can open and a
+  // person can comment on before anything is built. A person's is a picture.
+  const gloss = useMutation({
+    mutationFn: () => api.reviewMockupInGloss(cardId, asset.runId!, asset.label),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['card', cardId] }),
+  });
   // Stable, or every poll of the card would re-run the lightbox's effect.
   const close = useCallback(() => setOpen(false), []);
   const kind = asset.runId ? 'Mockup by Claude' : 'Mockup';
@@ -274,7 +186,17 @@ function Thumb({ asset, onRemove }: { asset: ApiAsset; onRemove: () => void }) {
         <span className="truncate">{asset.label}</span>
         <span className="flex shrink-0 items-baseline gap-2">
           {/* A mockup with a run is one Planning drew; a person's has none. */}
-          {asset.runId && <span className="text-sky-300">by Claude</span>}
+          {asset.runId && (
+            <button
+              type="button"
+              onClick={() => gloss.mutate()}
+              disabled={gloss.isPending}
+              title={gloss.error ? gloss.error.message : 'Open in Gloss and comment on it'}
+              className={gloss.error ? 'text-red-300' : 'text-sky-300 hover:underline'}
+            >
+              {gloss.isPending ? 'opening…' : gloss.isSuccess ? 'in Gloss' : 'Gloss'}
+            </button>
+          )}
           <button type="button" onClick={onRemove} aria-label={`Remove ${asset.label}`} className="hover:text-red-300">
             ✕
           </button>

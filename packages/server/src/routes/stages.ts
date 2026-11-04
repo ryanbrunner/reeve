@@ -8,6 +8,8 @@ import {
   artifactsForCard,
   getCard,
   latestClaudeRunForStage,
+  latestDeliverableRun,
+  liveStageRun,
   listRepos,
   reviewsForCard,
 } from '../db/queries.js';
@@ -40,8 +42,9 @@ export function stageRoutes(db: Db, writer: EventWriter) {
 
   /**
    * Kick off the current stage's Claude run, making the worktree first if there
-   * isn't one. A card entering a runnable column starts on its own; this is
-   * the Run button, for a card that didn't, or whose run failed.
+   * isn't one. A card entering a runnable column starts on its own, except
+   * Release, which never does; this is the Run button, for a card that
+   * didn't start, whose run failed, or that is Release waiting to be asked.
    */
   routes.post('/:id/run', async (c) => {
     const loaded = load(c.req.param('id'));
@@ -66,9 +69,14 @@ export function stageRoutes(db: Db, writer: EventWriter) {
     if (!parsed.success) return c.json({ error: 'invalid review', detail: parsed.error.message }, 400);
     const { decision, notes } = parsed.data;
 
-    const lastRun = latestClaudeRunForStage(db, card.id, card.stage);
-    if (!lastRun || lastRun.status !== 'succeeded') {
-      return c.json({ error: 'nothing to review', detail: `latest run is ${lastRun?.status ?? 'absent'}` }, 409);
+    // The work Claude last submitted in this column, while nothing is running
+    // on top of it: a reply after the submission does not take it away.
+    const live = liveStageRun(db, card.id);
+    if (live) return c.json({ error: 'nothing to review', detail: `a run is ${live.status}` }, 409);
+    const lastRun = latestDeliverableRun(db, card.id, card.stage);
+    if (!lastRun) {
+      const latest = latestClaudeRunForStage(db, card.id, card.stage);
+      return c.json({ error: 'nothing to review', detail: `latest run is ${latest?.status ?? 'absent'}` }, 409);
     }
 
     if (decision === 'approved') {
@@ -85,7 +93,7 @@ export function stageRoutes(db: Db, writer: EventWriter) {
       // approved verdict for a card that went nowhere.
       const blocked = blockedMove(db, card, to);
       if (blocked) return c.json({ error: blocked.error, detail: blocked.detail }, blocked.status);
-      // Approving Testing is a move into Done, which pushes the branch. A card
+      // Approving Testing is a move into Release, which pushes the branch. A card
       // that reached Testing without being built would push an empty one.
       const refusal = entryRefusal(db, card, to);
       if (refusal) return c.json({ error: 'not implemented', detail: refusal }, 409);

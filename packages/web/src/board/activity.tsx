@@ -61,10 +61,10 @@ export function shownActivity(card: Pick<ApiCard, 'activity' | 'startingStage'>)
 export const STARTING_LABEL = 'Starting';
 
 /**
- * A card whose pull request has landed, in Done, is finished, and wears it:
+ * A card whose pull request has landed, in Release, is finished, and wears it:
  * green, with a check in a circle. Not a `CardActivity`, which is read from
  * the card's runs and which `reeve card wait` turns into exit codes; this is a
- * fact about the card, and Done has no runs to colour it anyway. Only in Done,
+ * fact about the card, and Release has no runs to colour it anyway. Only in Release,
  * because a merged card dragged back for another round is running again, and
  * its activity is what matters there.
  *
@@ -72,7 +72,7 @@ export const STARTING_LABEL = 'Starting';
  * also green and means the opposite: that a person still has something to do.
  */
 export function isMerged(card: Pick<ApiCard, 'stage' | 'mergedAt'>): boolean {
-  return card.stage === 'done' && card.mergedAt != null;
+  return card.stage === 'release' && card.mergedAt != null;
 }
 
 export const MERGED_STYLE = 'card-glow card-glow-merged';
@@ -103,6 +103,20 @@ export const SUGGESTION_MARK = (
 );
 
 export const SUGGESTION_LABEL = 'Suggestion';
+
+/**
+ * A `needs_review` card whose own stage judged the work failing — a criterion
+ * Testing marked `fail`, say — rather than merely asking a question: red, in
+ * the error palette already used for a run that broke, with the same X. A
+ * card fact like `isMerged`, worked out by the server as `reviewFailed`
+ * rather than a sixth `CardActivity`: the gate still offers Approve and
+ * Reject exactly as it does for a clean pass, just coloured by the verdict.
+ */
+export const REVIEW_FAILED_STYLE = 'card-glow card-glow-error';
+
+export const REVIEW_FAILED_MARK = ACTIVITY_MARKS.error;
+
+export const REVIEW_FAILED_LABEL = 'Needs a fix';
 
 export function Mark({ children }: { children: React.ReactNode }) {
   return (

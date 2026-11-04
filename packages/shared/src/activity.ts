@@ -1,4 +1,4 @@
-import type { RunStatus } from './runs.js';
+import type { RunStatus, StopReason } from './runs.js';
 import { isRunnable, type Stage } from './stages.js';
 
 /**
@@ -17,6 +17,17 @@ export interface ActivityInput {
   status: RunStatus | null;
   /** The stage's own reading of its output: Claude needs something from the human. */
   awaitsInput: boolean;
+  /** Why that run ended, when it has. */
+  stopReason?: StopReason | null;
+}
+
+/**
+ * A run its budget or turn limit stopped, mid-work. Not broken: it ran out of
+ * room, and carrying on from where it stopped is the person's call, since that
+ * spends another budget. So it reads as waiting on them rather than failed.
+ */
+export function stoppedAtLimit(run: { status: RunStatus; stopReason?: StopReason | null } | null | undefined): boolean {
+  return run?.status === 'failed' && (run.stopReason === 'budget_exhausted' || run.stopReason === 'max_turns');
 }
 
 /**
@@ -25,7 +36,8 @@ export interface ActivityInput {
  * a question, not a deliverable, and the human should answer before reading it
  * as finished work.
  */
-export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActivity {
+export function deriveActivity({ status, awaitsInput, stopReason }: ActivityInput): CardActivity {
+  if (status !== null && stoppedAtLimit({ status, stopReason })) return 'needs_input';
   switch (status) {
     case null:
       return 'idle';
@@ -33,6 +45,11 @@ export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActi
     case 'running':
     case 'stopping':
       return 'running';
+    // Both are Claude waiting on the person, which is what needs_input has
+    // always meant: one inside a live turn, one at the end of a turn.
+    case 'asking':
+    case 'awaiting_reply':
+      return 'needs_input';
     case 'failed':
     case 'interrupted':
       return 'error';
@@ -57,6 +74,8 @@ export function deriveActivity({ status, awaitsInput }: ActivityInput): CardActi
  */
 const STARTABLE: readonly CardActivity[] = ['idle', 'error'];
 
-export function canStartRun(card: { stage: Stage; activity: CardActivity }): boolean {
+export function canStartRun(card: { stage: Stage; activity: CardActivity; mergedAt?: unknown }): boolean {
+  // A merged card's work has landed; Release has nothing left to prepare.
+  if (card.mergedAt != null) return false;
   return isRunnable(card.stage) && STARTABLE.includes(card.activity);
 }

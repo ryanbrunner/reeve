@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
-import { STAGE_LABELS, isTerminal, nextStage, type CardDetail } from '@reeve/shared';
+import { STAGE_LABELS, isTerminal, nextStage, recoveryFor, stoppedAtLimit, type CardDetail } from '@reeve/shared';
 import { useSuggestionDecision } from '../board/SuggestionButtons.js';
 import { api } from '../lib/api.js';
+import { CONTINUE_FAILED, CONTINUE_INTERRUPTED } from '../lib/continue.js';
 import { useArmed } from '../lib/armed.js';
 import { Button, Code, SmallButton } from './ui.js';
-import { duration, plural, tok } from './format.js';
+import { cost, duration, plural } from './format.js';
 import type { LiveRun } from './useCardDetail.js';
 
 /**
@@ -16,7 +17,7 @@ import type { LiveRun } from './useCardDetail.js';
  * that ended in questions is a question and never also a deliverable. An idle
  * card asks for nothing and the band is absent rather than empty.
  *
- * Done is the exception. Claude never runs there, so a Done card is always
+ * Release is the exception. Claude never runs there, so a Release card is always
  * idle — and that is exactly when there is one thing left to say about it:
  * where its pull request is, or why there is not one yet.
  *
@@ -33,39 +34,83 @@ export function AttentionBand({
   detail,
   live,
   onClose,
+  conversation = false,
 }: {
   detail: CardDetail;
   live: LiveRun | null;
   /** Rejecting a suggestion archives it, and the modal closes as Delete's does. */
   onClose: () => void;
+  /**
+   * Above the composer, in the conversation, rather than under the header.
+   * There, the composer is how a person talks back: sending a stage back is
+   * a reply, and what Claude is doing is the thread itself, so neither has a
+   * band of its own. What is left is what a reply cannot do — approve, merge,
+   * retry, decide on a suggestion — and a plan's own questions.
+   */
+  conversation?: boolean;
 }) {
   const { card } = detail;
-  if (card.stage === 'done' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
+  const frame = conversation
+    ? 'relative mb-2.5 rounded-lg border border-(--color-edge) bg-(--color-panel)/60 px-3 py-2.5'
+    : 'relative mt-3.5 border-t border-(--color-edge) pt-3.5';
+  if (card.stage === 'release' && (detail.worktree.path || card.mergedSha || card.prUrl)) {
+    // Merge is Release's gate, so the pull request is all this shows — with
+    // Retry beside it when the Release conversation itself has failed.
     return (
-      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+      <div className={frame}>
         <PullRequest detail={detail} />
+        {conversation && card.activity === 'error' && (
+          <div className="mt-2.5 border-t border-(--color-edge) pt-2.5"><Failed detail={detail} /></div>
+        )}
       </div>
     );
   }
   if (card.startingStage) {
     return (
-      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+      <div className={frame}>
         <Starting detail={detail} />
       </div>
     );
   }
   if (card.pendingSuggestion) {
     return (
-      <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
+      <div className={frame}>
         <Suggested detail={detail} onClose={onClose} />
       </div>
     );
   }
+
+  if (conversation) {
+    const openQuestions = detail.questions.some((q) => q.answer === null);
+    // Claude's submitted work still stands after a reply about it, so the
+    // gate stays while nothing is running on top of it.
+    const deliverable = card.activity !== 'running' && hasDeliverable(detail);
+    if (stoppedAtLimit(card.latestRun)) return <div className={frame}><AtLimit detail={detail} /></div>;
+    if (card.activity === 'needs_input' && openQuestions) return <div className={frame}><NeedsInput detail={detail} /></div>;
+    if (card.activity === 'error') return <div className={frame}><Failed detail={detail} /></div>;
+    if (deliverable) {
+      // Testing's own verdict can fail a submitted report, not just ask a
+      // question about it — red rather than the green a clean pass wears.
+      // Each colour is spelled out whole: Tailwind only generates a class it
+      // finds verbatim in the source, so one assembled from `${fill}` would
+      // never exist.
+      const tint = card.reviewFailed
+        ? 'border-(--color-activity-error-border) bg-[linear-gradient(var(--color-activity-error-fill),var(--color-activity-error-fill)),var(--color-card-core)]'
+        : 'border-(--color-activity-review-border) bg-[linear-gradient(var(--color-activity-review-fill),var(--color-activity-review-fill)),var(--color-card-core)]';
+      return (
+        <div className={`relative mb-2.5 rounded-lg border ${tint} px-3 py-2.5`}>
+          <NeedsReview detail={detail} conversation />
+        </div>
+      );
+    }
+    return null;
+  }
+
   if (card.activity === 'idle') return null;
 
   return (
-    <div className="relative mt-3.5 border-t border-(--color-edge) pt-3.5">
-      {card.activity === 'needs_input' && <NeedsInput detail={detail} />}
+    <div className={frame}>
+      {stoppedAtLimit(card.latestRun) ? <AtLimit detail={detail} /> : card.activity === 'needs_input' && <NeedsInput detail={detail} />}
       {card.activity === 'needs_review' && <NeedsReview detail={detail} />}
       {card.activity === 'running' && <Running detail={detail} live={live} />}
       {card.activity === 'error' && <Failed detail={detail} />}
@@ -73,7 +118,14 @@ export function AttentionBand({
   );
 }
 
-function NeedsReview({ detail }: { detail: CardDetail }) {
+/** Whether Claude has submitted the work of the card's current stage: what the gate approves. */
+export function hasDeliverable(detail: CardDetail): boolean {
+  return detail.runs.some(
+    (r) => r.kind === 'claude' && r.task === null && r.stage === detail.card.stage && r.status === 'succeeded',
+  );
+}
+
+function NeedsReview({ detail, conversation = false }: { detail: CardDetail; conversation?: boolean }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState<string | null>(null);
   const review = useMutation({
@@ -88,12 +140,20 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
 
   const to = nextStage(detail.card.stage);
   const checks = detail.checks;
+  // "Ready for review" reads oddly over a report that found something
+  // broken: the heading says so, while Approve and Reject stay exactly as
+  // they are — the gate's decision is still the person's.
+  const failed = detail.card.reviewFailed;
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-4">
         <div className="min-w-0 grow">
-          <div className="text-sm/5 font-medium text-(--color-text)">Ready for review</div>
+          <div className="text-sm/5 font-medium text-(--color-text)">
+            {failed
+              ? `${WORK[detail.card.stage] ?? 'Work'} needs a fix`
+              : conversation ? `${WORK[detail.card.stage] ?? 'Work'} ready for review` : 'Ready for review'}
+          </div>
           <p className="mt-0.5 text-sm/5 text-(--color-muted)">
             {checks
               ? `${checks.criteriaVerified} of ${checks.criteriaTotal} acceptance criteria verified` +
@@ -101,16 +161,17 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
                 '. '
               : ''}
             {to ? `Approving moves this card to ${STAGE_LABELS[to]}.` : 'This card is at the end of the board.'}
+            {conversation && ' Or reply below to send it back.'}
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {notes === null && <Button onClick={() => setNotes('')}>Leave feedback</Button>}
+          {notes === null && !conversation && <Button onClick={() => setNotes('')}>Leave feedback</Button>}
           <Button
             tone="review"
             disabled={review.isPending}
             onClick={() => review.mutate({ decision: 'approved' })}
           >
-            {review.isPending ? 'Working…' : 'Mark reviewed'}
+            {review.isPending ? 'Working…' : conversation && to ? `Approve → ${STAGE_LABELS[to]}` : 'Mark reviewed'}
           </Button>
         </div>
       </div>
@@ -150,6 +211,13 @@ function NeedsReview({ detail }: { detail: CardDetail }) {
  * The window outlives the round, and reloads onto the revision by itself, so
  * this only opens the review, says it is open, and stops it.
  */
+/** What each stage submits, as the gate names it. */
+const WORK: Partial<Record<CardDetail['card']['stage'], string>> = {
+  planning: 'Plan',
+  in_progress: 'Implementation',
+  testing: 'Test report',
+};
+
 function GlossReview({ detail }: { detail: CardDetail }) {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
@@ -392,7 +460,7 @@ function Running({ detail, live }: { detail: CardDetail; live: LiveRun | null })
       <div className="flex shrink-0 items-center gap-3">
         <span className="font-mono text-[11px]/4 text-(--color-muted)">
           {duration(elapsed)}
-          {run?.totalTokens != null && ` · ${tok(run.totalTokens)} so far`}
+          {run?.totalCostUsd != null && ` · ${cost(run.totalCostUsd)} so far`}
         </span>
         <SmallButton disabled={!run || stop.isPending} onClick={() => stop.mutate()}>
           {stop.isPending ? 'Stopping…' : 'Stop'}
@@ -506,27 +574,99 @@ function Failed({ detail }: { detail: CardDetail }) {
   // started and failed on its own.
   const last = useMutationState({ filters: { mutationKey: key }, select: (m) => m.state }).at(-1);
   const refused = last?.error && last.submittedAt > (run?.finishedAt ?? 0) ? last.error : null;
+  // Continue carries the same conversation on, as a reply does, so the next
+  // run still has what the person said in it; Retry keeps the worktree but
+  // starts a fresh session. First where nothing was wrong with the session —
+  // a restart took it — and beside Retry for the rest, since a session limit
+  // or a sleeping laptop is no reason to lose the conversation either.
+  const go = useMutation({
+    mutationFn: () => api.sendMessage(detail.card.id, run?.status === 'interrupted' ? CONTINUE_INTERRUPTED : CONTINUE_FAILED),
+    onSettled: () => {
+      refresh();
+      void qc.invalidateQueries({ queryKey: ['conversation', detail.card.id] });
+    },
+  });
+  const recovery = run ? recoveryFor(run.status, run.stopReason) : [];
+  const resumeFirst = recovery[0] === 'resume';
+  // Only where resuming makes sense: never where the session's own context is
+  // the problem (`recoveryFor` leaves resume out), and not for a failed run
+  // that never got as far as a turn — refused before Claude started, say —
+  // since there is no conversation to carry on.
+  const canContinue = recovery.includes('resume') && (run?.status === 'interrupted' || (run?.totalCostUsd ?? 0) > 0);
+  const busy = retry.isPending || go.isPending;
+  const continueButton = canContinue && (
+    <Button tone={resumeFirst ? 'error' : undefined} disabled={busy} onClick={() => go.mutate()}>
+      {go.isPending ? 'Continuing…' : 'Continue'}
+    </Button>
+  );
 
   return (
     <div className="flex items-center gap-4">
       <div className="min-w-0 grow">
-        <div className="text-sm/5 font-medium text-(--color-text)">Error</div>
+        <div className="text-sm/5 font-medium text-(--color-text)">{run?.status === 'interrupted' ? 'Interrupted' : 'Error'}</div>
         <p className="mt-0.5 text-sm/5 text-(--color-muted)">
-          {run?.errorMessage ?? `The run stopped: ${run?.stopReason ?? 'reason unrecorded'}.`}
+          {run?.status === 'interrupted'
+            ? 'Reeve restarted while this run was working. Continue picks the conversation up where it stopped; Retry starts a fresh one on the same worktree.'
+            : (run?.errorMessage ?? `The run stopped: ${run?.stopReason ?? 'reason unrecorded'}.`)}
         </p>
       </div>
       <div className="flex shrink-0 gap-2">
-        <Button tone="error" disabled={retry.isPending} onClick={() => retry.mutate()}>
+        {resumeFirst && continueButton}
+        <Button tone={resumeFirst ? undefined : 'error'} disabled={busy} onClick={() => retry.mutate()}>
           {retry.isPending ? 'Starting…' : 'Retry'}
         </Button>
+        {!resumeFirst && continueButton}
       </div>
       {refused && <p className="basis-full text-sm/5 text-red-300">{refused.message}</p>}
+      {go.error && <p className="basis-full text-sm/5 text-red-300">{go.error.message}</p>}
+    </div>
+  );
+}
+
+
+/** What Continue says, as the person's own words in the conversation. */
+const CONTINUE =
+  'You were stopped at your limit before you finished. Carry on from where you left off; any worker from before was stopped with you.';
+
+/**
+ * A run its budget or turn limit stopped mid-work: not broken, out of room.
+ * Continue carries the same conversation on, as a reply does, and the fork
+ * gets a fresh budget. Raising the card's limit first, in the rail, gives it
+ * more room than the last one had.
+ */
+function AtLimit({ detail }: { detail: CardDetail }) {
+  const qc = useQueryClient();
+  const run = detail.card.latestRun;
+  const go = useMutation({
+    mutationFn: () => api.sendMessage(detail.card.id, CONTINUE),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['card', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['conversation', detail.card.id] });
+      void qc.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+  const what = run?.stopReason === 'max_turns'
+    ? 'its turn limit'
+    : `its $${(run?.budgetUsd ?? 0).toFixed(2)} budget${run?.totalCostUsd != null ? `, having spent $${run.totalCostUsd.toFixed(2)}` : ''}`;
+  return (
+    <div className="flex items-center gap-4">
+      <div className="min-w-0 grow">
+        <div className="text-sm/5 font-medium text-(--color-activity-input-mark)">Stopped at its limit</div>
+        <p className="mt-0.5 text-sm/5 text-(--color-muted)">
+          The run reached {what}, mid-way. Continue picks up where it stopped with a fresh budget. Raise the card's
+          limits in the rail first if it needs more room.
+        </p>
+      </div>
+      <Button tone="input" disabled={go.isPending} onClick={() => go.mutate()}>
+        {go.isPending ? 'Continuing…' : 'Continue'}
+      </Button>
+      {go.error && <p className="basis-full text-sm/5 text-red-300">{go.error.message}</p>}
     </div>
   );
 }
 
 /**
- * Where a Done card's work went. Entering Done pushes the branch and opens a
+ * Where a Release card's work went. Entering Release pushes the branch and opens a
  * pull request on its own, so this mostly reports: the pull request, whether
  * it has merged, the attempt still under way, or why the last attempt failed —
  * with a button to try again once the cause is put right, and one to merge it
@@ -616,7 +756,7 @@ function PullRequest({ detail }: { detail: CardDetail }) {
             <p className="mt-0.5 text-sm/5 text-(--color-muted)">
               {busy
                 ? 'Pushing the latest commits to it…'
-                : 'The worktree and branch stay, for whatever review asks for. Moving the card back into Done pushes again.'}
+                : 'The worktree and branch stay, for whatever review asks for. Moving the card back into Release pushes again.'}
             </p>
           </div>
           {failure && !busy && <div className="flex shrink-0 gap-2">{retry('Push again')}</div>}

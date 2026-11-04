@@ -13,7 +13,7 @@ const WORDS: ReadonlyArray<readonly [string, boolean]> = [
   ['Plan: none. Vibes: immaculate', false],
   ['Code review', true],
   ['Tests: vibes', false],
-  ['Backlog → Done, no stops', false],
+  ['Backlog → Release, no stops', false],
   ['Claude answered its own question', false],
   ['Guardrails', true],
   ['You are a spectator now', false],

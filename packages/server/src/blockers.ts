@@ -1,8 +1,9 @@
 import { STAGE_LABELS, type Stage } from '@reeve/shared';
 import type { Db } from './db/client.js';
-import { awaitingMerge, dependenciesOf, stillBlocking } from './db/queries.js';
+import { awaitingMerge, dependenciesOf, getCard, stillBlocking } from './db/queries.js';
 import type { Card } from './db/schema.js';
 import { isOpeningPr } from './pullRequest.js';
+import { stackParent } from './stacks.js';
 
 /**
  * The rule the board exists for: a card does not start, or move on, until what
@@ -18,19 +19,18 @@ import { isOpeningPr } from './pullRequest.js';
 /**
  * The dependencies still standing in the way. What counts as standing in the
  * way is `stillBlocking`, in `db/queries.ts` — the board's chips read the same
- * rule, so a chip cannot say done while a drag is still refused for it.
- *
- * With one addition the chips do not see: a card in Done whose pull request is
- * still being opened. It has no `prUrl` yet, so `stillBlocking` reads it as a
- * card with nothing to land, and the VIBES sweep — every couple of seconds —
- * would move its dependents on before the pull request exists. For those few
- * seconds a chip may say done while the server refuses; the refusal says why.
+ * rule, so a chip cannot say done while a drag is still refused for it. That
+ * now covers a pull request not yet opened, opening, or stuck failing just the
+ * same as one open and unmerged, since all three leave the card with a branch
+ * and no `mergedAt`.
  */
 export function blockersOf(db: Db, cardId: string): Card[] {
-  return dependenciesOf(db, cardId).filter((c) => stillBlocking(c) || openingInDone(c));
+  const open = dependenciesOf(db, cardId).filter(stillBlocking);
+  // Less the one it can build on: see stacks.ts.
+  const card = open.length === 1 ? getCard(db, cardId) : undefined;
+  const parent = card ? stackParent(db, card, open) : null;
+  return parent ? [] : open;
 }
-
-const openingInDone = (c: Card) => c.stage === 'done' && !c.archivedAt && isOpeningPr(c.id);
 
 export type Blocked = { status: 409; error: string; detail: string };
 
@@ -39,8 +39,8 @@ export type Blocked = { status: 409; error: string; detail: string };
  * refusal the routes pass through, so the 409 names the blocking cards.
  *
  * `#n` and the title, since numbers are only unique within a repo, with the
- * column each is in so the sentence says how far off it is. A bare "(Done)"
- * would read as a contradiction beside "unfinished", so one in Done says what
+ * column each is in so the sentence says how far off it is. A bare "(Release)"
+ * would read as a contradiction beside "unfinished", so one in Release says what
  * it is waiting for.
  */
 export function blockedStart(db: Db, card: Card): Blocked | null {
@@ -53,7 +53,8 @@ export function blockedStart(db: Db, card: Card): Blocked | null {
 function where(c: Card): string {
   const column = STAGE_LABELS[c.stage as Stage];
   if (awaitingMerge(c)) return `${column}, PR not merged`;
-  if (openingInDone(c)) return `${column}, PR opening`;
+  if (c.stage === 'release' && !c.archivedAt && isOpeningPr(c.id)) return `${column}, PR opening`;
+  if (c.stage === 'release' && !c.archivedAt) return `${column}, no pull request yet`;
   return column;
 }
 
@@ -69,5 +70,27 @@ function where(c: Card): string {
  */
 export function blockedMove(db: Db, card: Card, to: Stage): Blocked | null {
   if (to === 'backlog' || to === card.stage) return null;
-  return blockedStart(db, card);
+  const blocked = blockedStart(db, card);
+  if (blocked || to !== 'release') return blocked;
+  // A stacked card's pull request targets its parent's branch, which is on
+  // GitHub only once the parent has a pull request of its own, open, in
+  // Release — the same test the board makes (`awaitingMerge`). And it must
+  // actually be on that branch: one that has not taken it in yet would open
+  // against main without the work it needs.
+  const parent = stackParent(db, card);
+  if (parent && !awaitingMerge(parent)) {
+    return {
+      status: 409,
+      error: 'waiting on the pull request it builds on',
+      detail: `#${parent.number} ${parent.title} has no open pull request in Release yet, and this card's targets its branch`,
+    };
+  }
+  if (parent && card.stackedOnId !== parent.id) {
+    return {
+      status: 409,
+      error: 'not yet built on the card it waits on',
+      detail: `start a stage on it first, which merges #${parent.number}'s branch in`,
+    };
+  }
+  return null;
 }

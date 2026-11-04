@@ -5,7 +5,7 @@ import type { ClaudeTask } from './types.js';
 export const RESOLVE_CONFLICTS_TASK = 'resolve_conflicts';
 
 /**
- * The Done band's Resolve conflicts button: finish a merge of the base branch
+ * The Release band's Resolve conflicts button: finish a merge of the base branch
  * that the server has already started and stopped on conflicts.
  *
  * Made per merge rather than declared once like Suggest, because the prompt
@@ -17,7 +17,7 @@ export const RESOLVE_CONFLICTS_TASK = 'resolve_conflicts';
  * itself, so the prompt tells it not to merge, reset, check out or push. Auto
  * mode would let it; the prompt is what says the merge is already the server's.
  *
- * Out of band: a Done card has no stage run to take over, and the card's own
+ * Out of band: a Release card has no stage run to take over, and the card's own
  * model and effort are for its work, not for this.
  */
 export function resolveConflictsTask(merge: { base: string; conflicts: string[] }): ClaudeTask<ConflictResolutionOutput> {

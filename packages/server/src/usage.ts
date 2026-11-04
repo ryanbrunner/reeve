@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { UsageLevel, UsageState, UsageWindow } from '@reeve/shared';
 import type { Db } from './db/client.js';
@@ -90,7 +90,9 @@ export function seedUsage(db: Db): void {
   const row = db
     .select({ payload: runEvent.payload, at: runEvent.at })
     .from(runEvent)
-    .where(eq(runEvent.kind, RATE_LIMIT_KIND))
+    // Spelled out rather than bound: SQLite only uses the partial index
+    // run_event_rate_limit for a query whose WHERE names its kind literally.
+    .where(sql.raw(`kind = '${RATE_LIMIT_KIND}'`))
     .orderBy(desc(runEvent.at))
     .limit(1)
     .get();

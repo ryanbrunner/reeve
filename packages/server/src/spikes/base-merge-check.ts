@@ -71,7 +71,7 @@ const db = openDatabase(join(root, 'reeve.db'));
 runMigrations(db);
 const repo = createRepo(db, {
   name: 'base-merge-check', repoPath, worktreeRoot, defaultBranch: 'main',
-  setupCommand: null, testCommand: null, serverCommand: null,
+  setupCommand: null, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const writer = {} as never; // only reached for a setup command, and there is none
@@ -147,7 +147,7 @@ check('D HEAD unchanged', head(d.path) === ownD);
 check('D has no merge in progress', !ok(d.path, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'));
 check('D tree is clean', run(d.path, 'status', '--porcelain') === '');
 check('D baseSha unchanged', getCard(db, d.card.id)!.baseSha === d.card.baseSha);
-check('D note points at Done', notesOf(d.card).some((b) => /conflicted in shared\.txt.*Done/.test(b)));
+check('D note points at Release', notesOf(d.card).some((b) => /conflicted in shared\.txt.*Release/.test(b)));
 
 // --- 6. Origin unreachable: skipped with the reason ------------------------
 const e = await cardWithTree('Offline');
@@ -166,7 +166,7 @@ g('remote', 'set-url', 'origin', origin);
 const setupLog = join(root, 'setup.log');
 const withSetup = createRepo(db, {
   name: 'base-merge-setup', repoPath, worktreeRoot, defaultBranch: 'main',
-  setupCommand: `echo ran >> ${setupLog}`, testCommand: null, serverCommand: null,
+  setupCommand: `echo ran >> ${setupLog}`, testCommand: null, focusedTestCommand: null, serverCommand: null,
   teardownCommand: null, finishCommand: null, laneColor: null,
 });
 const realWriter = new EventWriter(db);

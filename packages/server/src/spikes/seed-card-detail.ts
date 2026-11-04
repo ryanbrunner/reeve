@@ -2,7 +2,7 @@
  * Seeds one card in each activity state, carrying every surface the detail
  * modal renders: a brief, criteria with verdicts, questions half answered, a
  * plan with steps, an implementation with commits, checks, a mockup beside the
- * screenshot of it, and a full timeline. And two merged in Done: one archived
+ * screenshot of it, and a full timeline. And two merged in Release: one archived
  * with its worktree removed, for what a card looks like once only its branch
  * is left, and one still on the board, for how the board shows a merged card.
  *
@@ -229,7 +229,7 @@ function card(title: string, body: string, stage: CardStage, minsAgo: number) {
   // seeded with drawn mockups sit beside a box that asked for them.
   const c = createCard(db, { title, body, repoId: storefront.id, generateMockups: true });
   if (stage !== 'backlog') {
-    for (const s of ['planning', 'in_progress', 'testing', 'done'] as CardStage[]) {
+    for (const s of ['planning', 'in_progress', 'testing', 'release'] as CardStage[]) {
       moveCard(db, c.id, s, 0);
       if (s === stage) break;
     }
@@ -402,13 +402,13 @@ const readyServer = insertRun(db, {
   status: 'running', cwd: '/tmp/x', port: 5174, createdAt: ago(18), startedAt: ago(18),
 });
 
-// 6. Done, merged on GitHub, archived, and its worktree removed: the branch is
+// 6. Release, merged on GitHub, archived, and its worktree removed: the branch is
 // all that is left, and the Diff tab and commit list read from it. Archived,
 // so it is not on the board. The fixed id is what makes it reachable anyway,
 // at /?card=<id>, and the same link after every re-seed.
 const LANDED_ID = 'c1ea0000-0000-4000-8000-000000000001';
 db.$client.prepare('DELETE FROM card WHERE id = ?').run(LANDED_ID);
-const landed = card('Keep saved lines out of totals', 'Saved-for-later items are still counted in the cart subtotal. Leave them out.', 'done', 60 * 48);
+const landed = card('Keep saved lines out of totals', 'Saved-for-later items are still counted in the cart subtotal. Leave them out.', 'release', 60 * 48);
 // Nothing but its own events points at it yet, so they are all that has to follow.
 db.$client.transaction(() => {
   db.$client.pragma('defer_foreign_keys = ON');
@@ -428,28 +428,28 @@ db.run(
    merged_at=${ago(60 * 3).getTime()}, archived_at=${ago(60 * 3 - 10).getTime()} WHERE id='${LANDED_ID}'` as never,
 );
 insertCardEvent(db, {
-  cardId: LANDED_ID, actor: 'human', kind: 'pr_opened', stage: 'done', createdAt: ago(60 * 24),
+  cardId: LANDED_ID, actor: 'human', kind: 'pr_opened', stage: 'release', createdAt: ago(60 * 24),
   meta: { url: prUrl, number: 41, branch: landedBranch, into: 'main', reused: false },
 });
 insertCardEvent(db, {
-  cardId: LANDED_ID, actor: 'human', kind: 'merged', stage: 'done', createdAt: ago(60 * 3),
+  cardId: LANDED_ID, actor: 'human', kind: 'merged', stage: 'release', createdAt: ago(60 * 3),
   meta: { url: prUrl, number: 41, sha: null, into: 'main' },
 });
 insertCardEvent(db, {
-  cardId: LANDED_ID, actor: 'human', kind: 'archived', stage: 'done', createdAt: ago(60 * 3 - 10),
+  cardId: LANDED_ID, actor: 'human', kind: 'archived', stage: 'release', createdAt: ago(60 * 3 - 10),
   meta: { reason: 'merged' },
 });
 insertCardEvent(db, {
-  cardId: LANDED_ID, actor: 'human', kind: 'worktree_removed', stage: 'done', createdAt: ago(60 * 3 - 10),
+  cardId: LANDED_ID, actor: 'human', kind: 'worktree_removed', stage: 'release', createdAt: ago(60 * 3 - 10),
   meta: { reason: 'archived', path: landedPath, branch: landedBranch, forced: false },
 });
 
-// 7. Done and merged, but not yet archived: the one merged card on the board,
+// 7. Release and merged, but not yet archived: the one merged card on the board,
 // with its worktree still in place as it is until the archive. The auto-archive
 // takes it on the server's first tick unless held off; see the header.
 const MERGED_ID = 'c1ea0000-0000-4000-8000-000000000002';
 db.$client.prepare('DELETE FROM card WHERE id = ?').run(MERGED_ID);
-const merged = card('Leave saved items out of the cart badge', 'The cart badge counts saved-for-later items as if they were in the cart. Count only what will be charged.', 'done', 60 * 20);
+const merged = card('Leave saved items out of the cart badge', 'The cart badge counts saved-for-later items as if they were in the cart. Count only what will be charged.', 'release', 60 * 20);
 db.$client.transaction(() => {
   db.$client.pragma('defer_foreign_keys = ON');
   db.$client.prepare('UPDATE card SET id = ? WHERE id = ?').run(MERGED_ID, merged.id);
@@ -466,11 +466,11 @@ db.run(
    merged_at=${ago(60 * 2).getTime()} WHERE id='${MERGED_ID}'` as never,
 );
 insertCardEvent(db, {
-  cardId: MERGED_ID, actor: 'human', kind: 'pr_opened', stage: 'done', createdAt: ago(60 * 5),
+  cardId: MERGED_ID, actor: 'human', kind: 'pr_opened', stage: 'release', createdAt: ago(60 * 5),
   meta: { url: mergedPrUrl, number: 44, branch: mergedBranch, into: 'main', reused: false },
 });
 insertCardEvent(db, {
-  cardId: MERGED_ID, actor: 'human', kind: 'merged', stage: 'done', createdAt: ago(60 * 2),
+  cardId: MERGED_ID, actor: 'human', kind: 'merged', stage: 'release', createdAt: ago(60 * 2),
   meta: { url: mergedPrUrl, number: 44, sha: null, into: 'main' },
 });
 
@@ -565,7 +565,7 @@ if (shot.unavailable) {
 console.log(`\n  seeded ${storefront.name}: 5 cards, one per activity state, and one of them suggested`);
 console.log('  idle · needs_input · running · error · needs_review');
 console.log(`  and one merged, archived and cleaned up: /?card=${LANDED_ID}`);
-console.log(`  and one merged and still in Done: /?card=${MERGED_ID}`);
+console.log(`  and one merged and still in Release: /?card=${MERGED_ID}`);
 console.log('  (it stays only if the server has a large REEVE_AUTO_ARCHIVE_MS; see the header)');
 console.log(`  repo at ${repo}`);
 console.log('\n  npm run dev, then click them.');
